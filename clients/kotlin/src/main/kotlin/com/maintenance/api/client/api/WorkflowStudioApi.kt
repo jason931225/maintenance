@@ -47,8 +47,10 @@ import com.maintenance.api.client.model.UpdateWorkflowScheduleRequest
 import com.maintenance.api.client.model.WorkflowDefinitionHistoryResponse
 import com.maintenance.api.client.model.WorkflowDefinitionListResponse
 import com.maintenance.api.client.model.WorkflowDefinitionResponse
+import com.maintenance.api.client.model.WorkflowObjectKind
 import com.maintenance.api.client.model.WorkflowRunLogResponse
 import com.maintenance.api.client.model.WorkflowRunResponse
+import com.maintenance.api.client.model.WorkflowRunsForObjectResponse
 import com.maintenance.api.client.model.WorkflowScheduleListResponse
 import com.maintenance.api.client.model.WorkflowScheduleResponse
 import com.maintenance.api.client.model.WorkflowSimulationResponse
@@ -1107,6 +1109,98 @@ open class WorkflowStudioApi(basePath: kotlin.String = defaultBasePath, client: 
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/workflow-studio/definitions/{id}/run-log".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/workflow-runs/for-object
+     * List visible workflow runs for one authorized object
+     * Read-only exact-pair bridge for work_order and support_ticket subjects. The server authorizes the native subject first, then returns only workflow runs visible to the same principal. Unknown or invisible cursors fail with the same validation code and do not disclose foreign rows.
+     * @param objectType
+     * @param objectId
+     * @param limit  (optional, default to 25)
+     * @param before  (optional)
+     * @return WorkflowRunsForObjectResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowRunsForObject(objectType: WorkflowObjectKind, objectId: java.util.UUID, limit: kotlin.Int? = 25, before: java.util.UUID? = null) : WorkflowRunsForObjectResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowRunsForObjectWithHttpInfo(objectType = objectType, objectId = objectId, limit = limit, before = before)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowRunsForObjectResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-runs/for-object
+     * List visible workflow runs for one authorized object
+     * Read-only exact-pair bridge for work_order and support_ticket subjects. The server authorizes the native subject first, then returns only workflow runs visible to the same principal. Unknown or invisible cursors fail with the same validation code and do not disclose foreign rows.
+     * @param objectType
+     * @param objectId
+     * @param limit  (optional, default to 25)
+     * @param before  (optional)
+     * @return ApiResponse<WorkflowRunsForObjectResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowRunsForObjectWithHttpInfo(objectType: WorkflowObjectKind, objectId: java.util.UUID, limit: kotlin.Int?, before: java.util.UUID?) : ApiResponse<WorkflowRunsForObjectResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowRunsForObjectRequestConfig(objectType = objectType, objectId = objectId, limit = limit, before = before)
+
+        return@withContext request<Unit, WorkflowRunsForObjectResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowRunsForObject
+     *
+     * @param objectType
+     * @param objectId
+     * @param limit  (optional, default to 25)
+     * @param before  (optional)
+     * @return RequestConfig
+     */
+    fun listWorkflowRunsForObjectRequestConfig(objectType: WorkflowObjectKind, objectId: java.util.UUID, limit: kotlin.Int?, before: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("object_type", listOf(objectType.toString()))
+                put("object_id", listOf(objectId.toString()))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (before != null) {
+                    put("before", listOf(before.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-runs/for-object",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

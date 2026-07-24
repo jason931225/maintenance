@@ -18,7 +18,7 @@
     "gen:api": "npm run gen:api:portable && npm run gen:api:swift",
     "check:ts": "tsc -p tsconfig.json",
     "test:api-client-contract:ts": "tsx --test clients/ts/test/leave-request-view.contract.test.ts clients/ts/test/purchase-request-page.contract.test.ts",
-    "check:kotlin": "node scripts/run-kotlin-build.mjs",
+    "check:kotlin": "node --test scripts/lib/kotlin-discriminator-unions.test.mjs && node scripts/run-kotlin-build.mjs",
     "check:swift": "swift build --package-path clients/swift",
     "test:api-client-contract:swift": "swift run --package-path clients/swift MaintenanceAPIClientContractTests",
     "check:ios-ui-test-fail-closed": "node --test scripts/boot-backend-port-conflict.test.mjs scripts/boot-ios-ui-backend.test.mjs scripts/check-ios-ui-test-fail-closed.test.mjs scripts/verify-xcresult-test-results.test.mjs && node scripts/check-ios-ui-test-fail-closed.mjs",

@@ -14,6 +14,10 @@ import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hasJava, hasRunningDocker } from "./lib/toolchain-checks.mjs";
+import {
+  collectSupportedKotlinDiscriminatorUnions,
+  patchGeneratedKotlinMappedUnions,
+} from "./lib/kotlin-discriminator-unions.mjs";
 
 const generatorVersion = "7.23.0";
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -253,6 +257,7 @@ const generatorArgs = [
 ];
 
 try {
+  const discriminatorUnions = await collectSupportedKotlinDiscriminatorUnions(new URL("../backend/openapi/openapi.yaml", import.meta.url));
   if (forceDocker || !javaAvailable) {
     run("docker", [
       "run",
@@ -300,6 +305,7 @@ try {
   }
 
   patchKnownGeneratorGaps(stagingDir);
+  patchGeneratedKotlinMappedUnions({ stagingDir, unions: discriminatorUnions });
   normalizeGeneratedTextFiles(stagingDir);
   writeFileSync(
     resolve(stagingDir, "gradle.properties"),

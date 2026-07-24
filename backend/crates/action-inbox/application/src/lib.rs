@@ -1,6 +1,7 @@
 //! Source-neutral action inbox application boundary.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -10,6 +11,11 @@ use time::{Duration, OffsetDateTime};
 
 pub const DEFAULT_PAGE_LIMIT: usize = 100;
 pub const MAX_PAGE_LIMIT: usize = 200;
+/// Workbench needs the complete, priority-sortable action set rather than an
+/// immutable creation-order prefix. Bound the composition read to avoid
+/// converting a single dashboard request into an unbounded source scan.
+pub const MAX_COMPLETE_ITEMS: usize = 1_000;
+const MAX_COMPLETE_PAGES: usize = MAX_COMPLETE_ITEMS / MAX_PAGE_LIMIT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionInboxSource {
@@ -135,6 +141,104 @@ pub struct ActionInboxPage {
     pub total: usize,
     pub total_is_exact: bool,
     pub next_cursor: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum CompleteActionInboxError {
+    Source(KernelError),
+    TotalInexact,
+    BudgetExceeded,
+    TotalDrift,
+    RepeatedCursor,
+    DuplicateId,
+}
+
+/// Traverses the public immutable cursor API until the action set is complete.
+///
+/// This is intentionally separate from `list_action_inbox`: the public endpoint
+/// remains creation-order paginated, while consumers that apply a different
+/// deterministic ordering (such as Workbench urgency) must not rank only its
+/// first creation-order page. Every response must advertise the same exact
+/// total, and the traversal stops fail-closed at `MAX_COMPLETE_ITEMS`.
+pub async fn list_complete_action_inbox(
+    port: &dyn ActionInboxSourcePort,
+    now: OffsetDateTime,
+) -> Result<ActionInboxPage, CompleteActionInboxError> {
+    let mut cursor: Option<String> = None;
+    let mut seen_cursors = HashSet::new();
+    let mut seen_ids = HashSet::new();
+    let mut expected_total = None;
+    let mut items = Vec::new();
+    let mut page_count = 0;
+
+    loop {
+        if page_count == MAX_COMPLETE_PAGES {
+            return Err(CompleteActionInboxError::BudgetExceeded);
+        }
+        page_count += 1;
+        let request_cursor = cursor.take();
+        let page = list_action_inbox(
+            port,
+            ListActionInboxQuery {
+                limit: Some(MAX_PAGE_LIMIT),
+                cursor: request_cursor.clone(),
+            },
+            now,
+        )
+        .await
+        .map_err(CompleteActionInboxError::Source)?;
+        if !page.total_is_exact {
+            return Err(CompleteActionInboxError::TotalInexact);
+        }
+        match expected_total {
+            Some(total) if total != page.total => {
+                return Err(CompleteActionInboxError::TotalDrift);
+            }
+            Some(_) => {}
+            None if page.total > MAX_COMPLETE_ITEMS => {
+                return Err(CompleteActionInboxError::BudgetExceeded);
+            }
+            None => expected_total = Some(page.total),
+        }
+        for item in page.items {
+            if !seen_ids.insert(item.id.clone()) {
+                return Err(CompleteActionInboxError::DuplicateId);
+            }
+            items.push(item);
+            if items.len() > MAX_COMPLETE_ITEMS {
+                return Err(CompleteActionInboxError::BudgetExceeded);
+            }
+        }
+        match page.next_cursor {
+            Some(next) => {
+                ensure_new_cursor(request_cursor.as_deref(), &mut seen_cursors, &next)?;
+                cursor = Some(next);
+            }
+            None => {
+                let total = expected_total.ok_or(CompleteActionInboxError::TotalDrift)?;
+                if items.len() != total {
+                    return Err(CompleteActionInboxError::TotalDrift);
+                }
+                return Ok(ActionInboxPage {
+                    items,
+                    total,
+                    total_is_exact: true,
+                    next_cursor: None,
+                });
+            }
+        }
+    }
+}
+
+fn ensure_new_cursor(
+    request_cursor: Option<&str>,
+    seen_cursors: &mut HashSet<String>,
+    next_cursor: &str,
+) -> Result<(), CompleteActionInboxError> {
+    if request_cursor == Some(next_cursor) || !seen_cursors.insert(next_cursor.to_owned()) {
+        return Err(CompleteActionInboxError::RepeatedCursor);
+    }
+    Ok(())
 }
 
 pub async fn list_action_inbox(
@@ -454,6 +558,170 @@ mod tests {
     }
 
     #[test]
+    fn complete_traversal_collects_every_creation_order_page_for_priority_consumers() {
+        const ITEM_COUNT: usize = 421;
+        let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let source = FakeActionInboxSource::new(
+            (1..=ITEM_COUNT)
+                .map(|index| {
+                    let source = ActionInboxSource::ALL[(index - 1) % ActionInboxSource::ALL.len()];
+                    let kind = match source {
+                        ActionInboxSource::Workflow => "approval",
+                        ActionInboxSource::Dispatch => "dispatch",
+                        ActionInboxSource::Support => "support",
+                        ActionInboxSource::WorkOrder => "work",
+                    };
+                    (
+                        source,
+                        item(
+                            kind,
+                            index as u128,
+                            as_of - Duration::seconds((ITEM_COUNT - index + 1) as i64),
+                        ),
+                    )
+                })
+                .collect(),
+        );
+
+        let page = run_ready(list_complete_action_inbox(&source, as_of)).unwrap();
+
+        assert_eq!(page.total, ITEM_COUNT);
+        assert!(page.total_is_exact);
+        assert!(page.next_cursor.is_none());
+        assert_eq!(page.items.len(), ITEM_COUNT);
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<HashSet<_>>()
+                .len(),
+            ITEM_COUNT
+        );
+        assert_eq!(
+            source.queries.lock().unwrap().len(),
+            3 * ActionInboxSource::ALL.len(),
+            "421 rows must use the bounded 200-row source pages"
+        );
+    }
+
+    #[test]
+    fn complete_traversal_fails_closed_when_a_total_is_not_exact() {
+        let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let source = FakeActionInboxSource::new(vec![(
+            ActionInboxSource::WorkOrder,
+            item("work", 1, as_of - Duration::SECOND),
+        )])
+        .with_metadata(None, false);
+
+        assert!(matches!(
+            run_ready(list_complete_action_inbox(&source, as_of)),
+            Err(CompleteActionInboxError::TotalInexact)
+        ));
+    }
+
+    #[test]
+    fn complete_traversal_fails_closed_when_a_source_repeats_an_item_id() {
+        let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let first = item("work", 1, as_of - Duration::seconds(2));
+        let repeated = ActionInboxSourceItem {
+            created_at: as_of - Duration::SECOND,
+            ..first.clone()
+        };
+        let source = FakeActionInboxSource::new(vec![
+            (ActionInboxSource::WorkOrder, first),
+            (ActionInboxSource::WorkOrder, repeated),
+        ]);
+
+        assert!(matches!(
+            run_ready(list_complete_action_inbox(&source, as_of)),
+            Err(CompleteActionInboxError::DuplicateId)
+        ));
+    }
+
+    #[test]
+    fn complete_traversal_fails_closed_when_the_exact_total_drifts_between_pages() {
+        let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let source = FakeActionInboxSource::new(
+            (1..=MAX_PAGE_LIMIT + 1)
+                .map(|id| {
+                    (
+                        ActionInboxSource::WorkOrder,
+                        item("work", id as u128, as_of - Duration::seconds(id as i64)),
+                    )
+                })
+                .collect(),
+        )
+        .with_total_drift_after(MAX_PAGE_LIMIT);
+
+        assert!(matches!(
+            run_ready(list_complete_action_inbox(&source, as_of)),
+            Err(CompleteActionInboxError::TotalDrift)
+        ));
+    }
+
+    #[test]
+    fn complete_traversal_fails_closed_when_the_snapshot_exceeds_its_budget() {
+        let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let source = FakeActionInboxSource::new(
+            (1..=MAX_COMPLETE_ITEMS + 1)
+                .map(|id| {
+                    (
+                        ActionInboxSource::WorkOrder,
+                        item("work", id as u128, as_of - Duration::seconds(id as i64)),
+                    )
+                })
+                .collect(),
+        );
+
+        assert!(matches!(
+            run_ready(list_complete_action_inbox(&source, as_of)),
+            Err(CompleteActionInboxError::BudgetExceeded)
+        ));
+    }
+
+    #[test]
+    fn complete_traversal_stops_before_a_sixth_short_page_when_the_page_budget_is_exhausted() {
+        let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let source = FakeActionInboxSource::new(
+            (1..=MAX_COMPLETE_PAGES)
+                .map(|id| {
+                    (
+                        ActionInboxSource::WorkOrder,
+                        item("work", id as u128, as_of - Duration::seconds(id as i64)),
+                    )
+                })
+                .collect(),
+        )
+        .with_page_size(1)
+        .with_forced_has_more(ActionInboxSource::WorkOrder);
+
+        assert!(matches!(
+            run_ready(list_complete_action_inbox(&source, as_of)),
+            Err(CompleteActionInboxError::BudgetExceeded)
+        ));
+        assert_eq!(
+            source.queries.lock().unwrap().len(),
+            MAX_COMPLETE_PAGES * ActionInboxSource::ALL.len(),
+            "the sixth page must not be requested"
+        );
+    }
+
+    #[test]
+    fn complete_traversal_rejects_nonadvancing_or_repeated_cursors() {
+        let mut seen_cursors = HashSet::new();
+
+        assert!(matches!(
+            ensure_new_cursor(Some("cursor-1"), &mut seen_cursors, "cursor-1"),
+            Err(CompleteActionInboxError::RepeatedCursor)
+        ));
+        assert!(ensure_new_cursor(None, &mut seen_cursors, "cursor-2").is_ok());
+        assert!(matches!(
+            ensure_new_cursor(None, &mut seen_cursors, "cursor-2"),
+            Err(CompleteActionInboxError::RepeatedCursor)
+        ));
+    }
+
+    #[test]
     fn list_action_inbox_pages_more_than_four_hundred_items_without_drift_or_duplicates() {
         const ITEM_COUNT: usize = 421;
         const PAGE_LIMIT: usize = 137;
@@ -556,6 +824,11 @@ mod tests {
     struct FakeActionInboxSource {
         items: Vec<(ActionInboxSource, ActionInboxSourceItem)>,
         queries: Mutex<Vec<(ActionInboxSource, ActionInboxSourceQuery)>>,
+        reported_total: Option<usize>,
+        reported_total_after: Option<usize>,
+        total_is_exact: bool,
+        page_size: Option<usize>,
+        forced_has_more_source: Option<ActionInboxSource>,
     }
 
     impl FakeActionInboxSource {
@@ -563,7 +836,33 @@ mod tests {
             Self {
                 items,
                 queries: Mutex::new(Vec::new()),
+                reported_total: None,
+                reported_total_after: None,
+                total_is_exact: true,
+                page_size: None,
+                forced_has_more_source: None,
             }
+        }
+
+        fn with_metadata(mut self, reported_total: Option<usize>, total_is_exact: bool) -> Self {
+            self.reported_total = reported_total;
+            self.total_is_exact = total_is_exact;
+            self
+        }
+
+        fn with_total_drift_after(mut self, reported_total_after: usize) -> Self {
+            self.reported_total_after = Some(reported_total_after);
+            self
+        }
+
+        fn with_page_size(mut self, page_size: usize) -> Self {
+            self.page_size = Some(page_size);
+            self
+        }
+
+        fn with_forced_has_more(mut self, source: ActionInboxSource) -> Self {
+            self.forced_has_more_source = Some(source);
+            self
         }
     }
 
@@ -574,13 +873,20 @@ mod tests {
             query: ActionInboxSourceQuery,
         ) -> ActionInboxSourceFuture<'_> {
             self.queries.lock().unwrap().push((source, query.clone()));
-            let total = self
+            let calculated_total = self
                 .items
                 .iter()
                 .filter(|(item_source, item)| {
                     *item_source == source && item.created_at <= query.as_of
                 })
                 .count();
+            let total = if query.after.is_some() && source == ActionInboxSource::WorkOrder {
+                self.reported_total_after
+                    .or(self.reported_total)
+                    .unwrap_or(calculated_total)
+            } else {
+                self.reported_total.unwrap_or(calculated_total)
+            };
             let mut matching = self
                 .items
                 .iter()
@@ -601,13 +907,15 @@ mod tests {
                     .cmp(&right.created_at)
                     .then_with(|| left.id.cmp(&right.id))
             });
-            let has_more = matching.len() > query.limit;
-            matching.truncate(query.limit);
+            let page_size = self.page_size.unwrap_or(query.limit);
+            let has_more =
+                matching.len() > page_size || self.forced_has_more_source == Some(source);
+            matching.truncate(page_size);
             Box::pin(async move {
                 Ok(ActionInboxSourcePage {
                     items: matching,
                     total,
-                    total_is_exact: true,
+                    total_is_exact: self.total_is_exact,
                     has_more,
                 })
             })
