@@ -142,6 +142,22 @@ describe("ConsoleShell chrome", () => {
     expect(screen.getByLabelText("화면 본문")).toBeInTheDocument();
   });
 
+  it("logs out through the account menu and preserves the exact console destination for local role switching", async () => {
+    const user = userEvent.setup();
+    renderConsole(ADMIN, ["/console/attendance?tab=team#today"]);
+
+    await user.click(screen.getByRole("button", { name: "사용자 메뉴" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "다른 계정으로 전환" }),
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+        "/login?next=%2Fconsole%2Fattendance%3Ftab%3Dteam%23today",
+      );
+    });
+  });
+
   it("identity chip renders person + team · role from the self-profile (never a raw dev label)", async () => {
     // A dev-auth session with no JWT `name`: the chip must resolve the person
     // and team from GET /api/v1/users/me, not fall back to a debug string.
@@ -656,5 +672,33 @@ describe("Sidebar badges", () => {
       <Sidebar {...base} collapsed badges={{ overview: { count: 150, tone: "neutral" } }} />,
     );
     expect(screen.queryByText("99+")).not.toBeInTheDocument();
+  });
+
+  it("uses the people screen alias without a missing-i18n warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(
+      <Sidebar
+        {...base}
+        groups={[
+          {
+            labelKey: "console.shell.nav.groups.hr",
+            labelId: "hr",
+            items: [
+              {
+                screen: "people",
+                labelKey: "console.shell.nav.hr",
+                icon: "users",
+              },
+            ],
+          },
+        ]}
+        activeScreen="people"
+        collapsed={false}
+        badges={{}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "인사 관리" })).toBeInTheDocument();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

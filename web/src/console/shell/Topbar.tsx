@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ko } from "../../i18n/ko";
 import { Icon } from "./icons";
@@ -24,6 +24,9 @@ export function Topbar({
   navigationDrawerOpen = false,
   onOpenComms,
   commsDrawerOpen = false,
+  onLogout,
+  onLocalRoleSwitch,
+  localRoleSwitchLabel,
 }: {
   kbdLabel: string;
   onOpenPalette: () => void;
@@ -43,8 +46,48 @@ export function Topbar({
   navigationDrawerOpen?: boolean;
   onOpenComms?: () => void;
   commsDrawerOpen?: boolean;
+  onLogout?: () => void;
+  /** Present only for the local DEV-only dynamic chunk. */
+  onLocalRoleSwitch?: () => void;
+  localRoleSwitchLabel?: string;
 }) {
   const scopeRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const userMenuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const localRoleSwitchEnabled = Boolean(
+    onLocalRoleSwitch && localRoleSwitchLabel,
+  );
+  const userMenuItemCount =
+    Number(localRoleSwitchEnabled) + Number(Boolean(onLogout));
+
+  function restoreUserMenuTriggerFocus() {
+    userMenuTriggerRef.current?.focus();
+  }
+
+  function closeUserMenu(restoreFocus = false) {
+    setUserMenuOpen(false);
+    if (restoreFocus) restoreUserMenuTriggerFocus();
+  }
+
+  function openUserMenu() {
+    setUserMenuOpen(true);
+  }
+
+  function moveUserMenuFocus(
+    currentIndex: number,
+    direction: "first" | "last" | -1 | 1,
+  ) {
+    if (!userMenuItemCount) return;
+    const nextIndex =
+      direction === "first"
+        ? 0
+        : direction === "last"
+          ? userMenuItemCount - 1
+          : (currentIndex + direction + userMenuItemCount) % userMenuItemCount;
+    userMenuItemRefs.current[nextIndex]?.focus();
+  }
 
   useEffect(() => {
     if (!scopeOpen) return undefined;
@@ -60,6 +103,34 @@ export function Topbar({
       document.removeEventListener("mousedown", onMouseDown);
     };
   }, [onScopeClose, scopeOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    userMenuItemRefs.current[0]?.focus();
+  }, [userMenuOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return undefined;
+    function onMouseDown(event: MouseEvent) {
+      const target = event.target;
+      if (target instanceof Node && userMenuRef.current?.contains(target))
+        return;
+      setUserMenuOpen(false);
+      restoreUserMenuTriggerFocus();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+        restoreUserMenuTriggerFocus();
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [userMenuOpen]);
 
   return (
     <header
@@ -162,7 +233,12 @@ export function Topbar({
             whiteSpace: "nowrap",
           }}
         >
-          <Icon name="building" size={14} strokeWidth={2} style={{ color: "var(--steel)" }} />
+          <Icon
+            name="building"
+            size={14}
+            strokeWidth={2}
+            style={{ color: "var(--steel)" }}
+          />
           <span>{scopeLabel}</span>
           <Icon
             name="chevronDown"
@@ -257,65 +333,166 @@ export function Topbar({
         </button>
       )}
 
-      {/* user / role card — presentational identity chrome; the self personnel
-          card modal (onClick target in the prototype) arrives in a later slice,
-          so P0.1 renders it as a labelled group, not an unwired button. */}
-      <div
-        role="group"
-        aria-label={S.user.menu}
-        style={{
-          flex: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 9,
-          padding: "4px 9px 4px 5px",
-          borderRadius: 9,
-        }}
-      >
-        <span
-          aria-hidden="true"
+      <div ref={userMenuRef} style={{ position: "relative", flex: "none" }}>
+        <button
+          ref={userMenuTriggerRef}
+          type="button"
+          aria-label={S.user.menu}
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          onClick={() => {
+            if (userMenuOpen) closeUserMenu(false);
+            else openUserMenu();
+          }}
+          className="cshell-hoverable cshell-focusable"
           style={{
-            flex: "none",
-            width: 28,
-            height: 28,
-            borderRadius: "50%",
-            background: "var(--ink)",
-            color: "var(--surface)",
-            display: "inline-flex",
+            display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            fontSize: 12,
-            fontWeight: 800,
+            gap: 9,
+            padding: "4px 9px 4px 5px",
+            border: "none",
+            borderRadius: 9,
+            background: "transparent",
+            cursor: "pointer",
           }}
         >
-          {userInitial}
-        </span>
-        <span style={{ textAlign: "left" }}>
           <span
+            aria-hidden="true"
             style={{
-              display: "block",
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: "var(--ink)",
-              lineHeight: 1.2,
-              whiteSpace: "nowrap",
+              flex: "none",
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "var(--ink)",
+              color: "var(--surface)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 12,
+              fontWeight: 800,
             }}
           >
-            {userName}
+            {userInitial}
           </span>
-          <span
+          <span style={{ textAlign: "left" }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: "var(--ink)",
+                lineHeight: 1.2,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {userName}
+            </span>
+            <span
+              style={{
+                display: "block",
+                fontSize: 10,
+                fontWeight: 600,
+                color: "var(--faint)",
+                lineHeight: 1.2,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {[userTeamLabel, userRoleLabel].filter(Boolean).join(" · ")}
+            </span>
+          </span>
+        </button>
+        {userMenuOpen && (
+          <div
+            role="menu"
+            aria-label={S.user.menu}
+            className="cshell-pop"
+            onKeyDown={(event) => {
+              const currentIndex = userMenuItemRefs.current.findIndex(
+                (item) => item === document.activeElement,
+              );
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeUserMenu(true);
+              } else if (event.key === "ArrowDown") {
+                event.preventDefault();
+                moveUserMenuFocus(currentIndex, 1);
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                moveUserMenuFocus(currentIndex, -1);
+              } else if (event.key === "Home") {
+                event.preventDefault();
+                moveUserMenuFocus(currentIndex, "first");
+              } else if (event.key === "End") {
+                event.preventDefault();
+                moveUserMenuFocus(currentIndex, "last");
+              }
+            }}
             style={{
-              display: "block",
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--faint)",
-              lineHeight: 1.2,
-              whiteSpace: "nowrap",
+              position: "absolute",
+              right: 0,
+              top: "calc(100% + 6px)",
+              zIndex: 70,
+              minWidth: 190,
+              padding: 5,
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              background: "var(--surface)",
+              boxShadow: "var(--shadow-pop)",
             }}
           >
-            {[userTeamLabel, userRoleLabel].filter(Boolean).join(" · ")}
-          </span>
-        </span>
+            {localRoleSwitchEnabled && (
+              <button
+                ref={(node) => {
+                  userMenuItemRefs.current[0] = node;
+                }}
+                type="button"
+                role="menuitem"
+                className="cshell-hoverable cshell-focusable"
+                onClick={() => {
+                  closeUserMenu(true);
+                  onLocalRoleSwitch();
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: "transparent",
+                  color: "var(--ink)",
+                  textAlign: "left",
+                }}
+              >
+                {localRoleSwitchLabel}
+              </button>
+            )}
+            {onLogout && (
+              <button
+                ref={(node) => {
+                  userMenuItemRefs.current[Number(localRoleSwitchEnabled)] =
+                    node;
+                }}
+                type="button"
+                role="menuitem"
+                className="cshell-hoverable cshell-focusable"
+                onClick={() => {
+                  closeUserMenu(true);
+                  onLogout();
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: "transparent",
+                  color: "var(--ink)",
+                  textAlign: "left",
+                }}
+              >
+                {S.user.logout}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );

@@ -5,65 +5,80 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { useAuth } from "../../context/auth";
-import { ko } from "../../i18n/ko";
+import { koDevAuth as copy } from "../../i18n/koDevAuth";
+import { isLocalDevBuild } from "./localDev";
+import { parseDevAuthAccessToken } from "./devAuthResponse";
+import {
+  DEFAULT_DEV_BRANCH_ID,
+  DEFAULT_DEV_ROLE,
+  DEV_AUTH_MENU_SENTINEL,
+  DEV_AUTH_PRESET_SENTINEL,
+  DEV_ROLE_OPTIONS,
+  isUuid,
+  KNL_DEV_BRANCHES,
+  KNL_DEV_ORG_ID,
+  normalizeBranchIds,
+  type DevRole,
+} from "./devRolePresets";
 
-const ROLE_OPTIONS = [
-  "SUPER_ADMIN",
-  "ADMIN",
-  "EXECUTIVE",
-  "MECHANIC",
-  "RECEPTIONIST",
-  "MEMBER",
-] as const;
-
-/** KNL Logistics — tenant #1, seeded by every migration/cold-start (`OrgId::knl()`). */
-const DEFAULT_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
-
-function roleLabel(role: (typeof ROLE_OPTIONS)[number]): string {
-  return ko.auth.roleSwitcher.roles[role];
+function errorFor(response: Response): string {
+  if (response.status === 404) {
+    return response.headers.get("content-type")?.includes("application/json")
+      ? copy.unknownSelection
+      : copy.routeUnavailable;
+  }
+  if (response.status === 400 || response.status === 422)
+    return copy.invalidSelection;
+  if (response.status === 401 || response.status === 403) return copy.forbidden;
+  if (response.status >= 500) return copy.serverFailed;
+  return copy.failed;
 }
 
-/** Same predicate every prior dev-only affordance used: DEV build, local host. */
-function isLocalDevBuild(): boolean {
-  if (!import.meta.env.DEV || typeof window === "undefined") return false;
-  const { hostname } = window.location;
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-}
-
-/**
- * Local role-switch sign-in. Mints a REAL signed session for any role/org/
- * branch combo via the backend's `dev-auth` endpoint — compiled out entirely
- * in non-dev builds (see `mnt-gate-dev-auth-absence`), so this renders nothing
- * unless both the frontend DEV build AND that backend feature are present.
- * Replaces the deleted dev-preview fixture auto-login: this hits the real API
- * and a real backing user row, so every page renders real data afterward.
- */
 export function RoleSwitcher() {
   const { beginTokenAcceptance, acceptTokens } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [role, setRole] = useState<(typeof ROLE_OPTIONS)[number]>("SUPER_ADMIN");
-  const [orgId, setOrgId] = useState(DEFAULT_ORG_ID);
-  const [branchIds, setBranchIds] = useState("");
+  const [advanced, setAdvanced] = useState(false);
+  const [role, setRole] = useState<DevRole>(DEFAULT_DEV_ROLE);
+  const [branchId, setBranchId] = useState<string>(DEFAULT_DEV_BRANCH_ID);
+  const [orgId, setOrgId] = useState<string>(KNL_DEV_ORG_ID);
+  const [branchIds, setBranchIds] = useState<string>(DEFAULT_DEV_BRANCH_ID);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>();
 
   if (!isLocalDevBuild()) return null;
 
+  const selectedBranch =
+    KNL_DEV_BRANCHES.find((branch) => branch.id === branchId) ??
+    KNL_DEV_BRANCHES[0];
+  const selectedBranchLabel = copy.branches[selectedBranch.key];
+  const roleLabel = copy.roles[role];
+  const resolvedOrgId = advanced ? orgId.trim() : KNL_DEV_ORG_ID;
+  const resolvedBranchIds = advanced
+    ? normalizeBranchIds(branchIds)
+    : [branchId];
+  const organizationWide = advanced && resolvedBranchIds.length === 0;
+
   async function handleSwitch() {
     setError(undefined);
-    if (!orgId.trim()) {
-      setError(ko.auth.roleSwitcher.orgRequired);
+    if (!resolvedOrgId) {
+      setError(copy.orgRequired);
       return;
     }
+    if (!isUuid(resolvedOrgId) || resolvedBranchIds.some((id) => !isUuid(id))) {
+      setError(copy.invalidIdentifiers);
+      return;
+    }
+
     const lease = beginTokenAcceptance?.();
     if (!lease) {
-      setError(ko.auth.roleSwitcher.failed);
+      setError(copy.failed);
       return;
     }
     setPending(true);
+    let response: Response;
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
-      const response = await fetch(`${baseUrl}/api/v1/dev-auth/session`, {
+      const baseUrl =
+        import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
+      response = await fetch(`${baseUrl}/api/v1/dev-auth/session`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -71,112 +86,147 @@ export function RoleSwitcher() {
           "X-Auth-Transport": "cookie",
         },
         body: JSON.stringify({
-          org_id: orgId.trim(),
+          org_id: resolvedOrgId,
           role,
-          branch_ids: branchIds
-            .split(",")
-            .map((id) => id.trim())
-            .filter(Boolean),
+          branch_ids: resolvedBranchIds,
         }),
       });
+    } catch {
+      setPending(false);
+      setError(copy.networkFailed);
+      return;
+    }
+
+    try {
       if (!response.ok) {
-        setError(ko.auth.roleSwitcher.failed);
+        setError(errorFor(response));
         return;
       }
-      const data = (await response.json()) as { access_token: string };
+      const accessToken = await parseDevAuthAccessToken(response);
+      if (!accessToken) {
+        setError(copy.protocolFailed);
+        return;
+      }
       if (
         acceptTokens(
-          { access_token: data.access_token, requires_passkey_setup: false },
+          { access_token: accessToken, requires_passkey_setup: false },
           lease,
         ) === false
       ) {
-        setError(ko.auth.roleSwitcher.failed);
+        setError(copy.failed);
       }
     } catch {
-      setError(ko.auth.roleSwitcher.failed);
+      setError(copy.protocolFailed);
     } finally {
       setPending(false);
     }
   }
 
-  if (!open) {
-    return (
-      <Button
-        type="button"
-        variant="ghost"
-        className="justify-self-start"
-        onClick={() => {
-          setOpen(true);
-        }}
-      >
-        <UserCog aria-hidden="true" size={18} />
-        {ko.auth.roleSwitcher.reveal}
-      </Button>
-    );
-  }
-
   return (
-    <div className="grid gap-3 border-t border-line pt-4">
+    <section
+      className="grid gap-3 border-t border-line pt-4"
+      aria-labelledby="dev-role-switch-title"
+      data-dev-auth-copy={copy.copySentinel}
+      data-dev-auth-menu={DEV_AUTH_MENU_SENTINEL}
+      data-dev-auth-preset={DEV_AUTH_PRESET_SENTINEL}
+    >
       <div className="grid gap-1">
-        <h3 className="text-sm font-semibold text-ink">
-          {ko.auth.roleSwitcher.title}
+        <h3
+          id="dev-role-switch-title"
+          className="text-sm font-semibold text-ink"
+        >
+          {copy.title}
         </h3>
-        <p className="text-sm text-steel">{ko.auth.roleSwitcher.description}</p>
+        <p className="text-sm text-steel">{copy.description}</p>
+        <p className="text-sm font-medium text-ink">{copy.organization}</p>
       </div>
 
       <label className="grid gap-1 text-sm font-medium text-steel">
-        {ko.auth.roleSwitcher.roleLabel}
+        {copy.roleLabel}
         <Select
           value={role}
           onChange={(event) => {
-            setRole(event.currentTarget.value as (typeof ROLE_OPTIONS)[number]);
+            setRole(event.currentTarget.value as DevRole);
           }}
         >
-          {ROLE_OPTIONS.map((option) => (
+          {DEV_ROLE_OPTIONS.map((option) => (
             <option key={option} value={option}>
-              {roleLabel(option)}
+              {copy.roles[option]}
             </option>
           ))}
         </Select>
       </label>
 
-      <label className="grid gap-1 text-sm font-medium text-steel">
-        {ko.auth.roleSwitcher.orgLabel}
-        <Input
-          value={orgId}
-          onChange={(event) => {
-            setOrgId(event.currentTarget.value);
-          }}
-        />
-      </label>
+      {!advanced ? (
+        <label className="grid gap-1 text-sm font-medium text-steel">
+          {copy.branchLabel}
+          <Select
+            value={branchId}
+            onChange={(event) => {
+              setBranchId(event.currentTarget.value);
+            }}
+          >
+            {KNL_DEV_BRANCHES.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {copy.branches[branch.key]}
+              </option>
+            ))}
+          </Select>
+        </label>
+      ) : (
+        <>
+          <label className="grid gap-1 text-sm font-medium text-steel">
+            {copy.orgLabel}
+            <Input
+              value={orgId}
+              onChange={(event) => {
+                setOrgId(event.currentTarget.value);
+              }}
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-steel">
+            {copy.branchIdsLabel}
+            <Input
+              value={branchIds}
+              onChange={(event) => {
+                setBranchIds(event.currentTarget.value);
+              }}
+            />
+          </label>
+          {organizationWide ? (
+            <p role="status" className="text-sm text-steel">
+              {copy.organizationWideWarning}
+            </p>
+          ) : null}
+        </>
+      )}
 
-      <label className="grid gap-1 text-sm font-medium text-steel">
-        {ko.auth.roleSwitcher.branchLabel}
-        <Input
-          value={branchIds}
-          onChange={(event) => {
-            setBranchIds(event.currentTarget.value);
-          }}
-        />
-      </label>
-
+      <Button
+        type="button"
+        variant="ghost"
+        className="justify-self-start"
+        onClick={() => {
+          setAdvanced((value) => !value);
+        }}
+      >
+        {advanced ? copy.advancedClose : copy.advancedOpen}
+      </Button>
       <Button
         type="button"
         variant="secondary"
         disabled={pending}
-        onClick={() => {
-          void handleSwitch();
-        }}
+        onClick={() => void handleSwitch()}
       >
         <UserCog aria-hidden="true" size={18} />
-        {pending ? ko.auth.roleSwitcher.submitting : ko.auth.roleSwitcher.submit}
+        {pending
+          ? copy.submitting
+          : copy.submit(selectedBranchLabel, roleLabel)}
       </Button>
-
       {error ? (
         <p role="alert" className="text-sm font-medium text-red-700">
           {error}
         </p>
       ) : null}
-    </div>
+    </section>
   );
 }

@@ -52,6 +52,7 @@
     "dev:bootstrap": "node scripts/dev-up.mjs bootstrap",
     "dev:down": "node scripts/dev-up.mjs down",
     "web:build": "npm --workspace web run build",
+    "check:web-production-dev-auth-absence": "npm --workspace web run check:production-dev-auth-absence",
     "web:lint": "npm --workspace web run lint",
     "web:test": "npm --workspace web run test",
     "check:payroll": "node scripts/check-payroll-domain.mjs",

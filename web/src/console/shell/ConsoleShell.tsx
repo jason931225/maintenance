@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
+import { isLocalDevBuild } from "../../features/auth/localDev";
 import { useConsoleAuthz, useConsoleScopes, UNION_SCOPE_ID } from "./authz";
 import { CommsRailPanel, CommsRailFallback } from "./CommsRailPanel";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
@@ -26,6 +27,13 @@ import { SCREEN_REGISTRY } from "../screens/registry";
 import type { ThemeMode } from "./theme";
 
 const S = ko.console.shell;
+
+const loadLocalDevRoleSwitchLabel = import.meta.env.DEV
+  ? () =>
+      import("../../i18n/koDevAuth").then(
+        ({ koDevAuth }) => koDevAuth.localRoleSwitch,
+      )
+  : undefined;
 
 const ROLE_PRIORITY = [
   "SUPER_ADMIN",
@@ -56,7 +64,7 @@ export function ConsoleShell({
   onCycleTheme: () => void;
   screenKeys?: readonly MountedScreenKey[];
 }) {
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { grants, source: authzSource, ready: authzReady } = useConsoleAuthz();
@@ -64,6 +72,17 @@ export function ConsoleShell({
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
 
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const [localRoleSwitchLabel, setLocalRoleSwitchLabel] = useState<string>();
+  useEffect(() => {
+    if (!loadLocalDevRoleSwitchLabel || !isLocalDevBuild()) return;
+    let active = true;
+    void loadLocalDevRoleSwitchLabel().then((label) => {
+      if (active) setLocalRoleSwitchLabel(label);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1280 : window.innerWidth,
   );
@@ -372,6 +391,22 @@ export function ConsoleShell({
           userInitial={userInitial}
           userRoleLabel={userRoleLabelText}
           userTeamLabel={userTeamLabel}
+          onLogout={() => {
+            void logout().finally(() => {
+              void navigate("/login", { replace: true });
+            });
+          }}
+          localRoleSwitchLabel={localRoleSwitchLabel}
+          onLocalRoleSwitch={
+            localRoleSwitchLabel
+              ? () => {
+                  const next = `${location.pathname}${location.search}${location.hash}`;
+                  void logout().finally(() => {
+                    void navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
+                  });
+                }
+              : undefined
+          }
           onOpenNavigation={
             mobile
               ? () => {

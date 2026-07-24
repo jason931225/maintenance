@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 0 && node scripts/check-ui-strings.mjs && node scripts/check-console-purity.mjs",
-    "test": "vitest run"
+    "check:production-dev-auth-absence": "npm run build && node scripts/check-production-dev-auth-absence.mjs",
+    "test": "vitest run",
+    "test:production-dev-auth-guards": "node --test scripts/check-production-dev-auth-absence.test.mjs scripts/check-production-dev-auth-entrypoints.test.mjs"
   },
   "dependencies": {
     "@fontsource/pretendard": "5.2.5",

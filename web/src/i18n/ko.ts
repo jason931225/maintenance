@@ -998,7 +998,8 @@ export const ko = {
         all: "그룹 전체",
       },
       user: {
-        menu: "내 계정",
+        menu: "사용자 메뉴",
+        logout: "로그아웃",
         unknown: "사용자",
         roles: {
           SUPER_ADMIN: "최고 관리자",
@@ -1045,6 +1046,10 @@ export const ko = {
         inbox: "개인 수신함",
         sales: "판매·고객 문의",
         hr: "인사 관리",
+        // Sidebar resolves its visible screen key (`people`), while nav.ts
+        // intentionally retains the semantic `hr` label key. Keep this alias
+        // so local DEV never falls back to the raw key or logs a false warning.
+        people: "인사 관리",
         recruit: "채용",
         orgchart: "조직도",
         evaluation: "평가",
@@ -4126,31 +4131,6 @@ export const ko = {
     phoneApproving: "승인 중",
     phoneApproveDone: "PC 로그인을 승인했습니다.",
     phoneApproveFailed: "PC 로그인 승인에 실패했습니다.",
-    roleSwitcher: {
-      reveal: "[개발용] 역할 전환 로그인",
-      title: "로컬 역할 전환",
-      description:
-        "선택한 조직·역할·지점으로 실제 백엔드에 로그인합니다 (dev-auth 빌드에서만 동작).",
-      roleLabel: "역할",
-      // One entry per dev-auth ROLE_OPTIONS value (RoleSwitcher.tsx) — kept
-      // complete here (rather than borrowed from platform.viewAs.roles) so
-      // TypeScript's structural typing guarantees every option has a real
-      // label, never a raw role code.
-      roles: {
-        SUPER_ADMIN: "최고 관리자",
-        ADMIN: "관리자",
-        EXECUTIVE: "임원",
-        MECHANIC: "정비사",
-        RECEPTIONIST: "접수 담당",
-        MEMBER: "일반 멤버",
-      },
-      orgLabel: "조직 ID",
-      branchLabel: "지점 ID (쉼표로 구분, 관리자 외 역할은 필수)",
-      submit: "역할로 로그인",
-      submitting: "로그인 중",
-      orgRequired: "조직 ID를 입력하세요.",
-      failed: "역할 전환 로그인에 실패했습니다.",
-    },
   },
   onboarding: {
     title: "패스키 등록",
