@@ -13584,12 +13584,34 @@ paths:
       operationId: ingestProductionSource
       tags: [Production]
       security: [{bearerAuth: []}]
-      description: Reviewer-authorized, tenant-scoped source-of-truth ingress for demand, capacity, and material facts. The source system/id/version tuple is immutable and idempotent; reusing it with different content returns 409 and accepted entries retain an actor/audit record.
+      description: Registered non-human source-workload ingress for demand, capacity, and material facts. The server derives source system identity from the authenticated enabled source registration; callers cannot assert it. The source id/version tuple is immutable and idempotent.
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngress'}}}}
       responses:
         '200': {description: Existing source-version replay, or accepted source fact, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/production/source-systems:
+    post:
+      operationId: registerProductionSourceSystem
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      description: RoleManage-only registration of a tenant-scoped non-human source principal. Registration, rotation, and disable actions are audited server-side.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RegisterProductionSourceSystem'}}}}
+      responses: {'201': {description: Registered source system}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /api/v1/production/source-systems/{source_system_id}/rotate:
+    post:
+      operationId: rotateProductionSourceSystem
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters: [{name: source_system_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      responses: {'200': {description: Source credential generation rotated}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}
+  /api/v1/production/source-systems/{source_system_id}/disable:
+    post:
+      operationId: disableProductionSourceSystem
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters: [{name: source_system_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      responses: {'200': {description: Source system disabled}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {$ref: '#/components/responses/Conflict'}}
   /api/v1/production/plans/{plan_id}:
     get:
       operationId: getProductionPlan
@@ -27780,9 +27802,16 @@ components:
       - $ref: '#/components/schemas/ProductionDemandIngress'
       - $ref: '#/components/schemas/ProductionCapacityIngress'
       - $ref: '#/components/schemas/ProductionMaterialIngress'
+    RegisterProductionSourceSystem:
+      type: object
+      required: [branch_id, principal_id, source_system]
+      properties:
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        principal_id: {$ref: '#/components/schemas/Uuid'}
+        source_system: {type: string, minLength: 1, maxLength: 80}
     ProductionDemandIngress:
       type: object
-      required: [kind, branch_id, id, inquiry_id, product_code, quantity, due_at, source_system, source_id, source_version]
+      required: [kind, branch_id, id, inquiry_id, product_code, quantity, due_at, source_id, source_version]
       properties:
         kind: {type: string, enum: [demand]}
         branch_id: {$ref: '#/components/schemas/Uuid'}
@@ -27791,12 +27820,11 @@ components:
         product_code: {type: string, minLength: 1}
         quantity: {type: integer, format: int64, minimum: 1}
         due_at: {type: string, format: date-time}
-        source_system: {type: string, minLength: 1, maxLength: 80}
         source_id: {type: string, minLength: 1, maxLength: 160}
         source_version: {type: string, minLength: 1, maxLength: 160}
     ProductionCapacityIngress:
       type: object
-      required: [kind, branch_id, id, site_id, capacity_date, available_quantity, source_system, source_id, source_version]
+      required: [kind, branch_id, id, site_id, capacity_date, available_quantity, source_id, source_version]
       properties:
         kind: {type: string, enum: [capacity]}
         branch_id: {$ref: '#/components/schemas/Uuid'}
@@ -27804,19 +27832,17 @@ components:
         site_id: {$ref: '#/components/schemas/Uuid'}
         capacity_date: {type: string, format: date}
         available_quantity: {type: integer, format: int64, minimum: 1}
-        source_system: {type: string, minLength: 1, maxLength: 80}
         source_id: {type: string, minLength: 1, maxLength: 160}
         source_version: {type: string, minLength: 1, maxLength: 160}
     ProductionMaterialIngress:
       type: object
-      required: [kind, branch_id, material_item_id, quantity_on_hand_milli, safety_stock_milli, source_system, source_id, source_version]
+      required: [kind, branch_id, material_item_id, quantity_on_hand_milli, safety_stock_milli, source_id, source_version]
       properties:
         kind: {type: string, enum: [material]}
         branch_id: {$ref: '#/components/schemas/Uuid'}
         material_item_id: {$ref: '#/components/schemas/Uuid'}
         quantity_on_hand_milli: {type: integer, format: int64, minimum: 0}
         safety_stock_milli: {type: integer, format: int64, minimum: 0}
-        source_system: {type: string, minLength: 1, maxLength: 80}
         source_id: {type: string, minLength: 1, maxLength: 160}
         source_version: {type: string, minLength: 1, maxLength: 160}
     RecordProductionOperation:

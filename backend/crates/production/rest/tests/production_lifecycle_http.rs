@@ -288,8 +288,13 @@ fn create_body(fixture: &Fixture, key: &str) -> Value {
 
 async fn release_body(pool: &PgPool, fixture: &Fixture, plan_id: &str, key: &str) -> Value {
     let approval = Uuid::new_v4();
-    sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,'production_plan_release:v1',$4,$5,$6,'approved')")
-        .bind(approval).bind(*fixture.org.as_uuid()).bind(Uuid::new_v4()).bind(Uuid::parse_str(plan_id).unwrap()).bind(*fixture.planner.as_uuid()).bind(*fixture.reviewer.as_uuid()).execute(pool).await.unwrap();
+    let digest: String = sqlx::query_scalar("SELECT plan_digest FROM production_plans WHERE id=$1")
+        .bind(Uuid::parse_str(plan_id).unwrap())
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,$4,$5,$6,$7,'approved')")
+        .bind(approval).bind(*fixture.org.as_uuid()).bind(Uuid::new_v4()).bind(format!("release:v1:{digest}")).bind(Uuid::parse_str(plan_id).unwrap()).bind(*fixture.planner.as_uuid()).bind(*fixture.reviewer.as_uuid()).execute(pool).await.unwrap();
     json!({"expected_version": 1, "approval_ref": approval, "idempotency_key": key})
 }
 
@@ -803,7 +808,7 @@ async fn runtime_routes_reject_caller_authored_demand_and_capacity_ingress(pool:
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn reviewer_source_ingress_is_authenticated_idempotent_and_audited(pool: PgPool) {
+async fn human_reviewer_cannot_assert_production_source_truth(pool: PgPool) {
     let keys = keys();
     let fixture = seed_fixture(&pool).await;
     let service = app(runtime_role_pool(&pool).await, &keys);
@@ -819,26 +824,14 @@ async fn reviewer_source_ingress_is_authenticated_idempotent_and_audited(pool: P
         "quantity_on_hand_milli": 120, "safety_stock_milli": 5,
         "source_system": "erp", "source_id": "material-1", "source_version": "v2"
     });
-    let (status, accepted) = post(
+    let (status, denied) = post(
         service.clone(),
         PRODUCTION_SOURCE_INGRESS_PATH,
         &token,
         body.clone(),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{accepted:?}");
-    let (status, replay) = post(
-        service.clone(),
-        PRODUCTION_SOURCE_INGRESS_PATH,
-        &token,
-        body.clone(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{replay:?}");
-    let mut changed = body;
-    changed["quantity_on_hand_milli"] = json!(121);
-    let (status, conflict) = post(service, PRODUCTION_SOURCE_INGRESS_PATH, &token, changed).await;
-    assert_eq!(status, StatusCode::CONFLICT, "{conflict:?}");
+    assert_eq!(status, StatusCode::FORBIDDEN, "{denied:?}");
     let audit_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM production_source_ingress_claims WHERE org_id=$1 AND kind='MATERIAL'",
     )
@@ -847,7 +840,7 @@ async fn reviewer_source_ingress_is_authenticated_idempotent_and_audited(pool: P
     .await
     .unwrap();
     assert_eq!(
-        audit_count, 1,
-        "exactly one immutable ingress audit row is retained"
+        audit_count, 0,
+        "a human reviewer creates no source ingress audit row"
     );
 }

@@ -262,10 +262,14 @@ pub enum Feature {
     /// authenticated org member — this feature gates only draft visibility and
     /// the publish/progress mutations.
     NoticeManage,
+    /// Dedicated workload-only production source ingress. Built-in human roles
+    /// are all denied; a registered service principal receives this only via an
+    /// explicit tenant-scoped effective grant.
+    ProductionSourceIngest,
 }
 
 impl Feature {
-    pub const ALL: [Self; 65] = [
+    pub const ALL: [Self; 66] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -331,6 +335,7 @@ impl Feature {
         Self::LifecycleManage,
         Self::PayrollRunRead,
         Self::NoticeManage,
+        Self::ProductionSourceIngest,
     ];
 
     #[must_use]
@@ -401,6 +406,7 @@ impl Feature {
             Self::LifecycleManage => "lifecycle_manage",
             Self::PayrollRunRead => "payroll_run_read",
             Self::NoticeManage => "notice_manage",
+            Self::ProductionSourceIngest => "production_source_ingest",
         }
     }
 
@@ -512,6 +518,7 @@ impl Feature {
             Self::PayrollRunRead => [D, D, D, A, A, A],
             // The HQ/announcement tier: ADMIN + EXECUTIVE + SUPER_ADMIN.
             Self::NoticeManage => [D, D, D, A, A, A],
+            Self::ProductionSourceIngest => [D, D, D, D, D, D],
         }
     }
 }
@@ -586,6 +593,7 @@ impl FromStr for Feature {
             "lifecycle_manage" => Ok(Self::LifecycleManage),
             "payroll_run_read" => Ok(Self::PayrollRunRead),
             "notice_manage" => Ok(Self::NoticeManage),
+            "production_source_ingest" => Ok(Self::ProductionSourceIngest),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
