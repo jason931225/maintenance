@@ -82,14 +82,18 @@ fi
 printf 'buck-preflight: enumerated %s Rust test target(s)\n' "$(grep -Ec '(^|[[:space:]])(root)?//backend/' <<<"${targets}")"
 
 scratch="$(python3 "${repo_root}/tools/buck/snapshot_root.py" --repo "${repo_root}")"
+baseline="${scratch}/baseline"
 cleanup() {
   python3 "${repo_root}/tools/buck/snapshot_root.py" --repo "${repo_root}" --cleanup "${scratch}"
 }
 trap cleanup EXIT HUP INT TERM
 
-# `git archive HEAD` snapshots exactly the candidate tree without touching the
-# caller's index, working files, daemon state, or any parallel worktree.
+# Both archives are exactly the committed candidate. Writers mutate `scratch`;
+# `baseline` remains immutable for output comparisons. Never use caller files
+# as a drift baseline: they may be dirty and newer than the candidate.
 git -C "${repo_root}" archive --format=tar HEAD | tar -x -C "${scratch}"
+mkdir "${baseline}"
+git -C "${repo_root}" archive --format=tar HEAD | tar -x -C "${baseline}"
 # Validate the registry from the immutable candidate snapshot. This prevents a
 # dirty caller tree from supplying roots, writers, or Buck labels that do not
 # exist in the candidate we actually gate.
@@ -109,7 +113,7 @@ python3 "${repo_root}/tools/buck/provision_snapshot_node_modules.py" \
 # closed.
 python3 "${repo_root}/tools/buck/run_generated_face_gates.py" \
   --registry "${scratch}/tools/buck/generated_face_registry.json" \
-  --baseline "${repo_root}" \
+  --baseline "${baseline}" \
   --snapshot "${scratch}" \
   --tier "${generated_face_tier}"
 
