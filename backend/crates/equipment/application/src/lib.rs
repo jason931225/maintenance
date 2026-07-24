@@ -47,7 +47,8 @@ pub struct DispatchCase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandoverCase {
     pub recipient_name: String,
-    pub evidence_reference: String,
+    /// Docs/Evidence object UUID; its original verified WORM copy and custody are validated transactionally.
+    pub evidence_object_id: Uuid,
     pub handed_over_at: OffsetDateTime,
 }
 

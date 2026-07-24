@@ -6,13 +6,16 @@
 //! is a conflict, never a silent no-op.  Transition authorization runs inside
 //! the transaction against the branch read from the locked row, via the
 //! caller-supplied `authorize` closure.
+use mnt_docs_adapter_postgres::{PgDocsError, PgDocsStore};
+use mnt_docs_application::EligibleEquipmentHandoverEvidenceQuery;
 use mnt_equipment_application::{
     AssessReturn, CompleteDisposition, DecideApproval, DispatchCase, HandoverCase, InspectCase,
     QuoteCase, RegisterUnit,
 };
 use mnt_equipment_domain::{Availability, CaseState, DispositionKind, DispositionState};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, ErrorKind, EvidenceObjectId, KernelError, OrgId,
+    TraceContext, UserId,
 };
 use mnt_platform_db::{DbError, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -501,7 +504,6 @@ impl PgEquipment3rStore {
         authorize: BranchAuthorization,
     ) -> Result<Value, PgEquipment3rError> {
         required(&cmd.recipient_name, "recipientName", 160)?;
-        evidence_reference(&cmd.evidence_reference)?;
         let org = current_org().map_err(KernelError::from)?;
         let now = OffsetDateTime::now_utc();
         with_audits(&self.pool, org, |tx| {
@@ -512,6 +514,21 @@ impl PgEquipment3rStore {
                 let state = CaseState::from_db(&row.try_get::<String, _>("status")?)?;
                 state.can_transition_to(CaseState::HandedOver)?;
                 let unit: Uuid = row.try_get("unit_id")?;
+                // Docs owns both eligibility and the immutable case/branch
+                // custody relation. Equipment only supplies typed aggregate ids
+                // inside this same audited transaction.
+                PgDocsStore::bind_equipment_handover_evidence_tx(
+                    tx,
+                    org,
+                    EligibleEquipmentHandoverEvidenceQuery {
+                        equipment_case_id: case,
+                        branch_id: branch,
+                        evidence_object_id: EvidenceObjectId::from_uuid(cmd.evidence_object_id),
+                    },
+                    actor,
+                )
+                .await
+                .map_err(docs_error)?;
                 let moved = sqlx::query(
                     "UPDATE equipment_3r_units SET availability=$1, updated_at=$2 WHERE id=$3 AND availability=$4",
                 )
@@ -526,11 +543,11 @@ impl PgEquipment3rStore {
                     return Err(KernelError::conflict("unit is not reserved for handover").into());
                 }
                 let updated = sqlx::query(
-                    "UPDATE equipment_3r_rental_cases SET status=$1, recipient_name=$2, handover_evidence_reference=$3, handed_over_at=$4, updated_at=$5 WHERE id=$6 AND status=$7",
+                    "UPDATE equipment_3r_rental_cases SET status=$1, recipient_name=$2, handover_evidence_object_id=$3, handed_over_at=$4, updated_at=$5 WHERE id=$6 AND status=$7",
                 )
                 .bind(CaseState::HandedOver.as_db())
                 .bind(cmd.recipient_name.trim())
-                .bind(&cmd.evidence_reference)
+                .bind(cmd.evidence_object_id)
                 .bind(cmd.handed_over_at)
                 .bind(now)
                 .bind(case)
@@ -979,7 +996,7 @@ async fn case_detail_tx(
         "SELECT c.id,c.unit_id,c.status,c.customer_name,c.site_reference,c.monthly_rate_minor,c.duration_months,c.currency_code,c.branch_id, \
          c.approval_decision,c.approval_reason,c.approved_by,c.approved_at, \
          c.carrier_name,c.vehicle_reference,c.dispatched_at, \
-         c.recipient_name,c.handover_evidence_reference,c.handed_over_at,c.returned_at, \
+         c.recipient_name,c.handover_evidence_object_id,c.handed_over_at,c.returned_at, \
          c.created_by,c.created_at,c.updated_at, \
          a.condition_grade,a.findings AS assessment_findings,a.disposition AS assessment_disposition,a.assessed_by,a.assessed_at, \
          d.id AS disposition_id \
@@ -1016,7 +1033,7 @@ async fn case_detail_tx(
     let handover = match row.try_get::<Option<String>, _>("recipient_name")? {
         Some(recipient) => json!({
             "recipientName": recipient,
-            "evidenceReference": row.try_get::<Option<String>, _>("handover_evidence_reference")?,
+            "evidenceObjectId": row.try_get::<Option<Uuid>, _>("handover_evidence_object_id")?,
             "handedOverAt": opt_rfc3339(row.try_get("handed_over_at")?)?,
         }),
         None => Value::Null,
@@ -1138,21 +1155,10 @@ fn idem(key: &str) -> Result<(), PgEquipment3rError> {
     }
 }
 
-fn evidence_reference(value: &str) -> Result<(), PgEquipment3rError> {
-    let rest = value.strip_prefix("evidence://").ok_or_else(|| {
-        KernelError::validation("evidenceReference must be an immutable evidence:// reference")
-    })?;
-    let len = rest.chars().count();
-    let charset_ok = rest
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'));
-    if (8..=400).contains(&len) && charset_ok {
-        Ok(())
-    } else {
-        Err(KernelError::validation(
-            "evidenceReference must be evidence:// followed by 8..400 charset-bounded characters",
-        )
-        .into())
+fn docs_error(error: PgDocsError) -> PgEquipment3rError {
+    match error {
+        PgDocsError::Db(error) => PgEquipment3rError::Db(error),
+        PgDocsError::Domain(error) => PgEquipment3rError::Domain(error),
     }
 }
 

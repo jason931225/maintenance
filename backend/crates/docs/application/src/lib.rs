@@ -9,8 +9,8 @@ use mnt_docs_domain::{
     LegalHoldStatus, Sha256Digest, TsaProofStatus, WormStorageStatus,
 };
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, EvidenceCopyId, EvidenceCustodyEventId, EvidenceExportId, EvidenceId,
-    EvidenceLegalHoldId, EvidenceObjectId, EvidenceTsaProofId, KernelError, Timestamp,
+    AuditAction, AuditEvent, BranchId, EvidenceCopyId, EvidenceCustodyEventId, EvidenceExportId,
+    EvidenceId, EvidenceLegalHoldId, EvidenceObjectId, EvidenceTsaProofId, KernelError, Timestamp,
     TraceContext, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -151,6 +151,28 @@ pub struct EvidenceObjectDetail {
     pub custody_history: Vec<CustodyEventView>,
     pub legal_holds: Vec<LegalHoldRecordView>,
     pub exports: Vec<EvidenceExportView>,
+}
+
+/// Typed cross-domain query owned by Docs/Evidence. Equipment passes the
+/// authenticated rental-case and branch identity; this port never accepts an
+/// untyped URI or storage reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EligibleEquipmentHandoverEvidenceQuery {
+    pub equipment_case_id: uuid::Uuid,
+    pub branch_id: BranchId,
+    pub evidence_object_id: EvidenceObjectId,
+}
+
+/// An original, verified WORM copy that Docs has admitted for one Equipment
+/// handover. The adapter obtains this only after tenant, branch, lifecycle,
+/// and custody checks have passed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EligibleEquipmentHandoverEvidence {
+    pub equipment_case_id: uuid::Uuid,
+    pub branch_id: BranchId,
+    pub evidence_object_id: EvidenceObjectId,
+    pub original_copy_id: EvidenceCopyId,
+    pub digest_sha256: Sha256Digest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -307,7 +307,7 @@ async fn dispatch_case(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct HandoverBody {
     recipient_name: String,
-    evidence_reference: String,
+    evidence_object_id: Uuid,
     #[serde(with = "time::serde::rfc3339")]
     handed_over_at: OffsetDateTime,
 }
@@ -325,7 +325,7 @@ async fn handover_case(
             case_id,
             HandoverCase {
                 recipient_name: b.recipient_name,
-                evidence_reference: b.evidence_reference,
+                evidence_object_id: b.evidence_object_id,
                 handed_over_at: b.handed_over_at,
             },
             branch_authorization(&p, Feature::Equipment3rDispatch),

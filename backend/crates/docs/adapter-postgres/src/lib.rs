@@ -7,7 +7,8 @@
 
 use mnt_docs_application::{
     AppendCustodyEventCommand, ApplyLegalHoldCommand, CreateEvidenceObjectCommand,
-    CustodyEventView, DisposeEvidenceObjectCommand, EvidenceCopyView, EvidenceExportView,
+    CustodyEventView, DisposeEvidenceObjectCommand, EligibleEquipmentHandoverEvidence,
+    EligibleEquipmentHandoverEvidenceQuery, EvidenceCopyView, EvidenceExportView,
     EvidenceObjectDetail, EvidenceObjectPage, EvidenceObjectView, LegalHoldRecordView,
     ListEvidenceObjectsQuery, RecomputeAdmissibilityCommand, RecordTsaProofCommand,
     RegisterEvidenceCopyCommand, RegisterEvidenceCopyInput, ReleaseLegalHoldCommand,
@@ -76,6 +77,33 @@ impl PgDocsStore {
     #[must_use]
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Resolve and bind a Docs-owned immutable custody relation for an Equipment
+    /// handover within the caller's existing transaction.  The relation is
+    /// intentionally created here rather than by Equipment SQL so the evidence
+    /// eligibility policy has one owner.
+    pub async fn bind_equipment_handover_evidence_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        org: OrgId,
+        query: EligibleEquipmentHandoverEvidenceQuery,
+        actor: UserId,
+    ) -> Result<EligibleEquipmentHandoverEvidence, PgDocsError> {
+        let eligible = eligible_equipment_handover_evidence_tx(tx, query).await?;
+        sqlx::query(
+            "INSERT INTO docs_equipment_handover_custody \
+             (org_id,branch_id,equipment_case_id,evidence_object_id,original_copy_id,created_by) \
+             VALUES ($1,$2,$3,$4,$5,$6)",
+        )
+        .bind(*org.as_uuid())
+        .bind(*eligible.branch_id.as_uuid())
+        .bind(eligible.equipment_case_id)
+        .bind(*eligible.evidence_object_id.as_uuid())
+        .bind(*eligible.original_copy_id.as_uuid())
+        .bind(*actor.as_uuid())
+        .execute(tx.as_mut())
+        .await?;
+        Ok(eligible)
     }
 
     pub async fn get_object(
@@ -1188,6 +1216,40 @@ async fn recompute_admissibility_tx(
     .execute(tx.as_mut())
     .await?;
     Ok(())
+}
+
+/// Docs/Evidence query port used by Equipment. It selects no object unless the
+/// exact tenant object has a non-disposed ADMISSIBLE record and an ORIGINAL
+/// WORM copy whose verification was recorded. `docs_equipment_handover_custody`
+/// independently rechecks this invariant on insert.
+pub async fn eligible_equipment_handover_evidence_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    query: EligibleEquipmentHandoverEvidenceQuery,
+) -> Result<EligibleEquipmentHandoverEvidence, PgDocsError> {
+    let row = sqlx::query(
+        "SELECT o.id AS evidence_object_id,c.id AS original_copy_id,c.digest_sha256 \
+         FROM docs_evidence_objects o \
+         JOIN docs_evidence_copies c ON c.evidence_object_id=o.id \
+         WHERE o.id=$1 \
+           AND o.admissibility_status='ADMISSIBLE' \
+           AND o.disposed_at IS NULL \
+           AND o.current_custody_stage <> 'DISPOSED' \
+           AND c.copy_kind='ORIGINAL' \
+           AND c.worm_status='VERIFIED' \
+           AND c.verified_at IS NOT NULL",
+    )
+    .bind(*query.evidence_object_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("eligible handover evidence was not found"))?;
+    let digest: String = row.try_get("digest_sha256")?;
+    Ok(EligibleEquipmentHandoverEvidence {
+        equipment_case_id: query.equipment_case_id,
+        branch_id: query.branch_id,
+        evidence_object_id: EvidenceObjectId::from_uuid(row.try_get("evidence_object_id")?),
+        original_copy_id: EvidenceCopyId::from_uuid(row.try_get("original_copy_id")?),
+        digest_sha256: Sha256Digest::new(digest)?,
+    })
 }
 
 async fn fetch_detail_tx(
