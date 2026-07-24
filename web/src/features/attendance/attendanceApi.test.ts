@@ -18,6 +18,7 @@ describe("AttendanceTransport", () => {
   it("requires every screen operation on the production transport port", () => {
     const requiredOperations: Array<keyof AttendanceTransport> = [
       "listExceptions",
+      "createException",
       "resolveException",
       "listSubstitutions",
       "createSubstitution",
@@ -25,11 +26,12 @@ describe("AttendanceTransport", () => {
       "listCloses",
       "preflightClose",
       "confirmClose",
+      "addCloseAmendment",
       "listWeek52",
       "ackWeek52",
       "listAttendanceRecords",
       "listAttendanceSummary",
     ];
-    expect(requiredOperations).toHaveLength(12);
+    expect(requiredOperations).toHaveLength(14);
   });
 });

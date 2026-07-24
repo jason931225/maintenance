@@ -15,11 +15,7 @@ export type ExceptionStatus = "OPEN" | "RESOLVED";
 export type ResolutionAction = "CONFIRM" | "APPROVE_OVERTIME";
 /** Product suggestions; backend preserves any validated non-empty reason string. */
 export type SuggestedSubstitutionReasonKind =
-  | "NO_SHOW"
-  | "APPROVED_LEAVE"
-  | "HALF_DAY"
-  | "LONG_TERM"
-  | "OTHER";
+  "NO_SHOW" | "APPROVED_LEAVE" | "HALF_DAY" | "LONG_TERM" | "OTHER";
 /** Read model accepts future/backend-provided reason values without crashing UI. */
 export type SubstitutionReasonKind = string;
 export type SubstitutionStatus = "ASSIGNED" | "CANCELLED";
@@ -85,6 +81,20 @@ export interface Substitution {
   exception_id?: string | null;
   created_by: string;
   created_at: string;
+}
+
+export interface CreateAttendanceException {
+  kind: ExceptionKind;
+  employee_id: string;
+  work_date: string;
+  detail: string;
+  evidence?: AttendanceEvidence[];
+}
+
+export interface CloseAmendmentInput {
+  reason: string;
+  detail: string;
+  ref?: string | null;
 }
 
 export interface CreateSubstitution {
@@ -220,6 +230,10 @@ export interface AttendanceTransport {
     query: ExceptionQuery,
     signal?: AbortSignal,
   ): Promise<Page<AttendanceException>>;
+  createException(
+    input: CreateAttendanceException,
+    signal?: AbortSignal,
+  ): Promise<AttendanceException>;
   resolveException(
     id: string,
     input: ResolveException,
@@ -249,6 +263,11 @@ export interface AttendanceTransport {
     branchScope: string,
     signal?: AbortSignal,
   ): Promise<MonthClose>;
+  addCloseAmendment(
+    closeId: string,
+    input: CloseAmendmentInput,
+    signal?: AbortSignal,
+  ): Promise<CloseAmendment>;
   listWeek52(weekStart: string, signal?: AbortSignal): Promise<Week52Board>;
   ackWeek52(
     employeeId: string,
