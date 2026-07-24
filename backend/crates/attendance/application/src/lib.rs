@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
+pub mod self_service;
+pub use self_service::{
+    ListOwnExceptions, OwnAttendanceExceptionPage, OwnAttendanceExceptionRead,
+    OwnExceptionResolutionRead, OwnWeek52Read, ReadOwnWeek52, SelfAttendanceScope,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallerScope {
     pub org_id: Uuid,

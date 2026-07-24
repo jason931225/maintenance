@@ -214,6 +214,15 @@ class TestResourceClassification(unittest.TestCase):
         self.assertIn("resource.postgres", labels)
         self.assertIn("needs-postgres", labels)
 
+    def test_attendance_self_service_integration_is_postgres_bound(self) -> None:
+        self.assertTrue(
+            GENERATOR.requires_postgres(
+                "mnt-attendance-adapter-postgres",
+                "test.integration",
+                "tests/self_service.rs",
+            )
+        )
+
     def test_equipment_discoveries_have_reviewed_resources(self) -> None:
         self.assertTrue(
             GENERATOR.requires_postgres(

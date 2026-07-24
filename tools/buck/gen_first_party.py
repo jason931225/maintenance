@@ -216,6 +216,7 @@ TEST_RESOURCE_REQUIREMENTS = {
         'unit': 'none',
         'integration': {
             'tests/cancel_substitution.rs': 'postgres',
+            'tests/self_service.rs': 'postgres',
         },
     },
     'mnt-attendance-application': {
