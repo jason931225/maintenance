@@ -490,6 +490,7 @@ async fn target_change_daily_plan_and_outsource_flows_are_audited(pool: PgPool) 
 }
 
 struct SeededContext {
+    org_id: OrgId,
     branch_id: BranchId,
     receptionist: UserId,
     mechanic: UserId,
@@ -610,6 +611,7 @@ async fn audit_actions_for(pool: &PgPool, work_order_id: WorkOrderId) -> Vec<Str
 }
 
 async fn seed_operational_context(pool: &PgPool) -> SeededContext {
+    let org_id = OrgId::knl();
     let branch_id = seed_branch(pool).await;
     let receptionist = seed_user(pool, "Receptionist", "RECEPTIONIST", branch_id).await;
     let mechanic = seed_user(pool, "Mechanic", "MECHANIC", branch_id).await;
@@ -619,6 +621,32 @@ async fn seed_operational_context(pool: &PgPool) -> SeededContext {
     let equipment_id = seed_equipment(pool, branch_id).await;
 
     SeededContext {
+        org_id,
+        branch_id,
+        receptionist,
+        mechanic,
+        helper,
+        admin,
+        executive,
+        equipment_id,
+    }
+}
+
+/// Seeds the existing operational fixture shape for a specified tenant. This
+/// seam lets lifecycle tests prove tenant removal without weakening production
+/// RLS.
+async fn seed_operational_context_for_org(pool: &PgPool, org_id: OrgId) -> SeededContext {
+    let branch_id = seed_branch_for_org(pool, org_id).await;
+    let receptionist =
+        seed_user_for_org(pool, org_id, "Receptionist", "RECEPTIONIST", branch_id).await;
+    let mechanic = seed_user_for_org(pool, org_id, "Mechanic", "MECHANIC", branch_id).await;
+    let helper = seed_user_for_org(pool, org_id, "Helper", "MECHANIC", branch_id).await;
+    let admin = seed_user_for_org(pool, org_id, "Admin", "ADMIN", branch_id).await;
+    let executive = seed_user_for_org(pool, org_id, "Executive", "EXECUTIVE", branch_id).await;
+    let equipment_id = seed_equipment_for_org(pool, org_id, branch_id).await;
+
+    SeededContext {
+        org_id,
         branch_id,
         receptionist,
         mechanic,
@@ -630,11 +658,15 @@ async fn seed_operational_context(pool: &PgPool) -> SeededContext {
 }
 
 async fn seed_branch(pool: &PgPool) -> BranchId {
-    let knl = *OrgId::knl().as_uuid();
+    seed_branch_for_org(pool, OrgId::knl()).await
+}
+
+async fn seed_branch_for_org(pool: &PgPool, org_id: OrgId) -> BranchId {
+    let org_uuid = *org_id.as_uuid();
     let region_id: uuid::Uuid =
         sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("Region {}", uuid::Uuid::new_v4()))
-            .bind(knl)
+            .bind(org_uuid)
             .fetch_one(pool)
             .await
             .unwrap();
@@ -643,7 +675,7 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
     )
     .bind(region_id)
     .bind("HQ Test")
-    .bind(knl)
+    .bind(org_uuid)
     .fetch_one(pool)
     .await
     .unwrap();
@@ -651,20 +683,30 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
 }
 
 async fn seed_user(pool: &PgPool, name: &str, role: &str, branch_id: BranchId) -> UserId {
-    let knl = *OrgId::knl().as_uuid();
+    seed_user_for_org(pool, OrgId::knl(), name, role, branch_id).await
+}
+
+async fn seed_user_for_org(
+    pool: &PgPool,
+    org_id: OrgId,
+    name: &str,
+    role: &str,
+    branch_id: BranchId,
+) -> UserId {
+    let org_uuid = *org_id.as_uuid();
     let user_id = UserId::new();
     sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(name)
         .bind(Vec::from([role]))
-        .bind(knl)
+        .bind(org_uuid)
         .execute(pool)
         .await
         .unwrap();
     sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
-        .bind(knl)
+        .bind(org_uuid)
         .execute(pool)
         .await
         .unwrap();
@@ -715,13 +757,17 @@ impl WorkOrderCreatedListener for RecordingCreatedListener {
 }
 
 async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
-    let knl = *OrgId::knl().as_uuid();
+    seed_equipment_for_org(pool, OrgId::knl(), branch_id).await
+}
+
+async fn seed_equipment_for_org(pool: &PgPool, org_id: OrgId, branch_id: BranchId) -> uuid::Uuid {
+    let org_uuid = *org_id.as_uuid();
     let customer_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind("Customer A")
-    .bind(knl)
+    .bind(org_uuid)
     .fetch_one(pool)
     .await
     .unwrap();
@@ -731,7 +777,7 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind("Site A")
-    .bind(knl)
+    .bind(org_uuid)
     .fetch_one(pool)
     .await
     .unwrap();
@@ -750,7 +796,7 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind(site_id)
-    .bind(knl)
+    .bind(org_uuid)
     .fetch_one(pool)
     .await
     .unwrap()
@@ -860,48 +906,299 @@ async fn final_completion_appends_one_immutable_equipment_history_snapshot(pool:
 
         // mnt_rt may read its tenant history, but cannot construct a parent-only
         // or partial snapshot: the SECURITY DEFINER append operation owns all writes.
-        sqlx::query("SET ROLE mnt_rt").execute(&pool).await.unwrap();
+        let mut runtime_conn = pool.acquire().await.unwrap();
+        sqlx::query("SET ROLE mnt_rt").execute(&mut *runtime_conn).await.unwrap();
         sqlx::query("SELECT set_config('app.current_org', $1, false)")
             .bind(OrgId::knl().to_string())
-            .execute(&pool).await.unwrap();
+            .execute(&mut *runtime_conn).await.unwrap();
         let same_org_read: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1",
-        ).bind(history_id).fetch_one(&pool).await.unwrap();
+        ).bind(history_id).fetch_one(&mut *runtime_conn).await.unwrap();
         assert_eq!(same_org_read, 1);
         let parent_only = sqlx::query(
             "INSERT INTO equipment_maintenance_history (org_id, equipment_id, work_order_id, completed_at) VALUES ($1,$2,$3,now())",
-        ).bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&pool).await;
+        ).bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&mut *runtime_conn).await;
         assert!(parent_only.is_err(), "runtime role cannot insert a parent-only snapshot");
         let partial_evidence = sqlx::query(
             "INSERT INTO equipment_maintenance_history_evidence (history_id, org_id, evidence_media_id) VALUES ($1,$2,$3)",
-        ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(evidence_id).execute(&pool).await;
+        ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(evidence_id).execute(&mut *runtime_conn).await;
         assert!(partial_evidence.is_err(), "runtime role cannot append partial evidence");
         let partial_cost = sqlx::query(
             "INSERT INTO equipment_maintenance_history_costs (history_id, org_id, equipment_cost_ledger_id) VALUES ($1,$2,$3)",
-        ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&pool).await;
+        ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&mut *runtime_conn).await;
         assert!(partial_cost.is_err(), "runtime role cannot append partial cost material");
         let foreign_org = uuid::Uuid::new_v4();
         sqlx::query("SELECT set_config('app.current_org', $1, false)")
-            .bind(foreign_org.to_string()).execute(&pool).await.unwrap();
+            .bind(foreign_org.to_string()).execute(&mut *runtime_conn).await.unwrap();
         let cross_org_read: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1")
-            .bind(history_id).fetch_one(&pool).await.unwrap();
+            .bind(history_id).fetch_one(&mut *runtime_conn).await.unwrap();
         assert_eq!(cross_org_read, 0, "RLS hides another tenant's parent history");
         let cross_parent = sqlx::query("INSERT INTO equipment_maintenance_history (org_id,equipment_id,work_order_id,completed_at) VALUES ($1,$2,$3,now())")
-            .bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&pool).await;
+            .bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&mut *runtime_conn).await;
         assert!(cross_parent.is_err(), "RLS/direct grant denies cross-org parent write");
         let cross_evidence = sqlx::query("INSERT INTO equipment_maintenance_history_evidence (history_id,org_id,evidence_media_id) VALUES ($1,$2,$3)")
-            .bind(history_id).bind(*OrgId::knl().as_uuid()).bind(evidence_id).execute(&pool).await;
+            .bind(history_id).bind(*OrgId::knl().as_uuid()).bind(evidence_id).execute(&mut *runtime_conn).await;
         assert!(cross_evidence.is_err(), "RLS/direct grant denies cross-org evidence write");
         let cross_cost = sqlx::query("INSERT INTO equipment_maintenance_history_costs (history_id,org_id,equipment_cost_ledger_id) VALUES ($1,$2,$3)")
-            .bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&pool).await;
+            .bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&mut *runtime_conn).await;
         assert!(cross_cost.is_err(), "RLS/direct grant denies cross-org cost write");
-        sqlx::query("RESET ROLE").execute(&pool).await.unwrap();
+        sqlx::query("RESET ROLE").execute(&mut *runtime_conn).await.unwrap();
+        sqlx::query("RESET app.current_org")
+            .execute(&mut *runtime_conn)
+            .await
+            .unwrap();
     })
     .await;
 }
 
+/// Complete a real work order through both approval stages and return the
+/// immutable history row created by the terminal transition.  It deliberately
+/// uses the adapter under the tenant request context rather than seeding any
+/// history table directly.
+async fn complete_work_order_with_history(
+    pool: &PgPool,
+    org_id: OrgId,
+    seeded: &SeededContext,
+) -> (WorkOrderId, uuid::Uuid) {
+    let store = PgWorkOrderStore::new(pool.clone());
+    let (work_order_id, history_id) = mnt_platform_request_context::scope_org(org_id, async {
+        let created = create_reported_work_order(&store, seeded).await;
+        store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                comment: "Admin approved the completed report".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+
+        insert_evidence_media_returning_id_for_org(
+            pool,
+            org_id,
+            created.id,
+            seeded.mechanic,
+            AttachmentStage::Report,
+            "VERIFIED",
+        )
+        .await;
+        insert_cost_ledger_for_work_order(pool, seeded, created.id).await;
+
+        let completed = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.executive,
+                work_order_id: created.id,
+                comment: "Executive approved the completed report".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(completed.status, WorkOrderStatus::FinalCompleted);
+
+        let history_id: uuid::Uuid = sqlx::query_scalar(
+            "SELECT id FROM equipment_maintenance_history WHERE work_order_id = $1",
+        )
+        .bind(*created.id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        (created.id, history_id)
+    })
+    .await;
+    (work_order_id, history_id)
+}
+
+/// The hard-removal lifecycle must delete maintenance history only through the
+/// archived-tenant force-removal procedure.  This is intentionally a two-tenant
+/// test: it proves the target's complete final-transition graph is removed while
+/// a separately completed KNL graph survives unchanged.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn force_remove_archived_tenant_removes_full_maintenance_history_only_for_target(
+    pool: PgPool,
+) {
+    let control_org = OrgId::knl();
+    let control = seed_operational_context_for_org(&pool, control_org).await;
+    let (_control_work_order, control_history_id) =
+        complete_work_order_with_history(&pool, control_org, &control).await;
+
+    let removed_org = OrgId::new();
+    sqlx::query("INSERT INTO organizations (id, slug, name, status) VALUES ($1, $2, $3, 'ACTIVE')")
+        .bind(*removed_org.as_uuid())
+        .bind(format!("fr-{}", uuid::Uuid::new_v4().simple()))
+        .bind("Force removal maintenance fixture")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let removed = seed_operational_context_for_org(&pool, removed_org).await;
+    let (removed_work_order, removed_history_id) =
+        complete_work_order_with_history(&pool, removed_org, &removed).await;
+
+    let before_parent: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM equipment_maintenance_history WHERE org_id = $1")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let before_evidence: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM equipment_maintenance_history_evidence WHERE org_id = $1",
+    )
+    .bind(*removed_org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let before_costs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM equipment_maintenance_history_costs WHERE org_id = $1",
+    )
+    .bind(*removed_org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((before_parent, before_evidence, before_costs), (1, 1, 1));
+
+    sqlx::query("UPDATE organizations SET status = 'ARCHIVED' WHERE id = $1")
+        .bind(*removed_org.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result: String = sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+        .bind(*removed_org.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(result, "removed");
+
+    let remaining_history: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM equipment_maintenance_history WHERE org_id = $1")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let remaining_history_evidence: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM equipment_maintenance_history_evidence WHERE org_id = $1",
+    )
+    .bind(*removed_org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let remaining_history_costs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM equipment_maintenance_history_costs WHERE org_id = $1",
+    )
+    .bind(*removed_org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let remaining_cost_ledger: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM equipment_cost_ledger WHERE org_id = $1")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let remaining_evidence_media: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM evidence_media WHERE org_id = $1")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let remaining_work_orders: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM work_orders WHERE org_id = $1")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (
+            remaining_history,
+            remaining_history_evidence,
+            remaining_history_costs,
+            remaining_cost_ledger,
+            remaining_evidence_media,
+            remaining_work_orders,
+        ),
+        (0, 0, 0, 0, 0, 0),
+        "force removal must remove the target tenant's complete maintenance graph"
+    );
+    let removed_org_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE id = $1")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        removed_org_count, 0,
+        "the archived tenant shell must be removed"
+    );
+
+    let control_org_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE id = $1")
+            .bind(*control_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let control_parent: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1")
+            .bind(control_history_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let control_evidence: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM equipment_maintenance_history_evidence WHERE history_id = $1",
+    )
+    .bind(control_history_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let control_costs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM equipment_maintenance_history_costs WHERE history_id = $1",
+    )
+    .bind(control_history_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        control_org_count, 1,
+        "independent KNL control tenant remains"
+    );
+    assert_eq!((control_parent, control_evidence, control_costs), (1, 1, 1));
+
+    // The returned ids must no longer resolve after the archival deletion.
+    let removed_work_order_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM work_orders WHERE id = $1")
+            .bind(*removed_work_order.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let removed_history_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1")
+            .bind(removed_history_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((removed_work_order_count, removed_history_count), (0, 0));
+}
+
 async fn insert_evidence_media_returning_id(
     pool: &PgPool,
+    work_order_id: WorkOrderId,
+    uploaded_by: UserId,
+    stage: AttachmentStage,
+    status: &str,
+) -> uuid::Uuid {
+    insert_evidence_media_returning_id_for_org(
+        pool,
+        OrgId::knl(),
+        work_order_id,
+        uploaded_by,
+        stage,
+        status,
+    )
+    .await
+}
+
+async fn insert_evidence_media_returning_id_for_org(
+    pool: &PgPool,
+    org_id: OrgId,
     work_order_id: WorkOrderId,
     uploaded_by: UserId,
     stage: AttachmentStage,
@@ -927,7 +1224,7 @@ async fn insert_evidence_media_returning_id(
     ))
     .bind(*uploaded_by.as_uuid())
     .bind(status)
-    .bind(*OrgId::knl().as_uuid())
+    .bind(*org_id.as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -953,7 +1250,7 @@ async fn insert_cost_ledger_for_work_order(
     .bind(seeded.equipment_id)
     .bind(*work_order_id.as_uuid())
     .bind(*seeded.admin.as_uuid())
-    .bind(*OrgId::knl().as_uuid())
+    .bind(*seeded.org_id.as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
