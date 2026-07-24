@@ -23,6 +23,47 @@ const INBOUND_SPAN_ID: &str = "00f067aa0ba902b7";
 const CLIENT_IP: &str = "203.0.113.44";
 const USER_AGENT: &str = "mnt-consulting-integration/1.0";
 const DEVICE_ID: &str = "field-tablet-17";
+const CONCURRENT_A_TRACEPARENT: &str = "00-11111111111111111111111111111111-1111111111111111-01";
+const CONCURRENT_A_TRACE_ID: &str = "11111111111111111111111111111111";
+const CONCURRENT_A_SPAN_ID: &str = "1111111111111111";
+const CONCURRENT_A_IP: &str = "203.0.113.45";
+const CONCURRENT_A_USER_AGENT: &str = "mnt-consulting-concurrent-a/1.0";
+const CONCURRENT_A_DEVICE: &str = "field-tablet-a";
+const CONCURRENT_B_TRACEPARENT: &str = "00-22222222222222222222222222222222-2222222222222222-01";
+const CONCURRENT_B_TRACE_ID: &str = "22222222222222222222222222222222";
+const CONCURRENT_B_SPAN_ID: &str = "2222222222222222";
+const CONCURRENT_B_IP: &str = "203.0.113.46";
+const CONCURRENT_B_USER_AGENT: &str = "mnt-consulting-concurrent-b/1.0";
+const CONCURRENT_B_DEVICE: &str = "field-tablet-b";
+
+#[derive(Clone, Copy)]
+struct RequestMetadata {
+    traceparent: &'static str,
+    ip: &'static str,
+    user_agent: &'static str,
+    device: &'static str,
+}
+
+const DEFAULT_REQUEST_METADATA: RequestMetadata = RequestMetadata {
+    traceparent: INBOUND_TRACEPARENT,
+    ip: CLIENT_IP,
+    user_agent: USER_AGENT,
+    device: DEVICE_ID,
+};
+
+const CONCURRENT_A_REQUEST_METADATA: RequestMetadata = RequestMetadata {
+    traceparent: CONCURRENT_A_TRACEPARENT,
+    ip: CONCURRENT_A_IP,
+    user_agent: CONCURRENT_A_USER_AGENT,
+    device: CONCURRENT_A_DEVICE,
+};
+
+const CONCURRENT_B_REQUEST_METADATA: RequestMetadata = RequestMetadata {
+    traceparent: CONCURRENT_B_TRACEPARENT,
+    ip: CONCURRENT_B_IP,
+    user_agent: CONCURRENT_B_USER_AGENT,
+    device: CONCURRENT_B_DEVICE,
+};
 
 struct Keys {
     private_pem: String,
@@ -79,8 +120,8 @@ impl Harness {
         })
     }
 
-    async fn create(&self, body: Value, traceparent: &str) -> (StatusCode, Value) {
-        send_create(self.app.clone(), &self.token, body, traceparent).await
+    async fn create(&self, body: Value, metadata: RequestMetadata) -> (StatusCode, Value) {
+        send_create(self.app.clone(), &self.token, body, metadata).await
     }
 }
 
@@ -128,7 +169,7 @@ async fn send_create(
     service: axum::Router,
     token: &str,
     body: Value,
-    traceparent: &str,
+    metadata: RequestMetadata,
 ) -> (StatusCode, Value) {
     let response = service
         .oneshot(
@@ -137,10 +178,10 @@ async fn send_create(
                 .uri(CONSULTING_ENGAGEMENTS_PATH)
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("traceparent", traceparent)
-                .header("x-forwarded-for", CLIENT_IP)
-                .header(header::USER_AGENT, USER_AGENT)
-                .header("x-device-id", DEVICE_ID)
+                .header("traceparent", metadata.traceparent)
+                .header("x-forwarded-for", metadata.ip)
+                .header(header::USER_AGENT, metadata.user_agent)
+                .header("x-device-id", metadata.device)
                 .body(Body::from(body.to_string()))
                 .unwrap(),
         )
@@ -261,7 +302,10 @@ async fn seed_actor(owner_pool: &PgPool, org: OrgId, branch: BranchId) -> UserId
 async fn first_create_writes_one_org_bound_request_correlated_audit(owner_pool: PgPool) {
     let harness = Harness::new(&owner_pool).await;
     let (status, response) = harness
-        .create(harness.body("consulting-audit-first"), INBOUND_TRACEPARENT)
+        .create(
+            harness.body("consulting-audit-first"),
+            DEFAULT_REQUEST_METADATA,
+        )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{response:?}");
     let engagement_id = response["id"].as_str().unwrap();
@@ -303,14 +347,15 @@ async fn first_create_writes_one_org_bound_request_correlated_audit(owner_pool: 
 async fn sequential_and_concurrent_replay_leave_one_domain_history_and_audit(owner_pool: PgPool) {
     let harness = Harness::new(&owner_pool).await;
     let body = harness.body("consulting-audit-replay");
-    let (first_status, first) = harness.create(body.clone(), INBOUND_TRACEPARENT).await;
+    let (first_status, first) = harness.create(body.clone(), DEFAULT_REQUEST_METADATA).await;
     assert_eq!(first_status, StatusCode::CREATED, "{first:?}");
-    let (sequential_status, sequential) = harness.create(body.clone(), INBOUND_TRACEPARENT).await;
+    let (sequential_status, sequential) =
+        harness.create(body.clone(), DEFAULT_REQUEST_METADATA).await;
     assert_eq!(sequential_status, StatusCode::CREATED, "{sequential:?}");
     assert_eq!(sequential["id"], first["id"]);
 
-    let concurrent_a = harness.create(body.clone(), INBOUND_TRACEPARENT);
-    let concurrent_b = harness.create(body, INBOUND_TRACEPARENT);
+    let concurrent_a = harness.create(body.clone(), CONCURRENT_A_REQUEST_METADATA);
+    let concurrent_b = harness.create(body, CONCURRENT_B_REQUEST_METADATA);
     let ((status_a, response_a), (status_b, response_b)) = tokio::join!(concurrent_a, concurrent_b);
     assert_eq!(status_a, StatusCode::CREATED, "{response_a:?}");
     assert_eq!(status_b, StatusCode::CREATED, "{response_b:?}");
@@ -336,18 +381,80 @@ async fn sequential_and_concurrent_replay_leave_one_domain_history_and_audit(own
     .fetch_one(&owner_pool)
     .await
     .unwrap();
-    let audit_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND target_id = $2 AND action = 'engagement.created'",
+    let audit_rows = sqlx::query(
+        "SELECT trace_id, span_id, ip, user_agent, auth_method, device \
+         FROM audit_events \
+         WHERE org_id = $1 AND target_id = $2 AND action = 'engagement.created'",
     )
     .bind(*harness.org.as_uuid())
     .bind(engagement_id)
     // rls-arming: ok integration verification reads committed state as the migration owner
-    .fetch_one(&owner_pool)
+    .fetch_all(&owner_pool)
     .await
     .unwrap();
     assert_eq!(engagement_count, 1);
     assert_eq!(history_count, 1);
-    assert_eq!(audit_count, 1);
+    assert_eq!(audit_rows.len(), 1);
+    assert_request_metadata(
+        &audit_rows[0],
+        INBOUND_TRACE_ID,
+        INBOUND_SPAN_ID,
+        DEFAULT_REQUEST_METADATA,
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_creates_retain_independent_request_contexts(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let create_a = harness.create(
+        harness.body("consulting-audit-concurrent-a"),
+        CONCURRENT_A_REQUEST_METADATA,
+    );
+    let create_b = harness.create(
+        harness.body("consulting-audit-concurrent-b"),
+        CONCURRENT_B_REQUEST_METADATA,
+    );
+    let ((status_a, response_a), (status_b, response_b)) = tokio::join!(create_a, create_b);
+    assert_eq!(status_a, StatusCode::CREATED, "{response_a:?}");
+    assert_eq!(status_b, StatusCode::CREATED, "{response_b:?}");
+
+    let target_a = response_a["id"].as_str().unwrap();
+    let target_b = response_b["id"].as_str().unwrap();
+    let rows = sqlx::query(
+        "SELECT target_id, trace_id, span_id, ip, user_agent, auth_method, device \
+         FROM audit_events \
+         WHERE org_id = $1 AND action = 'engagement.created' AND target_id IN ($2, $3)",
+    )
+    .bind(*harness.org.as_uuid())
+    .bind(target_a)
+    .bind(target_b)
+    // rls-arming: ok integration verification reads committed state as the migration owner
+    .fetch_all(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+
+    let row_a = rows
+        .iter()
+        .find(|row| row.try_get::<String, _>("target_id").unwrap() == target_a)
+        .expect("request A audit");
+    assert_request_metadata(
+        row_a,
+        CONCURRENT_A_TRACE_ID,
+        CONCURRENT_A_SPAN_ID,
+        CONCURRENT_A_REQUEST_METADATA,
+    );
+
+    let row_b = rows
+        .iter()
+        .find(|row| row.try_get::<String, _>("target_id").unwrap() == target_b)
+        .expect("request B audit");
+    assert_request_metadata(
+        row_b,
+        CONCURRENT_B_TRACE_ID,
+        CONCURRENT_B_SPAN_ID,
+        CONCURRENT_B_REQUEST_METADATA,
+    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -383,7 +490,7 @@ async fn audit_insert_failure_rolls_back_engagement_and_history(owner_pool: PgPo
     let (status, response) = harness
         .create(
             harness.body("consulting-audit-rollback"),
-            INBOUND_TRACEPARENT,
+            DEFAULT_REQUEST_METADATA,
         )
         .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{response:?}");
@@ -414,4 +521,21 @@ async fn audit_insert_failure_rolls_back_engagement_and_history(owner_pool: PgPo
     assert_eq!(engagement_count, 0);
     assert_eq!(history_count, 0);
     assert_eq!(audit_count, 0);
+}
+
+fn assert_request_metadata(
+    row: &sqlx::postgres::PgRow,
+    trace_id: &str,
+    span_id: &str,
+    metadata: RequestMetadata,
+) {
+    assert_eq!(row.try_get::<String, _>("trace_id").unwrap(), trace_id);
+    assert_eq!(row.try_get::<String, _>("span_id").unwrap(), span_id);
+    assert_eq!(row.try_get::<String, _>("ip").unwrap(), metadata.ip);
+    assert_eq!(
+        row.try_get::<String, _>("user_agent").unwrap(),
+        metadata.user_agent
+    );
+    assert_eq!(row.try_get::<String, _>("auth_method").unwrap(), "bearer");
+    assert_eq!(row.try_get::<String, _>("device").unwrap(), metadata.device);
 }
