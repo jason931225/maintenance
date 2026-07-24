@@ -739,6 +739,21 @@ async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner
     for table in tables {
         b_before.insert(table, count_in_org(&owner_pool, table, org_b).await);
     }
+    let mut a_before = std::collections::HashMap::new();
+    for table in [
+        "users",
+        "registry_customers",
+        "registry_sites",
+        "registry_equipment",
+        "work_orders",
+        "financial_rental_quotes",
+        "financial_purchase_requests",
+        "messenger_threads",
+        "evidence_media",
+        "audit_events",
+    ] {
+        a_before.insert(table, count_in_org(&owner_pool, table, org_a).await);
+    }
     let a_audit_before = count_in_org(&owner_pool, "audit_events", org_a).await;
     assert!(a_audit_before >= 1, "org A has audit rows to re-home");
     let sentinel_audit_before =
@@ -812,9 +827,13 @@ async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner
         "evidence_media",
         "audit_events",
     ] {
+        let expected = a_before[key];
         let value: i64 = sqlx::query_scalar("SELECT (before_snap->'wiped'->>$1)::bigint FROM audit_events WHERE action = 'platform.tenant.force_remove' AND target_id = $2")
             .bind(key).bind(org_a.to_string()).fetch_one(&owner_pool).await.unwrap();
-        assert!(value >= 1, "receipt key {key} must account for seeded rows");
+        assert_eq!(
+            value, expected,
+            "receipt key {key} must equal its pre-delete bounded count"
+        );
     }
 
     // THE CRITICAL ASSERTION: org B is byte-for-byte untouched.
