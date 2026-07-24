@@ -121,6 +121,40 @@ pub struct Week52Input {
     pub projected_hours: f64,
     pub acknowledged_at: Option<OffsetDateTime>,
 }
+
+/// Transport-neutral attendance read models. REST owns the snake_case wire mapping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceEvidence {
+    pub name: String,
+    pub size: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceObjectLink {
+    pub kind: String,
+    pub label: String,
+    pub reference: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceExceptionRead {
+    pub id: Uuid,
+    pub code: String,
+    pub kind: ExceptionKind,
+    pub status: String,
+    pub employee_id: Uuid,
+    pub branch_id: Option<Uuid>,
+    pub work_date: Date,
+    pub detail: String,
+    pub evidence: Vec<AttendanceEvidence>,
+    pub links: Vec<AttendanceObjectLink>,
+    pub created_at: OffsetDateTime,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendancePage<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Week52Tone {
