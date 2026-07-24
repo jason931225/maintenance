@@ -20,7 +20,7 @@ describe("clean architecture boundary gate", () => {
     assert.equal(evaluateArchitecture(root).failures[0].rule, "backend-dependency-direction");
   });
   it("rejects framework imports in inner layers, including Cargo aliases", () => {
-    const root = fixture({ "backend/crates/orders/domain/src/lib.rs": "use database::Pool;", "backend/crates/orders/domain/Cargo.toml": cargo('database = { package = "sqlx", version = "*" }') });
+    const root = fixture({ "backend/crates/orders/domain/src/nested/lib.rs": "use database::Pool;", "backend/crates/orders/domain/Cargo.toml": cargo('database = { package = "sqlx", version = "*" }') });
     assert.deepEqual(evaluateArchitecture(root).failures.map((item) => item.rule), ["backend-inner-framework", "backend-inner-framework"]);
   });
   it("rejects direct persistence and lifecycle mutation anywhere in REST", () => {

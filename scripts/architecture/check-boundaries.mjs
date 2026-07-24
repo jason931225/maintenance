@@ -42,7 +42,15 @@ function resolveImport(source, specifier, web) {
 }
 function importsIn(text) { return [...text.matchAll(/(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?["']([^"']+)["']/g)].map((match) => match[1]); }
 function featurePath(path) { return normal(path).match(/^features\/([^/]+)(?:\/|$)/)?.[1] ?? null; }
-function manifestForSource(source) { return join(dirname(dirname(source)), "Cargo.toml"); }
+function manifestForSource(source) {
+  let directory = dirname(source);
+  while (dirname(directory) !== directory) {
+    const manifest = join(directory, "Cargo.toml");
+    if (existsSync(manifest)) return manifest;
+    directory = dirname(directory);
+  }
+  return join(dirname(dirname(source)), "Cargo.toml");
+}
 function isGeneratedApiExport(text) {
   const aliases = [...text.matchAll(/import\s+type\s+\{([^}]+)\}\s+from\s+["']@maintenance\/api-client-ts["']/g)]
     .flatMap((match) => match[1].split(",").map((part) => part.trim().split(/\s+as\s+/).at(-1)).filter(Boolean));
