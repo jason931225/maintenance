@@ -141,16 +141,422 @@ RESOURCE_CONFIG = {
 
 SQLX_MACRO_MARKERS = ("query!", "query_as!", "query_scalar!")
 TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
-# A test that touches a real database / the mnt_rt runtime role cannot run
-# hermetically under `buck2 test` — it needs a live Postgres (same as cargo).
-PG_MARKERS = ("sqlx::test", "PgPool", "DATABASE_URL", "mnt_rt", "with_org_conn")
-# The production REST crate has SQL in its library implementation, but its
-# inline tests exercise only parser/HMAC helpers. Its HTTP/RLS suite remains a
-# separately labeled integration target below.
-PURE_UNIT_PACKAGES = {"mnt-production-rest"}
+
+# Resource scheduling is target metadata, not source-text inference. Test type
+# comes from the generated target shape (inline tests are unit; tests/*.rs are
+# integration); PostgreSQL is an explicit reviewable execution requirement.
+# Keep this table in the generator so adding a live database dependency changes
+# the generated face in the same reviewed diff. Omitted targets are hermetic.
+POSTGRES_TEST_REQUIREMENTS = {
+    'mnt-app': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/action_inbox_api.rs',
+            'tests/audit_api.rs',
+            'tests/auth_rest.rs',
+            'tests/benefit_catalog_api.rs',
+            'tests/cedar_freshness_mint.rs',
+            'tests/cedar_parity_shadow.rs',
+            'tests/cedar_shadow_role_manage.rs',
+            'tests/compliance_api.rs',
+            'tests/compliance_catalog_api.rs',
+            'tests/console_kill_switch.rs',
+            'tests/console_route_telemetry.rs',
+            'tests/consulting_engagement_api.rs',
+            'tests/dev_auth_persona_guard.rs',
+            'tests/dev_auth_persona_guard_feature.rs',
+            'tests/facilities_pilot_story.rs',
+            'tests/finance_gl_voucher_sod.rs',
+            'tests/health_readiness.rs',
+            'tests/hr_attendance_self_read.rs',
+            'tests/hr_ingest_checklist_gate.rs',
+            'tests/hr_people_create_api.rs',
+            'tests/logistics_pilot_story.rs',
+            'tests/m2_real_engine_drive.rs',
+            'tests/mobile_api.rs',
+            'tests/notifications_api.rs',
+            'tests/object_graph_api.rs',
+            'tests/object_links_api.rs',
+            'tests/object_ontology_api.rs',
+            'tests/object_resolve_api.rs',
+            'tests/office_versions.rs',
+            'tests/platform_onboarding_e2e.rs',
+            'tests/purchase_request_collection_api.rs',
+            'tests/realtime_ws.rs',
+            'tests/registry_api.rs',
+            'tests/router_layers.rs',
+            'tests/search_api.rs',
+            'tests/submittable_definitions_api.rs',
+            'tests/tenant_context_e2e.rs',
+            'tests/workbench_native_api.rs',
+            'tests/workflow_automation_triggers.rs',
+            'tests/workflow_dynamics_branch.rs',
+            'tests/workflow_four_eyes_publish.rs',
+            'tests/workflow_object_context_api.rs',
+            'tests/workflow_object_kind_dynamics.rs',
+            'tests/workflow_run_read_surface.rs',
+            'tests/workflow_runtime_finalize_api.rs',
+            'tests/workflow_runtime_instance_api.rs',
+            'tests/workorder_api.rs',
+        }),
+    },
+    'mnt-gate-audit-coverage': {
+        'integration': frozenset({
+            'tests/gate_detects_violation.rs',
+        }),
+    },
+    'mnt-gate-rls-arming': {
+        'unit': True,
+    },
+    'mnt-gate-tenant-isolation': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/owner_only_acl_postgres18.rs',
+        }),
+    },
+    'mnt-benefit-adapter-postgres': {
+        'integration': frozenset({
+            'tests/catalog_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-comms-adapter-postgres': {
+        'integration': frozenset({
+            'tests/mail_account_rls_surfaces_as_runtime_role.rs',
+            'tests/mail_sync_rls_surfaces_as_runtime_role.rs',
+            'tests/send_rate_limit_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-comms-rest': {
+        'integration': frozenset({
+            'tests/mox_webhook.rs',
+            'tests/readiness.rs',
+        }),
+    },
+    'mnt-compliance-adapter-postgres': {
+        'integration': frozenset({
+            'tests/location_consent_status_rls_as_runtime_role.rs',
+            'tests/location_store.rs',
+        }),
+    },
+    'mnt-dispatch-adapter-postgres': {
+        'integration': frozenset({
+            'tests/p1_dispatch.rs',
+        }),
+    },
+    'mnt-dispatch-worker': {
+        'integration': frozenset({
+            'tests/timer_delivery.rs',
+        }),
+    },
+    'mnt-docs-rest': {
+        'integration': frozenset({
+            'tests/evidence_rest_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-finance-gl-adapter-postgres': {
+        'integration': frozenset({
+            'tests/voucher_rls_and_fsm_as_runtime_role.rs',
+        }),
+    },
+    'mnt-financial-adapter-postgres': {
+        'integration': frozenset({
+            'tests/lifecycle_rls_surfaces_as_runtime_role.rs',
+            'tests/period_lock_blocks_ledger_as_runtime_role.rs',
+            'tests/use_cases.rs',
+        }),
+    },
+    'mnt-financial-rest': {
+        'integration': frozenset({
+            'tests/purchase_request_list.rs',
+        }),
+    },
+    'mnt-governance-adapter-postgres': {
+        'integration': frozenset({
+            'tests/approvals_create_as_runtime_role.rs',
+            'tests/four_eyes_bind_consume.rs',
+            'tests/governance_rls_as_runtime_role.rs',
+        }),
+    },
+    'mnt-identity-adapter-postgres': {
+        'integration': frozenset({
+            'tests/deactivate_revokes_credentials.rs',
+            'tests/me_workspace_layouts_rls.rs',
+            'tests/region_branch_crud_rls_surfaces_as_runtime_role.rs',
+            'tests/subject_authz_versions_freshness_rls.rs',
+        }),
+    },
+    'mnt-identity-rest': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/org_setup.rs',
+        }),
+    },
+    'mnt-inbox-adapter-postgres': {
+        'integration': frozenset({
+            'tests/inbox_docs_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-inbox-rest': {
+        'integration': frozenset({
+            'tests/api.rs',
+        }),
+    },
+    'mnt-inspection-adapter-postgres': {
+        'integration': frozenset({
+            'tests/lifecycle.rs',
+            'tests/schedule_window_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-leave-adapter-postgres': {
+        'integration': frozenset({
+            'tests/leave_migration_expand_contract.rs',
+            'tests/leave_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-leave-rest': {
+        'integration': frozenset({
+            'tests/leave_http_personas.rs',
+        }),
+    },
+    'mnt-messenger-adapter-postgres': {
+        'integration': frozenset({
+            'tests/parity_tables_rls_as_runtime_role.rs',
+            'tests/use_cases.rs',
+        }),
+    },
+    'mnt-messenger-rest': {
+        'integration': frozenset({
+            'tests/api.rs',
+        }),
+    },
+    'mnt-notices-adapter-postgres': {
+        'integration': frozenset({
+            'tests/notices_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-notices-rest': {
+        'integration': frozenset({
+            'tests/api.rs',
+        }),
+    },
+    'mnt-notifications-adapter-postgres': {
+        'integration': frozenset({
+            'tests/notifications_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-notifications-rest': {
+        'integration': frozenset({
+            'tests/api.rs',
+        }),
+    },
+    'mnt-ontology-adapter-postgres': {
+        'integration': frozenset({
+            'tests/c_chain_as_runtime_role.rs',
+            'tests/config_object_types_as_runtime_role.rs',
+            'tests/instances_residual_filter_as_runtime_role.rs',
+            'tests/instances_rls_surfaces_as_runtime_role.rs',
+            'tests/key_revision_migration_upgrade.rs',
+            'tests/key_write_cas_as_runtime_role.rs',
+            'tests/niche_config_object_types_as_runtime_role.rs',
+            'tests/projected_instances_read_as_runtime_role.rs',
+            'tests/registry_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-ontology-rest': {
+        'integration': frozenset({
+            'tests/action_execute_as_runtime_role.rs',
+            'tests/object_type_cas_as_runtime_role.rs',
+            'tests/ont_gaps_as_runtime_role.rs',
+            'tests/projected_dispatch_as_runtime_role.rs',
+            'tests/publish_auto_create_action_as_runtime_role.rs',
+        }),
+    },
+    'mnt-payroll-adapter-postgres': {
+        'integration': frozenset({
+            'tests/payroll_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-payroll-rest': {
+        'integration': frozenset({
+            'tests/api.rs',
+        }),
+    },
+    'mnt-platform-audit-chain': {
+        'integration': frozenset({
+            'tests/audit_chain_rls.rs',
+        }),
+    },
+    'mnt-platform-auth': {
+        'integration': frozenset({
+            'tests/refresh_tokens.rs',
+            'tests/webauthn_ceremony.rs',
+            'tests/webauthn_ceremony_replay.rs',
+        }),
+    },
+    'mnt-platform-auth-rest': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/dev_auth_absence.rs',
+            'tests/dev_auth_session.rs',
+            'tests/group_admin_tenant_context.rs',
+        }),
+    },
+    'mnt-platform-authz': {
+        'integration': frozenset({
+            'tests/policy.rs',
+        }),
+    },
+    'mnt-platform-authz-rest': {
+        'integration': frozenset({
+            'tests/cedar_authoring_rls_as_runtime_role.rs',
+            'tests/decision_feed_as_runtime_role.rs',
+        }),
+    },
+    'mnt-platform-db': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/code_issuance.rs',
+            'tests/group_resolvers.rs',
+            'tests/m2_flag_on_runtime_drain.rs',
+            'tests/period_locks_and_lifecycle.rs',
+            'tests/rls_isolation.rs',
+            'tests/rls_rollout_isolation.rs',
+        }),
+    },
+    'mnt-platform-group': {
+        'unit': True,
+    },
+    'mnt-platform-jobs': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/apalis_adapter.rs',
+            'tests/apalis_schema_contract.rs',
+        }),
+    },
+    'mnt-platform-rest': {
+        'integration': frozenset({
+            'tests/onboard_seeds_config_objects.rs',
+            'tests/ops_dashboard.rs',
+            'tests/platform_groups.rs',
+            'tests/remove_tenant.rs',
+            'tests/view_as.rs',
+        }),
+    },
+    'mnt-platform-provisioning': {
+        'integration': frozenset({
+            'tests/bootstrap_passkey.rs',
+            'tests/bootstrap_passkey_replay.rs',
+            'tests/dev_principal_upsert_race.rs',
+            'tests/rls_auth_chain_as_runtime_role.rs',
+            'tests/roster_import.rs',
+            'tests/self_enroll_handoff_as_runtime_role.rs',
+        }),
+    },
+    'mnt-platform-realtime': {
+        'integration': frozenset({
+            'tests/postgres_bridge.rs',
+        }),
+    },
+    'mnt-platform-storage': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/evidence_processing_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-policy-adapter-postgres': {
+        'integration': frozenset({
+            'tests/draft_storage.rs',
+        }),
+    },
+    'mnt-production-rest': {
+        'integration': frozenset({
+            'tests/production_lifecycle_http.rs',
+        }),
+    },
+    'mnt-registry-adapter-postgres': {
+        'integration': frozenset({
+            'tests/create_rls_surfaces_as_runtime_role.rs',
+            'tests/equipment_list_rls_as_runtime_role.rs',
+            'tests/equipment_lookup_normalization_rls_as_runtime_role.rs',
+            'tests/equipment_versioning_as_runtime_role.rs',
+            'tests/master_list_import.rs',
+            'tests/master_list_import_rls_as_runtime_role.rs',
+            'tests/site_address_postal_roundtrip_rls_as_runtime_role.rs',
+        }),
+    },
+    'mnt-registry-rest': {
+        'integration': frozenset({
+            'tests/equipment_admin.rs',
+        }),
+    },
+    'mnt-reporting-adapter-postgres': {
+        'integration': frozenset({
+            'tests/excel_exports.rs',
+            'tests/kpi_golden_dataset.rs',
+            'tests/ops_summary.rs',
+            'tests/work_diary_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-sales-adapter-postgres': {
+        'integration': frozenset({
+            'tests/inquiry_rls_surfaces_as_runtime_role.rs',
+            'tests/sales_store.rs',
+        }),
+    },
+    'mnt-support-adapter-postgres': {
+        'integration': frozenset({
+            'tests/assignee_name_join_rls_surfaces_as_runtime_role.rs',
+            'tests/create_internal_ticket_rls_surfaces_as_runtime_role.rs',
+            'tests/support_tickets.rs',
+        }),
+    },
+    'mnt-support-rest': {
+        'unit': True,
+        'integration': frozenset({
+            'tests/authz.rs',
+            'tests/intake.rs',
+        }),
+    },
+    'mnt-todos-adapter-postgres': {
+        'integration': frozenset({
+            'tests/todos_rls_surfaces_as_runtime_role.rs',
+        }),
+    },
+    'mnt-workflow-runtime-adapter-postgres': {
+        'integration': frozenset({
+            'tests/notification_bridge.rs',
+            'tests/payroll_drain_period_lock.rs',
+        }),
+    },
+    'mnt-workorder-adapter-postgres': {
+        'integration': frozenset({
+            'tests/m2_flag_off_parity.rs',
+            'tests/rls_read_surfaces_as_runtime_role.rs',
+            'tests/use_cases.rs',
+        }),
+    },
+    'mnt-workorder-rest': {
+        'integration': frozenset({
+            'tests/mobile_evidence.rs',
+            'tests/mobile_sync.rs',
+        }),
+    },
+}
 
 TEST_TYPE_LABELS = frozenset({"test.unit", "test.integration"})
 RESOURCE_LABELS = frozenset({"resource.none", "resource.postgres"})
+
+
+def requires_postgres(package_name, test_type, test_file=None):
+    """Return a mutable-resource requirement from reviewed target metadata."""
+    if test_type not in TEST_TYPE_LABELS:
+        raise ValueError("unknown test type: {}".format(test_type))
+    requirement = POSTGRES_TEST_REQUIREMENTS.get(package_name, {})
+    if test_type == "test.unit":
+        return requirement.get("unit", False)
+    if test_file is None:
+        raise ValueError("integration resource lookup requires a test file")
+    return test_file in requirement.get("integration", frozenset())
 
 
 def stable_label_segment(value):
@@ -228,33 +634,6 @@ def tree_has(root, *markers):
                 return True
     return False
 
-
-def test_body_uses_postgres(contents):
-    """Detect DB use only after a Rust test/module anchor.
-
-    A REST crate can use PgPool in production handlers while its inline tests
-    exercise pure authorization/state-machine helpers. Classifying the whole
-    library would serialise those unit tests behind a disposable database for no
-    reason. The source after a test anchor is the reviewed test body boundary;
-    unusual layouts must add explicit reviewed metadata rather than widening
-    this heuristic to all implementation code.
-    """
-    anchors = ("#[cfg(test)]",) + TEST_MARKERS
-    return any(marker in contents[index:] for anchor in anchors if (index := contents.find(anchor)) >= 0 for marker in PG_MARKERS)
-
-
-def source_test_tree_uses_postgres(root):
-    for dp, _, files in os.walk(root):
-        for filename in files:
-            if filename.endswith(".rs"):
-                try:
-                    with open(os.path.join(dp, filename), encoding="utf-8", errors="ignore") as source_file:
-                        contents = source_file.read()
-                except OSError:
-                    continue
-                if test_body_uses_postgres(contents):
-                    return True
-    return False
 
 
 def map_deps(dep_table, first_party):
@@ -453,12 +832,7 @@ def emit(d, name, deps, named, dev_deps, dev_named):
     # SQL-backed suites are emitted and labeled rather than hidden: the migration
     # input is hermetic at compile time, while execution still requires Postgres.
     if tree_has(src, "#[cfg(test)]"):
-        # A package may contain database implementation code while its inline
-        # tests are pure (for example mnt-production-rest). Classify execution
-        # evidence, not unrelated library source.
-        uses_postgres = (
-            name not in PURE_UNIT_PACKAGES and source_test_tree_uses_postgres(src)
-        )
+        uses_postgres = requires_postgres(name, "test.unit")
         labels = test_labels(package, "test.unit", uses_postgres)
         out.append("")
         out += _block("rust_test", name + "-unit",
@@ -486,7 +860,7 @@ def emit(d, name, deps, named, dev_deps, dev_named):
             labels = test_labels(
                 package,
                 "test.integration",
-                test_body_uses_postgres(contents),
+                requires_postgres(name, "test.integration", tf),
             )
             config = integration_resource_config(name, tf)
             srcs_expr = listsrcs(sorted(set([tf] + helpers)))

@@ -2,6 +2,7 @@
 """Behavior locks for the first-party Rust BUCK graph generator."""
 
 import importlib.util
+import inspect
 import unittest
 from pathlib import Path
 
@@ -111,7 +112,9 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         )
 
     def test_production_parser_unit_target_stays_hermetic(self) -> None:
-        self.assertIn("mnt-production-rest", GENERATOR.PURE_UNIT_PACKAGES)
+        self.assertFalse(
+            GENERATOR.requires_postgres("mnt-production-rest", "test.unit")
+        )
 
 
 class TestTaxonomy(unittest.TestCase):
@@ -153,29 +156,44 @@ class TestTaxonomy(unittest.TestCase):
             GENERATOR.test_labels("backend/app", "test.e2e", False)
 
 class TestResourceClassification(unittest.TestCase):
-    def test_production_pgpool_does_not_make_facilities_like_unit_tests_database_bound(self) -> None:
-        source = '''
-use sqlx::PgPool;
-async fn handler(pool: PgPool) {}
-#[cfg(test)]
-mod tests { #[test] fn legal_transition_is_pure() {} }
-'''
-        self.assertFalse(GENERATOR.test_body_uses_postgres(source))
+    def test_benefit_and_facilities_units_are_hermetic_even_when_sources_mention_postgres(self) -> None:
+        for package in ("mnt-benefit-rest", "mnt-facilities-rest"):
+            self.assertFalse(GENERATOR.requires_postgres(package, "test.unit"))
+            labels = GENERATOR.test_labels(
+                "backend/crates/{}/rest".format(package.removeprefix("mnt-").removesuffix("-rest")),
+                "test.unit",
+                GENERATOR.requires_postgres(package, "test.unit"),
+            )
+            self.assertIn("resource.none", labels)
+            self.assertNotIn("resource.postgres", labels)
 
-    def test_postgres_in_a_reviewable_test_body_is_database_bound(self) -> None:
-        source = '''
-#[cfg(test)]
-mod tests { #[sqlx::test] async fn migration(pool: PgPool) {} }
-'''
-        self.assertTrue(GENERATOR.test_body_uses_postgres(source))
+    def test_comments_and_unrelated_library_code_cannot_require_postgres(self) -> None:
+        self.assertNotIn("PgPool", inspect.getsource(GENERATOR.requires_postgres))
+        self.assertFalse(GENERATOR.requires_postgres("mnt-facilities-rest", "test.unit"))
+        self.assertFalse(
+            GENERATOR.requires_postgres(
+                "mnt-facilities-rest", "test.integration", "tests/comment_only.rs"
+            )
+        )
 
-    def test_benefit_and_facilities_unit_bodies_are_pure(self) -> None:
-        repo = Path(GENERATOR.REPO)
-        for relative in (
-            "backend/crates/benefit/rest/src",
-            "backend/crates/facilities/rest/src",
-        ):
-            self.assertFalse(GENERATOR.source_test_tree_uses_postgres(repo / relative))
+    def test_reviewed_database_integration_target_is_postgres_bound(self) -> None:
+        self.assertTrue(
+            GENERATOR.requires_postgres(
+                "mnt-benefit-adapter-postgres",
+                "test.integration",
+                "tests/catalog_rls_surfaces_as_runtime_role.rs",
+            )
+        )
+        labels = GENERATOR.test_labels(
+            "backend/crates/benefit/adapter-postgres", "test.integration", True
+        )
+        self.assertIn("resource.postgres", labels)
+        self.assertIn("needs-postgres", labels)
+
+    def test_integration_resource_lookup_requires_a_target_path(self) -> None:
+        with self.assertRaises(ValueError):
+            GENERATOR.requires_postgres("mnt-benefit-adapter-postgres", "test.integration")
+
 
 if __name__ == "__main__":
     unittest.main()
