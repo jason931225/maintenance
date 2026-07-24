@@ -611,7 +611,6 @@ async fn week52(
 struct Week52AckBody {
     employee_id: Uuid,
     week_start: String,
-    branch_id: Option<Uuid>,
 }
 async fn acknowledge_week52(
     State(state): State<AttendanceRestState>,
@@ -619,11 +618,15 @@ async fn acknowledge_week52(
     Json(body): Json<Week52AckBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
-    require_for_branch(&p, MANAGE, body.branch_id)?;
+    let branch = state
+        .store
+        .active_employee_home_branch(*p.org_id.as_uuid(), body.employee_id)
+        .await
+        .map_err(RestError::store)?;
+    require_resource_branch(&p, MANAGE, branch)?;
     let command = AcknowledgeWeek52 {
         employee_id: body.employee_id,
         week_start: parse_date(&body.week_start, "weekStart")?,
-        branch_id: body.branch_id,
     };
     state
         .store
@@ -765,6 +768,11 @@ mod tests {
         };
         let r = list_range(&q).unwrap();
         assert_eq!(r.to_exclusive.to_string(), "2026-08-08");
+    }
+
+    #[test]
+    fn week52_ack_rejects_client_supplied_branch() {
+        assert!(serde_json::from_value::<Week52AckBody>(json!({"employeeId":Uuid::new_v4(),"weekStart":"2026-07-06","branchId":Uuid::new_v4()})).is_err());
     }
 
     #[test]

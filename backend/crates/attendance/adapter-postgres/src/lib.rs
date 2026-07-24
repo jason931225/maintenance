@@ -3,6 +3,8 @@
 //! in the same transaction as their state transition.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+use std::collections::BTreeMap;
+
 use mnt_attendance_application::{
     self as app, AcknowledgeWeek52, AmendClose, AssignSubstitute, CallerScope, CancelSubstitution,
     CloseChecks, CloseMonth, ListSubstitutions, RaiseException, ResolveException, Week52Input,
@@ -279,22 +281,23 @@ impl PgAttendanceStore {
             // A branch close is an attendance evidence snapshot only. It must
             // never acquire or create the organization-wide payroll period lock.
             // Organization-wide closes reuse or create that lock atomically.
-            let lock_id = if close.branch_scope.is_some() {
-                None
+            let (lock_id, created_period_lock) = if close.branch_scope.is_some() {
+                (None, false)
             } else {
                 let existing: Option<Uuid> = sqlx::query_scalar(
                     "SELECT id FROM period_locks WHERE domain='payroll' AND unlocked_at IS NULL AND period_start <= $1 AND period_end >= $2 ORDER BY locked_at DESC LIMIT 1",
                 ).bind(month).bind(last).fetch_optional(tx.as_mut()).await?;
                 match existing {
-                    Some(id) => Some(id),
+                    Some(id) => (Some(id), false),
                     None => {
                         let overlaps: i64 = sqlx::query_scalar(
                             "SELECT count(*) FROM period_locks WHERE domain='payroll' AND unlocked_at IS NULL AND period_start <= $2 AND period_end >= $1",
                         ).bind(month).bind(last).fetch_one(tx.as_mut()).await?;
                         if overlaps != 0 { return Err(AttendanceStoreError::Conflict); }
-                        Some(sqlx::query_scalar(
+                        let id = sqlx::query_scalar(
                             "INSERT INTO period_locks (org_id,domain,period_start,period_end,reason,locked_by) VALUES ($1,'payroll',$2,$3,$4,$5) RETURNING id",
-                        ).bind(caller.org_id).bind(month).bind(last).bind(format!("attendance close {} ({scope})", close.month)).bind(caller.user_id).fetch_one(tx.as_mut()).await?)
+                        ).bind(caller.org_id).bind(month).bind(last).bind(format!("attendance close {} ({scope})", close.month)).bind(caller.user_id).fetch_one(tx.as_mut()).await?;
+                        (Some(id), true)
                     }
                 }
             };
@@ -303,7 +306,11 @@ impl PgAttendanceStore {
             ).bind(id).bind(caller.org_id).bind(month).bind(&scope).bind(&checks_json).bind(caller.user_id).bind(lock_id).execute(tx.as_mut()).await?;
             if inserted.rows_affected() != 1 { return Err(AttendanceStoreError::Conflict); }
             let view = json!({"id":id,"month":close.month,"branchScope":scope,"status":"CLOSED","checks":checks_json,"periodLockId":lock_id});
-            Ok((view, vec![event(&caller,"attendance.close.confirm","attendance_month_close",id,close.branch_scope,Some(json!({"periodLockId":lock_id})))?]))
+            let mut audits = vec![event(&caller,"attendance.close.confirm","attendance_month_close",id,close.branch_scope,Some(json!({"periodLockId":lock_id})))?];
+            if created_period_lock {
+                audits.push(event(&caller,"period_lock.create","period_lock",lock_id.expect("created lock id"),None,Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})))?);
+            }
+            Ok((view, audits))
         })).await
     }
 
@@ -372,17 +379,45 @@ impl PgAttendanceStore {
         })).await
     }
 
+    /// Resolves an active employee's server-owned home branch under the tenant
+    /// connection. `None` deliberately covers cross-tenant, inactive, and
+    /// branchless employees without leaking which condition applied.
+    pub async fn active_employee_home_branch(
+        &self,
+        org_id: Uuid,
+        employee_id: Uuid,
+    ) -> Result<Option<Uuid>, AttendanceStoreError> {
+        let branch: Option<Option<Uuid>> = with_org_conn::<_, _, AttendanceStoreError>(&self.pool, OrgId::from_uuid(org_id), move |tx| Box::pin(async move {
+            sqlx::query_scalar("SELECT home_branch_id FROM employees WHERE id=$1 AND employment_status='ACTIVE' AND home_branch_id IS NOT NULL")
+                .bind(employee_id).fetch_optional(tx.as_mut()).await.map_err(AttendanceStoreError::from)
+        })).await?;
+        branch
+            .flatten()
+            .ok_or(AttendanceStoreError::NotFound)
+            .map(Some)
+    }
+
     pub async fn acknowledge_week52(
         &self,
         caller: &CallerScope,
         command: AcknowledgeWeek52,
     ) -> Result<Value, AttendanceStoreError> {
-        app::ensure_scope(caller, command.branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            sqlx::query("INSERT INTO attendance_week52_acknowledgements (org_id,employee_id,week_start,acknowledged_by) VALUES ($1,$2,$3,$4) ON CONFLICT (org_id,employee_id,week_start) DO NOTHING").bind(caller.org_id).bind(command.employee_id).bind(command.week_start).bind(caller.user_id).execute(tx.as_mut()).await?;
-            Ok((json!({"employeeId":command.employee_id,"weekStart":command.week_start,"acknowledged":true}), vec![event(&caller,"attendance.week52.acknowledge","attendance_week52",command.employee_id,command.branch_id,Some(json!({"weekStart":command.week_start})))?]))
+            let branch: Option<Uuid> = sqlx::query_scalar("SELECT home_branch_id FROM employees WHERE id=$1 AND employment_status='ACTIVE' AND home_branch_id IS NOT NULL")
+                .bind(command.employee_id).fetch_optional(tx.as_mut()).await?.flatten();
+            let branch = branch.ok_or(AttendanceStoreError::NotFound)?;
+            app::ensure_scope(&caller, Some(branch))?;
+            let inserted: Option<OffsetDateTime> = sqlx::query_scalar("INSERT INTO attendance_week52_acknowledgements (org_id,employee_id,week_start,acknowledged_by) VALUES ($1,$2,$3,$4) ON CONFLICT (org_id,employee_id,week_start) DO NOTHING RETURNING acknowledged_at")
+                .bind(caller.org_id).bind(command.employee_id).bind(command.week_start).bind(caller.user_id).fetch_optional(tx.as_mut()).await?;
+            let acknowledged_at = match inserted {
+                Some(value) => value,
+                None => sqlx::query_scalar("SELECT acknowledged_at FROM attendance_week52_acknowledgements WHERE employee_id=$1 AND week_start=$2")
+                    .bind(command.employee_id).bind(command.week_start).fetch_optional(tx.as_mut()).await?.ok_or(AttendanceStoreError::NotFound)?,
+            };
+            let audits = if inserted.is_some() { vec![event(&caller,"attendance.week52.acknowledge","attendance_week52",command.employee_id,Some(branch),Some(json!({"weekStart":command.week_start,"acknowledgedAt":acknowledged_at})))?] } else { Vec::new() };
+            Ok((json!({"employeeId":command.employee_id,"weekStart":command.week_start,"acknowledged":true,"acknowledgedAt":acknowledged_at}), audits))
         })).await
     }
 
@@ -395,8 +430,58 @@ impl PgAttendanceStore {
         app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         let end = week_start + Duration::days(7);
-        with_org_conn::<_,_,AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move { let rows=sqlx::query("SELECT r.employee_id, COALESCE(sum(CASE WHEN r.kind='CLOCK_IN' THEN 8.0 ELSE 0.0 END),0)::float8 AS hours FROM employee_attendance_records r JOIN employees e ON e.id=r.employee_id AND e.org_id=r.org_id WHERE r.work_date >= $1 AND r.work_date < $2 AND ($3::uuid IS NULL OR e.home_branch_id=$3) GROUP BY r.employee_id").bind(week_start).bind(end).bind(branch_id).fetch_all(tx.as_mut()).await?; rows.iter().map(|r|Ok(Week52Input{employee_id:r.try_get("employee_id")?,week_start,current_hours:r.try_get("hours")?,projected_hours:r.try_get("hours")?,acknowledged_at:None})).collect::<Result<Vec<_>,AttendanceStoreError>>() })).await
+        with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
+            let rows = sqlx::query("SELECT r.employee_id,r.kind,r.occurred_at FROM employee_attendance_records r JOIN employees e ON e.id=r.employee_id AND e.org_id=r.org_id WHERE e.employment_status='ACTIVE' AND r.work_date >= $1 AND r.work_date < $2 AND ($3::uuid IS NULL OR e.home_branch_id=$3) ORDER BY r.employee_id,r.occurred_at,r.id")
+                .bind(week_start).bind(end).bind(branch_id).fetch_all(tx.as_mut()).await?;
+            let events = rows.iter().map(|row| Ok(Week52Event { employee_id: row.try_get("employee_id")?, kind: row.try_get("kind")?, occurred_at: row.try_get("occurred_at")? })).collect::<Result<Vec<_>, AttendanceStoreError>>()?;
+            let hours = week52_hours(&events)?;
+            let acknowledgements = sqlx::query("SELECT employee_id,acknowledged_at FROM attendance_week52_acknowledgements WHERE week_start=$1")
+                .bind(week_start).fetch_all(tx.as_mut()).await?.into_iter().map(|row| Ok((row.try_get::<Uuid,_>("employee_id")?, row.try_get::<OffsetDateTime,_>("acknowledged_at")?))).collect::<Result<BTreeMap<_,_>, AttendanceStoreError>>()?;
+            Ok(hours.into_iter().map(|(employee_id, current_hours)| Week52Input { employee_id, week_start, current_hours, projected_hours: current_hours, acknowledged_at: acknowledgements.get(&employee_id).copied() }).collect())
+        })).await
     }
+}
+
+#[derive(Debug, Clone)]
+struct Week52Event {
+    employee_id: Uuid,
+    kind: String,
+    occurred_at: OffsetDateTime,
+}
+
+/// Only complete CLOCK_IN/CLOCK_OUT pairs contribute time. A duplicate open
+/// clock-in or unmatched clock-out/open clock-in fails the whole read instead
+/// of inventing a duration.
+fn week52_hours(events: &[Week52Event]) -> Result<BTreeMap<Uuid, f64>, AttendanceStoreError> {
+    let mut open = BTreeMap::<Uuid, OffsetDateTime>::new();
+    let mut seconds = BTreeMap::<Uuid, i64>::new();
+    for event in events {
+        match event.kind.as_str() {
+            "CLOCK_IN" => {
+                if open.insert(event.employee_id, event.occurred_at).is_some() {
+                    return Err(AttendanceStoreError::Conflict);
+                }
+            }
+            "CLOCK_OUT" => {
+                let start = open
+                    .remove(&event.employee_id)
+                    .ok_or(AttendanceStoreError::Conflict)?;
+                let elapsed = (event.occurred_at - start).whole_seconds();
+                if elapsed < 0 {
+                    return Err(AttendanceStoreError::Conflict);
+                }
+                *seconds.entry(event.employee_id).or_default() += elapsed;
+            }
+            _ => {}
+        }
+    }
+    if !open.is_empty() {
+        return Err(AttendanceStoreError::Conflict);
+    }
+    Ok(seconds
+        .into_iter()
+        .map(|(employee, seconds)| (employee, seconds as f64 / 3600.0))
+        .collect())
 }
 
 fn month_after(month: Date) -> Date {
@@ -689,6 +774,37 @@ mod tests {
             substitution_fingerprint(&caller, &canonical),
             substitution_fingerprint(&caller, &whitespace)
         );
+    }
+    fn event_at(employee_id: Uuid, kind: &str, hours: i64) -> Week52Event {
+        Week52Event {
+            employee_id,
+            kind: kind.to_owned(),
+            occurred_at: OffsetDateTime::UNIX_EPOCH + Duration::hours(hours),
+        }
+    }
+    #[test]
+    fn week52_derives_only_real_complete_clock_pairs() {
+        let employee = Uuid::new_v4();
+        let hours = week52_hours(&[
+            event_at(employee, "CLOCK_IN", 0),
+            event_at(employee, "OUT_FOR_WORK", 1),
+            event_at(employee, "CLOCK_OUT", 9),
+        ])
+        .unwrap();
+        assert_eq!(hours.get(&employee), Some(&9.0));
+    }
+    #[test]
+    fn week52_fails_closed_for_repeated_or_missing_clock_pairs() {
+        let employee = Uuid::new_v4();
+        assert!(week52_hours(&[event_at(employee, "CLOCK_OUT", 1)]).is_err());
+        assert!(
+            week52_hours(&[
+                event_at(employee, "CLOCK_IN", 0),
+                event_at(employee, "CLOCK_IN", 1)
+            ])
+            .is_err()
+        );
+        assert!(week52_hours(&[event_at(employee, "CLOCK_IN", 0)]).is_err());
     }
     #[test]
     fn historical_interval_contract_covers_full_partial_and_no_coverage() {

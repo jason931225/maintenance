@@ -100,7 +100,6 @@ pub struct AmendClose {
 pub struct AcknowledgeWeek52 {
     pub employee_id: Uuid,
     pub week_start: Date,
-    pub branch_id: Option<Uuid>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloseChecks {
