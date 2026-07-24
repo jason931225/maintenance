@@ -510,13 +510,14 @@ async function loginAs(page: Page, role: DevRole): Promise<void> {
   await page.goto("/login");
   await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
   await page.getByRole("combobox").selectOption({ label: role });
-  const branchIds = page.getByLabel(/^지점 ID/);
-  if (await branchIds.count()) {
-    await branchIds.fill(BRANCH_ID);
-  } else {
-    await page.getByLabel("지점").selectOption(BRANCH_ID);
-  }
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  await page.getByRole("button", { name: "고급 설정" }).click();
+  await page.getByLabel("조직 ID").fill(ORG_ID);
+  await page.getByLabel("지점 ID (쉼표로 구분)").fill(BRANCH_ID);
+  await page
+    .getByRole("button", {
+      name: role === "관리자" ? /관리자 로그인$/ : /일반 멤버 로그인$/,
+    })
+    .click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 
@@ -524,11 +525,11 @@ async function loginAsMemberWithoutBranch(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
   await page.getByRole("combobox").selectOption({ label: "일반 멤버" });
-  const advancedSettings = page.getByRole("button", { name: "고급 설정" });
-  if (await advancedSettings.count()) await advancedSettings.click();
+  await page.getByRole("button", { name: "고급 설정" }).click();
   await page.getByLabel("조직 ID").fill(memberOrgId);
-  await page.getByLabel(/^지점 ID/).fill("");
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  await page.getByLabel("지점 ID (쉼표로 구분)").fill("");
+  await expect(page.getByRole("status")).toContainText("조직 전체 범위");
+  await page.getByRole("button", { name: /일반 멤버 로그인$/ }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 
