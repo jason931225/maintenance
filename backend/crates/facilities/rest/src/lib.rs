@@ -542,15 +542,27 @@ async fn observe(
     Json(b): Json<ObservationBody>,
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(&s, &h).await?;
-    require_org_feature(&p, Feature::FacilitiesObserve)?;
-    for (phase, value) in [("PRE", b.pre_kwh), ("POST", b.post_kwh)] {
-        if let Some(kwh) = value {
-            sqlx::query("INSERT INTO facilities_energy_observations(org_id,case_id,phase,source,observed_at,kwh,recorded_by) VALUES($1,$2,$3,'MANUAL',$4,$5,$6) ON CONFLICT (org_id,case_id,phase) DO NOTHING").bind(*p.org_id.as_uuid()).bind(id).bind(phase).bind(b.observed_at).bind(kwh).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
+    let org = p.org_id;
+    let actor = p.clone();
+    with_audits::<_, _, RestError>(&s.pool, org, move |tx| Box::pin(async move {
+        let row = sqlx::query("SELECT branch_id FROM facilities_cases WHERE id=$1 AND org_id=$2 FOR UPDATE")
+            .bind(id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
+            .ok_or_else(|| RestError::new(StatusCode::NOT_FOUND, "not_found", "facilities case was not found"))?;
+        let branch: Uuid = row.try_get("branch_id").map_err(RestError::db)?;
+        require_feature(&actor, Feature::FacilitiesObserve, branch)?;
+        for (phase, value) in [("PRE", b.pre_kwh), ("POST", b.post_kwh)] {
+            if let Some(kwh) = value {
+                sqlx::query("INSERT INTO facilities_energy_observations(org_id,case_id,phase,source,observed_at,kwh,recorded_by) VALUES($1,$2,$3,'MANUAL',$4,$5,$6) ON CONFLICT (org_id,case_id,phase) DO UPDATE SET observed_at=EXCLUDED.observed_at,kwh=EXCLUDED.kwh,recorded_by=EXCLUDED.recorded_by")
+                    .bind(*org.as_uuid()).bind(id).bind(phase).bind(b.observed_at).bind(kwh).bind(*actor.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+            }
         }
-    }
-    if let Some(cost) = b.cost_krw {
-        sqlx::query("INSERT INTO facilities_cost_observations(org_id,case_id,source,observed_at,currency,amount_krw,recorded_by) VALUES($1,$2,'MANUAL',$3,'KRW',$4,$5)").bind(*p.org_id.as_uuid()).bind(id).bind(b.observed_at).bind(cost).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
-    }
+        if let Some(cost) = b.cost_krw {
+            sqlx::query("INSERT INTO facilities_cost_observations(org_id,case_id,source,observed_at,currency,amount_krw,recorded_by) VALUES($1,$2,'MANUAL',$3,'KRW',$4,$5)")
+                .bind(*org.as_uuid()).bind(id).bind(b.observed_at).bind(cost).bind(*actor.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+        }
+        let audit = event(&actor, "facilities.case.observe", id, branch, None, Some(serde_json::json!({"observedAt":b.observed_at,"costKrw":b.cost_krw})))?;
+        Ok(((), vec![audit]))
+    })).await?;
     get_case_view(&s.pool, &p, id).await.map(Json)
 }
 async fn history(
