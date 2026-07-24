@@ -22,6 +22,7 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use axum::extract::{ConnectInfo, Request};
 use axum::middleware::Next;
@@ -164,20 +165,26 @@ pub fn with_trusted_client_ip<S>(
 where
     S: Clone + Send + Sync + 'static,
 {
+    let trusted_proxy_cidrs: Arc<[IpNet]> = trusted_proxy_cidrs.into();
     router.layer(axum::middleware::from_fn(
-        move |mut request: Request, next: Next| async move {
-            if let Some(ConnectInfo(peer)) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
-                let client_ip = resolve_trusted_client_ip(
-                    request.headers(),
-                    *peer,
-                    trusted_proxy_count,
-                    &trusted_proxy_cidrs,
-                );
-                request
-                    .extensions_mut()
-                    .insert(TrustedClientIp::new(client_ip));
+        move |mut request: Request, next: Next| {
+            let trusted_proxy_cidrs = Arc::clone(&trusted_proxy_cidrs);
+            async move {
+                if let Some(ConnectInfo(peer)) =
+                    request.extensions().get::<ConnectInfo<SocketAddr>>()
+                {
+                    let client_ip = resolve_trusted_client_ip(
+                        request.headers(),
+                        *peer,
+                        trusted_proxy_count,
+                        &trusted_proxy_cidrs,
+                    );
+                    request
+                        .extensions_mut()
+                        .insert(TrustedClientIp::new(client_ip));
+                }
+                next.run(request).await
             }
-            next.run(request).await
         },
     ))
 }
@@ -656,7 +663,16 @@ where
 mod tests {
     use super::*;
     use axum::body::Body;
+    use axum::extract::Extension;
+    use axum::routing::get;
     use mnt_platform_authz::{Action, Feature, authorize_org_wide};
+    use tower::Service;
+
+    fn forwarded_headers(value: &'static str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", value.parse().unwrap());
+        headers
+    }
 
     fn request_with_network_metadata(
         forwarded_for: &str,
@@ -725,15 +741,12 @@ mod tests {
 
     #[test]
     fn ingress_resolver_accepts_a_complete_trusted_proxy_suffix() {
-        let headers = HeaderMap::from_iter([(
-            "x-forwarded-for",
-            "198.51.100.250, 10.0.0.2".parse().unwrap(),
-        )]);
+        let headers = forwarded_headers("198.51.100.250, 10.0.0.2");
         let peer = "10.0.0.3:443".parse().unwrap();
 
         assert_eq!(
             resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
-            "198.51.100.250".parse().unwrap()
+            "198.51.100.250".parse::<IpAddr>().unwrap()
         );
     }
 
@@ -759,10 +772,7 @@ mod tests {
 
     #[test]
     fn ingress_resolver_rejects_empty_forwarded_tokens() {
-        let headers = HeaderMap::from_iter([(
-            "x-forwarded-for",
-            "198.51.100.250, , 10.0.0.2".parse().unwrap(),
-        )]);
+        let headers = forwarded_headers("198.51.100.250, , 10.0.0.2");
         let peer = "10.0.0.3:443".parse().unwrap();
 
         assert_eq!(
@@ -774,10 +784,7 @@ mod tests {
 
     #[test]
     fn ingress_resolver_rejects_malformed_forwarded_tokens() {
-        let headers = HeaderMap::from_iter([(
-            "x-forwarded-for",
-            "198.51.100.250, not-an-ip, 10.0.0.2".parse().unwrap(),
-        )]);
+        let headers = forwarded_headers("198.51.100.250, not-an-ip, 10.0.0.2");
         let peer = "10.0.0.3:443".parse().unwrap();
 
         assert_eq!(
@@ -789,10 +796,7 @@ mod tests {
 
     #[test]
     fn ingress_resolver_rejects_an_untrusted_configured_proxy_suffix() {
-        let headers = HeaderMap::from_iter([(
-            "x-forwarded-for",
-            "198.51.100.250, 203.0.113.7".parse().unwrap(),
-        )]);
+        let headers = forwarded_headers("198.51.100.250, 203.0.113.7");
         let peer = "10.0.0.3:443".parse().unwrap();
 
         assert_eq!(
@@ -804,8 +808,7 @@ mod tests {
 
     #[test]
     fn ingress_resolver_never_uses_raw_xff_without_a_configured_proxy() {
-        let headers =
-            HeaderMap::from_iter([("x-forwarded-for", "198.51.100.250".parse().unwrap())]);
+        let headers = forwarded_headers("198.51.100.250");
         let peer = "10.0.0.3:443".parse().unwrap();
 
         assert_eq!(resolve_trusted_client_ip(&headers, peer, 0, &[]), peer.ip());
@@ -818,13 +821,47 @@ mod tests {
 
     #[test]
     fn ingress_resolver_rejects_xff_from_an_untrusted_transport_peer() {
-        let headers =
-            HeaderMap::from_iter([("x-forwarded-for", "198.51.100.250".parse().unwrap())]);
+        let headers = forwarded_headers("198.51.100.250");
         let peer = "192.0.2.10:443".parse().unwrap();
         assert_eq!(
             resolve_trusted_client_ip(&headers, peer, 1, &["10.0.0.0/8".parse().unwrap()]),
             peer.ip()
         );
+    }
+
+    #[tokio::test]
+    async fn ingress_middleware_reuses_proxy_policy_and_rejects_a_spoofed_suffix() {
+        let mut app = with_trusted_client_ip(
+            axum::Router::new().route(
+                "/",
+                get(
+                    |Extension(client_ip): Extension<TrustedClientIp>| async move {
+                        client_ip.get().to_string()
+                    },
+                ),
+            ),
+            2,
+            vec!["10.0.0.0/8".parse().unwrap()],
+        );
+        let peer: SocketAddr = "10.0.0.3:443".parse().unwrap();
+
+        for (forwarded_for, expected) in [
+            ("198.51.100.250, 10.0.0.2", "198.51.100.250"),
+            ("198.51.100.250, 203.0.113.7", "10.0.0.3"),
+        ] {
+            let mut request = Request::builder()
+                .uri("/")
+                .header("x-forwarded-for", forwarded_for)
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(peer));
+
+            let response = Service::call(&mut app, request).await.unwrap();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(body.as_ref(), expected.as_bytes());
+        }
     }
 
     #[tokio::test]

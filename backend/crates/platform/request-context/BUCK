@@ -51,6 +51,7 @@ rust_test(
         "//third-party/rust:sqlx",
         "//third-party/rust:thiserror",
         "//third-party/rust:tokio",
+        "//third-party/rust:tower",
         "//third-party/rust:uuid",
     ],
 )
