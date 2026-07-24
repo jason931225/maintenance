@@ -15,6 +15,7 @@
 // custodian/disposed locally nor stage a synthetic custody event.
 import { useState, type CSSProperties } from "react";
 
+import { ApiCallError } from "../../api/ontologyActions";
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
 import { ObjectCard } from "../objectcard";
@@ -51,6 +52,7 @@ import "../tokens.css";
 
 const T = ko.console.evidence;
 const TA = ko.console.audit;
+const TP = ko.page;
 
 const rootStyle: CSSProperties = {
   display: "grid",
@@ -196,6 +198,10 @@ function verifyChip(outcome: VerifyOutcome | "running" | null) {
       return <StatusChip role="status" tone="info">{T.actions.verifying}</StatusChip>;
     case "failed":
       return <StatusChip role="alert" tone="danger">{T.actions.verifyFail}</StatusChip>;
+    case "denied":
+      return <StatusChip role="alert" tone="danger">{TP.permissionDenied}</StatusChip>;
+    case "error":
+      return <StatusChip role="alert" tone="danger">{T.actions.verifyFail}</StatusChip>;
     case "unavailable":
       return <StatusChip role="status" tone="neutral">{T.actions.verifyPending}</StatusChip>;
   }
@@ -307,8 +313,15 @@ export function EvidenceCard({
       if (result.state === "verified" || result.state === "failed") {
         setCopyVerdicts(result.copyVerdicts);
       }
-    } catch {
-      setOutcome({ state: "failed", reason: null, copyVerdicts: new Map() });
+    } catch (error) {
+      // A denied action is not evidence corruption. Preserve the authorization
+      // truth and suppress futile retries; all other transport/server failures
+      // remain retryable through the same action control.
+      if (error instanceof ApiCallError && (error.status === 401 || error.status === 403)) {
+        setOutcome({ state: "denied" });
+      } else {
+        setOutcome({ state: "error" });
+      }
     }
   }
 
@@ -524,7 +537,7 @@ export function EvidenceCard({
           <button
             type="button"
             style={buttonStyle}
-            disabled={outcome === "running"}
+            disabled={outcome === "running" || (outcome !== null && typeof outcome === "object" && outcome.state === "denied")}
             onClick={() => {
               void runVerify();
             }}

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ApiCallError } from "../../api/ontologyActions";
 import { ko } from "../../i18n/ko";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { EvidenceCard, type EvidenceCardProps } from "./EvidenceCard";
@@ -114,6 +115,41 @@ describe("EvidenceCard verify affordance", () => {
     });
     // The stale green MATCH chip must be gone, not lingering as fake fixity.
     expect(screen.queryByText(T.copyVerdict.MATCH)).toBeNull();
+  });
+
+  it("shows an authorization denial without falsely claiming a fixity failure or offering a futile retry", async () => {
+    const verify = vi.fn<VerifyEvidence>().mockRejectedValue(new ApiCallError(403));
+    renderCard(allowGate, verify);
+
+    fireEvent.click(screen.getByRole("button", { name: T.actions.verify }));
+
+    await waitFor(() => {
+      expect(screen.getByText(ko.page.permissionDenied)).toBeTruthy();
+    });
+    expect(screen.queryByText(T.actions.verifyFail)).toBeNull();
+    expect(screen.getByRole("button", { name: T.actions.verify })).toBeDisabled();
+  });
+
+  it("keeps a transient verification failure retryable and replaces it with the next authoritative verdict", async () => {
+    const verify = vi
+      .fn<VerifyEvidence>()
+      .mockRejectedValueOnce(new ApiCallError(500))
+      .mockResolvedValueOnce({ state: "verified", processedAt: null, copyVerdicts: new Map([["cp-13-orig", "MATCH"]]) });
+    renderCard(allowGate, verify, plainEvidence);
+
+    const action = screen.getByRole("button", { name: T.actions.verify });
+    fireEvent.click(action);
+    await waitFor(() => {
+      expect(screen.getByText(T.actions.verifyFail)).toBeTruthy();
+    });
+    expect(action).not.toBeDisabled();
+
+    fireEvent.click(action);
+    await waitFor(() => {
+      expect(screen.getByText(T.actions.verifyOk)).toBeTruthy();
+    });
+    expect(screen.getByText(T.copyVerdict.MATCH)).toBeTruthy();
+    expect(verify).toHaveBeenCalledTimes(2);
   });
 
   it("clears a prior MATCH verdict chip when a later verify throws", async () => {

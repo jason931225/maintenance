@@ -2,7 +2,8 @@ import type { components } from "@maintenance/api-client-ts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
-import { aggregateFixity, aggregateTsa, listEvidenceObjectPage } from "./evidenceApi";
+import { ApiCallError } from "../../api/ontologyActions";
+import { aggregateFixity, aggregateTsa, listEvidenceObjectPage, verifyEvidenceObject } from "./evidenceApi";
 
 type EvidenceCopyView = components["schemas"]["EvidenceCopyView"];
 type TimestampAuthorityProofView = components["schemas"]["TimestampAuthorityProofView"];
@@ -167,5 +168,46 @@ describe("listEvidenceObjectPage", () => {
       listEvidenceObjectPage({ GET } as unknown as ConsoleApiClient, 1, 0, controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(GET).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("verifyEvidenceObject", () => {
+  it("returns unavailable only when the backend truthfully reports storage unavailable", async () => {
+    const POST = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { error: { code: "unavailable", message: "storage is not configured" } },
+      response: { status: 503 },
+    });
+
+    await expect(verifyEvidenceObject({ POST } as unknown as ConsoleApiClient, "ev-1")).resolves.toEqual({
+      state: "unavailable",
+    });
+  });
+
+  it("preserves a denied verification request instead of relabeling it as unavailable", async () => {
+    const POST = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { error: { code: "forbidden", message: "denied" } },
+      response: { status: 403 },
+    });
+
+    await expect(verifyEvidenceObject({ POST } as unknown as ConsoleApiClient, "ev-1")).rejects.toMatchObject({
+      name: "ApiCallError",
+      status: 403,
+    } satisfies Partial<ApiCallError>);
+  });
+
+  it("preserves a transient verification failure for the action layer to retry", async () => {
+    const POST = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { error: { code: "internal", message: "storage probe failed" } },
+      response: { status: 500 },
+    });
+
+    await expect(verifyEvidenceObject({ POST } as unknown as ConsoleApiClient, "ev-1")).rejects.toMatchObject({
+      name: "ApiCallError",
+      status: 500,
+    } satisfies Partial<ApiCallError>);
   });
 });

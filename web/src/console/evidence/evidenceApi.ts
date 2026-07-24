@@ -245,11 +245,16 @@ export async function verifyEvidenceObject(
   api: ConsoleApiClient,
   id: string,
 ): Promise<VerifyOutcome> {
-  const { data } = await api.POST("/api/v1/evidence/objects/{id}/verify", {
+  const { data, error, response } = await api.POST("/api/v1/evidence/objects/{id}/verify", {
     params: { path: { id } },
   });
   if (!data) {
-    return { state: "unavailable" };
+    // The REST endpoint reserves 503 for an unconfigured/unreachable evidence
+    // store. Every other non-success result is material (especially 401/403)
+    // and must reach the action layer rather than being mislabeled as storage
+    // unavailability.
+    if (response.status === 503) return { state: "unavailable" };
+    throw new ApiCallError(response.status, error);
   }
   const report: EvidenceVerifyReport = data;
   if (report.outcome === "VERIFIED") {

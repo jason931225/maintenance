@@ -137,7 +137,11 @@ export type VerifyOutcome =
   | { state: "verified"; processedAt: string | null; copyVerdicts: CopyVerdictMap }
   | { state: "processing" }
   | { state: "failed"; reason: string | null; copyVerdicts: CopyVerdictMap }
-  /** Object storage not configured (503) or the request failed outright. */
+  /** The current principal is not allowed to run this integrity action (401/403). */
+  | { state: "denied" }
+  /** The request failed before the backend returned an integrity verdict; retry is allowed. */
+  | { state: "error" }
+  /** Object storage is not configured (503), so fixity cannot be checked yet. */
   | { state: "unavailable" };
 
 export type VerifyEvidence = (
