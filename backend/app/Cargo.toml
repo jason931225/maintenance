@@ -55,6 +55,7 @@ mnt-erp-domain = { workspace = true }
 mnt-integrity = { workspace = true }
 mnt-financial-adapter-postgres = { workspace = true }
 mnt-financial-rest = { workspace = true }
+mnt-facilities-rest = { path = "../crates/facilities/rest" }
 mnt-identity-adapter-postgres = { workspace = true }
 mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }

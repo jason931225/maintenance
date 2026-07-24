@@ -36,6 +36,7 @@ use mnt_dispatch_rest::DispatchRestState;
 use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
 use mnt_docs_adapter_postgres::PgDocsStore;
 use mnt_docs_rest::DocsRestState;
+use mnt_facilities_rest::FacilitiesRestState;
 use mnt_finance_gl_adapter_postgres::PgVoucherStore;
 use mnt_finance_gl_rest::FinanceGlRestState;
 use mnt_financial_adapter_postgres::PgFinancialStore;
@@ -264,6 +265,10 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "workorder-mobile",
         paths: mnt_workorder_rest::MOBILE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "facilities",
+        paths: mnt_facilities_rest::FACILITIES_ROUTE_PATHS,
     },
     ConfiguredRouteSurface {
         name: "messenger",
@@ -2836,6 +2841,10 @@ pub fn build_router(state: AppState) -> Router {
                     ))
                     .with_job_queue(state.dispatch_job_queue.clone()),
                 ))
+                .merge(mnt_facilities_rest::router(FacilitiesRestState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
                     state.jwt_verifier.clone(),

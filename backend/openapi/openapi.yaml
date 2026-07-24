@@ -13646,6 +13646,72 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/facilities/cases:
+    get:
+      tags: [facilities]
+      operationId: listFacilitiesCases
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Cases, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FacilitiesCase' } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [facilities]
+      operationId: createDueFacilitiesCase
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesDueCaseRequest' } } } }
+      responses: { '200': { description: Idempotent case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }, '409': { description: Idempotency payload mismatch }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/facilities/cases/{case_id}:
+    get:
+      tags: [facilities]
+      operationId: getFacilitiesCase
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Case including derived SLA and energy delta, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/facilities/cases/{case_id}/triage:
+    post:
+      tags: [facilities]
+      operationId: triageFacilitiesCase
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesTriageRequest' } } } }
+      responses: { '200': { description: Scheduled case }, '409': { description: Illegal transition }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/facilities/cases/{case_id}/assign:
+    post:
+      tags: [facilities]
+      operationId: assignFacilitiesCase
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesAssignRequest' } } } }
+      responses: { '200': { description: Assigned case }, '409': { description: Illegal transition } }
+  /api/v1/facilities/cases/{case_id}/start:
+    post:
+      tags: [facilities]
+      operationId: startFacilitiesCase
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Safety-acknowledged execution started }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { description: Illegal transition } }
+  /api/v1/facilities/cases/{case_id}/submit:
+    post:
+      tags: [facilities]
+      operationId: submitFacilitiesExecution
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesSubmitRequest' } } } }
+      responses: { '200': { description: Awaiting customer acceptance }, '412': { description: Required evidence is not confirmed }, '409': { description: Illegal transition } }
+  /api/v1/facilities/cases/{case_id}/acceptance:
+    post:
+      tags: [facilities]
+      operationId: decideFacilitiesAcceptance
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesAcceptanceRequest' } } } }
+      responses: { '200': { description: CLOSED or REWORK_REQUIRED }, '409': { description: Illegal transition }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/facilities/cases/{case_id}/observations:
+    post:
+      tags: [facilities]
+      operationId: recordFacilitiesObservation
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesObservationRequest' } } } }
+      responses: { '200': { description: Case with derived energy/cost readback }, '422': { $ref: '#/components/responses/ValidationError' } }
 components:
   securitySchemes:
     bearerAuth:
@@ -27848,3 +27914,31 @@ components:
         offset:
           type: integer
           format: int64
+    FacilitiesDueCaseRequest:
+      type: object
+      required: [obligationId, idempotencyKey]
+      properties: { obligationId: { $ref: '#/components/schemas/Uuid' }, idempotencyKey: { type: string, minLength: 16 } }
+    FacilitiesTriageRequest:
+      type: object
+      required: [scheduledFor]
+      properties: { scheduledFor: { type: string, format: date-time } }
+    FacilitiesAssignRequest:
+      type: object
+      required: [assigneeId]
+      properties: { assigneeId: { $ref: '#/components/schemas/Uuid' } }
+    FacilitiesSubmitRequest:
+      type: object
+      required: [safetyChecklistEvidenceId, serviceReportEvidenceId]
+      properties: { safetyChecklistEvidenceId: { $ref: '#/components/schemas/Uuid' }, serviceReportEvidenceId: { $ref: '#/components/schemas/Uuid' }, photoEvidenceId: { $ref: '#/components/schemas/Uuid' } }
+    FacilitiesAcceptanceRequest:
+      type: object
+      required: [decision]
+      properties: { decision: { type: string, enum: [ACCEPTED, REJECTED] }, reason: { type: string, maxLength: 1000 } }
+    FacilitiesObservationRequest:
+      type: object
+      required: [observedAt]
+      properties: { preKwh: { type: string, pattern: '^[0-9]+(\\.[0-9]{1,3})?$' }, postKwh: { type: string, pattern: '^[0-9]+(\\.[0-9]{1,3})?$' }, observedAt: { type: string, format: date-time }, costKrw: { type: integer, format: int64, minimum: 0 } }
+    FacilitiesCase:
+      type: object
+      required: [id, status, responseDueAt, completionDueAt, acceptanceDueAt, totalCostKrw]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, status: { type: string, enum: [DUE, TRIAGED, SCHEDULED, ASSIGNED, IN_PROGRESS, SUBMITTED, REWORK_REQUIRED, AWAITING_ACCEPTANCE, CLOSED] }, assigneeId: { $ref: '#/components/schemas/Uuid' }, responseDueAt: { type: string, format: date-time }, completionDueAt: { type: string, format: date-time }, acceptanceDueAt: { type: string, format: date-time }, energyDeltaKwh: { type: string }, totalCostKrw: { type: integer, format: int64 } }
