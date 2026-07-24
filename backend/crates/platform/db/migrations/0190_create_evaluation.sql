@@ -134,18 +134,29 @@ ALTER TABLE evaluation_evidence_links FORCE  ROW LEVEL SECURITY;
 ALTER TABLE evaluation_code_counters  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evaluation_code_counters  FORCE  ROW LEVEL SECURITY;
 
-DO $$
-DECLARE t TEXT;
-BEGIN
-    FOREACH t IN ARRAY ARRAY['evaluation_cycles', 'evaluation_subjects', 'evaluation_goals',
-                             'evaluation_reviews', 'evaluation_evidence_links', 'evaluation_code_counters']
-    LOOP
-        EXECUTE format(
-            'CREATE POLICY org_isolation ON %I
-               USING (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid)
-               WITH CHECK (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid)', t);
-    END LOOP;
-END $$;
+CREATE POLICY org_isolation ON evaluation_cycles
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
+CREATE POLICY org_isolation ON evaluation_subjects
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
+CREATE POLICY org_isolation ON evaluation_goals
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
+CREATE POLICY org_isolation ON evaluation_reviews
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
+CREATE POLICY org_isolation ON evaluation_evidence_links
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
+CREATE POLICY org_isolation ON evaluation_code_counters
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
 
 CREATE TRIGGER trg_evaluation_cycles_org_immutable    BEFORE UPDATE ON evaluation_cycles         FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable();
 CREATE TRIGGER trg_evaluation_subjects_org_immutable  BEFORE UPDATE ON evaluation_subjects       FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable();
