@@ -44,7 +44,7 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         )
         .unwrap(),
     );
-    let token = bearer(&keys, org, user);
+    let token = bearer(&keys, org, user, &["SUPER_ADMIN"]);
     let body = create_body(branch, "PEOPLE-001", "same-key", "010-1234-5678", "Kim");
 
     let (first, second) = tokio::join!(
@@ -155,6 +155,105 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         );
     }
 
+    let executive = UserId::new();
+    seed_user_with_roles(&pool, org, executive, &["EXECUTIVE"]).await;
+    let executive_created = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, executive, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-EXEC",
+            "executive-key",
+            "010-1234-5678",
+            "Executive",
+        ),
+    )
+    .await;
+    assert_eq!(
+        executive_created.status,
+        StatusCode::CREATED,
+        "{:?}",
+        executive_created.json
+    );
+
+    let custom_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, custom_grantee, &["EXECUTIVE"]).await;
+    seed_manage_grant(&pool, org, custom_grantee, None).await;
+    let custom_created = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, custom_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-CUSTOM",
+            "custom-key",
+            "010-1234-5678",
+            "Custom",
+        ),
+    )
+    .await;
+    assert_eq!(
+        custom_created.status,
+        StatusCode::CREATED,
+        "{:?}",
+        custom_created.json
+    );
+
+    let before_denials = people_write_counts(&pool, org).await;
+    let denied_user = UserId::new();
+    seed_user_with_roles(&pool, org, denied_user, &["MEMBER"]).await;
+    let denied_create = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, denied_user, &["MEMBER"]),
+        create_body(
+            branch,
+            "PEOPLE-DENIED",
+            "denied-key",
+            "010-1234-5678",
+            "Denied",
+        ),
+    )
+    .await;
+    assert_eq!(
+        denied_create.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        denied_create.json
+    );
+
+    let branch_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, branch_grantee, &["ADMIN"]).await;
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(*branch_grantee.as_uuid())
+        .bind(branch)
+        .bind(*org.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    seed_manage_grant(&pool, org, branch_grantee, Some(branch)).await;
+    let branch_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, branch_grantee, &["ADMIN"]),
+        create_body(
+            branch,
+            "PEOPLE-BRANCH",
+            "branch-key",
+            "010-1234-5678",
+            "Branch",
+        ),
+    )
+    .await;
+    assert_eq!(
+        branch_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        branch_denied.json
+    );
+    assert_eq!(people_write_counts(&pool, org).await, before_denials);
+
     let other_org = OrgId::from_uuid(Uuid::new_v4());
     seed_org(&pool, other_org).await;
     let other_user = UserId::new();
@@ -162,7 +261,7 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     let denied = get(
         service,
         &format!("{EMPLOYEES_PATH}/{employee_id}"),
-        &bearer(&keys, other_org, other_user),
+        &bearer(&keys, other_org, other_user, &["SUPER_ADMIN"]),
     )
     .await;
     assert_eq!(
@@ -203,14 +302,74 @@ async fn seed_org(pool: &PgPool, org: OrgId) {
 }
 
 async fn seed_user(pool: &PgPool, org: OrgId, user: UserId) {
+    seed_user_with_roles(pool, org, user, &["SUPER_ADMIN"]).await;
+}
+
+async fn seed_user_with_roles(pool: &PgPool, org: OrgId, user: UserId, roles: &[&str]) {
     sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user.as_uuid())
         .bind("People super administrator")
-        .bind(vec!["SUPER_ADMIN"])
+        .bind(roles)
         .bind(*org.as_uuid())
         .execute(pool)
         .await
         .unwrap();
+}
+
+async fn seed_manage_grant(pool: &PgPool, org: OrgId, user: UserId, branch: Option<Uuid>) {
+    let role_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO policy_roles (org_id, role_key, display_name, status) \
+         VALUES ($1, $2, $3, 'ACTIVE') RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(format!("people_manage_{}", Uuid::new_v4().simple()))
+    .bind("People manager")
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO policy_role_permissions (org_id, role_id, feature_key, permission_level) \
+         VALUES ($1, $2, 'employee_directory_manage', 'allow')",
+    )
+    .bind(*org.as_uuid())
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    if let Some(branch) = branch {
+        sqlx::query(
+            "INSERT INTO policy_role_conditions \
+             (org_id, role_id, condition_key, attribute, operator, condition_values) \
+             VALUES ($1, $2, 'branch_scope', 'branch', 'equals', ARRAY[$3::text])",
+        )
+        .bind(*org.as_uuid())
+        .bind(role_id)
+        .bind(branch)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO user_role_assignments (org_id, user_id, role_id) VALUES ($1, $2, $3)")
+        .bind(*org.as_uuid())
+        .bind(*user.as_uuid())
+        .bind(role_id)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn people_write_counts(pool: &PgPool, org: OrgId) -> (i64, i64, i64, i64, i64) {
+    sqlx::query_as(
+        "SELECT (SELECT count(*) FROM employees WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_employment_profiles WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_lifecycle_events WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_create_idempotency WHERE org_id = $1), \
+         (SELECT count(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.create')",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn seed_branch(pool: &PgPool, org: OrgId, name: &str) -> Uuid {
@@ -279,7 +438,7 @@ fn keys() -> Keys {
     }
 }
 
-fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
+fn bearer(keys: &Keys, org: OrgId, user: UserId, roles: &[&str]) -> String {
     let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
             issuer: TEST_ISSUER.to_owned(),
@@ -294,7 +453,7 @@ fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
         .issue_access_token(AccessTokenInput {
             subject: user,
             org_id: org,
-            roles: vec!["SUPER_ADMIN".to_owned()],
+            roles: roles.iter().map(|role| (*role).to_owned()).collect(),
             branches: Vec::new(),
             platform: false,
             view_as: false,

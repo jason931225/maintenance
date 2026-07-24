@@ -55,6 +55,76 @@ BEGIN
 END;
 $$;
 
+-- Mirror `authorize_org_wide(EmployeeDirectoryManage)` at the command boundary:
+-- EXECUTIVE/SUPER_ADMIN have live all-branch scope, while custom grants must be
+-- active, allow this feature, and have no branch-narrowing condition.
+CREATE FUNCTION leave_api.assert_employee_directory_manager(
+    p_org_id UUID, p_actor UUID
+) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog SET row_security = on AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.users u
+        WHERE u.id = p_actor
+          AND u.org_id = p_org_id
+          AND u.is_active
+          AND (
+              u.roles @> ARRAY['SUPER_ADMIN']::TEXT[]
+              OR u.roles @> ARRAY['EXECUTIVE']::TEXT[]
+              OR (
+                  -- A custom grant can only be org-wide when the actor has
+                  -- the resolver's live All scope (EXECUTIVE/SUPER_ADMIN).
+                  (u.roles @> ARRAY['SUPER_ADMIN']::TEXT[]
+                   OR u.roles @> ARRAY['EXECUTIVE']::TEXT[])
+                  AND EXISTS (
+                      SELECT 1
+                      FROM public.user_role_assignments ura
+                      JOIN public.policy_roles pr
+                        ON pr.org_id = ura.org_id AND pr.id = ura.role_id
+                      JOIN public.policy_role_permissions prp
+                        ON prp.org_id = pr.org_id AND prp.role_id = pr.id
+                      WHERE ura.org_id = p_org_id
+                        AND ura.user_id = p_actor
+                        AND pr.status = 'ACTIVE'
+                        AND NOT pr.is_system
+                        AND prp.feature_key = 'employee_directory_manage'
+                        AND prp.permission_level = 'allow'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM public.policy_role_conditions prc
+                            WHERE prc.org_id = pr.org_id
+                              AND prc.role_id = pr.id
+                              AND (
+                                  prc.operator NOT IN ('equals', 'in')
+                                  OR prc.attribute = 'branch'
+                                  OR prc.attribute <> 'team'
+                                  OR u.team IS NULL
+                                  OR NOT EXISTS (
+                                      SELECT 1
+                                      FROM pg_catalog.unnest(prc.condition_values) value
+                                      WHERE pg_catalog.btrim(value) = u.team
+                                         OR pg_catalog.upper(pg_catalog.btrim(value)) = CASE u.team
+                                              WHEN '정비' THEN 'MAINTENANCE'
+                                              WHEN '예방' THEN 'PREVENTION'
+                                              WHEN '관리' THEN 'MANAGEMENT'
+                                              WHEN '접수' THEN 'RECEPTION'
+                                              ELSE NULL
+                                            END
+                                  )
+                              )
+                        )
+                  )
+              )
+          )
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'employee_create.actor_forbidden';
+    END IF;
+END;
+$$;
+ALTER FUNCTION leave_api.assert_employee_directory_manager(UUID, UUID) OWNER TO mnt_leave_definer;
+
 CREATE FUNCTION leave_api.create_employee(
     p_org_id UUID, p_employee_id UUID, p_employee_number TEXT, p_name TEXT,
     p_company TEXT, p_employment_type TEXT, p_phone_e164 TEXT, p_org_unit TEXT,
@@ -69,7 +139,7 @@ DECLARE
     v_existing_employee_id UUID;
 BEGIN
     PERFORM leave_api.assert_context(p_org_id, p_actor, p_trace_id, p_span_id);
-    PERFORM leave_api.assert_org_admin(p_org_id, p_actor);
+    PERFORM leave_api.assert_employee_directory_manager(p_org_id, p_actor);
 
     IF NOT EXISTS (
         SELECT 1 FROM public.branches b
