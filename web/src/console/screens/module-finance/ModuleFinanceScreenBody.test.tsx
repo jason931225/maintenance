@@ -21,6 +21,7 @@ function renderBody(
       feature_grants: [],
       org_id: "org-1",
       user_id: "user-1",
+      branches: ["branch-1"],
     },
     restoring: false,
     login: vi.fn(),
@@ -68,6 +69,9 @@ describe("ModuleFinanceScreenBody", () => {
     renderBody(async (path) => {
       await Promise.resolve();
       if (path === "/api/v1/finance-gl/vouchers") return { data: voucherRows };
+      if (path === "/api/v1/financial/purchase-requests") {
+        return { data: { items: [], limit: 50, offset: 0, total: 0 } };
+      }
       return { data: undefined };
     });
 
@@ -75,12 +79,16 @@ describe("ModuleFinanceScreenBody", () => {
     expect(await screen.findByRole("button", { name: "VC-1001 상세 열기" })).toBeVisible();
     // Stat strip drills a real count, not a hardcoded zero.
     expect(screen.getByText("미결전표 1")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "구매요청서" })).toBeVisible();
   });
 
   it("stays blank for a role without module-read (deny-by-omission — no ledger leaks)", async () => {
     renderBody(async (path) => {
       await Promise.resolve();
       if (path === "/api/v1/finance-gl/vouchers") return { data: voucherRows };
+      if (path === "/api/v1/financial/purchase-requests") {
+        return { data: { items: [], limit: 50, offset: 0, total: 0 } };
+      }
       return { data: undefined };
     }, ["MEMBER"]);
 
@@ -92,8 +100,11 @@ describe("ModuleFinanceScreenBody", () => {
   });
 
   it("shows the list-load error state (not a blank/frozen screen) when the real request fails", async () => {
-    renderBody(async () => {
+    renderBody(async (path) => {
       await Promise.resolve();
+      if (path === "/api/v1/financial/purchase-requests") {
+        return { data: { items: [], limit: 50, offset: 0, total: 0 } };
+      }
       throw new Error("network down");
     });
 

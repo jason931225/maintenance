@@ -17,6 +17,7 @@ import { useMemo } from "react";
 
 import { useAuth } from "../../../context/auth";
 import { FINANCE_MODULE_ACTIONS } from "../../finance/financeModel";
+import { PurchaseRequestsWorkspace } from "../../finance/purchaseRequests/PurchaseRequestsWorkspace";
 import { GenericModuleScreen } from "../../modules/GenericModuleScreen";
 import { financeModuleScreen } from "../../modules/moduleScreens";
 import { PolicyGateProvider, type PolicyGate } from "../../policy";
@@ -59,6 +60,7 @@ export function ModuleFinanceScreenBody() {
   return (
     <PolicyGateProvider gate={gate}>
       <GenericModuleScreen config={financeModuleScreen} api={api} />
+      <PurchaseRequestsWorkspace api={api} roles={roles} />
     </PolicyGateProvider>
   );
 }
