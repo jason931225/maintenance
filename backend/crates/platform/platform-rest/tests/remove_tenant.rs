@@ -42,6 +42,7 @@ struct Harness {
     public_pem: String,
     /// The runtime-role pool the app router uses (every connection is `mnt_rt`).
     rt_pool: PgPool,
+    force_pool: PgPool,
 }
 
 impl Harness {
@@ -59,6 +60,7 @@ impl Harness {
             private_pem,
             public_pem,
             rt_pool: runtime_role_pool(owner_pool).await,
+            force_pool: command_role_pool(owner_pool).await,
         }
     }
 
@@ -72,11 +74,14 @@ impl Harness {
             self.public_pem.as_bytes(),
         )
         .unwrap();
-        router(PlatformRestState::new(
-            self.rt_pool.clone(),
-            Some(verifier),
-            PlatformProvisioner::new(Duration::minutes(15)),
-        ))
+        router(
+            PlatformRestState::new(
+                self.rt_pool.clone(),
+                Some(verifier),
+                PlatformProvisioner::new(Duration::minutes(15)),
+            )
+            .with_force_remove_command_pool(Some(self.force_pool.clone())),
+        )
     }
 
     fn token(&self, user_id: UserId, org_id: OrgId, platform: bool) -> String {
@@ -113,6 +118,23 @@ impl Harness {
 /// A pool whose every connection runs `SET ROLE mnt_rt`, so the app router's
 /// statements execute as the production runtime role (NOSUPERUSER, NOBYPASSRLS)
 /// under FORCE RLS — the same pattern the identity/auth runtime-RLS tests use.
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_platform_force_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
@@ -742,6 +764,17 @@ async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner
     assert_eq!(
         force_audits, 1,
         "the force-removal must be audited exactly once, distinctly"
+    );
+    let wiped_work_orders: i64 = sqlx::query_scalar(
+        "SELECT (before_snap->'wiped'->>'work_orders')::bigint FROM audit_events WHERE action = 'platform.tenant.force_remove' AND target_id = $1",
+    )
+    .bind(org_a.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        wiped_work_orders, 1,
+        "atomic receipt must retain the pre-delete summary"
     );
 
     // THE CRITICAL ASSERTION: org B is byte-for-byte untouched.

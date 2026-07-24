@@ -284,9 +284,16 @@ DECLARE
     v_slug TEXT;
     v_name TEXT;
     v_outcome TEXT;
+    v_wiped JSONB;
 BEGIN
     SET LOCAL row_security = off;
     SELECT slug, name INTO v_slug, v_name FROM organizations WHERE id = p_id;
+    SELECT jsonb_build_object(
+        'users', (SELECT count(*) FROM users WHERE org_id = p_id),
+        'work_orders', (SELECT count(*) FROM work_orders WHERE org_id = p_id),
+        'attendance_exceptions', (SELECT count(*) FROM attendance_exceptions WHERE org_id = p_id),
+        'audit_events', (SELECT count(*) FROM audit_events WHERE org_id = p_id)
+    ) INTO v_wiped;
     v_outcome := platform_force_remove_organization(p_id);
     IF v_outcome <> 'removed' THEN
         RETURN v_outcome;
@@ -296,7 +303,7 @@ BEGIN
         before_snap, after_snap, trace_id, span_id, occurred_at
     ) VALUES (
         NULL, p_actor, 'platform.tenant.force_remove', 'organizations', p_id::text, NULL,
-        jsonb_build_object('org_id', p_id, 'slug', v_slug, 'name', v_name), NULL,
+        jsonb_build_object('org_id', p_id, 'slug', v_slug, 'name', v_name, 'wiped', v_wiped), NULL,
         p_trace_id, p_span_id, p_occurred_at
     );
     RETURN 'removed';
