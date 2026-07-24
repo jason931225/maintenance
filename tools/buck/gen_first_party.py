@@ -39,6 +39,8 @@ MIGRATION_TREE = {
 }
 
 OPENAPI_DRIFT_SOURCE_PACKAGES = [
+    "backend/crates/attendance/rest",
+    "backend/crates/inventory/rest",
     "backend/crates/dispatch/rest",
     "backend/crates/benefit/rest",
     "backend/crates/financial/rest",
@@ -208,6 +210,24 @@ TEST_RESOURCE_REQUIREMENTS = {
             'tests/workflow_runtime_instance_api.rs': 'postgres',
             'tests/workorder_api.rs': 'postgres',
         },
+    },
+    'mnt-attendance-adapter-postgres': {
+        'unit': 'none',
+    },
+    'mnt-attendance-application': {
+        'unit': 'none',
+        'integration': {
+            'tests/attendance_policy.rs': 'none',
+        },
+    },
+    'mnt-attendance-domain': {
+        'unit': 'none',
+        'integration': {
+            'tests/range_and_history.rs': 'none',
+        },
+    },
+    'mnt-attendance-rest': {
+        'unit': 'none',
     },
     'mnt-equipment-domain': {
         'unit': 'none',

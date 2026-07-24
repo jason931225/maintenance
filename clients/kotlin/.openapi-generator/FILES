@@ -9,6 +9,7 @@ proguard-rules.pro
 settings.gradle
 src/main/kotlin/com/maintenance/api/client/api/AnalyticsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ApprovalItemsApi.kt
+src/main/kotlin/com/maintenance/api/client/api/AttendanceApi.kt
 src/main/kotlin/com/maintenance/api/client/api/AuditApi.kt
 src/main/kotlin/com/maintenance/api/client/api/AuthApi.kt
 src/main/kotlin/com/maintenance/api/client/api/BenefitCatalogApi.kt
@@ -20,6 +21,7 @@ src/main/kotlin/com/maintenance/api/client/api/ConsultingApi.kt
 src/main/kotlin/com/maintenance/api/client/api/CustomersApi.kt
 src/main/kotlin/com/maintenance/api/client/api/DailyWorkPlansApi.kt
 src/main/kotlin/com/maintenance/api/client/api/DevicesApi.kt
+src/main/kotlin/com/maintenance/api/client/api/DirectoryApi.kt
 src/main/kotlin/com/maintenance/api/client/api/EmployeesApi.kt
 src/main/kotlin/com/maintenance/api/client/api/Equipment3rApi.kt
 src/main/kotlin/com/maintenance/api/client/api/EquipmentApi.kt
@@ -35,6 +37,7 @@ src/main/kotlin/com/maintenance/api/client/api/GroupAdminApi.kt
 src/main/kotlin/com/maintenance/api/client/api/HrApi.kt
 src/main/kotlin/com/maintenance/api/client/api/InspectionsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/IntegrityApi.kt
+src/main/kotlin/com/maintenance/api/client/api/InventoryApi.kt
 src/main/kotlin/com/maintenance/api/client/api/KpiApi.kt
 src/main/kotlin/com/maintenance/api/client/api/LeaveApi.kt
 src/main/kotlin/com/maintenance/api/client/api/LifecyclesApi.kt
@@ -131,6 +134,7 @@ src/main/kotlin/com/maintenance/api/client/model/ArrivalEvent.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEventPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AssessEquipment3rReturnRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssetLifecycleCostSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/AssignAttendanceSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequest.kt
@@ -140,6 +144,17 @@ src/main/kotlin/com/maintenance/api/client/model/AssignmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachInstanceAck.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachInstanceRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachmentStage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceCloseAmendment.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceCloseAmendmentRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceCloseBoard.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceCloseCheck.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceClosePreflight.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceCloseRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceException.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceExceptionEvidence.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceExceptionLink.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceExceptionPage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceExceptionResolution.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportApplyReport.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportColumn.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportDryRunSummary.kt
@@ -148,9 +163,16 @@ src/main/kotlin/com/maintenance/api/client/model/AttendanceImportPreviewRow.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportRowError.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryPage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceMonthClose.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceRecordKind.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitution.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitutionPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52Ack.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52AckRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52Board.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52Row.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditChainAttestation.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditStreamPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditStreamReadKind.kt
@@ -176,6 +198,7 @@ src/main/kotlin/com/maintenance/api/client/model/BulkDecisionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/CancelAttendanceSubstitutionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ClaimWorkflowTaskRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ClaimWorkflowTaskResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ClaimedWorkflowTask.kt
@@ -215,6 +238,7 @@ src/main/kotlin/com/maintenance/api/client/model/ConsultingInitiative.kt
 src/main/kotlin/com/maintenance/api/client/model/ConsultingInitiativeCreateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ConsultingObservationCreateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ConsultingTransitionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ConsumeInventoryItemRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ControlCadence.kt
 src/main/kotlin/com/maintenance/api/client/model/ControlObligationCoverage.kt
 src/main/kotlin/com/maintenance/api/client/model/ControlStatus.kt
@@ -440,6 +464,14 @@ src/main/kotlin/com/maintenance/api/client/model/InspectionScheduleSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/InstanceHead.kt
 src/main/kotlin/com/maintenance/api/client/model/InstanceLifecycleState.kt
 src/main/kotlin/com/maintenance/api/client/model/InstanceState.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionEvent.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionResult.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionSource.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionSourceOneOf.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionSourceOneOf1.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryItem.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryItemPage.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryStockLocationSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt
@@ -703,6 +735,8 @@ src/main/kotlin/com/maintenance/api/client/model/PurchaseType.kt
 src/main/kotlin/com/maintenance/api/client/model/PutawayLogisticsAsnRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/QuoteEquipment3rRentalCaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/QuoteLine.kt
+src/main/kotlin/com/maintenance/api/client/model/RaiseAttendanceExceptionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/RaiseAttendanceExceptionRequestEvidenceInner.kt
 src/main/kotlin/com/maintenance/api/client/model/ReceiveLogisticsAsnRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RecordProductionOperation.kt
 src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
@@ -722,6 +756,7 @@ src/main/kotlin/com/maintenance/api/client/model/ReleaseProductionPlan.kt
 src/main/kotlin/com/maintenance/api/client/model/RentalQuoteSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ReplacePolicyRoleAssignmentsRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReportEmployeeExitCaseRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ResolveAttendanceExceptionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ResolvedInstance.kt
 src/main/kotlin/com/maintenance/api/client/model/RespondP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RestartPurchaseRequest.kt

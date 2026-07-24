@@ -56,9 +56,9 @@ use mnt_inbox_adapter_postgres::PgInboxStore;
 use mnt_inbox_rest::InboxRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
+use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_inventory_adapter_postgres::PgInventoryStore;
 use mnt_inventory_rest::InventoryRestState;
-use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId,
     KernelError, OrgId, TraceContext, UserId,
