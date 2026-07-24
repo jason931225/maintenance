@@ -8,12 +8,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, UserId,
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audits, with_org_conn};
-use mnt_platform_request_context::{RequestContextError, current_org};
+use mnt_platform_request_context::{RequestContextError, current_audit_context, current_org};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row};
@@ -680,15 +680,21 @@ async fn insert_history(
     sqlx::query("INSERT INTO consulting_engagement_history (org_id,engagement_id,actor_id,event_type,from_status,to_status,version,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)").bind(org).bind(id).bind(actor).bind(event).bind(from).bind(to).bind(version).bind(&payload).execute(tx.as_mut()).await?;
     let action =
         AuditAction::new(event).map_err(|error| DbError::CodeIssuance(error.to_string()))?;
+    let audit_context = current_audit_context().ok_or_else(|| {
+        DbError::CodeIssuance(
+            "authenticated consulting mutation is missing request audit context".to_owned(),
+        )
+    })?;
     Ok(AuditEvent::new(
         Some(UserId::from_uuid(actor)),
         action,
         "consulting_engagement",
         id.to_string(),
-        TraceContext::generate(),
+        audit_context.trace,
         OffsetDateTime::now_utc(),
     )
     .with_org(OrgId::from_uuid(org))
+    .with_request_context(audit_context.request)
     .with_snapshots(
         from.map(|status| serde_json::json!({"status": status})),
         Some(serde_json::json!({
