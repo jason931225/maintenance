@@ -248,7 +248,28 @@ function assertSourceRevision(repoRoot, value, anchor) {
 }
 function worktreeEntries(repoRoot) { const output = git(repoRoot, ['worktree', 'list', '--porcelain']); const entries = []; let current = {}; for (const line of output.split('\n')) { if (!line) { if (current.worktree) entries.push(current); current = {}; } else { const [key, ...rest] = line.split(' '); current[key] = rest.join(' '); } } if (current.worktree) entries.push(current); return entries; }
 function assertAnchorAuthority(repoRoot, anchor, registryPath, registry, generatedPath, generated) { if (git(repoRoot, ['rev-parse', '--verify', anchor]) !== anchor) throw new Error('anchor is not a resolvable immutable commit'); if (git(repoRoot, ['status', '--porcelain']) !== '') throw new Error('planner requires a clean worktree'); assertSourceRevision(repoRoot, registry.source_revision, anchor); const anchoredRegistry = readAnchorJson(repoRoot, anchor, registryPath); if (registryDigest(anchoredRegistry) !== registryDigest(registry)) throw new Error('registry differs from anchor blob'); const anchoredGenerated = readAnchorJson(repoRoot, anchor, generatedPath); if (digest(anchoredGenerated) !== digest(generated)) throw new Error('generated-face authority differs from anchor blob'); try { git(repoRoot, ['cat-file', '-e', `${anchor}:backend/crates/platform/db/migrations`]); } catch { throw new Error('migration authority root missing at anchor'); } }
-function validateDeclaredWorktrees(repoRoot, plan, anchor) { const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry])); const owners = new Set(), worktrees = new Set(), branches = new Set(); for (const lane of plan.selected) { const entry = byPath.get(lane.worktree); if (!entry || entry.branch !== `refs/heads/${lane.branch}`) throw new Error(`declared worktree/branch is not live: ${lane.lane_id}`); if (git(lane.worktree, ['status', '--porcelain']) !== '') throw new Error(`declared worktree is dirty: ${lane.lane_id}`); const head = git(lane.worktree, ['rev-parse', 'HEAD']); if (head !== anchor && git(repoRoot, ['merge-base', '--is-ancestor', anchor, head]) !== '') throw new Error(`declared worktree is not anchored or immutable descendant: ${lane.lane_id}`); for (const [label, values, value] of [['owner', owners, lane.owner], ['worktree', worktrees, lane.worktree], ['branch', branches, lane.branch]]) { if (values.has(value)) throw new Error(`selected epoch duplicates ${label}: ${value}`); values.add(value); } } }
+function validateDeclaredWorktrees(repoRoot, plan, anchor) {
+  const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry]));
+  const owners = new Set(), worktrees = new Set(), branches = new Set(); const admitted = [];
+  for (const lane of plan.selected) {
+    let reason = null; const entry = byPath.get(lane.worktree);
+    if (!entry || entry.branch !== `refs/heads/${lane.branch}`) reason = 'declared_worktree_or_branch_not_live';
+    else if (git(lane.worktree, ['status', '--porcelain']) !== '') reason = 'declared_worktree_dirty';
+    else {
+      const head = git(lane.worktree, ['rev-parse', 'HEAD']);
+      if (head !== anchor && !gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', anchor, head])) reason = 'declared_worktree_head_not_anchor_descendant';
+    }
+    for (const [label, values, value] of [['owner', owners, lane.owner], ['worktree', worktrees, lane.worktree], ['branch', branches, lane.branch]]) {
+      if (values.has(value)) reason ??= `duplicate_${label}_within_epoch`; values.add(value);
+    }
+    if (reason) plan.held.push({ capability_id: lane.capability_id, lane_id: lane.lane_id, reasons: [reason], runtime_admission: true }); else admitted.push(lane);
+  }
+  const admittedIds = new Set(admitted.map((lane) => lane.lane_id)); const admittedCapabilities = new Set(admitted.map((lane) => lane.capability_id));
+  plan.selected = admitted;
+  plan.review_queue = plan.review_queue.filter((entry) => !entry.lane_id || admittedIds.has(entry.lane_id));
+  plan.consolidation_queue = plan.consolidation_queue.filter((entry) => admittedCapabilities.has(entry.capability_id));
+  plan.policy.allocated_resources = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, admitted.reduce((sum, lane) => sum + lane.resources[key], 0)]));
+}
 function main() { const args = parseArgs(process.argv.slice(2)); const repoRoot = process.cwd(); const registry = readAnchorJson(repoRoot, args.anchorSha, args.registryPath); const generatedPath = registry.shared_collision_roots?.generated_face_registry; if (typeof generatedPath !== 'string') throw new Error('missing generated-face authority path'); const generated = readAnchorJson(repoRoot, args.anchorSha, generatedPath); assertAnchorAuthority(repoRoot, args.anchorSha, args.registryPath, registry, generatedPath, generated); const plan = buildFanoutPlan(registry, { anchorSha: args.anchorSha, maxWriters: args.maxWriters, qualityBias: args.qualityBias, generatedFaces: generated }); validateDeclaredWorktrees(repoRoot, plan, args.anchorSha); process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`); }
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) { try { main(); } catch (error) { process.stderr.write(`console-fanout-plan: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; } }
