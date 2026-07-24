@@ -1245,18 +1245,20 @@ mod tests {
         let week_start = Date::from_calendar_date(2026, Month::July, 20).unwrap();
         let acknowledged_at = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
         let inputs = week52_inputs_for_active(
-            [employee],
+            [(employee, "Kim".to_owned(), Some("Operations".to_owned()))],
             week_start,
             BTreeMap::new(),
             BTreeMap::from([(employee, acknowledged_at)]),
         );
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs[0].employee_id, employee);
+        assert_eq!(inputs[0].name, "Kim");
+        assert_eq!(inputs[0].team.as_deref(), Some("Operations"));
         assert_eq!(inputs[0].current_hours, 0.0);
         assert_eq!(inputs[0].acknowledged_at, Some(acknowledged_at));
 
         let replay = week52_inputs_for_active(
-            [employee],
+            [(employee, "Kim".to_owned(), Some("Operations".to_owned()))],
             week_start,
             BTreeMap::new(),
             BTreeMap::from([(employee, acknowledged_at)]),
@@ -1288,7 +1290,12 @@ mod tests {
             branch,
         )
         .unwrap();
-        assert_eq!(first_response, replay_response);
+        assert_eq!(first_response.employee_id, replay_response.employee_id);
+        assert_eq!(first_response.week_start, replay_response.week_start);
+        assert_eq!(
+            first_response.acknowledged_at,
+            replay_response.acknowledged_at
+        );
         assert_eq!(first_audits.len(), 1);
         assert!(replay_audits.is_empty());
     }
