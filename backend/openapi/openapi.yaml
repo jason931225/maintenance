@@ -12835,7 +12835,9 @@ paths:
         - { name: custody_stage, in: query, required: false, schema: { $ref: '#/components/schemas/CustodyStage' } }
         - { name: classification, in: query, required: false, schema: { $ref: '#/components/schemas/EvidenceClassification' } }
         - { name: limit, in: query, required: false, schema: { type: integer, format: int64 } }
-        - { name: offset, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, format: int64 }, description: Backward-compatible offset accepted by the runtime. }
+        - { name: as_of, in: query, required: false, schema: { type: integer, format: int64 }, description: Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. }
+        - { name: cursor, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }, description: Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. }
       responses:
         '200': { description: A page of EV objects., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceObjectPage' } } } }
   /api/v1/evidence/objects/{id}:
@@ -28753,19 +28755,30 @@ components:
         disposed_at: { type: string, format: date-time, nullable: true }
     EvidenceObjectPage:
       type: object
-      required: [items, limit, offset, total]
+      required: [items, limit, offset, total, as_of, next_cursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/EvidenceObjectView' } }
         limit: { type: integer, format: int64 }
         offset: { type: integer, format: int64 }
         total: { type: integer, format: int64 }
+        as_of: { type: integer, format: int64, description: Immutable evidence-register sequence that fences every row in this response. }
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Opaque unpadded-base64url continuation token, or null at the end of the snapshot.
+    EvidenceCopyEvidentiaryStatus:
+      type: string
+      description: Server-derived classification; verified replicas of derivative copies never become evidence-equivalent originals.
+      enum: [VERIFIED_ORIGINAL, ORIGINAL_UNVERIFIED, NON_EVIDENTIARY_DERIVATIVE]
     EvidenceCopyView:
       type: object
-      required: [id, evidence_object_id, copy_kind, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]
+      required: [id, evidence_object_id, copy_kind, evidentiary_status, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]
       properties:
         id: { type: string, format: uuid }
         evidence_object_id: { type: string, format: uuid }
         copy_kind: { $ref: '#/components/schemas/EvidenceCopyKind' }
+        evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }
         derivative_kind: { type: string, nullable: true, enum: [REDACTED, THUMBNAIL, TRANSCODED, EXCERPT, EXPORT_MANIFEST, NORMALIZED_TEXT, OTHER] }
         parent_copy_id: { type: string, format: uuid, nullable: true }
         storage: { $ref: '#/components/schemas/EvidenceStorageRef' }

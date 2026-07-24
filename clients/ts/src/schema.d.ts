@@ -14205,13 +14205,26 @@ export interface components {
             offset: number;
             /** Format: int64 */
             total: number;
+            /**
+             * Format: int64
+             * @description Immutable evidence-register sequence that fences every row in this response.
+             */
+            as_of: number;
+            /** @description Opaque unpadded-base64url continuation token, or null at the end of the snapshot. */
+            next_cursor: string | null;
         };
+        /**
+         * @description Server-derived classification; verified replicas of derivative copies never become evidence-equivalent originals.
+         * @enum {string}
+         */
+        EvidenceCopyEvidentiaryStatus: "VERIFIED_ORIGINAL" | "ORIGINAL_UNVERIFIED" | "NON_EVIDENTIARY_DERIVATIVE";
         EvidenceCopyView: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             evidence_object_id: string;
             copy_kind: components["schemas"]["EvidenceCopyKind"];
+            evidentiary_status: components["schemas"]["EvidenceCopyEvidentiaryStatus"];
             /** @enum {string|null} */
             derivative_kind?: "REDACTED" | "THUMBNAIL" | "TRANSCODED" | "EXCERPT" | "EXPORT_MANIFEST" | "NORMALIZED_TEXT" | "OTHER" | null;
             /** Format: uuid */
@@ -26978,7 +26991,12 @@ export interface operations {
                 custody_stage?: components["schemas"]["CustodyStage"];
                 classification?: components["schemas"]["EvidenceClassification"];
                 limit?: number;
+                /** @description Backward-compatible offset accepted by the runtime. */
                 offset?: number;
+                /** @description Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. */
+                as_of?: number;
+                /** @description Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;

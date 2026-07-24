@@ -398,6 +398,7 @@ src/main/kotlin/com/maintenance/api/client/model/EvidenceBindingStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceClassification.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceConfidence.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceConfirmResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/EvidenceCopyEvidentiaryStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceCopyKind.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceCopyView.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceExportView.kt

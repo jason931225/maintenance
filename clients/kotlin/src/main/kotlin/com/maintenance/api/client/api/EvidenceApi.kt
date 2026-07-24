@@ -381,7 +381,9 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * @param custodyStage  (optional)
      * @param classification  (optional)
      * @param limit  (optional)
-     * @param offset  (optional)
+     * @param offset Backward-compatible offset accepted by the runtime. (optional)
+     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. (optional)
+     * @param cursor Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. (optional)
      * @return EvidenceObjectPage
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -391,8 +393,8 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEvidenceObjects(q: kotlin.String? = null, sourceType: EvidenceSourceType? = null, sourceId: kotlin.String? = null, admissibilityStatus: AdmissibilityStatus? = null, legalHoldState: LegalHoldState? = null, custodyStage: CustodyStage? = null, classification: EvidenceClassification? = null, limit: kotlin.Long? = null, offset: kotlin.Long? = null) : EvidenceObjectPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listEvidenceObjectsWithHttpInfo(q = q, sourceType = sourceType, sourceId = sourceId, admissibilityStatus = admissibilityStatus, legalHoldState = legalHoldState, custodyStage = custodyStage, classification = classification, limit = limit, offset = offset)
+    suspend fun listEvidenceObjects(q: kotlin.String? = null, sourceType: EvidenceSourceType? = null, sourceId: kotlin.String? = null, admissibilityStatus: AdmissibilityStatus? = null, legalHoldState: LegalHoldState? = null, custodyStage: CustodyStage? = null, classification: EvidenceClassification? = null, limit: kotlin.Long? = null, offset: kotlin.Long? = null, asOf: kotlin.Long? = null, cursor: kotlin.String? = null) : EvidenceObjectPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEvidenceObjectsWithHttpInfo(q = q, sourceType = sourceType, sourceId = sourceId, admissibilityStatus = admissibilityStatus, legalHoldState = legalHoldState, custodyStage = custodyStage, classification = classification, limit = limit, offset = offset, asOf = asOf, cursor = cursor)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceObjectPage
@@ -421,15 +423,17 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * @param custodyStage  (optional)
      * @param classification  (optional)
      * @param limit  (optional)
-     * @param offset  (optional)
+     * @param offset Backward-compatible offset accepted by the runtime. (optional)
+     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. (optional)
+     * @param cursor Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. (optional)
      * @return ApiResponse<EvidenceObjectPage?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listEvidenceObjectsWithHttpInfo(q: kotlin.String?, sourceType: EvidenceSourceType?, sourceId: kotlin.String?, admissibilityStatus: AdmissibilityStatus?, legalHoldState: LegalHoldState?, custodyStage: CustodyStage?, classification: EvidenceClassification?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EvidenceObjectPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listEvidenceObjectsRequestConfig(q = q, sourceType = sourceType, sourceId = sourceId, admissibilityStatus = admissibilityStatus, legalHoldState = legalHoldState, custodyStage = custodyStage, classification = classification, limit = limit, offset = offset)
+    suspend fun listEvidenceObjectsWithHttpInfo(q: kotlin.String?, sourceType: EvidenceSourceType?, sourceId: kotlin.String?, admissibilityStatus: AdmissibilityStatus?, legalHoldState: LegalHoldState?, custodyStage: CustodyStage?, classification: EvidenceClassification?, limit: kotlin.Long?, offset: kotlin.Long?, asOf: kotlin.Long?, cursor: kotlin.String?) : ApiResponse<EvidenceObjectPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEvidenceObjectsRequestConfig(q = q, sourceType = sourceType, sourceId = sourceId, admissibilityStatus = admissibilityStatus, legalHoldState = legalHoldState, custodyStage = custodyStage, classification = classification, limit = limit, offset = offset, asOf = asOf, cursor = cursor)
 
         return@withContext request<Unit, EvidenceObjectPage>(
             localVariableConfig
@@ -447,10 +451,12 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * @param custodyStage  (optional)
      * @param classification  (optional)
      * @param limit  (optional)
-     * @param offset  (optional)
+     * @param offset Backward-compatible offset accepted by the runtime. (optional)
+     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. (optional)
+     * @param cursor Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. (optional)
      * @return RequestConfig
      */
-    fun listEvidenceObjectsRequestConfig(q: kotlin.String?, sourceType: EvidenceSourceType?, sourceId: kotlin.String?, admissibilityStatus: AdmissibilityStatus?, legalHoldState: LegalHoldState?, custodyStage: CustodyStage?, classification: EvidenceClassification?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listEvidenceObjectsRequestConfig(q: kotlin.String?, sourceType: EvidenceSourceType?, sourceId: kotlin.String?, admissibilityStatus: AdmissibilityStatus?, legalHoldState: LegalHoldState?, custodyStage: CustodyStage?, classification: EvidenceClassification?, limit: kotlin.Long?, offset: kotlin.Long?, asOf: kotlin.Long?, cursor: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -480,6 +486,12 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
                 }
                 if (offset != null) {
                     put("offset", listOf(offset.toString()))
+                }
+                if (asOf != null) {
+                    put("as_of", listOf(asOf.toString()))
+                }
+                if (cursor != null) {
+                    put("cursor", listOf(cursor.toString()))
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

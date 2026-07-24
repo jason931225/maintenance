@@ -417,6 +417,78 @@ fn openapi_documents_hr_attendance_branch_scope_query() {
 }
 
 #[test]
+fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
+    let endpoint_start = OPENAPI_YAML
+        .find("  /api/v1/evidence/objects:\\n")
+        .expect("OpenAPI YAML must define the EV object list endpoint");
+    let endpoint_end = OPENAPI_YAML[endpoint_start..]
+        .find("  /api/v1/evidence/objects/{id}:")
+        .map(|offset| endpoint_start + offset)
+        .expect("EV object detail endpoint must follow the list endpoint");
+    let endpoint = &OPENAPI_YAML[endpoint_start..endpoint_end];
+
+    for parameter in ["offset", "as_of", "cursor"] {
+        assert!(
+            endpoint.contains(&format!("name: {parameter}, in: query")),
+            "EV list endpoint must document the runtime-supported {parameter} query parameter"
+        );
+    }
+    assert!(
+        endpoint.contains("name: as_of, in: query, required: false, schema: { type: integer, format: int64 }"),
+        "EV as_of must be an optional immutable registration sequence"
+    );
+    assert!(
+        endpoint.contains("name: cursor, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }"),
+        "EV cursor must expose the runtime's opaque unpadded-base64url wire contract"
+    );
+
+    let page_start = OPENAPI_YAML
+        .find("    EvidenceObjectPage:\\n")
+        .expect("OpenAPI YAML must define EvidenceObjectPage");
+    let page_end = OPENAPI_YAML[page_start..]
+        .find("    EvidenceCopyView:\\n")
+        .map(|offset| page_start + offset)
+        .expect("EvidenceCopyView must follow EvidenceObjectPage");
+    let page = &OPENAPI_YAML[page_start..page_end];
+    assert!(
+        page.contains("required: [items, limit, offset, total, as_of, next_cursor]"),
+        "EV list response must always return the registered snapshot and nullable continuation token"
+    );
+    assert!(page.contains("as_of: { type: integer, format: int64 }"));
+    assert!(
+        page.contains("next_cursor:\n          type:\n          - string\n          - 'null'"),
+        "EV next_cursor must use the OpenAPI 3.1 nullable-string form consumed by every generated client"
+    );
+
+    let copy_start = OPENAPI_YAML
+        .find("    EvidenceCopyView:\\n")
+        .expect("OpenAPI YAML must define EvidenceCopyView");
+    let copy_end = OPENAPI_YAML[copy_start..]
+        .find("    TimestampAuthorityProofView:\\n")
+        .map(|offset| copy_start + offset)
+        .expect("TimestampAuthorityProofView must follow EvidenceCopyView");
+    let copy = &OPENAPI_YAML[copy_start..copy_end];
+    assert!(
+        copy.contains("evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }"),
+        "EV copy view must expose the server-derived evidentiary classification"
+    );
+    assert!(
+        copy.contains("required: [id, evidence_object_id, copy_kind, evidentiary_status, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]"),
+        "EV copy view must require the server-derived evidentiary classification"
+    );
+
+    let status_start = OPENAPI_YAML
+        .find("    EvidenceCopyEvidentiaryStatus:\\n")
+        .expect("OpenAPI YAML must define EvidenceCopyEvidentiaryStatus");
+    let status_end = OPENAPI_YAML[status_start..]
+        .find("    EvidenceCopyView:\\n")
+        .map(|offset| status_start + offset)
+        .expect("EvidenceCopyView must follow EvidenceCopyEvidentiaryStatus");
+    let status = &OPENAPI_YAML[status_start..status_end];
+    assert!(status.contains("enum: [VERIFIED_ORIGINAL, ORIGINAL_UNVERIFIED, NON_EVIDENTIARY_DERIVATIVE]"));
+}
+
+#[test]
 fn openapi_yaml_covers_platform_route_operations() {
     let missing = missing_platform_route_operations(OPENAPI_YAML);
     assert!(
