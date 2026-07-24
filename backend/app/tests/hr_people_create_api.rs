@@ -196,8 +196,8 @@ async fn seed_org(pool: &PgPool, org: OrgId) {
 async fn seed_user(pool: &PgPool, org: OrgId, user: UserId) {
     sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user.as_uuid())
-        .bind("People administrator")
-        .bind(vec!["ADMIN"])
+        .bind("People super administrator")
+        .bind(vec!["SUPER_ADMIN"])
         .bind(*org.as_uuid())
         .execute(pool)
         .await
@@ -285,7 +285,7 @@ fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
         .issue_access_token(AccessTokenInput {
             subject: user,
             org_id: org,
-            roles: vec!["ADMIN".to_owned()],
+            roles: vec!["SUPER_ADMIN".to_owned()],
             branches: Vec::new(),
             platform: false,
             view_as: false,
