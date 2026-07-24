@@ -15,7 +15,7 @@ use mnt_platform_db::{DbError, issue_code, with_audits, with_org_conn};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use time::{Date, Duration, OffsetDateTime};
+use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -416,8 +416,14 @@ impl PgAttendanceStore {
                 None => sqlx::query_scalar("SELECT acknowledged_at FROM attendance_week52_acknowledgements WHERE employee_id=$1 AND week_start=$2")
                     .bind(command.employee_id).bind(command.week_start).fetch_optional(tx.as_mut()).await?.ok_or(AttendanceStoreError::NotFound)?,
             };
-            let audits = if inserted.is_some() { vec![event(&caller,"attendance.week52.acknowledge","attendance_week52",command.employee_id,Some(branch),Some(json!({"weekStart":command.week_start,"acknowledgedAt":acknowledged_at})))?] } else { Vec::new() };
-            Ok((json!({"employeeId":command.employee_id,"weekStart":command.week_start,"acknowledged":true,"acknowledgedAt":acknowledged_at}), audits))
+            week52_acknowledgement_response(
+                &caller,
+                command.employee_id,
+                command.week_start,
+                acknowledged_at,
+                inserted.is_some(),
+                branch,
+            )
         })).await
     }
 
@@ -430,14 +436,20 @@ impl PgAttendanceStore {
         app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         let end = week_start + Duration::days(7);
+        let week_start_at = week52_boundary(week_start)?;
+        let week_end_at = week52_boundary(end)?;
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let rows = sqlx::query("SELECT r.employee_id,r.kind,r.occurred_at FROM employee_attendance_records r JOIN employees e ON e.id=r.employee_id AND e.org_id=r.org_id WHERE e.employment_status='ACTIVE' AND r.work_date >= $1 AND r.work_date < $2 AND ($3::uuid IS NULL OR e.home_branch_id=$3) ORDER BY r.employee_id,r.occurred_at,r.id")
-                .bind(week_start).bind(end).bind(branch_id).fetch_all(tx.as_mut()).await?;
+            let active_employees = sqlx::query_scalar("SELECT id FROM employees WHERE employment_status='ACTIVE' AND ($1::uuid IS NULL OR home_branch_id=$1) ORDER BY id")
+                .bind(branch_id).fetch_all(tx.as_mut()).await?;
+            // Pair the complete employee timeline. Filtering by `work_date` (or by either
+            // week boundary) loses a side of a shift that crosses that boundary.
+            let rows = sqlx::query("SELECT r.employee_id,r.kind,r.occurred_at FROM employee_attendance_records r JOIN employees e ON e.id=r.employee_id AND e.org_id=r.org_id WHERE e.employment_status='ACTIVE' AND ($1::uuid IS NULL OR e.home_branch_id=$1) ORDER BY r.employee_id,r.occurred_at,r.id")
+                .bind(branch_id).fetch_all(tx.as_mut()).await?;
             let events = rows.iter().map(|row| Ok(Week52Event { employee_id: row.try_get("employee_id")?, kind: row.try_get("kind")?, occurred_at: row.try_get("occurred_at")? })).collect::<Result<Vec<_>, AttendanceStoreError>>()?;
-            let hours = week52_hours(&events)?;
-            let acknowledgements = sqlx::query("SELECT employee_id,acknowledged_at FROM attendance_week52_acknowledgements WHERE week_start=$1")
-                .bind(week_start).fetch_all(tx.as_mut()).await?.into_iter().map(|row| Ok((row.try_get::<Uuid,_>("employee_id")?, row.try_get::<OffsetDateTime,_>("acknowledged_at")?))).collect::<Result<BTreeMap<_,_>, AttendanceStoreError>>()?;
-            Ok(hours.into_iter().map(|(employee_id, current_hours)| Week52Input { employee_id, week_start, current_hours, projected_hours: current_hours, acknowledged_at: acknowledgements.get(&employee_id).copied() }).collect())
+            let hours = week52_hours(&events, week_start_at, week_end_at)?;
+            let acknowledgements = sqlx::query("SELECT a.employee_id,a.acknowledged_at FROM attendance_week52_acknowledgements a JOIN employees e ON e.id=a.employee_id AND e.org_id=a.org_id WHERE a.week_start=$1 AND e.employment_status='ACTIVE' AND ($2::uuid IS NULL OR e.home_branch_id=$2)")
+                .bind(week_start).bind(branch_id).fetch_all(tx.as_mut()).await?.into_iter().map(|row| Ok((row.try_get::<Uuid,_>("employee_id")?, row.try_get::<OffsetDateTime,_>("acknowledged_at")?))).collect::<Result<BTreeMap<_,_>, AttendanceStoreError>>()?;
+            Ok(week52_inputs_for_active(active_employees, week_start, hours, acknowledgements))
         })).await
     }
 }
@@ -452,10 +464,19 @@ struct Week52Event {
 /// Only complete CLOCK_IN/CLOCK_OUT pairs contribute time. A duplicate open
 /// clock-in or unmatched clock-out/open clock-in fails the whole read instead
 /// of inventing a duration.
-fn week52_hours(events: &[Week52Event]) -> Result<BTreeMap<Uuid, f64>, AttendanceStoreError> {
+fn week52_hours(
+    events: &[Week52Event],
+    week_start: OffsetDateTime,
+    week_end: OffsetDateTime,
+) -> Result<BTreeMap<Uuid, f64>, AttendanceStoreError> {
+    if week_end <= week_start {
+        return Err(AttendanceStoreError::Conflict);
+    }
     let mut open = BTreeMap::<Uuid, OffsetDateTime>::new();
     let mut seconds = BTreeMap::<Uuid, i64>::new();
-    for event in events {
+    let mut ordered_events = events.iter().collect::<Vec<_>>();
+    ordered_events.sort_by_key(|event| event.occurred_at);
+    for event in ordered_events {
         match event.kind.as_str() {
             "CLOCK_IN" => {
                 if open.insert(event.employee_id, event.occurred_at).is_some() {
@@ -470,7 +491,14 @@ fn week52_hours(events: &[Week52Event]) -> Result<BTreeMap<Uuid, f64>, Attendanc
                 if elapsed < 0 {
                     return Err(AttendanceStoreError::Conflict);
                 }
-                *seconds.entry(event.employee_id).or_default() += elapsed;
+                let clipped_start = start.max(week_start);
+                let clipped_end = event.occurred_at.min(week_end);
+                if clipped_end > clipped_start {
+                    let entry = seconds.entry(event.employee_id).or_default();
+                    *entry = entry
+                        .checked_add((clipped_end - clipped_start).whole_seconds())
+                        .ok_or(AttendanceStoreError::Conflict)?;
+                }
             }
             _ => {}
         }
@@ -482,6 +510,61 @@ fn week52_hours(events: &[Week52Event]) -> Result<BTreeMap<Uuid, f64>, Attendanc
         .into_iter()
         .map(|(employee, seconds)| (employee, seconds as f64 / 3600.0))
         .collect())
+}
+
+fn week52_inputs_for_active(
+    active_employees: impl IntoIterator<Item = Uuid>,
+    week_start: Date,
+    hours: BTreeMap<Uuid, f64>,
+    acknowledgements: BTreeMap<Uuid, OffsetDateTime>,
+) -> Vec<Week52Input> {
+    active_employees
+        .into_iter()
+        .map(|employee_id| {
+            let current_hours = hours.get(&employee_id).copied().unwrap_or(0.0);
+            Week52Input {
+                employee_id,
+                week_start,
+                current_hours,
+                projected_hours: current_hours,
+                acknowledged_at: acknowledgements.get(&employee_id).copied(),
+            }
+        })
+        .collect()
+}
+
+fn week52_boundary(date: Date) -> Result<OffsetDateTime, AttendanceStoreError> {
+    let local_midnight = date
+        .with_hms(0, 0, 0)
+        .map_err(|_| AttendanceStoreError::Conflict)?;
+    let seoul = UtcOffset::from_hms(9, 0, 0).map_err(|_| AttendanceStoreError::Conflict)?;
+    Ok(local_midnight.assume_offset(seoul))
+}
+
+fn week52_acknowledgement_response(
+    caller: &CallerScope,
+    employee_id: Uuid,
+    week_start: Date,
+    acknowledged_at: OffsetDateTime,
+    inserted: bool,
+    branch: Uuid,
+) -> Result<(Value, Vec<AuditEvent>), AttendanceStoreError> {
+    let audits = if inserted {
+        vec![event(
+            caller,
+            "attendance.week52.acknowledge",
+            "attendance_week52",
+            employee_id,
+            Some(branch),
+            Some(json!({"weekStart":week_start,"acknowledgedAt":acknowledged_at})),
+        )?]
+    } else {
+        Vec::new()
+    };
+    Ok((
+        json!({"employeeId":employee_id,"weekStart":week_start,"acknowledged":true,"acknowledgedAt":acknowledged_at}),
+        audits,
+    ))
 }
 
 fn month_after(month: Date) -> Date {
@@ -785,26 +868,123 @@ mod tests {
     #[test]
     fn week52_derives_only_real_complete_clock_pairs() {
         let employee = Uuid::new_v4();
-        let hours = week52_hours(&[
-            event_at(employee, "CLOCK_IN", 0),
-            event_at(employee, "OUT_FOR_WORK", 1),
-            event_at(employee, "CLOCK_OUT", 9),
-        ])
+        let hours = week52_hours(
+            &[
+                event_at(employee, "CLOCK_IN", 0),
+                event_at(employee, "OUT_FOR_WORK", 1),
+                event_at(employee, "CLOCK_OUT", 9),
+            ],
+            OffsetDateTime::UNIX_EPOCH,
+            OffsetDateTime::UNIX_EPOCH + Duration::days(7),
+        )
         .unwrap();
         assert_eq!(hours.get(&employee), Some(&9.0));
     }
     #[test]
     fn week52_fails_closed_for_repeated_or_missing_clock_pairs() {
         let employee = Uuid::new_v4();
-        assert!(week52_hours(&[event_at(employee, "CLOCK_OUT", 1)]).is_err());
+        let start = OffsetDateTime::UNIX_EPOCH;
+        let end = start + Duration::days(7);
+        assert!(week52_hours(&[event_at(employee, "CLOCK_OUT", 1)], start, end).is_err());
         assert!(
-            week52_hours(&[
-                event_at(employee, "CLOCK_IN", 0),
-                event_at(employee, "CLOCK_IN", 1)
-            ])
+            week52_hours(
+                &[
+                    event_at(employee, "CLOCK_IN", 0),
+                    event_at(employee, "CLOCK_IN", 1)
+                ],
+                start,
+                end
+            )
             .is_err()
         );
-        assert!(week52_hours(&[event_at(employee, "CLOCK_IN", 0)]).is_err());
+        assert!(week52_hours(&[event_at(employee, "CLOCK_IN", 0)], start, end).is_err());
+    }
+    #[test]
+    fn week52_clips_pairs_crossing_both_week_boundaries() {
+        let employee = Uuid::new_v4();
+        let start = OffsetDateTime::UNIX_EPOCH + Duration::days(7);
+        let end = start + Duration::days(7);
+        let hours = week52_hours(
+            &[
+                event_at(employee, "CLOCK_IN", 7 * 24 - 2),
+                event_at(employee, "CLOCK_OUT", 7 * 24 + 3),
+                event_at(employee, "CLOCK_IN", 14 * 24 - 3),
+                event_at(employee, "CLOCK_OUT", 14 * 24 + 2),
+            ],
+            start,
+            end,
+        )
+        .unwrap();
+        assert_eq!(hours.get(&employee), Some(&6.0));
+    }
+    #[test]
+    fn week52_pairs_persisted_events_by_timestamp_not_input_order() {
+        let employee = Uuid::new_v4();
+        let start = OffsetDateTime::UNIX_EPOCH;
+        let end = start + Duration::days(7);
+        let hours = week52_hours(
+            &[
+                event_at(employee, "CLOCK_OUT", 9),
+                event_at(employee, "CLOCK_IN", 0),
+            ],
+            start,
+            end,
+        )
+        .unwrap();
+        assert_eq!(hours.get(&employee), Some(&9.0));
+    }
+    #[test]
+    fn week52_includes_authorized_active_employee_with_zero_hours_and_stable_ack() {
+        let employee = Uuid::new_v4();
+        let week_start = Date::from_calendar_date(2026, Month::July, 20).unwrap();
+        let acknowledged_at = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        let inputs = week52_inputs_for_active(
+            [employee],
+            week_start,
+            BTreeMap::new(),
+            BTreeMap::from([(employee, acknowledged_at)]),
+        );
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].employee_id, employee);
+        assert_eq!(inputs[0].current_hours, 0.0);
+        assert_eq!(inputs[0].acknowledged_at, Some(acknowledged_at));
+
+        let replay = week52_inputs_for_active(
+            [employee],
+            week_start,
+            BTreeMap::new(),
+            BTreeMap::from([(employee, acknowledged_at)]),
+        );
+        assert_eq!(replay[0].acknowledged_at, inputs[0].acknowledged_at);
+    }
+    #[test]
+    fn week52_ack_replay_keeps_timestamp_and_writes_no_duplicate_audit() {
+        let caller = scope();
+        let employee = Uuid::new_v4();
+        let branch = Uuid::new_v4();
+        let week_start = Date::from_calendar_date(2026, Month::July, 20).unwrap();
+        let acknowledged_at = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        let (first_response, first_audits) = week52_acknowledgement_response(
+            &caller,
+            employee,
+            week_start,
+            acknowledged_at,
+            true,
+            branch,
+        )
+        .unwrap();
+        let (replay_response, replay_audits) = week52_acknowledgement_response(
+            &caller,
+            employee,
+            week_start,
+            acknowledged_at,
+            false,
+            branch,
+        )
+        .unwrap();
+        assert_eq!(first_response, replay_response);
+        assert_eq!(first_audits.len(), 1);
+        assert!(replay_audits.is_empty());
     }
     #[test]
     fn historical_interval_contract_covers_full_partial_and_no_coverage() {
