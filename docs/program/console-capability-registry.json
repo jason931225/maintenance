@@ -598,15 +598,19 @@
    },
    "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT/",
    "tests": {
-    "files": [],
-    "leaf_commands": [],
+    "files": [
+     "web/src/console/logistics/*.test.*"
+    ],
+    "leaf_commands": [
+     "cd web && npx vitest run src/console/logistics (27 passed)"
+    ],
     "buck2_targets": []
    },
    "state": {
     "design_contract": "research_required",
     "backend": "gap_analysis_required",
-    "frontend": "writer_assigned_in_progress",
-    "e2e": "missing",
+    "frontend": "integrated_dark_on_pr488",
+    "e2e": "component_matrix_passed_no_browser_replay",
     "runtime": "blocked",
     "independent_review": "missing",
     "production_exposure": "dark"
@@ -627,7 +631,8 @@
       "web/src/console/screens/registry.ts",
       "clients/**",
       "backend/openapi/**"
-     ]
+     ],
+     "integration_notes": "Merged + mounted DARK 2026-07-24. CEILING: logistics REST is write-only (zero GET routes) — queues are session working set; refresh truthfully empties; history readback + rehydration need a read-endpoint charter (gap manifest in docs/evidence/console/CAP-LOGISTICS-PILOT/). openapi drift fixed via LogisticsTimeTuple (backend not RFC3339 yet — flip-back notes in openapi-applied-notes.md). logistics ConfiguredRouteSurface/RouteSource registration still missing (pre-existing)."
     },
     "consolidation": {
      "owner": "console-consolidation"
@@ -750,15 +755,21 @@
    },
    "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/",
    "tests": {
-    "files": [],
-    "leaf_commands": [],
+    "files": [
+     "backend/app/tests/equipment_3r_api.rs",
+     "web/src/console/equipment/*.test.*"
+    ],
+    "leaf_commands": [
+     "cargo test -p mnt-app --test equipment_3r_api (4 passed, mnt_rt-armed)",
+     "cd web && npx vitest run src/console/equipment (29 passed)"
+    ],
     "buck2_targets": []
    },
    "state": {
-    "design_contract": "research_in_progress",
-    "backend": "writer_assigned_gap_analysis_in_progress",
-    "frontend": "writer_assigned",
-    "e2e": "missing",
+    "design_contract": "committed_contract",
+    "backend": "integrated_dark_on_pr488",
+    "frontend": "integrated_dark_on_pr488",
+    "e2e": "mnt_rt_story_integration_passed_no_browser_replay",
     "runtime": "blocked",
     "independent_review": "missing",
     "production_exposure": "dark"
@@ -801,7 +812,8 @@
      ]
     },
     "consolidation": {
-     "owner": "console-consolidation"
+     "owner": "console-consolidation",
+     "integration_notes": "Merged + mounted DARK 2026-07-24. Migration renumbered 0185->0182. openapi 12 paths/14 ops tags [equipment-3r]; 3 clients regenerated (kotlin per-domain Equipment3rApi.kt). FE still raw-fetch swap candidate to generated client (header note in equipmentApi.ts). No GET /dispositions/{id} (recorded)."
     }
    }
   },
