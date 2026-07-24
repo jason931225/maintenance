@@ -9,13 +9,13 @@ export_file(
 )
 
 rust_library(
-    name = "mnt-facilities-rest",
-    mapped_srcs = repo_mapped_srcs("backend/crates/facilities/rest", glob(["src/**/*.rs"])),
-    crate = "mnt_facilities_rest",
+    name = "mnt-consulting-rest",
+    mapped_srcs = repo_mapped_srcs("backend/crates/consulting/rest", glob(["src/**/*.rs"])),
+    crate = "mnt_consulting_rest",
     edition = "2024",
-    crate_root = "backend/crates/facilities/rest/src/lib.rs",
+    crate_root = "backend/crates/consulting/rest/src/lib.rs",
     visibility = ["PUBLIC"],
-    env = {"CARGO_MANIFEST_DIR": "backend/crates/facilities/rest"},
+    env = {"CARGO_MANIFEST_DIR": "backend/crates/consulting/rest"},
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/auth:mnt-platform-auth",
@@ -23,7 +23,6 @@ rust_library(
         "//backend/crates/platform/db:mnt-platform-db",
         "//backend/crates/platform/request-context:mnt-platform-request-context",
         "//third-party/rust:axum",
-        "//third-party/rust:hex",
         "//third-party/rust:serde",
         "//third-party/rust:serde_json",
         "//third-party/rust:sha2",
@@ -34,13 +33,13 @@ rust_library(
 )
 
 rust_test(
-    name = "mnt-facilities-rest-unit",
-    mapped_srcs = repo_mapped_srcs("backend/crates/facilities/rest", glob(["src/**/*.rs"])),
-    crate = "mnt_facilities_rest",
+    name = "mnt-consulting-rest-unit",
+    mapped_srcs = repo_mapped_srcs("backend/crates/consulting/rest", glob(["src/**/*.rs"])),
+    crate = "mnt_consulting_rest",
     edition = "2024",
-    crate_root = "backend/crates/facilities/rest/src/lib.rs",
+    crate_root = "backend/crates/consulting/rest/src/lib.rs",
     visibility = ["PUBLIC"],
-    env = {"CARGO_MANIFEST_DIR": "backend/crates/facilities/rest"},
+    env = {"CARGO_MANIFEST_DIR": "backend/crates/consulting/rest"},
     labels = ["needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
@@ -49,7 +48,6 @@ rust_test(
         "//backend/crates/platform/db:mnt-platform-db",
         "//backend/crates/platform/request-context:mnt-platform-request-context",
         "//third-party/rust:axum",
-        "//third-party/rust:hex",
         "//third-party/rust:serde",
         "//third-party/rust:serde_json",
         "//third-party/rust:sha2",
