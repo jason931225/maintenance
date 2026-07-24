@@ -5,8 +5,6 @@ import {
   type AttendanceException,
   type AttendanceTransport,
   type CloseAmendment,
-  type CloseAmendmentInput,
-  type CreateAttendanceException,
   type ClosePreflight,
   type CreateSubstitution,
   type MonthClose,
@@ -20,8 +18,40 @@ import {
   type AttendanceSummaryItem,
 } from "./attendanceApi";
 
-/** Authenticated generated-client binding implements the full screen port. */
-export type AttendanceApiTransport = AttendanceTransport;
+/**
+ * Additional Attendance operations that are part of the public 13-operation
+ * REST surface but are not currently initiated by the reviewed console screen.
+ * Keeping them in this generated-client adapter makes every path contract
+ * testable without fabricating a second transport or a raw-fetch escape hatch.
+ */
+export interface AttendanceOperationTransport {
+  createException(
+    input: CreateAttendanceException,
+    signal?: AbortSignal,
+  ): Promise<AttendanceException>;
+  getException(id: string, signal?: AbortSignal): Promise<AttendanceException>;
+  addCloseAmendment(
+    closeId: string,
+    input: CloseAmendmentInput,
+    signal?: AbortSignal,
+  ): Promise<CloseAmendment>;
+}
+
+export interface CreateAttendanceException {
+  kind: AttendanceException["kind"];
+  employee_id: string;
+  work_date: string;
+  detail: string;
+  evidence?: AttendanceException["evidence"];
+}
+
+export interface CloseAmendmentInput {
+  reason: string;
+  detail: string;
+  ref?: string | null;
+}
+
+export type AttendanceApiTransport = AttendanceTransport & AttendanceOperationTransport;
 
 type ApiResult<T> = {
   data?: T;
@@ -32,8 +62,7 @@ type ApiResult<T> = {
 function responseMessage(error: unknown, status: number): string {
   if (error && typeof error === "object" && "error" in error) {
     const envelope = error as { error?: { message?: unknown } };
-    if (typeof envelope.error?.message === "string")
-      return envelope.error.message;
+    if (typeof envelope.error?.message === "string") return envelope.error.message;
   }
   return `Attendance request failed (${String(status)})`;
 }
@@ -80,25 +109,19 @@ export function createAttendanceApiTransport(
     },
 
     async getException(id, signal) {
-      const result = await api.GET(
-        "/api/v1/attendance/exceptions/{exception_id}",
-        {
-          params: { path: { exception_id: id } },
-          signal,
-        },
-      );
+      const result = await api.GET("/api/v1/attendance/exceptions/{exception_id}", {
+        params: { path: { exception_id: id } },
+        signal,
+      });
       return requireData<AttendanceException>(result);
     },
 
     async resolveException(id, input, signal) {
-      const result = await api.POST(
-        "/api/v1/attendance/exceptions/{exception_id}/resolve",
-        {
-          params: { path: { exception_id: id } },
-          body: input,
-          signal,
-        },
-      );
+      const result = await api.POST("/api/v1/attendance/exceptions/{exception_id}/resolve", {
+        params: { path: { exception_id: id } },
+        body: input,
+        signal,
+      });
       return requireData<AttendanceException>(result);
     },
 
@@ -120,14 +143,11 @@ export function createAttendanceApiTransport(
     },
 
     async cancelSubstitution(id, reason, signal) {
-      const result = await api.POST(
-        "/api/v1/attendance/substitutions/{substitution_id}/cancel",
-        {
-          params: { path: { substitution_id: id } },
-          body: { reason },
-          signal,
-        },
-      );
+      const result = await api.POST("/api/v1/attendance/substitutions/{substitution_id}/cancel", {
+        params: { path: { substitution_id: id } },
+        body: { reason },
+        signal,
+      });
       return requireData<Substitution>(result);
     },
 
@@ -160,17 +180,14 @@ export function createAttendanceApiTransport(
     },
 
     async addCloseAmendment(closeId, input, signal) {
-      const result = await api.POST(
-        "/api/v1/attendance/closes/{close_id}/amend",
-        {
-          params: {
-            path: { close_id: closeId },
-            header: { "Idempotency-Key": idempotencyKey() },
-          },
-          body: input,
-          signal,
+      const result = await api.POST("/api/v1/attendance/closes/{close_id}/amend", {
+        params: {
+          path: { close_id: closeId },
+          header: { "Idempotency-Key": idempotencyKey() },
         },
-      );
+        body: input,
+        signal,
+      });
       return requireData<CloseAmendment>(result);
     },
 
