@@ -9,7 +9,7 @@ roadmap="${repo_root}/docs/program/console-enterprise-roadmap.md"
 ledger="${repo_root}/docs/program/console-program-ledger.md"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/mnt-buck-preflight-test.XXXXXX")"
 trap 'rm -rf "${scratch}"' EXIT
-mkdir -p "${scratch}/bin"
+mkdir -p "${scratch}/bin" "${scratch}/archive"
 log="${scratch}/calls.log"
 
 cat >"${scratch}/buck" <<'BUCK'
@@ -36,6 +36,11 @@ if [[ "$1" == */validate_generated_faces.py ]]; then
   echo 'generated-face-registry: PASS'
   exit 0
 fi
+if [[ "$1" == */snapshot_root.py ]]; then
+  if [[ "$*" == *"--cleanup"* ]]; then exit 0; fi
+  printf '%s\n' "${FAKE_SNAPSHOT_ROOT}"
+  exit 0
+fi
 if [[ "$1" == */provision_snapshot_node_modules.py ]]; then
   printf 'SNAPSHOT_NODE_DEPS=%s\n' "$*" >>"${HARNESS_LOG}"
   if [[ "${FAKE_SNAPSHOT_NODE_DEPS_FAIL:-0}" == 1 ]]; then
@@ -58,7 +63,7 @@ chmod +x "${scratch}/buck" "${scratch}/bin/python3"
 
 real_python="$(command -v python3)"
 before="$(git -C "${repo_root}" status --porcelain)"
-PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
+PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" "${harness}"
 after="$(git -C "${repo_root}" status --porcelain)"
@@ -69,14 +74,14 @@ grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock uquery ' "${log}"
 grep -Fq 'SNAPSHOT_NODE_DEPS=' "${log}"
 grep -Fq 'GENERATED_FACE_GATES=' "${log}"
 
-if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
+if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_GENERATED_FACE_GATE_FAIL=1 "${harness}"; then
   echo "expected a registered generated-face gate failure to fail preflight" >&2
   exit 1
 fi
 
-if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
+if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_SNAPSHOT_NODE_DEPS_FAIL=1 "${harness}"; then
   echo "expected missing or inconsistent snapshot dependencies to fail preflight" >&2

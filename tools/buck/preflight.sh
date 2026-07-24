@@ -72,9 +72,9 @@ if ! grep -Eq '(^|[[:space:]])(root)?//backend/' <<<"${targets}"; then
 fi
 printf 'buck-preflight: enumerated %s Rust test target(s)\n' "$(grep -Ec '(^|[[:space:]])(root)?//backend/' <<<"${targets}")"
 
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/mnt-buck-preflight.XXXXXX")"
+scratch="$(python3 "${repo_root}/tools/buck/snapshot_root.py" --repo "${repo_root}")"
 cleanup() {
-  rm -rf "${scratch}"
+  python3 "${repo_root}/tools/buck/snapshot_root.py" --repo "${repo_root}" --cleanup "${scratch}"
 }
 trap cleanup EXIT HUP INT TERM
 

@@ -50,16 +50,18 @@ def output_roots_overlap(left: str, right: str) -> bool:
     return left_root == right_root or left_root.startswith(right_root + "/") or right_root.startswith(left_root + "/")
 
 
-def default_target_resolver(repo_root: Path, target: str) -> bool:
-    """Resolve, never evaluate, a declared Buck writer target."""
+def default_target_resolver(repo_root: Path, targets: list[str]) -> set[str]:
+    """Resolve declared Buck writer targets in one query, never evaluate them."""
     buck = repo_root / "tools" / "buck2"
     if not buck.is_file():
         fail("tools/buck2 is required to resolve writer targets")
     result = subprocess.run(
-        [str(buck), "targets", target], cwd=repo_root, text=True,
+        [str(buck), "targets", *targets], cwd=repo_root, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
     )
-    return result.returncode == 0 and target in result.stdout
+    if result.returncode:
+        return set()
+    return {target for target in targets if target in result.stdout}
 
 
 def _exists(repo_root: Path, declared: str) -> bool:
@@ -78,7 +80,7 @@ def validate_registry(
     target_resolver: Callable[[Path, str], bool] | None = None,
 ) -> None:
     repo_root = repo_root or Path.cwd()
-    target_resolver = target_resolver or default_target_resolver
+    use_default_target_resolver = target_resolver is None
     if not isinstance(registry, dict) or set(registry) != {"schema_version", "faces"}:
         fail("top-level keys must be exactly schema_version and faces")
     if registry["schema_version"] != 2:
@@ -89,6 +91,7 @@ def validate_registry(
 
     seen_ids: set[str] = set()
     claimed_outputs: list[tuple[str, str]] = []
+    declared_targets: list[tuple[str, str]] = []
     for face in faces:
         if not isinstance(face, dict) or set(face) != FACE_KEYS:
             fail("each face must have exactly " + ", ".join(sorted(FACE_KEYS)))
@@ -118,8 +121,9 @@ def validate_registry(
         target = writer["target"]
         if not isinstance(target, str) or not target.startswith("//"):
             fail(f"{face_id}: writer.target must be a Buck target label")
-        if not target_resolver(repo_root, target):
+        if not use_default_target_resolver and not target_resolver(repo_root, target):
             fail(f"{face_id}: writer.target did not resolve")
+        declared_targets.append((face_id, target))
         gate = face["drift_gate"]
         if not isinstance(gate, dict) or set(gate) != GATE_KEYS:
             fail(f"{face_id}: drift_gate must contain exactly tier and kind")
@@ -130,6 +134,11 @@ def validate_registry(
                 if output_roots_overlap(output, existing_output):
                     fail(f"overlapping writable output roots: {face_id}:{output} and {existing_id}:{existing_output}")
             claimed_outputs.append((face_id, output))
+    if use_default_target_resolver:
+        resolved = default_target_resolver(repo_root, [target for _, target in declared_targets])
+        for face_id, target in declared_targets:
+            if target not in resolved:
+                fail(f"{face_id}: writer.target did not resolve")
 
 
 def main(argv: list[str]) -> int:
