@@ -136,6 +136,7 @@ pub mod action_inbox;
 pub mod cedar_parity;
 mod collaboration;
 mod console_telemetry;
+mod facilities_schedule;
 mod hr;
 pub mod lifecycle;
 mod mail_sync;
@@ -3941,6 +3942,7 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     // migration/seed creates a schedule row, so it finds no work until a tenant
     // authors one through the audited studio REST surface.
     let workflow_schedule_handle = workflow_schedules::spawn(pool.clone());
+    let facilities_schedule_handle = facilities_schedule::spawn(pool.clone());
     let alimtalk_policy = if config.solapi.is_some() {
         AlimtalkEscalationPolicy::enabled()
     } else {
@@ -4009,6 +4011,7 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         handle.shutdown();
     }
     workflow_schedule_handle.shutdown();
+    facilities_schedule_handle.shutdown();
     health_server.abort();
     result
 }

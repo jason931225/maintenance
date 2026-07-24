@@ -59,7 +59,7 @@ CREATE TABLE facilities_cases (
 );
 CREATE TABLE facilities_case_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), org_id UUID NOT NULL REFERENCES organizations(id), case_id UUID NOT NULL,
-    from_status TEXT NULL, to_status TEXT NOT NULL, actor_id UUID NOT NULL, occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), receipt JSONB NOT NULL DEFAULT '{}'::jsonb,
+    from_status TEXT NULL, to_status TEXT NOT NULL, actor_id UUID NULL, occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), receipt JSONB NOT NULL DEFAULT '{}'::jsonb,
     UNIQUE (id, org_id), FOREIGN KEY (case_id, org_id) REFERENCES facilities_cases(id, org_id), FOREIGN KEY (actor_id, org_id) REFERENCES users(id, org_id)
 );
 CREATE TABLE facilities_execution_evidence_links (

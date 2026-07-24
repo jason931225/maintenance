@@ -12,7 +12,7 @@ use axum::{
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, resolve_principal};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -48,6 +48,57 @@ impl FacilitiesRestState {
     pub fn new(pool: PgPool, jwt_verifier: Option<JwtVerifier>) -> Self {
         Self { pool, jwt_verifier }
     }
+}
+
+/// Materialize each due HVAC occurrence exactly once and advance its obligation
+/// while the obligation row is locked. The unique occurrence key is a second
+/// line of defense when more than one application process polls concurrently.
+pub async fn poll_scheduled_hvac(pool: &PgPool) -> Result<u64, DbError> {
+    let orgs: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM platform_list_organizations()")
+        .fetch_all(pool)
+        .await
+        .map_err(DbError::Sqlx)?;
+    let now = time::OffsetDateTime::now_utc();
+    let mut created = 0_u64;
+    for org_uuid in orgs {
+        let org = OrgId::from_uuid(org_uuid);
+        created += with_audits::<_, _, DbError>(pool, org, move |tx| Box::pin(async move {
+            let obligations = sqlx::query("SELECT id,branch_id,site_id,next_due_at,recurrence_days,response_due_seconds,completion_due_seconds,acceptance_due_seconds FROM facilities_obligations WHERE org_id=$1 AND active AND next_due_at <= $2 ORDER BY next_due_at FOR UPDATE SKIP LOCKED")
+                .bind(org_uuid).bind(now).fetch_all(tx.as_mut()).await.map_err(DbError::Sqlx)?;
+            let mut count = 0_u64;
+            let mut audits = Vec::new();
+            for obligation in obligations {
+                let obligation_id: Uuid = obligation.try_get("id").map_err(DbError::Sqlx)?;
+                let branch: Uuid = obligation.try_get("branch_id").map_err(DbError::Sqlx)?;
+                let site: Uuid = obligation.try_get("site_id").map_err(DbError::Sqlx)?;
+                let due: time::OffsetDateTime = obligation.try_get("next_due_at").map_err(DbError::Sqlx)?;
+                let recurrence_days: i32 = obligation.try_get("recurrence_days").map_err(DbError::Sqlx)?;
+                let response: i32 = obligation.try_get("response_due_seconds").map_err(DbError::Sqlx)?;
+                let completion: i32 = obligation.try_get("completion_due_seconds").map_err(DbError::Sqlx)?;
+                let acceptance: i32 = obligation.try_get("acceptance_due_seconds").map_err(DbError::Sqlx)?;
+                let case = Uuid::new_v4();
+                let inserted = sqlx::query("INSERT INTO facilities_cases(id,org_id,branch_id,site_id,obligation_id,status,response_due_at,completion_due_at,acceptance_due_at,occurrence_due_at,request_hash,idempotency_key) VALUES($1,$2,$3,$4,$5,'DUE',$6,$7,$8,$9,$10,$11) ON CONFLICT (org_id,obligation_id,occurrence_due_at) DO NOTHING")
+                    .bind(case).bind(org_uuid).bind(branch).bind(site).bind(obligation_id)
+                    .bind(due + time::Duration::seconds(i64::from(response)))
+                    .bind(due + time::Duration::seconds(i64::from(completion)))
+                    .bind(due + time::Duration::seconds(i64::from(acceptance)))
+                    .bind(due).bind(format!("scheduled:{obligation_id}:{due}")).bind(format!("scheduled:{obligation_id}:{due}"))
+                    .execute(tx.as_mut()).await.map_err(DbError::Sqlx)?;
+                let next_due = due + time::Duration::days(i64::from(recurrence_days));
+                sqlx::query("UPDATE facilities_obligations SET next_due_at=$1 WHERE id=$2 AND org_id=$3 AND next_due_at=$4")
+                    .bind(next_due).bind(obligation_id).bind(org_uuid).bind(due).execute(tx.as_mut()).await.map_err(DbError::Sqlx)?;
+                if inserted.rows_affected() == 1 {
+                    sqlx::query("INSERT INTO facilities_case_history(org_id,case_id,from_status,to_status,actor_id,receipt) VALUES($1,$2,NULL,'DUE',NULL,jsonb_build_object('source','scheduled_hvac','occurrenceDueAt',$3))")
+                        .bind(org_uuid).bind(case).bind(due).execute(tx.as_mut()).await.map_err(DbError::Sqlx)?;
+                    let action = AuditAction::new("facilities.case.scheduled").map_err(|error| DbError::CodeIssuance(error.to_string()))?;
+                    audits.push(AuditEvent::new(None, action, "facilities_case", case.to_string(), TraceContext::generate(), now).with_org(org).with_branch(BranchId::from_uuid(branch)).with_snapshots(None, Some(serde_json::json!({"status":"DUE","occurrenceDueAt":due}))));
+                    count += 1;
+                }
+            }
+            Ok((count, audits))
+        })).await?;
+    }
+    Ok(created)
 }
 pub fn router(state: FacilitiesRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
@@ -241,7 +292,7 @@ async fn create_due_case(
         None,
         Some(serde_json::json!({"status":"DUE"})),
     )?;
-    with_audit::<_,(),RestError>(&s.pool,e,|tx|Box::pin(async move {sqlx::query("INSERT INTO facilities_cases(id,org_id,branch_id,site_id,obligation_id,status,response_due_at,completion_due_at,acceptance_due_at,request_hash,idempotency_key) VALUES($1,$2,$3,$4,$5,'DUE',$6,$7,$8,$9,$10)").bind(case).bind(*p.org_id.as_uuid()).bind(branch).bind(site).bind(b.obligation_id).bind(due+time::Duration::seconds(i64::from(rd))).bind(due+time::Duration::seconds(i64::from(cd))).bind(due+time::Duration::seconds(i64::from(ad))).bind(req_hash).bind(b.idempotency_key).execute(tx.as_mut()).await.map_err(RestError::db)?; history(tx,&p,case,None,"DUE").await?; Ok(())})).await?;
+    with_audit::<_,(),RestError>(&s.pool,e,|tx|Box::pin(async move {sqlx::query("INSERT INTO facilities_cases(id,org_id,branch_id,site_id,obligation_id,status,response_due_at,completion_due_at,acceptance_due_at,occurrence_due_at,request_hash,idempotency_key) VALUES($1,$2,$3,$4,$5,'DUE',$6,$7,$8,$9,$10,$11)").bind(case).bind(*p.org_id.as_uuid()).bind(branch).bind(site).bind(b.obligation_id).bind(due+time::Duration::seconds(i64::from(rd))).bind(due+time::Duration::seconds(i64::from(cd))).bind(due+time::Duration::seconds(i64::from(ad))).bind(due).bind(req_hash).bind(b.idempotency_key).execute(tx.as_mut()).await.map_err(RestError::db)?; history(tx,&p,case,None,"DUE").await?; Ok(())})).await?;
     let _ = now;
     get_case_view(&s.pool, &p, case).await.map(Json)
 }
@@ -306,56 +357,40 @@ async fn transition(
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(s, h).await?;
     let org = p.org_id;
-    let r = with_org_conn::<_, _, RestError>(&s.pool, org, move |tx| {
+    let actor = p.clone();
+    with_audits::<_, _, RestError>(&s.pool, org, move |tx| {
         Box::pin(async move {
-            sqlx::query(
-        "SELECT status,branch_id,assignee_id FROM facilities_cases WHERE id=$1 AND org_id=$2",
-    )
-    .bind(id)
-    .bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)
+            let r = sqlx::query("SELECT status,branch_id,assignee_id FROM facilities_cases WHERE id=$1 AND org_id=$2 FOR UPDATE")
+                .bind(id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
+                .ok_or_else(|| RestError::new(StatusCode::NOT_FOUND, "not_found", "facilities case was not found"))?;
+            let branch: Uuid = r.try_get("branch_id").map_err(RestError::db)?;
+            require_feature(&actor, grant, branch)?;
+            let from: String = r.try_get("status").map_err(RestError::db)?;
+            let current: Option<Uuid> = r.try_get("assignee_id").map_err(RestError::db)?;
+            if require_assignee && current != Some(*actor.user_id.as_uuid()) {
+                return Err(RestError::new(StatusCode::FORBIDDEN, "not_assignee", "only the assigned technician may perform this transition"));
+            }
+            if !legal(&from, to) {
+                return Err(RestError::new(StatusCode::CONFLICT, "illegal_transition", "facilities case transition is not legal"));
+            }
+            let changed = sqlx::query("UPDATE facilities_cases SET status=$1, assignee_id=COALESCE($2,assignee_id), scheduled_for=COALESCE($3,scheduled_for), safety_acknowledged_at=CASE WHEN $1='IN_PROGRESS' THEN now() ELSE safety_acknowledged_at END, updated_at=now() WHERE id=$4 AND org_id=$5 AND status=$6")
+                .bind(to).bind(assignee).bind(scheduled).bind(id).bind(*org.as_uuid()).bind(&from).execute(tx.as_mut()).await.map_err(RestError::db)?;
+            if changed.rows_affected() != 1 {
+                return Err(RestError::new(StatusCode::CONFLICT, "concurrent_transition", "facilities case changed concurrently"));
+            }
+            history(tx, &actor, id, Some(&from), to).await?;
+            let audit = event(&actor, "facilities.case.transition", id, branch, Some(serde_json::json!({"status":from})), Some(serde_json::json!({"status":to})))?;
+            Ok(((), vec![audit]))
         })
     })
-    .await?
-    .ok_or_else(|| {
-        RestError::new(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "facilities case was not found",
-        )
-    })?;
-    let branch: Uuid = r.try_get("branch_id").map_err(RestError::db)?;
-    require_feature(&p, grant, branch)?;
-    let from: String = r.try_get("status").map_err(RestError::db)?;
-    let current: Option<Uuid> = r.try_get("assignee_id").map_err(RestError::db)?;
-    if require_assignee && current != Some(*p.user_id.as_uuid()) {
-        return Err(RestError::new(
-            StatusCode::FORBIDDEN,
-            "not_assignee",
-            "only the assigned technician may perform this transition",
-        ));
-    }
-    if !legal(&from, to) {
-        return Err(RestError::new(
-            StatusCode::CONFLICT,
-            "illegal_transition",
-            "facilities case transition is not legal",
-        ));
-    }
-    let e = event(
-        &p,
-        "facilities.case.transition",
-        id,
-        branch,
-        Some(serde_json::json!({"status":from})),
-        Some(serde_json::json!({"status":to})),
-    )?;
-    with_audit::<_,(),RestError>(&s.pool,e,|tx|Box::pin(async move {sqlx::query("UPDATE facilities_cases SET status=$1, assignee_id=COALESCE($2,assignee_id), scheduled_for=COALESCE($3,scheduled_for), safety_acknowledged_at=CASE WHEN $1='IN_PROGRESS' THEN now() ELSE safety_acknowledged_at END, updated_at=now() WHERE id=$4 AND org_id=$5").bind(to).bind(assignee).bind(scheduled).bind(id).bind(*p.org_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;history(tx,&p,id,Some(&from),to).await?;Ok(())})).await?;
+    .await?;
     get_case_view(&s.pool, &p, id).await.map(Json)
 }
 fn legal(from: &str, to: &str) -> bool {
     matches!(
         (from, to),
         ("DUE", "TRIAGED")
+            | ("DUE", "SCHEDULED")
             | ("TRIAGED", "SCHEDULED")
             | ("SCHEDULED", "ASSIGNED")
             | ("ASSIGNED", "IN_PROGRESS")
@@ -372,17 +407,6 @@ async fn triage(
     Path(id): Path<Uuid>,
     Json(b): Json<TriageBody>,
 ) -> Result<Json<CaseView>, RestError> {
-    transition(
-        &s,
-        &h,
-        id,
-        Feature::FacilitiesDispatch,
-        "TRIAGED",
-        None,
-        Some(b.scheduled_for),
-        false,
-    )
-    .await?;
     transition(
         &s,
         &h,
@@ -437,42 +461,39 @@ async fn submit(
     Json(b): Json<SubmitBody>,
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(&s, &h).await?;
-    for (kind, evidence) in [
+    let org = p.org_id;
+    let actor = p.clone();
+    let mut evidence = vec![
         ("SAFETY_CHECKLIST", b.safety_checklist_evidence_id),
         ("SERVICE_REPORT", b.service_report_evidence_id),
-    ] {
-        let ok:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM docs_evidence_objects WHERE id=$1 AND org_id=$2 AND admissibility_status='ADMISSIBLE')").bind(evidence).bind(*p.org_id.as_uuid()).fetch_one(&s.pool).await.map_err(RestError::db)?;
-        if !ok {
-            return Err(RestError::new(
-                StatusCode::PRECONDITION_FAILED,
-                "evidence_not_confirmed",
-                "required evidence must be a real confirmed evidence object",
-            ));
-        }
-        sqlx::query("INSERT INTO facilities_execution_evidence_links(org_id,case_id,evidence_id,evidence_kind,linked_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT (org_id,case_id,evidence_kind) DO NOTHING").bind(*p.org_id.as_uuid()).bind(id).bind(evidence).bind(kind).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
+    ];
+    if let Some(photo) = b.photo_evidence_id {
+        evidence.push(("PHOTO", photo));
     }
-    transition(
-        &s,
-        &h,
-        id,
-        Feature::FacilitiesExecute,
-        "SUBMITTED",
-        None,
-        None,
-        true,
-    )
-    .await?;
-    transition(
-        &s,
-        &h,
-        id,
-        Feature::FacilitiesExecute,
-        "AWAITING_ACCEPTANCE",
-        None,
-        None,
-        true,
-    )
-    .await
+    with_audits::<_, _, RestError>(&s.pool, org, move |tx| Box::pin(async move {
+        let row = sqlx::query("SELECT status,branch_id,assignee_id FROM facilities_cases WHERE id=$1 AND org_id=$2 FOR UPDATE")
+            .bind(id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
+            .ok_or_else(|| RestError::new(StatusCode::NOT_FOUND, "not_found", "facilities case was not found"))?;
+        let branch: Uuid = row.try_get("branch_id").map_err(RestError::db)?;
+        require_feature(&actor, Feature::FacilitiesExecute, branch)?;
+        let status: String = row.try_get("status").map_err(RestError::db)?;
+        let assignee: Option<Uuid> = row.try_get("assignee_id").map_err(RestError::db)?;
+        if assignee != Some(*actor.user_id.as_uuid()) { return Err(RestError::new(StatusCode::FORBIDDEN, "not_assignee", "only the assigned technician may submit work")); }
+        if status != "IN_PROGRESS" { return Err(RestError::new(StatusCode::CONFLICT, "illegal_transition", "facilities case transition is not legal")); }
+        for (kind, evidence_id) in evidence {
+            let ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM docs_evidence_objects WHERE id=$1 AND org_id=$2 AND admissibility_status='ADMISSIBLE')")
+                .bind(evidence_id).bind(*org.as_uuid()).fetch_one(tx.as_mut()).await.map_err(RestError::db)?;
+            if !ok { return Err(RestError::new(StatusCode::PRECONDITION_FAILED, "evidence_not_confirmed", "required evidence must be a real confirmed evidence object")); }
+            sqlx::query("INSERT INTO facilities_execution_evidence_links(org_id,case_id,evidence_id,evidence_kind,linked_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT (org_id,case_id,evidence_kind) DO UPDATE SET evidence_id=EXCLUDED.evidence_id, linked_by=EXCLUDED.linked_by, linked_at=now()")
+                .bind(*org.as_uuid()).bind(id).bind(evidence_id).bind(kind).bind(*actor.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+        }
+        sqlx::query("UPDATE facilities_cases SET status='AWAITING_ACCEPTANCE',updated_at=now() WHERE id=$1 AND org_id=$2 AND status='IN_PROGRESS'")
+            .bind(id).bind(*org.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+        history(tx, &actor, id, Some("IN_PROGRESS"), "AWAITING_ACCEPTANCE").await?;
+        let audit = event(&actor, "facilities.case.submit", id, branch, Some(serde_json::json!({"status":"IN_PROGRESS"})), Some(serde_json::json!({"status":"AWAITING_ACCEPTANCE"})))?;
+        Ok(((), vec![audit]))
+    })).await?;
+    get_case_view(&s.pool, &p, id).await.map(Json)
 }
 async fn acceptance(
     State(s): State<FacilitiesRestState>,
@@ -492,8 +513,27 @@ async fn acceptance(
         }
     };
     let p = principal(&s, &h).await?;
-    sqlx::query("INSERT INTO facilities_acceptances(org_id,case_id,decision,reason,actor_id) VALUES($1,$2,$3,$4,$5)").bind(*p.org_id.as_uuid()).bind(id).bind(&b.decision).bind(b.reason).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
-    transition(&s, &h, id, Feature::FacilitiesAccept, to, None, None, false).await
+    let org = p.org_id;
+    let actor = p.clone();
+    let decision = b.decision.clone();
+    let reason = b.reason.clone();
+    with_audits::<_, _, RestError>(&s.pool, org, move |tx| Box::pin(async move {
+        let row = sqlx::query("SELECT status,branch_id FROM facilities_cases WHERE id=$1 AND org_id=$2 FOR UPDATE")
+            .bind(id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
+            .ok_or_else(|| RestError::new(StatusCode::NOT_FOUND, "not_found", "facilities case was not found"))?;
+        let branch: Uuid = row.try_get("branch_id").map_err(RestError::db)?;
+        require_feature(&actor, Feature::FacilitiesAccept, branch)?;
+        let from: String = row.try_get("status").map_err(RestError::db)?;
+        if from != "AWAITING_ACCEPTANCE" { return Err(RestError::new(StatusCode::CONFLICT, "illegal_transition", "facilities case transition is not legal")); }
+        sqlx::query("INSERT INTO facilities_acceptances(org_id,case_id,decision,reason,actor_id) VALUES($1,$2,$3,$4,$5)")
+            .bind(*org.as_uuid()).bind(id).bind(&decision).bind(reason).bind(*actor.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+        sqlx::query("UPDATE facilities_cases SET status=$1,updated_at=now() WHERE id=$2 AND org_id=$3 AND status='AWAITING_ACCEPTANCE'")
+            .bind(to).bind(id).bind(*org.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+        history(tx, &actor, id, Some("AWAITING_ACCEPTANCE"), to).await?;
+        let audit = event(&actor, "facilities.case.acceptance", id, branch, Some(serde_json::json!({"status":"AWAITING_ACCEPTANCE"})), Some(serde_json::json!({"status":to,"decision":decision})))?;
+        Ok(((), vec![audit]))
+    })).await?;
+    get_case_view(&s.pool, &p, id).await.map(Json)
 }
 async fn observe(
     State(s): State<FacilitiesRestState>,
