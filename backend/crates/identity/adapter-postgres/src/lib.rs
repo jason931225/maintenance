@@ -822,8 +822,12 @@ impl PgOrgStore {
 
         let push_filter = move |builder: &mut QueryBuilder<Postgres>| {
             match &scope {
-                BranchScope::All => builder.push("TRUE"),
-                BranchScope::Branches(branches) if branches.is_empty() => builder.push("FALSE"),
+                BranchScope::All => {
+                    builder.push("TRUE");
+                }
+                BranchScope::Branches(branches) if branches.is_empty() => {
+                    builder.push("FALSE");
+                }
                 BranchScope::Branches(branches) => {
                     let branch_ids: Vec<uuid::Uuid> =
                         branches.iter().map(|branch| *branch.as_uuid()).collect();
