@@ -42,6 +42,8 @@ async fn manager_attendance_branch_scope_is_explicit_and_nonleaking(pool: PgPool
     let super_admin = seed_user(&pool, "SUPER_ADMIN", None).await;
     seed_custom_directory_reader(&pool, custom_a).await;
     let employee_b = seed_employee_attendance(&pool, admin_a, branch_b).await;
+    seed_site_attendance(&pool, admin_a, branch_a, "901").await;
+    seed_site_attendance(&pool, executive, branch_b, "902").await;
     let app =
         build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
     let admin = bearer(&keys, admin_a, "ADMIN");
@@ -57,19 +59,36 @@ async fn manager_attendance_branch_scope_is_explicit_and_nonleaking(pool: PgPool
     assert_forbidden(get(app.clone(), &format!("{RECORDS}{b}"), &admin).await);
     assert_forbidden(get(app.clone(), RECORDS, &admin).await);
 
-    // 3-4: concrete in-scope branch succeeds for both surfaces.
-    assert_ok(get(app.clone(), &format!("{SUMMARY}{a}"), &admin).await);
-    assert_ok(get(app.clone(), &format!("{RECORDS}{a}"), &admin).await);
+    // 3-4: a concrete branch returns only its own durable site-attendance
+    // event; the branch-B event is not merely hidden by an empty fixture.
+    let branch_a_summary = get(app.clone(), &format!("{SUMMARY}{a}"), &admin).await;
+    assert_ok(&branch_a_summary);
+    assert_eq!(branch_a_summary.json["total"], 1);
+    assert_eq!(
+        branch_a_summary.json["items"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        branch_a_summary.json["items"][0]["user_id"],
+        json!(*admin_a.as_uuid())
+    );
+    assert_ok(&get(app.clone(), &format!("{RECORDS}{a}"), &admin).await);
 
     // 5-6: built-in organization-wide personas may deliberately omit branch.
-    assert_ok(get(app.clone(), SUMMARY, &executive).await);
-    assert_ok(get(app.clone(), RECORDS, &super_admin).await);
+    let organization_summary = get(app.clone(), SUMMARY, &executive).await;
+    assert_ok(&organization_summary);
+    assert_eq!(organization_summary.json["total"], 2);
+    assert_eq!(
+        organization_summary.json["items"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_ok(&get(app.clone(), RECORDS, &super_admin).await);
 
     // 7-8: a custom grant follows the same concrete-only boundary on both
     // manager surfaces; it does not become organization-wide by omission.
-    assert_ok(get(app.clone(), &format!("{SUMMARY}{a}"), &custom).await);
+    assert_ok(&get(app.clone(), &format!("{SUMMARY}{a}"), &custom).await);
     assert_forbidden(get(app.clone(), SUMMARY, &custom).await);
-    assert_ok(get(app.clone(), &format!("{RECORDS}{a}"), &custom).await);
+    assert_ok(&get(app.clone(), &format!("{RECORDS}{a}"), &custom).await);
     assert_forbidden(get(app, RECORDS, &custom).await);
 
     // The scoped employee lookup must not disclose whether an out-of-branch
@@ -97,7 +116,7 @@ async fn manager_attendance_branch_scope_is_explicit_and_nonleaking(pool: PgPool
     assert_eq!(out_of_branch.json, absent.json);
 }
 
-fn assert_ok(response: Response) {
+fn assert_ok(response: &Response) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.json);
 }
 fn assert_forbidden(response: Response) {
@@ -187,6 +206,67 @@ async fn seed_employee_attendance(pool: &PgPool, actor: UserId, branch: Uuid) ->
     employee
 }
 
+async fn seed_site_attendance(pool: &PgPool, user: UserId, branch: Uuid, request_suffix: &str) {
+    let org = *OrgId::knl().as_uuid();
+    let customer: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(branch)
+    .bind(format!("attendance-summary-customer-{request_suffix}"))
+    .bind(org)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let site: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(branch)
+    .bind(customer)
+    .bind(format!("attendance-summary-site-{request_suffix}"))
+    .bind(org)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let equipment: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_equipment (branch_id, customer_id, site_id, equipment_no, management_no, manufacturer_code, kind_code, power_code, status, specification, ton_text, model, source_sheet, source_row, org_id) VALUES ($1, $2, $3, $4, $5, 'A', 'B', 'C', '임대', 'test', '2.5', 'test', 'test', 1, $6) RETURNING id",
+    )
+    .bind(branch)
+    .bind(customer)
+    .bind(site)
+    .bind(format!("ATS12-0{request_suffix}"))
+    .bind(format!("attendance-summary-{request_suffix}"))
+    .bind(org)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let work_order = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO work_orders (id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority, symptom, org_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'RECEIVED', 'UNSET', 'attendance summary fixture', $8)",
+    )
+    .bind(work_order)
+    .bind(format!("20260724-{request_suffix}"))
+    .bind(branch)
+    .bind(equipment)
+    .bind(customer)
+    .bind(site)
+    .bind(*user.as_uuid())
+    .bind(org)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO site_attendance_events (org_id, user_id, branch_id, work_order_id, site_id, kind, occurred_at) VALUES ($1, $2, $3, $4, $5, 'ARRIVAL', now())",
+    )
+    .bind(org)
+    .bind(*user.as_uuid())
+    .bind(branch)
+    .bind(work_order)
+    .bind(site)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 async fn get(app: axum::Router, uri: &str, token: &str) -> Response {
     let response = app
         .oneshot(
@@ -223,6 +303,7 @@ fn bearer(keys: &Keys, user: UserId, role: &str) -> String {
             access_token_ttl: Duration::minutes(15),
         },
         keys.private_pem.as_bytes(),
+        keys.public_pem.as_bytes(),
     )
     .unwrap()
     .issue_access_token(AccessTokenInput {
