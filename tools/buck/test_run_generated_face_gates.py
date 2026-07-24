@@ -85,6 +85,47 @@ class GeneratedFaceGateRunnerTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp)
 
+    def test_full_gate_catches_every_kotlin_root_artifact(self) -> None:
+        # The Kotlin generator replaces the complete client tree except for
+        # handwritten src/test. These root files are generated too, so each
+        # must independently fail a full snapshot closure when regenerated.
+        artifacts = (
+            "clients/kotlin/.openapi-generator-ignore",
+            "clients/kotlin/README.md",
+            "clients/kotlin/proguard-rules.pro",
+        )
+        for artifact in artifacts:
+            with self.subTest(artifact=artifact):
+                temp = Path(tempfile.mkdtemp(prefix="generated-face-kotlin-"))
+                baseline, snapshot = temp / "base", temp / "snapshot"
+                try:
+                    for root in (baseline, snapshot):
+                        (root / "src").mkdir(parents=True)
+                        (root / "tools").mkdir()
+                        (root / artifact).parent.mkdir(parents=True, exist_ok=True)
+                        (root / "src/input.txt").write_text("input\n")
+                        (root / artifact).write_text("generated\n")
+                    script = snapshot / "tools/kotlin.sh"
+                    script.write_text(f"#!/usr/bin/env bash\nprintf changed > {artifact}\n")
+                    script.chmod(0o755)
+                    (baseline / "tools/kotlin.sh").write_text("#!/usr/bin/env bash\n:")
+                    (baseline / "tools/kotlin.sh").chmod(0o755)
+                    registry = {
+                        "schema_version": 2,
+                        "faces": [{
+                            "id": "openapi-kotlin",
+                            "source_roots": ["src/input.txt"],
+                            "output_patterns": [artifact],
+                            "writer": {"kind": "repo-exec", "executable": "tools/kotlin.sh", "target": "//tools:kotlin"},
+                            "drift_gate": {"tier": "expensive", "kind": "writer-snapshot"},
+                        }],
+                    }
+                    registry_path = baseline / "registry.json"
+                    registry_path.write_text(json.dumps(registry))
+                    self.assertEqual(1, RUNNER.run(registry_path, baseline, snapshot, tier="all"))
+                finally:
+                    shutil.rmtree(temp)
+
     def test_rejects_unknown_tier(self) -> None:
         temp, baseline, snapshot = self.make_tree()
         try:

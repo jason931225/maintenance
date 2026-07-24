@@ -204,6 +204,9 @@ function replaceDirectoryFromStaging(stagingDir, targetDir) {
   }
 }
 
+// The staging-tree swap makes every other client path generator-owned,
+// including root metadata such as README.md and .openapi-generator-ignore.
+// Only contract tests are handwritten and intentionally copied back.
 const repoOwnedKotlinClientPaths = ["src/test"];
 
 function preserveRepoOwnedKotlinClientFiles(sourceDir, stagingDir) {
