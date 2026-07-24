@@ -5,7 +5,9 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{OrgId, UserId};
+use mnt_inbox_adapter_postgres::PgInboxStore;
+use mnt_kernel_core::{OrgId, TraceContext, UserId};
+use mnt_leave_adapter_postgres::PgLeaveStore;
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -13,6 +15,7 @@ use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -41,7 +44,7 @@ async fn manager_attendance_branch_scope_is_explicit_and_nonleaking(pool: PgPool
     let executive = seed_user(&pool, "EXECUTIVE", None).await;
     let super_admin = seed_user(&pool, "SUPER_ADMIN", None).await;
     seed_custom_directory_reader(&pool, custom_a).await;
-    let employee_b = seed_employee_attendance(&pool, admin_a, branch_b).await;
+    let employee_b = seed_employee_attendance(&pool, super_admin, branch_b).await;
     seed_site_attendance(&pool, admin_a, branch_a, "901").await;
     seed_site_attendance(&pool, executive, branch_b, "902").await;
     let app =
@@ -186,23 +189,49 @@ async fn seed_custom_directory_reader(pool: &PgPool, user: UserId) {
 }
 
 async fn seed_employee_attendance(pool: &PgPool, actor: UserId, branch: Uuid) -> Uuid {
-    let org = *OrgId::knl().as_uuid();
+    let org = OrgId::knl();
     let employee = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO employees (id, org_id, company, name, source_filename, source_sheet, source_row, source_key, raw_row, source_metadata, home_branch_id) VALUES ($1, $2, 'test', 'out-of-branch', 'test.xlsx', 'employees', 1, $3, '{}', '{}', $4)",
+    let expected_updated_at: OffsetDateTime = sqlx::query_scalar(
+        "INSERT INTO employees (id, org_id, company, name, source_filename, source_sheet, source_row, source_key, raw_row, source_metadata) VALUES ($1, $2, 'test', 'out-of-branch', 'test.xlsx', 'employees', 1, $3, '{}', '{}') RETURNING updated_at",
     )
     .bind(employee)
-    .bind(org)
+    .bind(*org.as_uuid())
     .bind(format!("attendance-scope-{employee}"))
-    .bind(branch)
-    .execute(pool)
+    .fetch_one(pool)
     .await
     .unwrap();
+
+    let runtime_pool = runtime_role_pool(pool).await;
+    let leave_store = PgLeaveStore::new(
+        runtime_pool.clone(),
+        Arc::new(PgInboxStore::new(runtime_pool)),
+    )
+    .with_leave_command_pool(leave_command_role_pool(pool).await);
+    let update = mnt_platform_request_context::scope_org(org, async move {
+        leave_store
+            .set_employee_home_branch(
+                employee,
+                branch,
+                expected_updated_at,
+                actor,
+                TraceContext::generate(),
+            )
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(update.employee_id, employee);
+    assert_eq!(update.home_branch_id, branch);
+
     let record = Uuid::new_v4();
     sqlx::query("INSERT INTO employee_attendance_records (id, org_id, employee_id, actor_user_id, kind, state_after, idempotency_key) VALUES ($1, $2, $3, $4, 'CLOCK_IN', 'CLOCKED_IN', $5)")
-        .bind(record).bind(org).bind(employee).bind(*actor.as_uuid()).bind(format!("attendance-scope-{record}")).execute(pool).await.unwrap();
+        .bind(record)
+        .bind(*org.as_uuid())
+        .bind(employee).bind(*actor.as_uuid()).bind(format!("attendance-scope-{record}")).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO payroll_attendance_material_refs (org_id, attendance_record_id, employee_id, work_date, source_digest) VALUES ($1, $2, $3, CURRENT_DATE, $4)")
-        .bind(org).bind(record).bind(employee).bind("a".repeat(64)).execute(pool).await.unwrap();
+        .bind(*org.as_uuid())
+        .bind(record)
+        .bind(employee).bind("a".repeat(64)).execute(pool).await.unwrap();
     employee
 }
 
@@ -325,12 +354,24 @@ fn bearer(keys: &Keys, user: UserId, role: &str) -> String {
 }
 
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    scoped_role_pool(owner_pool, "mnt_rt").await
+}
+
+async fn leave_command_role_pool(owner_pool: &PgPool) -> PgPool {
+    scoped_role_pool(owner_pool, "mnt_leave_cmd").await
+}
+
+async fn scoped_role_pool(owner_pool: &PgPool, role: &'static str) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
         .max_connections(4)
-        .after_connect(|conn, _| {
+        .after_connect(move |conn, _| {
             Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                match role {
+                    "mnt_rt" => sqlx::query("SET ROLE mnt_rt").execute(conn).await?,
+                    "mnt_leave_cmd" => sqlx::query("SET ROLE mnt_leave_cmd").execute(conn).await?,
+                    _ => unreachable!("test role is fixed by its helper"),
+                };
                 Ok(())
             })
         })
