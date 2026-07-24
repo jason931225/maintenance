@@ -1389,10 +1389,7 @@ function MonthBoard({
                 <span className="attendance__num">{text.board.monthColOt}</span>
                 <span>{text.board.monthColDays}</span>
               </div>
-              <div
-                className="attendance__monthrow attendance__monthrow--summary"
-                role="row"
-              >
+              <div className="attendance__monthrow attendance__monthrow--summary">
                 <span>{text.board.monthSummary}</span>
                 <span className="attendance__num attendance__num--warn">
                   {totals.late}
@@ -1721,6 +1718,9 @@ function ExceptionModal({
   const workRefId = useId();
   const otHoursId = useId();
   const isOvertime = exception.kind === "UNAPPROVED_OVERTIME";
+  const close = () => {
+    if (!busy) onClose();
+  };
   const submit = () => {
     const trimmed = reason.trim();
     if (!trimmed) {
@@ -1744,7 +1744,8 @@ function ExceptionModal({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
+      closeOnScrimClick={!busy}
       label={text.exceptions.detailTitle}
       className="attendance__modal"
     >
@@ -1856,7 +1857,8 @@ function ExceptionModal({
           <button
             type="button"
             className="attendance__ghostbtn"
-            onClick={onClose}
+            disabled={busy}
+            onClick={close}
           >
             {text.exceptions.close}
           </button>
@@ -1895,10 +1897,14 @@ function PreflightModal({
   const [attest, setAttest] = useState(false);
   const attestId = useId();
   const hardFail = preflight.checks.some((check) => !check.ok && !check.warn);
+  const close = () => {
+    if (!busy) onClose();
+  };
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
+      closeOnScrimClick={!busy}
       label={text.closePanel.preflightTitle}
       className="attendance__modal"
     >
@@ -1959,7 +1965,8 @@ function PreflightModal({
           <button
             type="button"
             className="attendance__ghostbtn"
-            onClick={onClose}
+            disabled={busy}
+            onClick={close}
           >
             {text.closePanel.cancel}
           </button>
@@ -2011,6 +2018,9 @@ function SubModal({
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [fieldError, setFieldError] = useState<string>();
+  const close = () => {
+    if (!busy) onClose();
+  };
   const siteId = useId();
   const roleId = useId();
   const fromId = useId();
@@ -2074,7 +2084,8 @@ function SubModal({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
+      closeOnScrimClick={!busy}
       label={text.sub.title}
       className="attendance__modal"
     >
@@ -2197,7 +2208,8 @@ function SubModal({
           <button
             type="button"
             className="attendance__ghostbtn"
-            onClick={onClose}
+            disabled={busy}
+            onClick={close}
           >
             {text.sub.cancel}
           </button>

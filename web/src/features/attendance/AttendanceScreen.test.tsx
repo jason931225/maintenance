@@ -293,6 +293,23 @@ async function assertDialogKeyboardContract(
   expect(opener).toHaveFocus();
 }
 
+async function assertBusyDialogCannotClose(
+  dialog: HTMLElement,
+  name: string,
+  closeButton: string,
+): Promise<void> {
+  await userEvent.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", { name })).toBeVisible();
+
+  const backdrop = dialog.parentElement;
+  if (!backdrop) throw new Error("attendance dialog must render a backdrop");
+  fireEvent.mouseDown(backdrop);
+  expect(screen.getByRole("dialog", { name })).toBeVisible();
+
+  await userEvent.click(within(dialog).getByRole("button", { name: closeButton }));
+  expect(screen.getByRole("dialog", { name })).toBeVisible();
+}
+
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
@@ -349,6 +366,16 @@ describe("AttendanceScreen", () => {
     const historicalDay = await within(board).findByTitle("2026-06-03");
     expect(historicalDay).toHaveClass("attendance__cell--covered");
     expect(within(board).queryByRole("button", { name: text.board.assignSub })).toBeNull();
+  });
+
+  it("does not expose the month summary as an incomplete table row", async () => {
+    renderScreen(transport());
+    const board = await screen.findByRole("region", { name: text.board.title });
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+
+    expect(screen.queryByRole("row")).toBeNull();
   });
 
   it("renders a transport authorization failure as a panel denial rather than fabricated data", async () => {
@@ -447,6 +474,38 @@ describe("AttendanceScreen", () => {
     view.unmount();
   });
 
+  it("keeps an exception dialog open while resolution is pending", async () => {
+    const pendingResolve = deferred<AttendanceException>();
+    const api = transport({
+      resolveException: vi.fn<AttendanceTransport["resolveException"]>(() =>
+        pendingResolve.promise,
+      ),
+    });
+    renderScreen(api);
+    const card = await screen.findByRole("region", { name: text.exceptions.title });
+    await userEvent.click(await within(card).findByRole("button", { name: /김성호/ }));
+    const dialog = await screen.findByRole("dialog", { name: text.exceptions.detailTitle });
+    await userEvent.type(
+      within(dialog).getByLabelText(text.exceptions.reasonLabel),
+      "출입 기록 확인",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: text.exceptions.resolveConfirm }),
+    );
+
+    await assertBusyDialogCannotClose(
+      dialog,
+      text.exceptions.detailTitle,
+      text.exceptions.close,
+    );
+    pendingResolve.resolve(
+      exception({ id: "ex-1", status: "RESOLVED" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: text.exceptions.detailTitle })).toBeNull();
+    });
+  });
+
   it("creates a substitute through the typed port and keeps mutation failures visible", async () => {
     const createSubstitution = vi.fn<AttendanceTransport["createSubstitution"]>((input) =>
       Promise.resolve(substitution(input)),
@@ -497,7 +556,32 @@ describe("AttendanceScreen", () => {
     view.unmount();
   });
 
-  it("does not let a dismissed substitution refresh overwrite a newer month", async () => {
+  it("keeps a substitution dialog open while assignment is pending", async () => {
+    const pendingCreate = deferred<Substitution>();
+    const api = transport({
+      createSubstitution: vi.fn<AttendanceTransport["createSubstitution"]>(() =>
+        pendingCreate.promise,
+      ),
+    });
+    renderScreen(api);
+    const board = await screen.findByRole("region", { name: text.board.title });
+    await userEvent.click(
+      await within(board).findByRole("button", { name: text.board.assignSub }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: text.sub.title });
+    await userEvent.type(within(dialog).getByLabelText(text.sub.role), "경비");
+    await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
+    await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
+    await userEvent.click(within(dialog).getByRole("button", { name: text.sub.assign }));
+
+    await assertBusyDialogCannotClose(dialog, text.sub.title, text.sub.cancel);
+    pendingCreate.resolve(substitution({ id: "pending-substitution" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
+    });
+  });
+
+  it("does not let a completed substitution refresh overwrite a newer month", async () => {
     const pendingCreate = deferred<Substitution>();
     const staleSubstitutions = deferred<Page<Substitution>>();
     const staleExceptions = deferred<Page<AttendanceException>>();
@@ -544,15 +628,11 @@ describe("AttendanceScreen", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: text.sub.assign }));
     await waitFor(() => { expect(createSubstitution).toHaveBeenCalledTimes(1); });
 
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: text.sub.cancel }),
-    );
-    expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
-
     refreshAfterCreate = true;
     pendingCreate.resolve(substitution({ id: "old-month-substitution" }));
     await waitFor(() => { expect(listSubstitutions).toHaveBeenCalledTimes(2); });
     await waitFor(() => { expect(listExceptions).toHaveBeenCalledTimes(2); });
+    expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
 
     await userEvent.click(
       within(board).getByRole("button", { name: text.board.month }),
@@ -652,6 +732,61 @@ describe("AttendanceScreen", () => {
     await userEvent.click(await within(latest).findByRole("button", { name: `코스 ${text.closePanel.confirmCta}` }));
     expect(await screen.findByText("preflight failed")).toBeVisible();
     view.unmount();
+  });
+
+  it("keeps a close preflight dialog open while confirmation is pending", async () => {
+    const pendingConfirm = deferred<Awaited<ReturnType<AttendanceTransport["confirmClose"]>>>();
+    const api = transport({
+      listExceptions: vi.fn<AttendanceTransport["listExceptions"]>(() =>
+        Promise.resolve(
+          page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const }))),
+        ),
+      ),
+      listCloses: vi.fn<AttendanceTransport["listCloses"]>(() =>
+        Promise.resolve({
+          month: "2026-07",
+          items: [{ ...closes.items[0], open_exceptions: 0 }],
+        }),
+      ),
+      confirmClose: vi.fn<AttendanceTransport["confirmClose"]>(() =>
+        pendingConfirm.promise,
+      ),
+    });
+    renderScreen(api);
+    const card = await screen.findByRole("region", { name: text.closePanel.title });
+    await userEvent.click(
+      await within(card).findByRole("button", {
+        name: `코스 ${text.closePanel.confirmCta}`,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: text.closePanel.preflightTitle,
+    });
+    await userEvent.click(within(dialog).getByLabelText(text.closePanel.attest));
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: `코스 ${text.closePanel.confirmCta}`,
+      }),
+    );
+
+    await assertBusyDialogCannotClose(
+      dialog,
+      text.closePanel.preflightTitle,
+      text.closePanel.cancel,
+    );
+    pendingConfirm.resolve({
+      id: "close-1",
+      month: "2026-07",
+      branch_scope: "코스",
+      checks: [],
+      attested_by: "actor-1",
+      attested_at: "2026-07-23T11:00:00+09:00",
+      closed_at: "2026-07-23T11:00:00+09:00",
+      amendments: [],
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: text.closePanel.preflightTitle })).toBeNull();
+    });
   });
 
   it("ignores a close preflight that resolves after the selected month changes", async () => {

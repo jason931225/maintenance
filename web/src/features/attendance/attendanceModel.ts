@@ -136,16 +136,14 @@ function coverForException(
   );
 }
 
-function coverForEmployee(
-  employeeId: string,
-  workDate: string,
+function coverForEmployeeNoShow(
+  exceptions: AttendanceException[],
   substitutions: Substitution[],
 ): Substitution | undefined {
-  return substitutions.find(
-    (substitution) =>
-      substitution.status === "ASSIGNED" &&
-      substitution.covered_employee_id === employeeId &&
-      substitution.cover_date === workDate,
+  return substitutions.find((substitution) =>
+    exceptions.some((exception) =>
+      substitutionCoversException(substitution, exception),
+    ),
   );
 }
 
@@ -184,16 +182,24 @@ export function dayBoardRows(
   }
 
   const employeeRows: EmployeeDayRow[] = [...byEmployee.entries()].map(
-    ([employeeId, entry]) => ({
-      type: "employee",
-      employeeId,
-      name: entry.name,
-      segments: daySegments(entry.records, nowMin),
-      exceptions: todayExceptions.filter(
+    ([employeeId, entry]) => {
+      const employeeExceptions = todayExceptions.filter(
         (exception) => exception.employee_id === employeeId,
-      ),
-      cover: coverForEmployee(employeeId, workDate, todaySubs),
-    }),
+      );
+      return {
+        type: "employee",
+        employeeId,
+        name: entry.name,
+        segments: daySegments(entry.records, nowMin),
+        exceptions: employeeExceptions,
+        cover: coverForEmployeeNoShow(
+          employeeExceptions.filter(
+            (exception) => exception.kind === "NO_SHOW",
+          ),
+          todaySubs,
+        ),
+      };
+    },
   );
   employeeRows.sort((a, b) => a.name.localeCompare(b.name, "ko"));
 
@@ -286,7 +292,7 @@ export function monthSheetRows(
         const dayExceptions = entry.items.filter(
           (exception) => exception.work_date === date,
         );
-        const noShow = dayExceptions.find(
+        const noShows = dayExceptions.filter(
           (exception) => exception.kind === "NO_SHOW",
         );
         const late = dayExceptions.find(
@@ -298,10 +304,12 @@ export function monthSheetRows(
             exception.resolution?.action === "APPROVE_OVERTIME",
         );
         const covered =
-          noShow !== undefined &&
-          monthSubs.some((sub) => substitutionCoversException(sub, noShow));
+          noShows.length > 0 &&
+          noShows.every((noShow) =>
+            monthSubs.some((sub) => substitutionCoversException(sub, noShow)),
+          );
         let kind: MonthCellKind = "none";
-        if (noShow) kind = covered ? "covered" : "absent";
+        if (noShows.length > 0) kind = covered ? "covered" : "absent";
         else if (late) kind = "late";
         else if (overtime) kind = "ot";
         else if (date > todayDate) kind = "future";

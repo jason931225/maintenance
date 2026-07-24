@@ -175,7 +175,13 @@ describe("dayBoardRows", () => {
           employee_display_name: "최민석",
         }),
       ],
-      [],
+      [
+        exception({
+          kind: "NO_SHOW",
+          employee_id: "emp-2",
+          employee_name: "최민석",
+        }),
+      ],
       [substitution({})],
       TODAY,
       600,
@@ -184,6 +190,33 @@ describe("dayBoardRows", () => {
     expect(employee?.type === "employee" && employee.cover?.worker_name).toBe(
       "박대근",
     );
+  });
+
+  it("does not show an employee as covered by a substitution bound to another no-show", () => {
+    const rows = dayBoardRows(
+      [
+        record({
+          kind: "CLOCK_IN",
+          occurred_at: "2026-07-23T06:00:00+09:00",
+          employee_id: "emp-2",
+          employee_display_name: "최민석",
+        }),
+      ],
+      [
+        exception({
+          id: "ex-current",
+          kind: "NO_SHOW",
+          employee_id: "emp-2",
+          employee_name: "최민석",
+        }),
+      ],
+      [substitution({ exception_id: "ex-other" })],
+      TODAY,
+      600,
+    );
+
+    const employee = rows.find((row) => row.type === "employee");
+    expect(employee?.type === "employee" && employee.cover).toBeUndefined();
   });
 });
 
@@ -244,6 +277,36 @@ describe("monthSheetRows", () => {
         }),
         exception({
           id: "ex-covered",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          work_date: "2026-07-03",
+        }),
+      ],
+      [
+        substitution({
+          exception_id: "ex-covered",
+          covered_employee_id: "emp-9",
+          cover_date: "2026-07-03",
+        }),
+      ],
+      "2026-07",
+      TODAY,
+    );
+
+    expect(rows[0].cells[2].kind).toBe("absent");
+  });
+
+  it("keeps a same-day cell absent when the uncovered no-show is listed after the covered one", () => {
+    const rows = monthSheetRows(
+      [
+        exception({
+          id: "ex-covered",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          work_date: "2026-07-03",
+        }),
+        exception({
+          id: "ex-uncovered",
           kind: "NO_SHOW",
           employee_id: "emp-9",
           work_date: "2026-07-03",
