@@ -26991,9 +26991,9 @@ export interface operations {
                 custody_stage?: components["schemas"]["CustodyStage"];
                 classification?: components["schemas"]["EvidenceClassification"];
                 limit?: number;
-                /** @description Backward-compatible offset accepted by the runtime. */
+                /** @description Backward-compatible offset accepted by the runtime. When cursor is supplied, offset must be omitted or zero. */
                 offset?: number;
-                /** @description Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. */
+                /** @description Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. When cursor is supplied, as_of must match that cursor's snapshot. */
                 as_of?: number;
                 /** @description Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. */
                 cursor?: string;
@@ -27013,6 +27013,7 @@ export interface operations {
                     "application/json": components["schemas"]["EvidenceObjectPage"];
                 };
             };
+            422: components["responses"]["ValidationError"];
         };
     };
     getEvidenceObject: {

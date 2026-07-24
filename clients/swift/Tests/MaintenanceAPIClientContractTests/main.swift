@@ -5,6 +5,7 @@ private typealias LegacyLeaveRequestView = Components.Schemas.LeaveRequestView
 private typealias LeaveRequestV2View = Components.Schemas.LeaveRequestV2View
 private typealias LeaveRequestV2Page = Components.Schemas.LeaveRequestV2Page
 private typealias ActionInboxResponse = Components.Schemas.ActionInboxResponse
+private typealias EvidenceObjectPage = Components.Schemas.EvidenceObjectPage
 private typealias FacilitiesCase = Components.Schemas.FacilitiesCase
 private typealias ProductionCredential = Components.Schemas.ProductionSourceSystemCredential
 private typealias ProductionReceipt = Components.Schemas.ProductionSourceSystemReceipt
@@ -26,6 +27,9 @@ private enum GeneratedClientContractTests {
             ("decodes required null action next_cursor", decodesRequiredNullActionNextCursor),
             ("re-encodes null action next_cursor as an explicit field", reencodesNullActionNextCursorAsExplicitField),
             ("rejects an action page without next_cursor", rejectsActionPageWithoutNextCursor),
+            ("decodes required null evidence next_cursor", decodesRequiredNullEvidenceNextCursor),
+            ("re-encodes null evidence next_cursor as an explicit field", reencodesNullEvidenceNextCursorAsExplicitField),
+            ("rejects an evidence page without next_cursor", rejectsEvidencePageWithoutNextCursor),
             ("keeps facilities transition outputs and request bodies typed", keepsFacilitiesTransitionOutputsTyped),
             ("keeps production source receipts typed and serializes every ingress kind", keepsProductionSourceContractsTyped),
         ]
@@ -114,6 +118,21 @@ private enum GeneratedClientContractTests {
 
     private static func rejectsActionPageWithoutNextCursor() -> Bool {
         rejectsPayloadWithoutRequiredKey("next_cursor", payload: validActionPage, as: ActionInboxResponse.self)
+    }
+
+    private static func decodesRequiredNullEvidenceNextCursor() -> Bool {
+        guard let decoded = try? decoder.decode(EvidenceObjectPage.self, from: validEvidencePage) else {
+            return false
+        }
+        return decoded.nextCursor == nil
+    }
+
+    private static func reencodesNullEvidenceNextCursorAsExplicitField() -> Bool {
+        explicitNullRoundTrips(validEvidencePage, as: EvidenceObjectPage.self, key: "next_cursor")
+    }
+
+    private static func rejectsEvidencePageWithoutNextCursor() -> Bool {
+        rejectsPayloadWithoutRequiredKey("next_cursor", payload: validEvidencePage, as: EvidenceObjectPage.self)
     }
 
     private static func keepsFacilitiesTransitionOutputsTyped() -> Bool {
@@ -252,6 +271,10 @@ private enum GeneratedClientContractTests {
 
     private static var validActionPage: Data {
         Data(#"{"items":[],"total":0,"total_is_exact":true,"next_cursor":null}"#.utf8)
+    }
+
+    private static var validEvidencePage: Data {
+        Data(#"{"items":[],"limit":50,"offset":0,"total":0,"as_of":42,"next_cursor":null}"#.utf8)
     }
 }
 

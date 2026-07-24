@@ -381,8 +381,8 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * @param custodyStage  (optional)
      * @param classification  (optional)
      * @param limit  (optional)
-     * @param offset Backward-compatible offset accepted by the runtime. (optional)
-     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. (optional)
+     * @param offset Backward-compatible offset accepted by the runtime. When cursor is supplied, offset must be omitted or zero. (optional)
+     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. When cursor is supplied, as_of must match that cursor&#39;s snapshot. (optional)
      * @param cursor Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. (optional)
      * @return EvidenceObjectPage
      * @throws IllegalStateException If the request is not correctly configured
@@ -423,8 +423,8 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * @param custodyStage  (optional)
      * @param classification  (optional)
      * @param limit  (optional)
-     * @param offset Backward-compatible offset accepted by the runtime. (optional)
-     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. (optional)
+     * @param offset Backward-compatible offset accepted by the runtime. When cursor is supplied, offset must be omitted or zero. (optional)
+     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. When cursor is supplied, as_of must match that cursor&#39;s snapshot. (optional)
      * @param cursor Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. (optional)
      * @return ApiResponse<EvidenceObjectPage?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -451,8 +451,8 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * @param custodyStage  (optional)
      * @param classification  (optional)
      * @param limit  (optional)
-     * @param offset Backward-compatible offset accepted by the runtime. (optional)
-     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. (optional)
+     * @param offset Backward-compatible offset accepted by the runtime. When cursor is supplied, offset must be omitted or zero. (optional)
+     * @param asOf Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. When cursor is supplied, as_of must match that cursor&#39;s snapshot. (optional)
      * @param cursor Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. (optional)
      * @return RequestConfig
      */

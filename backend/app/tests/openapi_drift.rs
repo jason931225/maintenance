@@ -441,6 +441,18 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
         endpoint.contains("name: cursor, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }"),
         "EV cursor must expose the runtime's opaque unpadded-base64url wire contract"
     );
+    assert!(
+        endpoint.contains("When cursor is supplied, offset must be omitted or zero."),
+        "EV cursor pagination must document its offset compatibility boundary"
+    );
+    assert!(
+        endpoint.contains("When cursor is supplied, as_of must match that cursor's snapshot."),
+        "EV cursor pagination must document its immutable snapshot boundary"
+    );
+    assert!(
+        endpoint.contains("'422': { $ref: '#/components/responses/ValidationError' }"),
+        "EV list endpoint must document validation failures for inconsistent pagination inputs"
+    );
 
     let page_start = OPENAPI_YAML
         .find("    EvidenceObjectPage:\\n")
