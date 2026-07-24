@@ -31,8 +31,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_docs_adapter_postgres::PgDocsStore;
 use mnt_docs_application::{
-    ApplyLegalHoldCommand, EvidenceObjectDetail, EvidenceObjectPage, LegalHoldRecordView,
-    ListEvidenceObjectsQuery, ReleaseLegalHoldCommand,
+    ApplyLegalHoldCommand, EvidenceObjectCursor, EvidenceObjectDetail, EvidenceObjectPage,
+    LegalHoldRecordView, ListEvidenceObjectsQuery, ReleaseLegalHoldCommand,
 };
 use mnt_docs_domain::{
     AdmissibilityStatus, CustodyStage, EvidenceClassification, EvidenceCopyKind,
@@ -151,11 +151,30 @@ struct ListQuery {
     limit: Option<i64>,
     #[serde(default)]
     offset: Option<i64>,
+    #[serde(default)]
+    as_of: Option<String>,
+    #[serde(default)]
+    cursor: Option<String>,
 }
 
-impl From<ListQuery> for ListEvidenceObjectsQuery {
-    fn from(value: ListQuery) -> Self {
-        Self {
+impl TryFrom<ListQuery> for ListEvidenceObjectsQuery {
+    type Error = KernelError;
+
+    fn try_from(value: ListQuery) -> Result<Self, Self::Error> {
+        let as_of = value
+            .as_of
+            .as_deref()
+            .map(|raw| {
+                time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
+                    .map_err(|_| KernelError::validation("as_of must be RFC3339"))
+            })
+            .transpose()?;
+        let cursor = value
+            .cursor
+            .as_deref()
+            .map(decode_register_cursor)
+            .transpose()?;
+        Ok(Self {
             q: value.q,
             source_type: value.source_type,
             source_id: value.source_id,
@@ -165,8 +184,18 @@ impl From<ListQuery> for ListEvidenceObjectsQuery {
             classification: value.classification,
             limit: value.limit,
             offset: value.offset,
-        }
+            as_of,
+            cursor,
+        })
     }
+}
+
+fn decode_register_cursor(raw: &str) -> Result<EvidenceObjectCursor, KernelError> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(raw)
+        .map_err(|_| KernelError::validation("cursor is not valid base64url"))?;
+    serde_json::from_slice(&bytes).map_err(|_| KernelError::validation("cursor payload is invalid"))
 }
 
 async fn list_objects(
@@ -177,7 +206,7 @@ async fn list_objects(
     authorize(&state, &headers, Feature::EvidenceAttach).await?;
     let page = state
         .docs
-        .list_objects(query.into())
+        .list_objects(query.try_into().map_err(RestError::from_kernel)?)
         .await
         .map_err(RestError::from_docs)?;
     Ok(Json(page))

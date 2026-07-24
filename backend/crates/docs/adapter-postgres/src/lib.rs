@@ -8,10 +8,11 @@
 use mnt_docs_application::{
     AppendCustodyEventCommand, ApplyLegalHoldCommand, CreateEvidenceObjectCommand,
     CustodyEventView, DisposeEvidenceObjectCommand, EvidenceCopyView, EvidenceExportView,
-    EvidenceObjectDetail, EvidenceObjectPage, EvidenceObjectView, LegalHoldRecordView,
-    ListEvidenceObjectsQuery, RecomputeAdmissibilityCommand, RecordTsaProofCommand,
-    RegisterEvidenceCopyCommand, RegisterEvidenceCopyInput, ReleaseLegalHoldCommand,
-    TimestampAuthorityProofInput, TimestampAuthorityProofView, evidence_audit_event,
+    EvidenceObjectCursor, EvidenceObjectDetail, EvidenceObjectPage, EvidenceObjectView,
+    LegalHoldRecordView, ListEvidenceObjectsQuery, RecomputeAdmissibilityCommand,
+    RecordTsaProofCommand, RegisterEvidenceCopyCommand, RegisterEvidenceCopyInput,
+    ReleaseLegalHoldCommand, TimestampAuthorityProofInput, TimestampAuthorityProofView,
+    evidence_audit_event,
 };
 use mnt_docs_domain::{
     AdmissibilityInputs, AdmissibilityReason, AdmissibilityStatus, CustodyStage, DerivativeKind,
@@ -95,19 +96,39 @@ impl PgDocsStore {
     ) -> Result<EvidenceObjectPage, PgDocsError> {
         let limit = normalized_limit(query.limit);
         let offset = query.offset.unwrap_or(0).max(0);
+        if query.cursor.is_some() && offset != 0 {
+            return Err(
+                KernelError::validation("EV cursor paging cannot be combined with offset").into(),
+            );
+        }
+        if let (Some(as_of), Some(cursor)) = (query.as_of, query.cursor.as_ref())
+            && as_of != cursor.snapshot_at
+        {
+            return Err(KernelError::validation("EV cursor snapshot does not match as_of").into());
+        }
+        let snapshot_at = query
+            .cursor
+            .as_ref()
+            .map(|cursor| cursor.snapshot_at)
+            .or(query.as_of)
+            .unwrap_or_else(time::OffsetDateTime::now_utc);
         let query_for_count = query.clone();
         let mut count_builder =
             QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM docs_evidence_objects WHERE ");
         push_object_filters(&mut count_builder, &query_for_count)?;
+        push_register_snapshot(&mut count_builder, snapshot_at, None);
 
         let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
         builder.push(OBJECT_COLUMNS);
         builder.push(" FROM docs_evidence_objects WHERE ");
         push_object_filters(&mut builder, &query)?;
-        builder.push(" ORDER BY updated_at DESC, id DESC LIMIT ");
+        push_register_snapshot(&mut builder, snapshot_at, query.cursor.as_ref());
+        builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
         builder.push_bind(limit);
-        builder.push(" OFFSET ");
-        builder.push_bind(offset);
+        if query.cursor.is_none() {
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
+        }
 
         let org = current_org().map_err(KernelError::from)?;
         let (total, rows) = with_org_conn::<_, _, PgDocsError>(&self.pool, org, move |tx| {
@@ -125,11 +146,21 @@ impl PgDocsStore {
         for row in &rows {
             items.push(object_from_row(row)?);
         }
+        let next_cursor = (items.len() == limit as usize)
+            .then(|| items.last())
+            .flatten()
+            .map(|last| EvidenceObjectCursor {
+                snapshot_at,
+                created_at: last.created_at,
+                id: last.id,
+            });
         Ok(EvidenceObjectPage {
             items,
             limit,
-            offset,
+            offset: if query.cursor.is_some() { 0 } else { offset },
             total,
+            snapshot_at,
+            next_cursor,
         })
     }
 
@@ -745,6 +776,24 @@ fn normalized_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
 }
 
+fn push_register_snapshot(
+    builder: &mut QueryBuilder<Postgres>,
+    snapshot_at: Timestamp,
+    cursor: Option<&EvidenceObjectCursor>,
+) {
+    // `created_at` is immutable by the EV object trigger. A complete scan is
+    // therefore stable even while `updated_at` changes during custody/hold work.
+    builder.push(" AND created_at <= ");
+    builder.push_bind(snapshot_at);
+    if let Some(cursor) = cursor {
+        builder.push(" AND (created_at, id) < (");
+        builder.push_bind(cursor.created_at);
+        builder.push(", ");
+        builder.push_bind(*cursor.id.as_uuid());
+        builder.push(")");
+    }
+}
+
 fn push_object_filters(
     builder: &mut QueryBuilder<Postgres>,
     query: &ListEvidenceObjectsQuery,
@@ -855,27 +904,14 @@ async fn insert_copy_tx(
             return Err(KernelError::not_found("derivative parent copy was not found").into());
         }
     }
-    if let Some(media_id) = input.source_evidence_media_id {
-        let media_status: Option<String> =
-            sqlx::query_scalar("SELECT worm_replica_status FROM evidence_media WHERE id = $1")
-                .bind(*media_id.as_uuid())
-                .fetch_optional(tx.as_mut())
-                .await?;
-        let media_status = media_status
-            .ok_or_else(|| KernelError::not_found("source evidence media was not found"))?;
-        if input.worm_status == WormStorageStatus::Verified && media_status != "VERIFIED" {
-            return Err(KernelError::conflict(
-                "source evidence media must be WORM verified before EV copy verification",
-            )
-            .into());
-        }
-    }
+    // WORM state is never a command assertion. The migration-owned BEFORE INSERT
+    // trigger derives it from the storage service's immutable replica attestation:
+    // same tenant, media identity, object key, SHA-256, and verified timestamp.
+    // Always insert PENDING here so a caller cannot manufacture verification while
+    // bypassing the adapter's intent; only that trigger can promote the row.
     let copy_id = EvidenceCopyId::new();
-    let verified_at = if input.worm_status.is_verified() {
-        Some(input.verified_at.unwrap_or(occurred_at))
-    } else {
-        None
-    };
+    let worm_status = WormStorageStatus::Pending;
+    let verified_at = None::<Timestamp>;
     sqlx::query(
         r#"
         INSERT INTO docs_evidence_copies (
@@ -901,7 +937,7 @@ async fn insert_copy_tx(
     .bind(input.digest_sha256.as_str())
     .bind(&content_type)
     .bind(input.size_bytes)
-    .bind(input.worm_status.as_db_str())
+    .bind(worm_status.as_db_str())
     .bind(*actor.as_uuid())
     .bind(occurred_at)
     .bind(verified_at)

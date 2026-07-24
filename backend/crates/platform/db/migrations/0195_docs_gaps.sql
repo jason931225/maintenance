@@ -23,3 +23,43 @@ ALTER TABLE docs_evidence_copies
 
 CREATE INDEX idx_docs_evidence_copies_evidentiary_status
     ON docs_evidence_copies (org_id, evidence_object_id, evidentiary_status, created_at DESC);
+
+
+-- A command may describe a proposed storage state, but it cannot assert
+-- verification.  The only promotion authority is the storage adapter's
+-- successful WORM-replica record in `evidence_media`.  This trigger binds the
+-- immutable EV row to that server-written attestation by tenant, media id,
+-- replica object key, canonical SHA-256, and the storage verification time.
+-- Without all of those facts an EV copy is durably PENDING, regardless of
+-- caller-provided `worm_status` or `verified_at` values.
+CREATE OR REPLACE FUNCTION docs_evidence_copy_bind_storage_attestation()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    attested_at TIMESTAMPTZ;
+BEGIN
+    IF NEW.source_evidence_media_id IS NOT NULL THEN
+        SELECT media.verified_at
+        INTO attested_at
+        FROM evidence_media AS media
+        WHERE media.id = NEW.source_evidence_media_id
+          AND media.org_id = NEW.org_id
+          AND media.worm_replica_status = 'VERIFIED'
+          AND media.verified_at IS NOT NULL
+          AND media.s3_key = NEW.storage_object_id
+          AND media.checksum_sha256 = encode(decode(NEW.digest_sha256, 'hex'), 'base64');
+    END IF;
+
+    IF attested_at IS NOT NULL THEN
+        NEW.worm_status := 'VERIFIED';
+        NEW.verified_at := attested_at;
+    ELSE
+        NEW.worm_status := 'PENDING';
+        NEW.verified_at := NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER docs_evidence_copies_bind_storage_attestation
+    BEFORE INSERT ON docs_evidence_copies
+    FOR EACH ROW EXECUTE FUNCTION docs_evidence_copy_bind_storage_attestation();

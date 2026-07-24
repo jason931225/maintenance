@@ -31,7 +31,7 @@ use mnt_docs_domain::{
 use mnt_docs_rest::{DocsRestState, FixityStatus, HoldError, VerifyOutcome};
 use mnt_governance_adapter_postgres::PgGovernanceStore;
 use mnt_governance_application::{ApprovalDecision, DecideApprovalCommand};
-use mnt_kernel_core::{EvidenceObjectId, OrgId, TraceContext, UserId};
+use mnt_kernel_core::{EvidenceId, EvidenceObjectId, OrgId, TraceContext, UserId};
 use mnt_platform_storage::{
     CopyObjectRequest, ObjectHead, PresignGetRequest, PresignPutRequest, PresignedUpload,
     RetentionInfo, S3ObjectStore, StorageFuture,
@@ -127,6 +127,8 @@ fn list_all() -> ListEvidenceObjectsQuery {
         classification: None,
         limit: None,
         offset: None,
+        as_of: None,
+        cursor: None,
     }
 }
 
@@ -147,6 +149,7 @@ async fn rt_pool(owner_pool: &PgPool) -> PgPool {
             "GRANT SELECT, INSERT ON gov_approvals TO mnt_rt",
             "GRANT SELECT ON users TO mnt_rt",
             "GRANT SELECT ON organizations TO mnt_rt",
+            "GRANT SELECT ON evidence_media TO mnt_rt",
         ],
     )
     .await;
@@ -169,6 +172,129 @@ fn now() -> OffsetDateTime {
 
 /// Register an EV object with a WORM-verified original copy whose stored digest
 /// is `digest_hex` and whose storage key is `storage_key`. Returns the id.
+/// Seed the storage service's persisted WORM-replica result.  This fixture
+/// models the output of `EvidenceStorageService::replicate_once`, rather than
+/// an EV-command claim: the only fields the EV trigger trusts are the row's
+/// tenant, verified replica state/time, immutable object key, and checksum.
+async fn seed_verified_storage_attestation(
+    owner_pool: &PgPool,
+    org: Uuid,
+    actor: UserId,
+    storage_key: &str,
+    digest_hex: &str,
+) -> EvidenceId {
+    let mut tx = owner_pool
+        .begin()
+        .await
+        .expect("begin owner seed transaction");
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .expect("disable RLS for owner fixture");
+
+    let region_id: Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
+            .bind(format!("Evidence region {}", Uuid::new_v4()))
+            .bind(org)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("seed region");
+    let branch_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(format!("Evidence branch {}", Uuid::new_v4()))
+    .bind(org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("seed branch");
+    let customer_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(branch_id)
+    .bind("Evidence customer")
+    .bind(org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("seed customer");
+    let site_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (customer_id, branch_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(customer_id)
+    .bind(branch_id)
+    .bind("Evidence site")
+    .bind(org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("seed site");
+    let suffix = (Uuid::new_v4().as_u128() % 10_000) as u16;
+    let equipment_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_equipment (
+            branch_id, customer_id, site_id, equipment_no, management_no,
+            manufacturer_code, kind_code, power_code, status,
+            specification, ton_text, model, source_sheet, source_row, org_id
+        ) VALUES ($1, $2, $3, $4, $5, 'S', 'T', 'R', '임대', '좌식', '2.5', 'Model', 'test', 1, $6)
+        RETURNING id
+        "#,
+    )
+    .bind(branch_id)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(format!("EVD01-{suffix:04}"))
+    .bind(format!("M{suffix:04}"))
+    .bind(org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("seed equipment");
+    let work_order_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO work_orders (
+            id, request_no, branch_id, equipment_id, customer_id, site_id,
+            requested_by, status, priority, symptom, result_type, org_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'REPORT_SUBMITTED', 'P3', 'Evidence fixture', 'COMPLETED', $8)
+        "#,
+    )
+    .bind(work_order_id)
+    .bind(format!("20260724-{:03}", (work_order_id.as_u128() % 1000) as u16))
+    .bind(branch_id)
+    .bind(equipment_id)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(*actor.as_uuid())
+    .bind(org)
+    .execute(&mut *tx)
+    .await
+    .expect("seed work order");
+
+    let media_id = EvidenceId::new();
+    sqlx::query(
+        r#"
+        INSERT INTO evidence_media (
+            id, work_order_id, stage, s3_key, content_type, size_bytes,
+            checksum_sha256, uploaded_by, worm_replica_status, verified_at,
+            retry_count, next_retry_at, org_id
+        ) VALUES ($1, $2, 'REPORT', $3, 'application/pdf', 42,
+                  $4, $5, 'VERIFIED', $6, 0, $6, $7)
+        "#,
+    )
+    .bind(*media_id.as_uuid())
+    .bind(work_order_id)
+    .bind(storage_key)
+    .bind(base64_of_hex(digest_hex))
+    .bind(*actor.as_uuid())
+    .bind(now())
+    .bind(org)
+    .execute(&mut *tx)
+    .await
+    .expect("seed verified storage attestation");
+    tx.commit()
+        .await
+        .expect("commit storage attestation fixture");
+    media_id
+}
+
 async fn register_object(
     store: &PgDocsStore,
     actor: UserId,
@@ -256,6 +382,66 @@ async fn list_is_rls_scoped_and_detail_carries_custody_chain(owner_pool: PgPool)
         "the custody chain is surfaced in the detail payload"
     );
     assert_eq!(detail.copies.len(), 1, "the original copy is present");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn cursor_scan_is_stable_across_the_immutable_register(owner_pool: PgPool) {
+    let rt = rt_pool(&owner_pool).await;
+    seed_org_rls_off(&owner_pool, ORG_A, "A").await;
+    let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
+    let st = state(rt, StubWormStore::default());
+    let org = OrgId::from_uuid(ORG_A);
+
+    mnt_platform_request_context::scope_org(org, async {
+        register_object(
+            st.docs_store(),
+            actor,
+            &"13".repeat(32),
+            "worm/cursor-1",
+            "First",
+        )
+        .await;
+        register_object(
+            st.docs_store(),
+            actor,
+            &"14".repeat(32),
+            "worm/cursor-2",
+            "Second",
+        )
+        .await;
+    })
+    .await;
+
+    let first = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store()
+            .list_objects(ListEvidenceObjectsQuery {
+                limit: Some(1),
+                ..list_all()
+            })
+            .await
+    })
+    .await
+    .expect("first cursor page succeeds");
+    let cursor = first.next_cursor.clone().expect("first page has cursor");
+    assert_eq!(first.total, 2);
+    assert_eq!(first.items.len(), 1);
+
+    let second = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store()
+            .list_objects(ListEvidenceObjectsQuery {
+                limit: Some(1),
+                as_of: Some(first.snapshot_at),
+                cursor: Some(cursor),
+                ..list_all()
+            })
+            .await
+    })
+    .await
+    .expect("second cursor page succeeds");
+    assert_eq!(second.snapshot_at, first.snapshot_at);
+    assert_eq!(second.total, 2);
+    assert_eq!(second.items.len(), 1);
+    assert_ne!(first.items[0].id, second.items[0].id);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -436,73 +622,164 @@ async fn hold_blocks_disposal_and_release_requires_a_distinct_approver(owner_poo
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn verified_original_and_derivative_are_explicitly_distinct(owner_pool: PgPool) {
+async fn storage_attestation_controls_original_verification_and_derivative_meaning(
+    owner_pool: PgPool,
+) {
     let rt = rt_pool(&owner_pool).await;
     seed_org_rls_off(&owner_pool, ORG_A, "A").await;
     let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
     let st = state(rt, StubWormStore::default());
     let org = OrgId::from_uuid(ORG_A);
-    let original_digest = "ab".repeat(32);
 
-    let id = mnt_platform_request_context::scope_org(org, async {
+    // RED regression: command-provided VERIFIED + verified_at without an
+    // authoritative storage attestation cannot create a verified original.
+    let unproven_id = mnt_platform_request_context::scope_org(org, async {
         register_object(
             st.docs_store(),
             actor,
-            &original_digest,
-            "worm/original",
-            "Sealed original",
+            &"ab".repeat(32),
+            "worm/unproven-original",
+            "Caller asserted original",
         )
         .await
     })
     .await;
-
-    let original = mnt_platform_request_context::scope_org(org, async {
+    let unproven = mnt_platform_request_context::scope_org(org, async {
         st.docs_store()
-            .get_object(id)
+            .get_object(unproven_id)
             .await
-            .expect("original detail query succeeds")
-            .expect("original exists")
+            .expect("unproven detail query succeeds")
+            .expect("unproven original exists")
             .copies
             .into_iter()
             .next()
-            .expect("registered original exists")
+            .expect("unproven original copy exists")
     })
     .await;
+    assert_eq!(unproven.worm_status, WormStorageStatus::Pending);
+    assert_eq!(unproven.verified_at, None);
     assert_eq!(
-        original.evidentiary_status,
-        EvidenceCopyEvidentiaryStatus::VerifiedOriginal,
-        "only the WORM-verified original is evidentiary"
+        unproven.evidentiary_status,
+        EvidenceCopyEvidentiaryStatus::OriginalUnverified
     );
 
+    // Existing storage-service proof path: replicate_once writes a VERIFIED
+    // evidence_media row. The EV trigger promotes only when its key + SHA-256
+    // match; the requested command status remains PENDING.
+    let original_digest = "bc".repeat(32);
+    let original_media = seed_verified_storage_attestation(
+        &owner_pool,
+        ORG_A,
+        actor,
+        "worm/attested-original",
+        &original_digest,
+    )
+    .await;
+    let attested_id = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store()
+            .create_object(CreateEvidenceObjectCommand {
+                actor,
+                title: "Attested original".to_owned(),
+                description: None,
+                source: EvidenceSourceRef::new(
+                    EvidenceSourceType::WorkOrderEvidenceMedia,
+                    original_media.to_string(),
+                    None,
+                )
+                .expect("valid source"),
+                classification: EvidenceClassification::Internal,
+                record_owner_user_id: None,
+                initial_custody_reason: "registered from storage attestation".to_owned(),
+                original: Some(RegisterEvidenceCopyInput {
+                    copy_kind: EvidenceCopyKind::Original,
+                    derivative_kind: None,
+                    parent_copy_id: None,
+                    storage: EvidenceStorageRef::new(
+                        "seaweedfs-worm",
+                        "worm/attested-original",
+                        None,
+                        None,
+                    )
+                    .expect("valid storage ref"),
+                    source_evidence_media_id: Some(original_media),
+                    digest_sha256: Sha256Digest::new(&original_digest).expect("valid digest"),
+                    content_type: "application/pdf".to_owned(),
+                    size_bytes: 42,
+                    worm_status: WormStorageStatus::Pending,
+                    verified_at: None,
+                }),
+                tsa_proof: None,
+                trace: TraceContext::generate(),
+                occurred_at: now(),
+            })
+            .await
+            .expect("attested original registration succeeds")
+            .object
+            .id
+    })
+    .await;
+    let attested_original = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store()
+            .get_object(attested_id)
+            .await
+            .expect("attested detail query succeeds")
+            .expect("attested original exists")
+            .copies
+            .into_iter()
+            .next()
+            .expect("attested original copy exists")
+    })
+    .await;
+    assert_eq!(attested_original.worm_status, WormStorageStatus::Verified);
+    assert_eq!(attested_original.verified_at, Some(now()));
+    assert_eq!(
+        attested_original.evidentiary_status,
+        EvidenceCopyEvidentiaryStatus::VerifiedOriginal
+    );
+
+    let derivative_digest = "cd".repeat(32);
+    let derivative_media = seed_verified_storage_attestation(
+        &owner_pool,
+        ORG_A,
+        actor,
+        "worm/attested-redaction",
+        &derivative_digest,
+    )
+    .await;
     let derivative = mnt_platform_request_context::scope_org(org, async {
         st.docs_store()
             .register_copy(RegisterEvidenceCopyCommand {
                 actor,
-                evidence_object_id: id,
+                evidence_object_id: attested_id,
                 copy: RegisterEvidenceCopyInput {
                     copy_kind: EvidenceCopyKind::Derivative,
                     derivative_kind: Some(DerivativeKind::Redacted),
-                    parent_copy_id: Some(original.id),
-                    storage: EvidenceStorageRef::new("seaweedfs-worm", "worm/redacted", None, None)
-                        .unwrap(),
-                    source_evidence_media_id: None,
-                    digest_sha256: Sha256Digest::new("cd".repeat(32)).unwrap(),
+                    parent_copy_id: Some(attested_original.id),
+                    storage: EvidenceStorageRef::new(
+                        "seaweedfs-worm",
+                        "worm/attested-redaction",
+                        None,
+                        None,
+                    )
+                    .expect("valid derivative storage ref"),
+                    source_evidence_media_id: Some(derivative_media),
+                    digest_sha256: Sha256Digest::new(&derivative_digest).expect("valid digest"),
                     content_type: "application/pdf".to_owned(),
                     size_bytes: 23,
-                    worm_status: WormStorageStatus::Verified,
-                    verified_at: Some(now()),
+                    worm_status: WormStorageStatus::Pending,
+                    verified_at: None,
                 },
                 trace: TraceContext::generate(),
                 occurred_at: now(),
             })
             .await
-            .expect("sealed derivative registration succeeds")
+            .expect("attested derivative registration succeeds")
     })
     .await;
-
+    assert_eq!(derivative.worm_status, WormStorageStatus::Verified);
     assert_eq!(
         derivative.evidentiary_status,
         EvidenceCopyEvidentiaryStatus::NonEvidentiaryDerivative,
-        "a sealed derivative must never be presented as the evidentiary original"
+        "a storage-verified derivative must never be presented as the evidentiary original"
     );
 }
