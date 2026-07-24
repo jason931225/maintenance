@@ -146,4 +146,26 @@ describe("GraphExplorer", () => {
     expect(screen.getByText(G.projectedNotice)).toBeInTheDocument();
     expect(resolve).not.toHaveBeenCalled();
   });
+
+  it("moves graph focus with arrow keys and exposes the same typed relations as a list", async () => {
+    const onFocusChange = vi.fn();
+    render(<GraphExplorer model={model} onFocusChange={onFocusChange} />);
+
+    const first = screen.getByRole("button", {
+      name: ko.console.explore.actions.recenter("NK보안 경비용역"),
+    });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+
+    await waitFor(() => {
+      expect(onFocusChange).toHaveBeenCalledWith("n2");
+      expect(document.activeElement).toHaveAttribute(
+        "aria-label",
+        ko.console.explore.actions.recenter("경비 근무 장구"),
+      );
+    });
+    expect(
+      screen.getByRole("list", { name: G.relationList }),
+    ).toHaveTextContent("NK보안 경비용역 공급 경비 근무 장구");
+  });
 });

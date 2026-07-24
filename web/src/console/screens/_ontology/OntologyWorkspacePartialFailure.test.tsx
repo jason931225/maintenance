@@ -189,4 +189,35 @@ describe("ontology workspace partial read failures", () => {
     expect(view.result.current.registry[0]?.acting).toEqual([]);
     expect(view.result.current.partialFailures).toEqual([]);
   });
+
+  it("fences a stale API client's instance-card response after the client is replaced", async () => {
+    const apiA = { authority: "A" } as unknown as ConsoleApiClient;
+    const apiB = { authority: "B" } as unknown as ConsoleApiClient;
+    const lateState = deferred<InstanceStateWire>();
+    mocked.getInstance.mockImplementation((client) =>
+      client === apiA ? lateState.promise : Promise.resolve(instanceFixture),
+    );
+    mocked.getInstanceHistory.mockResolvedValue([]);
+    mocked.traverseInstance.mockResolvedValue(graphFixture);
+    const view = renderHook(
+      ({ client }) =>
+        useOntologyWorkspace(client, { saveFailed: "save failed" }, AUTHORITY_KEY),
+      { initialProps: { client: apiA } },
+    );
+    await waitFor(() => {
+      expect(view.result.current.readState).toBe("idle");
+    });
+
+    const staleDescriptor = view.result.current.resolveInstanceCard({
+      id: instanceFixture.instance.id,
+      code: "A",
+      title: "stale",
+      lifecycleState: "active",
+    });
+    view.rerender({ client: apiB });
+    await act(async () => {
+      lateState.resolve(instanceFixture);
+      await expect(staleDescriptor).resolves.toBeUndefined();
+    });
+  });
 });

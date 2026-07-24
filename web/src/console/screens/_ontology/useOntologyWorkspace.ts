@@ -174,7 +174,7 @@ export function useOntologyWorkspace(
       lifetimeEpochRef.current += 1;
       readRequestRef.current += 1;
     };
-  }, [authorityScope]);
+  }, [api, authorityScope]);
 
   const isAuthorityCurrent = useCallback(
     (scope: object, epoch: number) =>

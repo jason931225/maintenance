@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
@@ -10,6 +10,8 @@ import {
   type ObjectExplorerNode,
 } from "../../explore";
 import { ObjectCard } from "../../objectcard";
+import { GovernedObjectCard } from "../../objectcard";
+import type { ConsoleApiClient } from "../../../api/client";
 import type {
   ObjectCardDescriptor,
   ObjectCardHandlers,
@@ -302,6 +304,17 @@ const projectedBannerStyle: CSSProperties = {
   fontWeight: "var(--fw-strong)",
 };
 
+const relationListStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-1)",
+  margin: 0,
+  padding: "var(--sp-3) var(--sp-4)",
+  listStyle: "none",
+  borderTop: "1px solid var(--border-soft)",
+  color: "var(--steel)",
+  fontSize: "var(--text-xs)",
+};
+
 interface LegendEntry {
   key: string;
   title: string;
@@ -310,6 +323,8 @@ interface LegendEntry {
 }
 
 export interface GraphExplorerProps {
+  /** Enables the governed preflight → execute card for real workspace reads. */
+  api?: ConsoleApiClient;
   model: ObjectExplorerModel;
   /** Parent hook loads the search-around neighbourhood for the new center. */
   onFocusChange?: (id: string) => void;
@@ -336,6 +351,7 @@ export interface GraphExplorerProps {
  * layoutObjectExplorerNodes) is reused; only the rendering is new.
  */
 export function GraphExplorer({
+  api,
   model,
   onFocusChange,
   requestedFocusId,
@@ -347,9 +363,15 @@ export function GraphExplorer({
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [resolved, setResolved] = useState<Map<string, ObjectCardDescriptor>>(new Map());
   const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [cardRefreshEpoch, setCardRefreshEpoch] = useState(0);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panDrag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+  const nodeButtons = useRef(new Map<string, HTMLButtonElement>());
+  const resolverEpochRef = useRef(0);
+  useEffect(() => {
+    resolverEpochRef.current += 1;
+  }, [resolveNodeDescriptor]);
   const requestedNode = useMemo(
     () => model.nodes.find((node) => node.id === requestedFocusId),
     [model.nodes, requestedFocusId],
@@ -377,15 +399,17 @@ export function GraphExplorer({
   );
 
   const resolve = useCallback(
-    (node: ObjectExplorerNode): void => {
+    (node: ObjectExplorerNode, force = false): void => {
       if (!resolveNodeDescriptor || isProjected(node)) return;
-      if (resolved.has(node.id) || failed.has(node.id)) return;
+      if (!force && (resolved.has(node.id) || failed.has(node.id))) return;
+      const resolverEpoch = resolverEpochRef.current;
       void resolveNodeDescriptor(node)
         .then((descriptor) => {
-          if (!descriptor) return;
+          if (!descriptor || resolverEpoch !== resolverEpochRef.current) return;
           setResolved((current) => new Map(current).set(node.id, descriptor));
         })
         .catch(() => {
+          if (resolverEpoch !== resolverEpochRef.current) return;
           setFailed((current) => new Set(current).add(node.id));
         });
     },
@@ -418,6 +442,22 @@ export function GraphExplorer({
     [effectiveFocusId, onFocusChange, resolve],
   );
 
+  const onNodeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, node: ObjectExplorerNode) => {
+      if (!view || !["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(event.key)) {
+        return;
+      }
+      event.preventDefault();
+      const index = view.nodes.findIndex((candidate) => candidate.id === node.id);
+      const direction = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
+      const next = view.nodes[(index + direction + view.nodes.length) % view.nodes.length];
+      if (!next) return;
+      onNodeActivate(next);
+      nodeButtons.current.get(next.id)?.focus();
+    },
+    [onNodeActivate, view],
+  );
+
   const legend = useMemo<LegendEntry[]>(() => {
     if (!view) return [];
     const byKey = new Map<string, LegendEntry>();
@@ -437,6 +477,24 @@ export function GraphExplorer({
   const descriptor = resolved.get(selectedNode.id) ?? degradedDescriptor(selectedNode);
   const showProjected = isProjected(selectedNode);
   const zoomPct = Math.round(scale * 100);
+
+  const refreshSelectedCard = useCallback(() => {
+    // Re-mount the governed card after a commit so its dynamic acting read is
+    // server-fresh alongside the descriptor, traversal, and history refreshes.
+    setCardRefreshEpoch((current) => current + 1);
+    setResolved((current) => {
+      const next = new Map(current);
+      next.delete(selectedNode.id);
+      return next;
+    });
+    setFailed((current) => {
+      const next = new Set(current);
+      next.delete(selectedNode.id);
+      return next;
+    });
+    onFocusChange?.(selectedNode.id);
+    resolve(selectedNode, true);
+  }, [onFocusChange, resolve, selectedNode]);
 
   function zoomBy(delta: number): void {
     setScale((current) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((current + delta) * 10) / 10)));
@@ -525,8 +583,15 @@ export function GraphExplorer({
                 type="button"
                 aria-label={T.actions.recenter(node.label)}
                 aria-current={role === "focus" ? "true" : undefined}
+                ref={(element) => {
+                  if (element) nodeButtons.current.set(node.id, element);
+                  else nodeButtons.current.delete(node.id);
+                }}
                 onClick={() => {
                   onNodeActivate(node);
+                }}
+                onKeyDown={(event) => {
+                  onNodeKeyDown(event, node);
                 }}
                 style={{ ...nodeButtonStyle, left: `${String(x)}%`, top: `${String(y)}%` }}
                 {...objDrag(node.code, node.label)}
@@ -581,7 +646,25 @@ export function GraphExplorer({
             {G.projectedNotice}
           </div>
         ) : null}
-        <ObjectCard descriptor={descriptor} handlers={cardHandlers} />
+        {api && !showProjected ? (
+          <GovernedObjectCard
+            key={`${selectedNode.id}:${String(cardRefreshEpoch)}`}
+            api={api}
+            descriptor={descriptor}
+            handlers={cardHandlers}
+            onInstanceChange={refreshSelectedCard}
+          />
+        ) : (
+          <ObjectCard descriptor={descriptor} handlers={cardHandlers} />
+        )}
+        <ul aria-label={G.relationList} style={relationListStyle}>
+          {view.links.map((link) => {
+            const from = view.nodes.find((node) => node.id === link.source_id);
+            const to = view.nodes.find((node) => node.id === link.target_id);
+            if (!from || !to) return null;
+            return <li key={link.id}>{`${from.label} ${link.relation} ${to.label}`}</li>;
+          })}
+        </ul>
       </aside>
     </section>
   );

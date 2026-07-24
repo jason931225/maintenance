@@ -193,6 +193,9 @@ export function ConsoleShell({
       : defaultScreen(grants, screenKeys);
   const ScreenBody = activeScreen ? SCREEN_REGISTRY[activeScreen] : undefined;
   const communicationScreen = activeScreen ? isCommunicationScreen(activeScreen) : false;
+  // The object explorer owns its contextual governed-object rail. Keeping the
+  // shell comms rail there creates two competing right rails.
+  const suppressCommsRail = communicationScreen || activeScreen === "objectExplorer";
 
   useEffect(() => {
     if (!focusMainAfterDrawerCloseRef.current || activeDrawer) return;
@@ -377,7 +380,7 @@ export function ConsoleShell({
               : undefined
           }
           onOpenComms={
-            mobile && !communicationScreen
+            mobile && !suppressCommsRail
               ? () => {
                   openDrawer("right");
                 }
@@ -398,7 +401,7 @@ export function ConsoleShell({
       {/* Comms rail — shell-level, default-expanded on every screen (round 5).
           The single "커뮤니케이션" complementary landmark stays exactly as
           deduped in #459: this is still the only element carrying that name. */}
-      {!communicationScreen && <aside
+      {!suppressCommsRail && <aside
         aria-label={S.rail.label}
         data-cshell-rail
         data-cshell-rail-open={(mobile || railOpen) || undefined}

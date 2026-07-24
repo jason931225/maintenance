@@ -2679,6 +2679,7 @@ export const ko = {
         projectedNotice: "투영 객체 — 조회 전용",
         projectedChip: "조회 전용",
         inspectorHint: "노드를 눌러 상세를 확인하세요.",
+        relationList: "객체 관계 목록",
       },
     },
     objectcard: {

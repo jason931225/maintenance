@@ -4,6 +4,7 @@ import type { ObjectTypeDetailWire } from "../../api/ontology";
 import type { OntObjectTypeDef } from "./types";
 import {
   displayValue,
+  objectCardDescriptorFrom,
   objectTypeDefFromDetail,
   stagedRevisionDraft,
 } from "./wire";
@@ -117,5 +118,59 @@ describe("analytic formula wire canonicalization", () => {
     expect(reloaded.analytics[0]?.formula).toBe(
       "days_between(due_date, now())",
     );
+  });
+});
+
+describe("object card descriptor wire identity", () => {
+  it("preserves the real object-type UUID for governed action preflight and execute", () => {
+    const detail = {
+      object_type: {
+        id: "11111111-1111-4111-8111-111111111111",
+        stable_key: "work_order",
+        title: "작업지시",
+        backing_kind: "instance",
+        schema_version: 1,
+        lifecycle_state: "published",
+      },
+      title_property_key: null,
+      backing_table: null,
+      primary_key_property: null,
+      properties: [],
+      links: [],
+      actions: [],
+      analytics: [],
+    } satisfies ObjectTypeDetailWire;
+    const descriptor = objectCardDescriptorFrom({
+      state: {
+        instance: {
+          id: "instance-1",
+          object_type_id: detail.object_type.id,
+          title: "WO-1",
+          current_revision_id: null,
+          lifecycle_state: "active",
+        },
+        revision: {
+          id: "revision-1",
+          instance_id: "instance-1",
+          version: 1,
+          attributes: {},
+          valid_from: "2026-07-23T00:00:00Z",
+          valid_to: null,
+          action_type_id: null,
+          actor: null,
+          reason: null,
+          prev_hash: "0".repeat(64),
+          row_hash: "1".repeat(64),
+        },
+      },
+      history: [],
+      detail,
+    });
+
+    expect(descriptor.objectType).toEqual({
+      id: detail.object_type.id,
+      key: "work_order",
+      title: "작업지시",
+    });
   });
 });

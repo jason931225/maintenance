@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
+import { useAuth } from "../../context/auth";
 import type { AuthSession } from "../../context/auth";
 import type { ConsoleApiClient } from "../../api/client";
 import { ConsoleApp } from "../ConsoleApp";
@@ -35,6 +36,28 @@ vi.mock("../rum/rum", () => ({
     markConsoleRoute(screen);
   },
 }));
+
+// Shell chrome is synchronous presentation over the session's deny-by-omission
+// grants. Keep it independent from the async authz transport, which is covered
+// by authz.ts tests and otherwise leaves a one-render empty shell in jsdom.
+vi.mock("./authz", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./authz")>();
+  return {
+    ...actual,
+    ConsoleAuthzProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+    useConsoleAuthz: () => {
+      const { session } = useAuth();
+      return {
+        grants: {
+          roles: session?.roles ?? [],
+          featureGrants: session?.feature_grants ?? [],
+        },
+        source: "jwt" as const,
+        ready: true,
+      };
+    },
+  };
+});
 
 function RouterProbe() {
   const location = useLocation();
@@ -192,6 +215,20 @@ describe("ConsoleShell chrome", () => {
     await userEvent.click(screen.getByRole("button", { name: "통합 개요" }));
     const rail = screen.getByRole("complementary", { name: "커뮤니케이션" });
     expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+  });
+
+  it("suppresses the shell comms rail on the object explorer so its governed card is the only right rail", async () => {
+    renderConsole(ADMIN, ["/console/objectExplorer"]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute(
+        "data-cshell-screen",
+        "objectExplorer",
+      );
+    });
+    expect(
+      screen.queryByRole("complementary", { name: "커뮤니케이션" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens a server-linked messenger mention in the canonical registered screen URL", async () => {
