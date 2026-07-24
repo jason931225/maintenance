@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 3,
+  "purpose": "Trusted contract and ledger must be read from the immutable protected PR base itself.",
+  "ledgerPath": "scripts/architecture/exception-ledger.json"
+}
