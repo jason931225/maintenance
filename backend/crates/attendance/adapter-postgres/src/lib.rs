@@ -434,7 +434,7 @@ impl PgAttendanceStore {
                 .bind(command.employee_id).fetch_optional(tx.as_mut()).await?.flatten();
             let branch = branch.ok_or(AttendanceStoreError::NotFound)?;
             app::ensure_scope(&caller, Some(branch))?;
-            let inserted: Option<OffsetDateTime> = sqlx::query_scalar("INSERT INTO attendance_week52_acknowledgements (org_id,employee_id,week_start,acknowledged_by) VALUES ($1,$2,$3,$4) ON CONFLICT (org_id,employee_id,week_start) DO NOTHING RETURNING acknowledged_at")
+            let inserted: Option<OffsetDateTime> = sqlx::query_scalar("INSERT INTO attendance_week52_acknowledgements (org_id,employee_id,week_start,acknowledged_by_user_id) VALUES ($1,$2,$3,$4) ON CONFLICT (org_id,employee_id,week_start) DO NOTHING RETURNING acknowledged_at")
                 .bind(caller.org_id).bind(command.employee_id).bind(command.week_start).bind(caller.user_id).fetch_optional(tx.as_mut()).await?;
             let acknowledged_at = match inserted {
                 Some(value) => value,
