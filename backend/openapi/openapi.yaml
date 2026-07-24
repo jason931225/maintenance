@@ -13992,7 +13992,7 @@ paths:
       summary: Create a pilot ASN for one branch warehouse
       security: [{ bearerAuth: [] }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, externalReference, sku, expectedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, externalReference: { type: string }, sku: { type: string }, expectedQuantity: { type: integer, minimum: 1 } } } } } }
-      responses: { '201': { description: ASN created }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses: { '201': { description: ASN created, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsAsnCreated' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/logistics/asns/{asn_id}/receipts:
     post:
       tags: [logistics]
@@ -14001,7 +14001,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, receivedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, receivedQuantity: { type: integer, minimum: 1 } } } } } }
-      responses: { '200': { description: Receipt recorded or replayed }, '409': { description: "Conflicting replay, over-receipt, or illegal state" }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses: { '200': { description: Receipt recorded or replayed, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsAsnReceipt' } } } }, '409': { description: "Conflicting replay, over-receipt, or illegal state" }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/logistics/asns/{asn_id}/putaway:
     post:
       tags: [logistics]
@@ -14010,15 +14010,15 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId], properties: { branchId: { $ref: '#/components/schemas/Uuid' } } } } } }
-      responses: { '200': { description: Stock available for fulfillment }, '409': { description: Illegal state } }
+      responses: { '200': { description: Stock available for fulfillment, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsAsnPutaway' } } } }, '409': { description: Illegal state } }
   /api/v1/logistics/fulfillments:
     post:
       tags: [logistics]
       operationId: releaseLogisticsFulfillment
       summary: Atomically reserve available pilot stock; never oversells
       security: [{ bearerAuth: [] }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, sku, requestedQuantity, dueAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, sku: { type: string }, requestedQuantity: { type: integer, minimum: 1 }, dueAt: { type: string, format: date-time } } } } } }
-      responses: { '201': { description: Fulfillment released }, '409': { description: Insufficient available stock } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, sku, requestedQuantity, dueAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, sku: { type: string }, requestedQuantity: { type: integer, minimum: 1 }, dueAt: { $ref: '#/components/schemas/LogisticsTimeTuple' } } } } } }
+      responses: { '201': { description: Fulfillment released, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsFulfillmentReleased' } } } }, '409': { description: Insufficient available stock } }
   /api/v1/logistics/fulfillments/{fulfillment_id}/pick:
     post:
       tags: [logistics]
@@ -14026,7 +14026,8 @@ paths:
       summary: Pick reserved stock, recording explicit short-pick when applicable
       security: [{ bearerAuth: [] }]
       parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Pick outcome }, '409': { description: Illegal state } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, pickedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, pickedQuantity: { type: integer, format: int64, minimum: 0 } } } } } }
+      responses: { '200': { description: Pick outcome, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsFulfillmentPicked' } } } }, '409': { description: Illegal state } }
   /api/v1/logistics/fulfillments/{fulfillment_id}/pack:
     post:
       tags: [logistics]
@@ -14034,7 +14035,8 @@ paths:
       summary: Pack a picked or short-picked fulfillment
       security: [{ bearerAuth: [] }]
       parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Fulfillment packed }, '409': { description: Illegal state } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId], properties: { branchId: { $ref: '#/components/schemas/Uuid' } } } } } }
+      responses: { '200': { description: Fulfillment packed, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsFulfillmentPacked' } } } }, '409': { description: Illegal state } }
   /api/v1/logistics/fulfillments/{fulfillment_id}/dispatch:
     post:
       tags: [logistics]
@@ -14042,7 +14044,8 @@ paths:
       summary: Dispatch one packed carrier and vehicle leg
       security: [{ bearerAuth: [] }]
       parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '201': { description: Shipment dispatched }, '409': { description: Illegal transition } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, carrierName, vehicleReference], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, carrierName: { type: string, maxLength: 120 }, vehicleReference: { type: string, maxLength: 120 } } } } } }
+      responses: { '201': { description: Shipment dispatched, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsShipmentDispatched' } } } }, '409': { description: Illegal transition } }
   /api/v1/logistics/shipments/{shipment_id}/pod:
     post:
       tags: [logistics]
@@ -14050,7 +14053,8 @@ paths:
       summary: Verify recipient-confirmed immutable evidence and derive calendar-time SLA
       security: [{ bearerAuth: [] }]
       parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: POD verified with MET or BREACHED SLA }, '409': { description: Illegal transition or reused evidence } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, recipientName, evidenceReference, confirmedAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, recipientName: { type: string, maxLength: 160 }, evidenceReference: { type: string, pattern: '^evidence://' }, confirmedAt: { $ref: '#/components/schemas/LogisticsTimeTuple' } } } } } }
+      responses: { '200': { description: POD verified with MET or BREACHED SLA, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsPodVerified' } } } }, '409': { description: Illegal transition or reused evidence } }
   /api/v1/logistics/shipments/{shipment_id}/settlements:
     post:
       tags: [logistics]
@@ -14058,7 +14062,196 @@ paths:
       summary: Settle one KRW operational transport cost; no finance or GL posting
       security: [{ bearerAuth: [] }]
       parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Operational cost settled }, '409': { description: Verified POD required } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, currencyCode, amountMinor, settledAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, currencyCode: { type: string, enum: [KRW] }, amountMinor: { type: integer, format: int64, minimum: 0 }, settledAt: { $ref: '#/components/schemas/LogisticsTimeTuple' } } } } } }
+      responses: { '200': { description: Operational cost settled, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsShipmentSettlement' } } } }, '409': { description: Verified POD required } }
+  /api/v1/equipment-3r/units:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rUnits
+      summary: List 3R units, newest first (org-wide observe)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Units, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Equipment3rUnitView' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [equipment-3r]
+      operationId: registerEquipment3rUnit
+      summary: Register a serialized rental unit (org-unique serial)
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, serialNo, modelName, capacityClass, acquisitionCostMinor], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, serialNo: { type: string, minLength: 1, maxLength: 80 }, modelName: { type: string, minLength: 1, maxLength: 120 }, capacityClass: { type: string, minLength: 1, maxLength: 40 }, acquisitionCostMinor: { type: integer, format: int64, minimum: 0 } } } } } }
+      responses:
+        '201': { description: Unit registered, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rUnitView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Duplicate serial in organization }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/units/{unit_id}:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rUnit
+      summary: Unit detail with active case and open disposition links
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: unit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Unit detail, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rUnitDetailView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org unit }
+  /api/v1/equipment-3r/units/{unit_id}/history:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rUnitHistory
+      summary: Transition history for the unit, its cases, and dispositions, newest first
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: unit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: History entries, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Equipment3rHistoryEntry' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org unit }
+  /api/v1/equipment-3r/rental-cases:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rRentalCases
+      summary: List rental cases, newest first (org-wide observe)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Rental cases, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Equipment3rCaseView' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [equipment-3r]
+      operationId: quoteEquipment3rRentalCase
+      summary: Idempotently open a rental-case quote against an unsold unit
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, unitId, customerName, siteReference, monthlyRateMinor, durationMonths, currencyCode], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, unitId: { $ref: '#/components/schemas/Uuid' }, customerName: { type: string, minLength: 1, maxLength: 160 }, siteReference: { type: string, minLength: 1, maxLength: 200 }, monthlyRateMinor: { type: integer, format: int64, minimum: 1 }, durationMonths: { type: integer, minimum: 1, maximum: 120 }, currencyCode: { type: string, enum: [KRW] } } } } } }
+      responses:
+        '200': { description: Idempotent replay of the stored quote (replayed=true), content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '201': { description: Quote created, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unit not found in branch }
+        '409': { description: "Key reused with different fingerprint, or unit is SOLD" }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rRentalCase
+      summary: Rental-case detail with approval, legs, inspections, and assessment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Case detail, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseDetailView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+  /api/v1/equipment-3r/rental-cases/{case_id}/approval:
+    post:
+      tags: [equipment-3r]
+      operationId: decideEquipment3rApproval
+      summary: Four-eyes approval; APPROVED reserves the unit (single winner)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [APPROVED, DECLINED] }, reason: { type: string, minLength: 1, maxLength: 500 } } } } } }
+      responses:
+        '200': { description: Decision recorded, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: "Missing grant, branch outside scope, or four-eyes violation" }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not QUOTED or unit not AVAILABLE }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/dispatch:
+    post:
+      tags: [equipment-3r]
+      operationId: dispatchEquipment3rCase
+      summary: Record the physical delivery leg of an approved case
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [carrierName, vehicleReference], properties: { carrierName: { type: string, minLength: 1, maxLength: 120 }, vehicleReference: { type: string, minLength: 1, maxLength: 120 } } } } } }
+      responses:
+        '200': { description: Case dispatched, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not APPROVED }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/handover:
+    post:
+      tags: [equipment-3r]
+      operationId: handoverEquipment3rCase
+      summary: Customer handover with immutable evidence; unit goes ON_RENT
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [recipientName, evidenceReference, handedOverAt], properties: { recipientName: { type: string, minLength: 1, maxLength: 160 }, evidenceReference: { type: string, pattern: '^evidence://[A-Za-z0-9._/-]{8,400}$' }, handedOverAt: { type: string, format: date-time } } } } } }
+      responses:
+        '200': { description: Case handed over, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not DISPATCHED }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/inspections:
+    post:
+      tags: [equipment-3r]
+      operationId: inspectEquipment3rCase
+      summary: Append an on-rent inspection or maintenance record
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [outcome, findings], properties: { outcome: { type: string, enum: [PASS, MAINTENANCE_PERFORMED] }, findings: { type: string, minLength: 1, maxLength: 2000 }, maintenanceNote: { type: string, minLength: 1, maxLength: 2000 } } } } } }
+      responses:
+        '201': { description: Inspection recorded, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rInspectionView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not HANDED_OVER }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/return:
+    post:
+      tags: [equipment-3r]
+      operationId: returnEquipment3rCase
+      summary: Record the unit return; unit enters assessment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [returnedAt], properties: { returnedAt: { type: string, format: date-time } } } } } }
+      responses:
+        '200': { description: Case returned, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not HANDED_OVER }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/assessment:
+    post:
+      tags: [equipment-3r]
+      operationId: assessEquipment3rReturn
+      summary: Post the return assessment; closes the case and opens the disposition
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [conditionGrade, findings, disposition], properties: { conditionGrade: { type: string, enum: [A, B, C, D] }, findings: { type: string, minLength: 1, maxLength: 2000 }, disposition: { type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY] } } } } } }
+      responses:
+        '200': { description: Case closed with disposition opened, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseDetailView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not RETURNED }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/dispositions/{disposition_id}/completion:
+    post:
+      tags: [equipment-3r]
+      operationId: completeEquipment3rDisposition
+      summary: Complete a repair/refurbish/resale disposition; no GL posting occurs
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: disposition_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { costMinor: { type: integer, format: int64, minimum: 0 }, saleAmountMinor: { type: integer, format: int64, minimum: 0 }, buyerName: { type: string, minLength: 1, maxLength: 160 } } } } } }
+      responses:
+        '200': { description: Disposition completed (financeGlPosting is always null), content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rDispositionView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org disposition }
+        '409': { description: Disposition not OPEN }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/production/plans:
     get:
       operationId: listProductionPlans
@@ -29143,3 +29336,198 @@ components:
         quality_evidence_ref: {type: string, minLength: 1}
         quality_passed: {type: boolean}
         note: {type: string, maxLength: 500}
+    Equipment3rUnitView:
+      type: object
+      required: [id, serialNo, modelName, capacityClass, availability, acquisitionCostMinor, branchId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        serialNo: { type: string }
+        modelName: { type: string }
+        capacityClass: { type: string }
+        availability: { type: string, enum: [AVAILABLE, RESERVED, ON_RENT, IN_ASSESSMENT, IN_REPAIR, IN_REFURBISHMENT, FOR_SALE, SOLD] }
+        acquisitionCostMinor: { type: integer, format: int64 }
+        branchId: { $ref: '#/components/schemas/Uuid' }
+    Equipment3rUnitDetailView:
+      allOf:
+        - $ref: '#/components/schemas/Equipment3rUnitView'
+        - type: object
+          required: [createdAt, updatedAt]
+          properties:
+            activeCaseId: { $ref: '#/components/schemas/Uuid', nullable: true }
+            openDispositionId: { $ref: '#/components/schemas/Uuid', nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Equipment3rCaseView:
+      type: object
+      required: [id, unitId, status, customerName, siteReference, monthlyRateMinor, durationMonths, currencyCode, branchId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        unitId: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [QUOTED, APPROVED, DECLINED, DISPATCHED, HANDED_OVER, RETURNED, CLOSED] }
+        customerName: { type: string }
+        siteReference: { type: string }
+        monthlyRateMinor: { type: integer, format: int64 }
+        durationMonths: { type: integer }
+        currencyCode: { type: string, enum: [KRW] }
+        branchId: { $ref: '#/components/schemas/Uuid' }
+        replayed: { type: boolean, description: Present and true only on an idempotent replay }
+    Equipment3rCaseDetailView:
+      allOf:
+        - $ref: '#/components/schemas/Equipment3rCaseView'
+        - type: object
+          required: [inspections, createdBy, createdAt, updatedAt]
+          properties:
+            approval:
+              type: object
+              nullable: true
+              properties:
+                decision: { type: string, enum: [APPROVED, DECLINED] }
+                reason: { type: string, nullable: true }
+                decidedBy: { $ref: '#/components/schemas/Uuid' }
+                decidedAt: { type: string, format: date-time }
+            dispatch:
+              type: object
+              nullable: true
+              properties:
+                carrierName: { type: string }
+                vehicleReference: { type: string }
+                dispatchedAt: { type: string, format: date-time }
+            handover:
+              type: object
+              nullable: true
+              properties:
+                recipientName: { type: string }
+                evidenceReference: { type: string }
+                handedOverAt: { type: string, format: date-time }
+            returnedAt: { type: string, format: date-time, nullable: true }
+            assessment:
+              type: object
+              nullable: true
+              properties:
+                conditionGrade: { type: string, enum: [A, B, C, D] }
+                findings: { type: string }
+                disposition: { type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY] }
+                assessedBy: { $ref: '#/components/schemas/Uuid' }
+                assessedAt: { type: string, format: date-time }
+            dispositionId: { $ref: '#/components/schemas/Uuid', nullable: true }
+            inspections:
+              type: array
+              items: { $ref: '#/components/schemas/Equipment3rInspectionView' }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Equipment3rInspectionView:
+      type: object
+      required: [id, caseId, outcome, findings, inspectedBy, inspectedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        caseId: { $ref: '#/components/schemas/Uuid' }
+        outcome: { type: string, enum: [PASS, MAINTENANCE_PERFORMED] }
+        findings: { type: string }
+        maintenanceNote: { type: string, nullable: true }
+        inspectedBy: { $ref: '#/components/schemas/Uuid' }
+        inspectedAt: { type: string, format: date-time }
+    Equipment3rDispositionView:
+      type: object
+      required: [id, unitId, caseId, kind, status, completedBy, completedAt, financeGlPosting]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        unitId: { $ref: '#/components/schemas/Uuid' }
+        caseId: { $ref: '#/components/schemas/Uuid' }
+        kind: { type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY] }
+        status: { type: string, enum: [OPEN, COMPLETED] }
+        costMinor: { type: integer, format: int64, nullable: true }
+        saleAmountMinor: { type: integer, format: int64, nullable: true }
+        buyerName: { type: string, nullable: true }
+        completedBy: { $ref: '#/components/schemas/Uuid' }
+        completedAt: { type: string, format: date-time }
+        financeGlPosting: { nullable: true, description: Always null — the pilot records no GL posting }
+    Equipment3rHistoryEntry:
+      type: object
+      required: [aggregateKind, aggregateId, transition, actorId, occurredAt]
+      properties:
+        aggregateKind: { type: string, enum: [unit, case, disposition] }
+        aggregateId: { $ref: '#/components/schemas/Uuid' }
+        transition: { type: string }
+        actorId: { $ref: '#/components/schemas/Uuid' }
+        occurredAt: { type: string, format: date-time }
+    LogisticsTimeTuple:
+      type: array
+      minItems: 9
+      maxItems: 9
+      items: { type: integer }
+      description: 'Wire form of the logistics pilot datetime fields (dueAt, confirmedAt, settledAt): the time-crate
+        default serde tuple [year, ordinal-day, hour, minute, second, nanosecond, offsetHours, offsetMinutes, offsetSeconds].
+        The deployed rest crate deserializes these as plain OffsetDateTime without rfc3339 serde, so an RFC3339 string is
+        rejected with 422. Encode in UTC (offsets 0). Divergence recorded in
+        docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/openapi-applied-notes.md.'
+    LogisticsAsnCreated:
+      type: object
+      required: [id, status, branchId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [EXPECTED] }
+        branchId: { $ref: '#/components/schemas/Uuid' }
+    LogisticsAsnReceipt:
+      type: object
+      required: [id, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PARTIAL_RECEIVED, RECEIVED] }
+        receivedQuantity: { type: integer, format: int64, description: cumulative received total; absent on an idempotent replay }
+        replayed: { type: boolean, description: present and true only on an idempotent replay }
+    LogisticsAsnPutaway:
+      type: object
+      required: [id, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PUTAWAY] }
+    LogisticsFulfillmentReleased:
+      type: object
+      required: [id, status, reservedQuantity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [RELEASED] }
+        reservedQuantity: { type: integer, format: int64 }
+    LogisticsFulfillmentPicked:
+      type: object
+      required: [id, status, pickedQuantity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PICKED, SHORT_PICK] }
+        pickedQuantity: { type: integer, format: int64 }
+    LogisticsFulfillmentPacked:
+      type: object
+      required: [id, status, pickedQuantity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PACKED] }
+        pickedQuantity: { type: integer, format: int64 }
+    LogisticsShipmentDispatched:
+      type: object
+      required: [id, fulfillmentId, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid', description: created shipment id }
+        fulfillmentId: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [DISPATCHED] }
+    LogisticsPodVerified:
+      type: object
+      required: [id, status, recipientConfirmedEvidenceReference, slaAssessment]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [DELIVERED] }
+        recipientConfirmedEvidenceReference: { type: string }
+        slaAssessment: { type: string, enum: [MET, BREACHED] }
+    LogisticsShipmentSettlement:
+      type: object
+      required: [id, status, operationalCost, financeGlPosting]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [SETTLED] }
+        operationalCost:
+          type: object
+          required: [currency, amountMinor]
+          properties:
+            currency: { type: string, enum: [KRW] }
+            amountMinor: { type: integer, format: int64 }
+        financeGlPosting: { nullable: true, description: 'Always null by design — no GL/finance edge in the pilot' }

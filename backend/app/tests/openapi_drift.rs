@@ -212,6 +212,12 @@ const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
         source: include_str!("../../crates/analytics-quant/rest/src/lib.rs"),
         ignored_route_refs: &[],
     },
+    RouteSource {
+        name: "equipment 3R REST router",
+        surface: "equipment-3r",
+        source: include_str!("../../crates/equipment/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
 ];
 
 #[test]

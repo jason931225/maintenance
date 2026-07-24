@@ -341,6 +341,10 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
         name: "analytics",
         paths: mnt_analytics_quant_rest::ANALYTICS_QUANT_ROUTE_PATHS,
     },
+    ConfiguredRouteSurface {
+        name: "equipment-3r",
+        paths: mnt_equipment_rest::EQUIPMENT_3R_ROUTE_PATHS,
+    },
 ];
 
 #[cfg(test)]
