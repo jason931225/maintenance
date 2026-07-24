@@ -94,7 +94,7 @@ impl PgAttendanceStore {
         query: ReadOwnWeek52,
     ) -> Result<Option<OwnWeek52Read>, AttendanceStoreError> {
         let org = OrgId::from_uuid(scope.org_id);
-        let week_start = query.week_start;
+        let week_start = query.week_start()?;
         let week_end = week_start + Duration::days(7);
         let week_start_at = week52_boundary(week_start)?;
         let week_end_at = week52_boundary(week_end)?;

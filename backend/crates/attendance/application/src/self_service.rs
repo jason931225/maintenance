@@ -54,7 +54,7 @@ impl ListOwnExceptions {
 /// accepted from a transport or a caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadOwnWeek52 {
-    pub week_start: Date,
+    week_start: Date,
 }
 
 impl ReadOwnWeek52 {
@@ -62,6 +62,12 @@ impl ReadOwnWeek52 {
     pub fn new(week_start: Date) -> Result<Self, AttendanceApplicationError> {
         crate::validate_week52_start(week_start)?;
         Ok(Self { week_start })
+    }
+
+    /// Returns the ISO Monday boundary, rejecting values constructed through
+    /// deserialization or other internal bypasses of [`Self::new`].
+    pub fn week_start(&self) -> Result<Date, AttendanceApplicationError> {
+        crate::validate_week52_start(self.week_start)
     }
 }
 
@@ -126,5 +132,14 @@ mod tests {
         let monday = Date::from_calendar_date(2026, Month::July, 20).unwrap();
         assert!(ReadOwnWeek52::new(monday).is_ok());
         assert!(ReadOwnWeek52::new(monday + time::Duration::days(1)).is_err());
+    }
+
+    #[test]
+    fn own_week52_accessor_rejects_a_bypassed_non_monday_input() {
+        let tuesday = Date::from_calendar_date(2026, Month::July, 21).unwrap();
+        let bypassed = ReadOwnWeek52 {
+            week_start: tuesday,
+        };
+        assert!(bypassed.week_start().is_err());
     }
 }
