@@ -2,18 +2,15 @@
 //
 // The only backend-real document domain today is 증거 (console/evidence/*,
 // GET /api/v1/evidence/objects — real-wired, custody fabrication already
-// removed upstream). 결재/공지/업무일지/계약/접수 have no list API anywhere in
-// the generated client yet: rather than fabricate rows for them (§4-25-⑥),
-// their tabs render the real 유형 filter chip plus a blocked-until-backend
-// chip and an empty table — an honest, extensible shell a future backend lane
-// wires real data into without any UI rework.
+// removed upstream). Other document domains have no list API in the generated
+// client, so this surface exposes only the backed evidence workflow (§4-25-⑥).
 //
 // 보존 (retention) is real: GET /api/v1/lifecycles/evidence_object/{id}
 // (console/lifecycle's useLifecycle hook, called here per-row since a table
 // needs N rows, not the single-object shape the hook offers) → retentionUntil.
 // A missing lifecycle row renders "—". A denied or failed lifecycle read is
 // explicit and retryable; it is never mislabeled as an absent retention rule.
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import type { ConsoleApiClient } from "../../../api/client";
 
@@ -21,7 +18,7 @@ import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import {
-  listEvidenceObjects,
+  listEvidenceObjectPage,
   type EvidenceObjectDetail,
   type EvidenceSourceKind,
 } from "../../evidence";
@@ -42,23 +39,6 @@ const SOURCE_TONE: Record<EvidenceSourceKind, ChipTone> = {
 import { documentsKoManifest as T } from "./koManifest";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 
-// ko.console.documents.actions.{export, register, registerUnavailable} are
-// now real (wired in ko.ts, serial wire round 4). English fallbacks below
-// only guard a future ko.ts regression.
-function actionStrings(): { export: string; register: string; registerUnavailable: string } {
-  const documents = ko.console.documents as unknown as { actions?: Record<string, unknown> };
-  const actions = documents.actions;
-  const pick = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
-  return {
-    export: pick(actions?.export, "Export"),
-    register: pick(actions?.register, "Register a record"),
-    registerUnavailable: pick(
-      actions?.registerUnavailable,
-      "Record registration has no create endpoint yet.",
-    ),
-  };
-}
-
 // Real, honest export — a client-side CSV of the rows actually on screen
 // (never a fabricated bulk export the backend doesn't offer). Native
 // Blob/URL, no library (§ ponytail: native platform feature over a dep).
@@ -72,12 +52,6 @@ function toCsv(rows: EvidenceObjectDetail[], resolveOwner: (id: string) => strin
   );
   return [header.map(escape).join(","), ...lines].join("\r\n");
 }
-
-type TypeTab = "ALL" | "APPROVAL" | "NOTICE" | "WORKLOG" | "CONTRACT" | "INTAKE" | "EVIDENCE";
-
-// Only EVIDENCE has a real backing list today (see file header).
-const BACKED_TABS = new Set<TypeTab>(["ALL", "EVIDENCE"]);
-const TAB_ORDER: TypeTab[] = ["ALL", "APPROVAL", "NOTICE", "WORKLOG", "CONTRACT", "INTAKE", "EVIDENCE"];
 
 type StatFilter = "ALL" | "THIS_MONTH" | "EXPIRING";
 const EXPIRING_WINDOW_DAYS = 90;
@@ -150,11 +124,6 @@ const actionButtonStyle: CSSProperties = {
   fontSize: "var(--text-sm)",
   fontWeight: "var(--fw-strong)",
   cursor: "pointer",
-};
-const primaryActionButtonStyle: CSSProperties = {
-  ...actionButtonStyle,
-  border: "1px solid var(--signal)",
-  background: "var(--signal)",
 };
 const barStyle: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-2)" };
 const statButtonStyle: CSSProperties = {
@@ -262,37 +231,54 @@ function isExpiringSoon(retentionUntil: string): boolean {
 
 export function EvidenceScreenBody() {
   const { api } = useAuth();
-  const A = actionStrings();
   const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [users, setUsers] = useState<Map<string, string>>(new Map());
   const [retention, setRetention] = useState<Map<string, RetentionEntry>>(new Map());
-  const [tab, setTab] = useState<TypeTab>("ALL");
   const [statFilter, setStatFilter] = useState<StatFilter>("ALL");
   const [search, setSearch] = useState("");
-  const [registerNotice, setRegisterNotice] = useState(false);
-  const [listAttempt, setListAttempt] = useState(0);
+  const [pageRequest, setPageRequest] = useState({ offset: 0, append: false, attempt: 0 });
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [retentionAttempt, setRetentionAttempt] = useState(0);
+  const loadedIds = useRef(new Set<string>());
 
   useEffect(() => {
     const controller = new AbortController();
     let current = true;
-    setListState("loading");
-    void listEvidenceObjects(api, 200, controller.signal)
-      .then((items) => {
+    const { append, offset } = pageRequest;
+    if (append) setLoadingMore(true);
+    else {
+      setListState("loading");
+      setNextOffset(null);
+    }
+
+    void listEvidenceObjectPage(api, 200, offset, controller.signal)
+      .then((page) => {
         if (!current || controller.signal.aborted) return;
-        setRows(items);
+        const pageIds = new Set(page.items.map((item) => item.id));
+        if (pageIds.size !== page.items.length || (append && page.items.some((item) => loadedIds.current.has(item.id)))) {
+          throw new Error("Evidence records pagination overlapped a previously loaded page.");
+        }
+        if (append) page.items.forEach((item) => loadedIds.current.add(item.id));
+        else loadedIds.current = pageIds;
+        setRows((previous) => (append ? [...previous, ...page.items] : page.items));
+        setNextOffset(page.mayHaveMore ? page.nextOffset : null);
         setListState("ready");
       })
       .catch(() => {
         if (!current || controller.signal.aborted) return;
         setListState("error");
+        setNextOffset(null);
+      })
+      .finally(() => {
+        if (current && !controller.signal.aborted) setLoadingMore(false);
       });
     return () => {
       current = false;
       controller.abort();
     };
-  }, [api, listAttempt]);
+  }, [api, pageRequest]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -341,11 +327,10 @@ export function EvidenceScreenBody() {
       const entry = retention.get(row.id);
       return entry?.retentionUntil != null && isExpiringSoon(entry.retentionUntil);
     }).length;
-    return { total: rows.length, registeredThisMonth, expiring };
+    return { registeredThisMonth, expiring };
   }, [rows, retention]);
 
   const visibleRows = useMemo(() => {
-    if (!BACKED_TABS.has(tab)) return [];
     let visible = rows;
     if (statFilter === "THIS_MONTH") visible = visible.filter((row) => inCurrentMonth(row.registeredAt));
     if (statFilter === "EXPIRING") {
@@ -364,7 +349,7 @@ export function EvidenceScreenBody() {
       );
     }
     return visible;
-  }, [rows, tab, statFilter, retention, search, users]);
+  }, [rows, statFilter, retention, search, users]);
 
   function toggleStat(next: StatFilter) {
     setStatFilter((current) => (current === next ? "ALL" : next));
@@ -388,37 +373,12 @@ export function EvidenceScreenBody() {
         <h1 style={titleStyle}>{T.title}</h1>
         <div style={headerActionsStyle}>
           <button type="button" style={actionButtonStyle} onClick={exportVisibleRows}>
-            {A.export}
-          </button>
-          <button
-            type="button"
-            style={primaryActionButtonStyle}
-            onClick={() => {
-              setRegisterNotice(true);
-            }}
-          >
-            {A.register}
+            {ko.console.documents.actions.export}
           </button>
         </div>
       </header>
-      {registerNotice ? (
-        <StatusChip role="status" tone="warn">
-          {A.registerUnavailable}
-        </StatusChip>
-      ) : null}
 
       <div role="group" aria-label={T.title} style={barStyle}>
-        <button
-          type="button"
-          aria-pressed={statFilter === "ALL"}
-          style={statFilter === "ALL" ? statButtonActiveStyle : statButtonStyle}
-          onClick={() => {
-            setStatFilter("ALL");
-          }}
-        >
-          <span>{T.stats.total}</span>
-          <StatusChip tone="neutral">{stats.total}</StatusChip>
-        </button>
         <button
           type="button"
           aria-pressed={statFilter === "THIS_MONTH"}
@@ -443,23 +403,7 @@ export function EvidenceScreenBody() {
         </button>
       </div>
 
-      <div style={{ ...barStyle, justifyContent: "space-between" }}>
-        <div role="tablist" aria-label={T.columns.type} style={barStyle}>
-          {TAB_ORDER.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              style={tab === key ? tabButtonActiveStyle : tabButtonStyle}
-              onClick={() => {
-                setTab(key);
-              }}
-            >
-              {T.types[key]}
-            </button>
-          ))}
-        </div>
+      <div style={{ ...barStyle, justifyContent: "flex-end" }}>
         <input
           type="search"
           value={search}
@@ -481,14 +425,12 @@ export function EvidenceScreenBody() {
             type="button"
             style={retryButtonStyle}
             onClick={() => {
-              setListAttempt((attempt) => attempt + 1);
+              setPageRequest((request) => ({ offset: 0, append: false, attempt: request.attempt + 1 }));
             }}
           >
             {T.retry}
           </button>
         </div>
-      ) : !BACKED_TABS.has(tab) ? (
-        <StatusChip tone="warn">{T.blockedType}</StatusChip>
       ) : visibleRows.length === 0 ? (
         <StatusChip tone="neutral">{T.empty}</StatusChip>
       ) : (
@@ -550,14 +492,33 @@ export function EvidenceScreenBody() {
             <tfoot>
               <tr>
                 <td colSpan={6} style={tfootRowStyle}>
-                  {T.stats.total} {stats.total} · {T.stats.registeredThisMonth} {stats.registeredThisMonth} ·{" "}
-                  {T.stats.retentionExpiring} {stats.expiring}
+                  {T.stats.registeredThisMonth} {stats.registeredThisMonth} · {T.stats.retentionExpiring} {stats.expiring}
                 </td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
+      {nextOffset !== null ? (
+        <div style={barStyle}>
+          <StatusChip tone="info">
+            {ko.common.countWithMore
+              .replace("{loaded}", String(rows.length))
+              .replace("{unit}", ko.common.countUnit)}
+          </StatusChip>
+          <button
+            type="button"
+            style={actionButtonStyle}
+            disabled={loadingMore}
+            onClick={() => {
+              if (loadingMore) return;
+              setPageRequest((request) => ({ offset: nextOffset, append: true, attempt: request.attempt + 1 }));
+            }}
+          >
+            {loadingMore ? ko.common.loadingMore : ko.common.loadMore}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

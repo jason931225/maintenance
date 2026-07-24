@@ -171,55 +171,59 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 /**
- * Reads the whole immutable evidence register as one internally-consistent
- * snapshot. Pagination drift can make a later page overlap, skip, or extend
- * the initial register; each condition is rejected rather than presented as a
- * truthful-looking partial list.
+ * One offset page from the evidence endpoint. `reportedTotal` is only the
+ * server's current estimate: offset paging has no snapshot identity, so it
+ * must never be treated as proof that all register records were read.
  */
-export async function listEvidenceObjects(
+export interface EvidenceObjectPageResult {
+  items: EvidenceObjectDetail[];
+  offset: number;
+  nextOffset: number;
+  reportedTotal: number;
+  /** Another page may be available; false is not a snapshot-completeness claim. */
+  mayHaveMore: boolean;
+}
+
+/**
+ * Reads exactly one bounded evidence page. Without a backend snapshot/cursor
+ * contract, aggregating mutable offset pages into a claimed complete register
+ * could silently omit a same-total reorder. Consumers may progressively load
+ * pages, but must never infer register completeness from this result.
+ */
+export async function listEvidenceObjectPage(
   api: ConsoleApiClient,
   limit = 200,
+  offset = 0,
   signal?: AbortSignal,
-): Promise<EvidenceObjectDetail[]> {
-  const items: EvidenceObjectDetail[] = [];
-  const ids = new Set<string>();
-  let offset = 0;
-  let expectedTotal: number | undefined;
-
-  for (;;) {
-    throwIfAborted(signal);
-    const { data, error, response } = await api.GET("/api/v1/evidence/objects", {
-      params: { query: offset === 0 ? { limit } : { limit, offset } },
-      signal,
-    });
-    throwIfAborted(signal);
-    if (!data) throw new ApiCallError(response.status, error);
-    const page: EvidenceObjectPage = data;
-    if (!Number.isInteger(page.total) || page.total < 0 || page.offset !== offset) {
-      throw new Error("Evidence records pagination offset did not match the requested page.");
-    }
-    if (expectedTotal === undefined) expectedTotal = page.total;
-    if (page.total !== expectedTotal) {
-      throw new Error("Evidence records pagination total changed while reading the register.");
-    }
-    for (const item of page.items) {
-      if (ids.has(item.id)) {
-        throw new Error("Evidence records pagination returned a duplicate evidence record id.");
-      }
-      ids.add(item.id);
-      items.push(mapEvidenceObjectSummary(item));
-    }
-
-    const nextOffset = offset + page.items.length;
-    if (nextOffset > expectedTotal) {
-      throw new Error("Evidence records pagination exceeded its declared total.");
-    }
-    if (nextOffset === expectedTotal) return items;
-    if (page.items.length === 0) {
-      throw new Error("Evidence records pagination returned an empty page before its declared total.");
-    }
-    offset = nextOffset;
+): Promise<EvidenceObjectPageResult> {
+  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(offset) || offset < 0) {
+    throw new Error("Evidence records pagination requires a positive limit and non-negative offset.");
   }
+  throwIfAborted(signal);
+  const { data, error, response } = await api.GET("/api/v1/evidence/objects", {
+    params: { query: offset === 0 ? { limit } : { limit, offset } },
+    signal,
+  });
+  throwIfAborted(signal);
+  if (!data) throw new ApiCallError(response.status, error);
+
+  const page: EvidenceObjectPage = data;
+  if (!Number.isInteger(page.total) || page.total < 0 || page.offset !== offset) {
+    throw new Error("Evidence records pagination offset did not match the requested page.");
+  }
+  if (page.items.length > limit) {
+    throw new Error("Evidence records pagination exceeded the requested page limit.");
+  }
+
+  return {
+    items: page.items.map(mapEvidenceObjectSummary),
+    offset,
+    nextOffset: offset + page.items.length,
+    reportedTotal: page.total,
+    // A short/empty page ends this progressive read only; mutable offset
+    // pagination cannot certify that the register is complete.
+    mayHaveMore: page.items.length === limit,
+  };
 }
 
 export async function getEvidenceObjectDetail(

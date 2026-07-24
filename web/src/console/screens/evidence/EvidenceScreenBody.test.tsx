@@ -153,18 +153,14 @@ describe("EvidenceScreenBody", () => {
     expect(screen.getByText("현장 CCTV 클립")).toBeVisible();
     expect(screen.getByText("정하늘")).toBeVisible();
 
-    // Real stat strip — total + this-month + expiring-soon, computed, not zeros.
-    const totalButton = screen.getByRole("button", { name: /총 기록물/ });
-    expect(totalButton).toHaveTextContent("1");
+    // The bounded page never presents a synthetic total; page-local filters
+    // retain their observed counts.
     const expiringButton = screen.getByRole("button", { name: /보존 만료 임박/ });
     await waitFor(() => {
       expect(expiringButton).toHaveTextContent("1");
     });
 
-    // Aggregate footer under the table (verdict r13 "evidence lower region
-    // sparse") — the same rollup as the stat strip, so a short row count
-    // still ends the table on real information instead of blank space.
-    expect(await screen.findByText("총 기록물 1 · 이번달 등록 1 · 보존 만료 임박 1")).toBeVisible();
+    expect(await screen.findByText("이번달 등록 1 · 보존 만료 임박 1")).toBeVisible();
   });
 
   it("renders each row's real 유형 from its source_type, not a hardcoded 증거 chip on every row", async () => {
@@ -249,9 +245,8 @@ describe("EvidenceScreenBody", () => {
     expect(screen.getByText("EV-202")).toBeVisible();
   });
 
-  it("shows an empty-until-backend chip for a 유형 tab with no real domain wired (never fabricates rows)", async () => {
+  it("exposes only backed evidence interactions and no unsupported document actions", async () => {
     renderBody(async (path: unknown) => {
-      await Promise.resolve();
       if (path === "/api/v1/evidence/objects") {
         return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
       }
@@ -260,29 +255,41 @@ describe("EvidenceScreenBody", () => {
     });
 
     await screen.findByText("EV-101");
-    await userEvent.click(screen.getByRole("tab", { name: "계약" }));
-    expect(screen.queryByText("EV-101")).not.toBeInTheDocument();
-    expect(screen.getByText("이 문서 유형은 아직 연동되지 않았습니다")).toBeVisible();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("button", { name: ko.console.documents.actions.register })).toBeNull();
+    expect(screen.queryByText(ko.console.documents.blockedType)).toBeNull();
   });
 
-  it("기록물 등재 has no real create endpoint yet, so it honestly surfaces a pending notice instead of faking a registration (§4-25-⑥)", async () => {
-    renderBody(async (path: unknown) => {
-      await Promise.resolve();
+  it("loads a subsequent bounded page without asserting that same-total paging is complete", async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      ...evidenceObjectView,
+      id: `ev-${index + 1}`,
+      code: `EV-${index + 1}`,
+      title: `기록 ${index + 1}`,
+    }));
+    const laterPage = [
+      { ...evidenceObjectView, id: "ev-202", code: "EV-202", title: "나중 기록" },
+      { ...evidenceObjectView, id: "ev-201", code: "EV-201", title: "재정렬 기록" },
+    ];
+    let objectPageCalls = 0;
+    renderBody(async (path: unknown, opts?: unknown) => {
       if (path === "/api/v1/evidence/objects") {
-        return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
+        objectPageCalls += 1;
+        const offset = (opts as { params: { query?: { offset?: number } } }).params.query?.offset ?? 0;
+        if (offset === 0) return { data: { items: firstPage, limit: 200, offset: 0, total: 400 } };
+        return { data: { items: laterPage, limit: 200, offset: 200, total: 400 } };
       }
       if (path === "/api/v1/users") return { data: { items: [] } };
       return { data: undefined, response: { status: 404 } };
     });
-    await screen.findByText("EV-101");
 
-    expect(screen.queryByRole("status")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: ko.console.documents.actions.register }));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      ko.console.documents.actions.registerUnavailable,
-    );
-    // No fabricated row was added and the real table is untouched.
-    expect(screen.getByText("EV-101")).toBeVisible();
+    await screen.findByText("EV-1");
+    expect(screen.getByText("200건+")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: ko.common.loadMore }));
+    expect(await screen.findByText("나중 기록")).toBeVisible();
+    expect(screen.getByText("재정렬 기록")).toBeVisible();
+    expect(screen.queryByText("400 / 400")).toBeNull();
+    expect(objectPageCalls).toBe(2);
   });
 
   it("내보내기 downloads a CSV of the rows actually on screen (real export, not a fabricated bulk one)", async () => {

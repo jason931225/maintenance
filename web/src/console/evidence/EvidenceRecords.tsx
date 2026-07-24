@@ -16,7 +16,7 @@ import {
   applyLegalHold,
   decideHoldReleaseApproval,
   getEvidenceObjectDetail,
-  listEvidenceObjects,
+  listEvidenceObjectPage,
   releaseLegalHold,
   requestHoldReleaseApproval,
   verifyEvidenceObject,
@@ -225,9 +225,9 @@ export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
     const request = ++listRequest.current;
     setListState("loading");
     try {
-      const items = await listEvidenceObjects(api, 200, controller.signal);
+      const page = await listEvidenceObjectPage(api, 200, 0, controller.signal);
       if (controller.signal.aborted || request !== listRequest.current) return;
-      setRows(items.map(resolveNames));
+      setRows(page.items.map(resolveNames));
       setListState("ready");
     } catch {
       if (controller.signal.aborted || request !== listRequest.current) return;

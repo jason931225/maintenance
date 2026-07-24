@@ -2,7 +2,7 @@ import type { components } from "@maintenance/api-client-ts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
-import { aggregateFixity, aggregateTsa, listEvidenceObjects } from "./evidenceApi";
+import { aggregateFixity, aggregateTsa, listEvidenceObjectPage } from "./evidenceApi";
 
 type EvidenceCopyView = components["schemas"]["EvidenceCopyView"];
 type TimestampAuthorityProofView = components["schemas"]["TimestampAuthorityProofView"];
@@ -82,64 +82,53 @@ function listRow(id: string) {
   };
 }
 
-describe("listEvidenceObjects", () => {
-  it("walks every backend page instead of silently truncating the record list at one page", async () => {
-    const GET = vi
-      .fn()
-      .mockResolvedValueOnce({
-        data: { items: [listRow("1"), listRow("2")], limit: 2, offset: 0, total: 3 },
-        response: { status: 200 },
-      })
-      .mockResolvedValueOnce({
-        data: { items: [listRow("3")], limit: 2, offset: 2, total: 3 },
-        response: { status: 200 },
-      });
-    const api = { GET } as unknown as ConsoleApiClient;
+describe("listEvidenceObjectPage", () => {
+  it("reads exactly one bounded page and exposes only a progressive next offset", async () => {
+    const GET = vi.fn().mockResolvedValue({
+      data: { items: [listRow("1"), listRow("2")], limit: 2, offset: 0, total: 3 },
+      response: { status: 200 },
+    });
+    const controller = new AbortController();
 
-    await expect(listEvidenceObjects(api, 2)).resolves.toMatchObject([
-      { id: "1" },
-      { id: "2" },
-      { id: "3" },
-    ]);
-    expect(GET).toHaveBeenNthCalledWith(1, "/api/v1/evidence/objects", expect.objectContaining({
-      params: { query: { limit: 2 } },
-    }));
-    expect(GET).toHaveBeenNthCalledWith(2, "/api/v1/evidence/objects", expect.objectContaining({
-      params: { query: { limit: 2, offset: 2 } },
-    }));
-  });
-
-  it("fails closed when the backend declares more records but returns an empty later page", async () => {
-    const GET = vi
-      .fn()
-      .mockResolvedValueOnce({
-        data: { items: [listRow("1")], limit: 1, offset: 0, total: 2 },
-        response: { status: 200 },
-      })
-      .mockResolvedValueOnce({
-        data: { items: [], limit: 1, offset: 1, total: 2 },
-        response: { status: 200 },
-      });
-    const api = { GET } as unknown as ConsoleApiClient;
-
-    await expect(listEvidenceObjects(api, 1)).rejects.toThrow("pagination returned an empty page");
-  });
-
-  it("fails closed when a later page repeats an already-seen record id", async () => {
-    const GET = vi
-      .fn()
-      .mockResolvedValueOnce({
-        data: { items: [listRow("1"), listRow("2")], limit: 2, offset: 0, total: 3 },
-        response: { status: 200 },
-      })
-      .mockResolvedValueOnce({
-        data: { items: [listRow("2")], limit: 2, offset: 2, total: 3 },
-        response: { status: 200 },
-      });
-
-    await expect(listEvidenceObjects({ GET } as unknown as ConsoleApiClient, 2)).rejects.toThrow(
-      "duplicate evidence record id",
+    await expect(listEvidenceObjectPage({ GET } as unknown as ConsoleApiClient, 2, 0, controller.signal)).resolves.toEqual(
+      expect.objectContaining({
+        items: [expect.objectContaining({ id: "1" }), expect.objectContaining({ id: "2" })],
+        offset: 0,
+        nextOffset: 2,
+        reportedTotal: 3,
+        mayHaveMore: true,
+      }),
     );
+    expect(GET).toHaveBeenCalledTimes(1);
+    expect(GET).toHaveBeenCalledWith("/api/v1/evidence/objects", expect.objectContaining({
+      params: { query: { limit: 2 } },
+      signal: controller.signal,
+    }));
+  });
+
+  it("does not claim a complete register when same-total pages uniquely reorder", async () => {
+    const GET = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: { items: [listRow("1"), listRow("2")], limit: 2, offset: 0, total: 4 },
+        response: { status: 200 },
+      })
+      .mockResolvedValueOnce({
+        data: { items: [listRow("4"), listRow("3")], limit: 2, offset: 2, total: 4 },
+        response: { status: 200 },
+      });
+    const api = { GET } as unknown as ConsoleApiClient;
+
+    const first = await listEvidenceObjectPage(api, 2);
+    const later = await listEvidenceObjectPage(api, 2, first.nextOffset);
+
+    expect(first.items.map((item) => item.id)).toEqual(["1", "2"]);
+    expect(later.items.map((item) => item.id)).toEqual(["4", "3"]);
+    expect(first.reportedTotal).toBe(later.reportedTotal);
+    expect(first.mayHaveMore).toBe(true);
+    expect(later.mayHaveMore).toBe(true);
+    expect(first).not.toHaveProperty("complete");
+    expect(later).not.toHaveProperty("complete");
   });
 
   it("fails closed when a response does not describe the requested offset", async () => {
@@ -148,40 +137,23 @@ describe("listEvidenceObjects", () => {
       response: { status: 200 },
     });
 
-    await expect(listEvidenceObjects({ GET } as unknown as ConsoleApiClient, 1)).rejects.toThrow(
+    await expect(listEvidenceObjectPage({ GET } as unknown as ConsoleApiClient, 1)).rejects.toThrow(
       "pagination offset did not match",
     );
   });
 
-  it("fails closed when a page exceeds its immutable declared total", async () => {
+  it("fails closed when a response exceeds the requested page limit", async () => {
     const GET = vi.fn().mockResolvedValue({
-      data: { items: [listRow("1"), listRow("2")], limit: 2, offset: 0, total: 1 },
+      data: { items: [listRow("1"), listRow("2")], limit: 1, offset: 0, total: 2 },
       response: { status: 200 },
     });
 
-    await expect(listEvidenceObjects({ GET } as unknown as ConsoleApiClient, 2)).rejects.toThrow(
-      "pagination exceeded its declared total",
+    await expect(listEvidenceObjectPage({ GET } as unknown as ConsoleApiClient, 1)).rejects.toThrow(
+      "pagination exceeded the requested page limit",
     );
   });
 
-  it("fails closed when the declared total changes while paging", async () => {
-    const GET = vi
-      .fn()
-      .mockResolvedValueOnce({
-        data: { items: [listRow("1")], limit: 1, offset: 0, total: 2 },
-        response: { status: 200 },
-      })
-      .mockResolvedValueOnce({
-        data: { items: [listRow("2")], limit: 1, offset: 1, total: 3 },
-        response: { status: 200 },
-      });
-
-    await expect(listEvidenceObjects({ GET } as unknown as ConsoleApiClient, 1)).rejects.toThrow(
-      "pagination total changed",
-    );
-  });
-
-  it("stops before requesting a later page after its caller aborts", async () => {
+  it("passes abort to the bounded request and rejects before mapping its result", async () => {
     const controller = new AbortController();
     const GET = vi.fn(() => {
       controller.abort();
@@ -192,12 +164,8 @@ describe("listEvidenceObjects", () => {
     });
 
     await expect(
-      listEvidenceObjects({ GET } as unknown as ConsoleApiClient, 1, controller.signal),
+      listEvidenceObjectPage({ GET } as unknown as ConsoleApiClient, 1, 0, controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(GET).toHaveBeenCalledTimes(1);
-    expect(GET).toHaveBeenCalledWith("/api/v1/evidence/objects", expect.objectContaining({
-      signal: controller.signal,
-    }));
   });
-
 });
