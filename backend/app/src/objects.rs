@@ -2542,6 +2542,8 @@ fn error_code(kind: ErrorKind) -> &'static str {
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn rejects_self_link_and_bad_kinds() {
         let self_link = CreateObjectLinkRequest {
@@ -2566,6 +2568,7 @@ mod tests {
     /// (the #220 / #239 bug class): visibility now requires a declared auth
     /// decision, and this test fails loudly if a resolver arm is added without
     /// one (or a declaration is added without a resolver).
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn resolvable_kinds_and_declared_auth_stay_in_sync() {
         // Mirror of resolve_head's dispatch arms.
@@ -2594,6 +2597,8 @@ mod tests {
             );
         }
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn count_kind_and_resolvable_kinds_stay_in_sync() {

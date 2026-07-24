@@ -8150,6 +8150,8 @@ mod tests {
     use super::*;
     use calamine::Range;
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn parses_each_sheet_as_company_and_preserves_extra_columns() -> Result<(), String> {
         let mut range = Range::new((0, 0), (2, 2));
@@ -8176,6 +8178,8 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn missing_name_header_is_a_workbook_error() -> Result<(), String> {
         let mut range = Range::new((0, 0), (0, 0));
@@ -8190,6 +8194,8 @@ mod tests {
         assert_eq!(err.code, "workbook");
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn attendance_import_csv_parses_valid_rows_and_masks_preview_values() -> Result<(), String> {
@@ -8224,6 +8230,8 @@ E-001,=홍길동,본사,2026-07-01,09:00,18:00,540,=cmd|' /C calc'!A0
         );
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn attendance_import_marks_missing_employee_and_duplicate_rows() -> Result<(), String> {
@@ -8265,6 +8273,8 @@ E-001,홍길동,본사,2026-07-01,09:00,18:00
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn attendance_import_rejects_invalid_work_date() -> Result<(), String> {
         let csv = "\
@@ -8283,6 +8293,8 @@ E-001,홍길동,본사,45500,09:00
         );
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn attendance_import_rejects_invalid_attendance_time() -> Result<(), String> {
@@ -8692,6 +8704,8 @@ E-001,홍길동,본사,2026-07-01,25:99
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn attendance_import_keeps_invalid_minutes_as_row_error() -> Result<(), String> {
         let csv = "\
@@ -8711,6 +8725,8 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn attendance_import_rejects_unclosed_csv_quote() -> Result<(), String> {
         let err = match parse_csv_rows("\"unterminated") {
@@ -8720,6 +8736,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(err.code, "workbook");
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn governed_import_detects_schema_header_below_title_rows() -> Result<(), String> {
@@ -8754,6 +8772,8 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn canonical_employee_fields_extract_hr_safe_columns() {
         let raw = json!({
@@ -8781,6 +8801,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(canonical.leave_remaining.as_deref(), Some("7.500000"));
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn canonical_employee_fields_marks_exited_people_without_deleting_raw_data() {
         let raw = json!({
@@ -8795,6 +8817,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(canonical.employment_status, "EXITED");
         assert_eq!(raw["퇴직금 중간정산일"], json!("2025-12-31"));
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn governed_import_preview_preserves_blank_name_rows_and_masks_sensitive_columns()
@@ -8828,6 +8852,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(preview["메모"], json!("현장 배치"));
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn governed_import_maps_shuffled_alias_headers_without_column_position_assumptions()
@@ -8886,11 +8912,15 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn standardized_csv_neutralizes_spreadsheet_formulas() {
         assert_eq!(csv_field("=cmd|' /C calc'!A0"), "'=cmd|' /C calc'!A0");
         assert_eq!(csv_field("hello, world"), "\"hello, world\"");
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn employee_response_serializes_canonical_fields_without_import_provenance()
@@ -8946,6 +8976,8 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn employee_identity_resolution_rejects_name_only_and_untrusted_confidence() {
         let metadata = json!({
@@ -8965,6 +8997,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert!(!identity.name_only_merge);
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn employee_identity_resolution_accepts_high_confidence_trusted_strategies() {
         let metadata = json!({
@@ -8982,6 +9016,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert!(!identity.name_only_merge);
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn employee_identity_resolution_keeps_weak_strategies_review_required() {
         let metadata = json!({
@@ -8998,6 +9034,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert!(identity.review_required);
         assert!(!identity.name_only_merge);
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn org_wide_hr_authorization_rejects_branch_scoped_principals() -> Result<(), String> {
@@ -9023,6 +9061,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(err.status, StatusCode::FORBIDDEN);
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn org_wide_hr_authorization_uses_core_org_wide_gate() -> Result<(), String> {
@@ -9059,6 +9099,8 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn home_branch_assignment_requires_org_wide_authority_when_unassigned() -> Result<(), String> {
         use mnt_kernel_core::{OrgId, UserId};
@@ -9086,6 +9128,8 @@ E-001,홍길동,본사,2026-07-01,abc
             .map_err(|err| err.message)?;
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn home_branch_assignment_fails_closed_without_command_pool() -> Result<(), String> {
@@ -9121,6 +9165,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(err.code, "service_unavailable");
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn home_branch_reassignment_requires_authority_over_old_and_new_branch() {
@@ -9629,6 +9675,7 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(inactive_err.status, StatusCode::NOT_FOUND);
         Ok(())
     }
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn employee_attendance_state_machine_accepts_mobile_pc_workday_flow() -> Result<(), String> {
         assert_eq!(
@@ -9658,6 +9705,8 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn employee_attendance_state_machine_rejects_invalid_duplicate_punches() -> Result<(), String> {
         let err = match next_employee_attendance_state(None, "CLOCK_OUT") {
@@ -9675,6 +9724,8 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(err.code, "invalid_transition");
         Ok(())
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn attendance_input_normalization_bounds_mobile_retry_fields() {
@@ -9796,6 +9847,8 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok((org_id, case_id))
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn certified_package_digest_is_deterministic_and_canonical() {
         let statutory = json!({"formula": "avg*30*days/365", "authority": "MOEL"});
@@ -9850,6 +9903,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// ONLY the monthly ordinary wage (holding severance and every other covered
     /// field byte-identical — the case where the average wage governs the floor)
     /// must still change the digest.
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn certified_digest_binds_ordinary_wage_even_when_severance_unchanged() {
         let statutory = json!({"formula": "avg*30*days/365"});
@@ -9884,6 +9938,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// BEFORE dividing (`(monthly * 8) / 209`), never floor `monthly / 209` first.
     /// Flooring first understated the daily ordinary wage by up to 7 won/day and
     /// under-paid severance whenever the ordinary floor governed.
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn ordinary_daily_wage_multiplies_before_dividing() -> Result<(), String> {
         // monthly % 209 != 0 and the remainder × 8 crosses 209, so the buggy
@@ -10498,6 +10553,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// US-005 two-tier separation of duties, pure decision function: HQ
     /// confirmation is gated on stored state + a distinct actor, never the
     /// client `hq_confirmation` boolean alone.
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn exit_confirmation_hq_tier_enforces_state_and_distinct_actor() -> Result<(), String> {
         let hr_actor = Uuid::new_v4();

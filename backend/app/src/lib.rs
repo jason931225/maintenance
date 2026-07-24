@@ -370,6 +370,8 @@ mod production_route_surface_tests {
         PRODUCTION_SOURCE_SYSTEMS_PATH,
     };
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn production_execution_routes_are_assembled_and_contract_stable() {
         let production = CONFIGURED_ROUTE_SURFACES
@@ -4381,6 +4383,8 @@ mod trusted_ingress_tests {
     use mnt_platform_request_context::TrustedClientIp;
     use tower::ServiceExt;
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn proxy_forwarding_is_disabled_by_default_and_requires_a_trusted_peer_cidr() {
         let direct = super::AppConfig::from_pairs([
@@ -4399,6 +4403,8 @@ mod trusted_ingress_tests {
         .expect_err("a nonzero proxy count without trusted peers must fail closed");
         assert!(err.to_string().contains("MNT_TRUSTED_PROXY_CIDRS"));
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn ingress_accepts_only_a_complete_trusted_proxy_suffix() {
@@ -4427,6 +4433,8 @@ mod trusted_ingress_tests {
         assert_eq!(&body[..], b"198.51.100.250");
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[tokio::test]
     async fn ingress_rejects_an_untrusted_configured_proxy_suffix() {
         async fn observed_client_ip(Extension(ip): Extension<TrustedClientIp>) -> String {
@@ -4454,6 +4462,8 @@ mod trusted_ingress_tests {
         assert_eq!(&body[..], b"10.0.0.3");
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[tokio::test]
     async fn ingress_falls_back_to_transport_peer_for_raw_or_short_xff() {
         async fn observed_client_ip(Extension(ip): Extension<TrustedClientIp>) -> String {
@@ -4480,6 +4490,8 @@ mod trusted_ingress_tests {
             .unwrap();
         assert_eq!(&body[..], b"10.0.0.3");
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn ingress_rejects_direct_client_xff_spoofing_even_with_proxy_hops_configured() {
@@ -4565,6 +4577,8 @@ mod wide_event_middleware_tests {
 
     use super::{AppConfig, AppRole, AppState, DatabaseDependency, install_metrics_recorder};
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[tokio::test]
     async fn http_metrics_label_matched_route_template_not_raw_path() {
         install_metrics_recorder().expect("metrics recorder installs once");
@@ -4622,6 +4636,8 @@ mod wide_event_middleware_tests {
             "wide-event metrics must not leak raw path params or query strings; got:\n{text}"
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn http_metrics_label_unmatched_route_sentinel_not_raw_path() {
@@ -4707,6 +4723,8 @@ mod audit_attestation_auth_tests {
         )
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn audit_attestation_builtin_gate_allows_only_super_admin_for_audit_read() {
         assert!(
@@ -4783,6 +4801,8 @@ mod router_layer_tests {
         timed.merge(Router::new().route("/realtime/slow", get(slow)))
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[tokio::test]
     async fn domain_route_inside_timeout_is_shed_when_slow() {
         let app = compose(Duration::from_millis(200));
@@ -4801,6 +4821,8 @@ mod router_layer_tests {
             "a slow handler on a route INSIDE the timeout layer must be shed with 408"
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn realtime_route_merged_outside_timeout_is_never_shed() {
@@ -4825,6 +4847,8 @@ mod router_layer_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn default_request_timeout_is_thirty_seconds() {
         assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
@@ -4836,12 +4860,16 @@ mod router_layer_tests {
 mod worker_identity_tests {
     use super::{DEFAULT_SERVICE_NAME, dispatch_apalis_worker_name};
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn dispatch_worker_name_includes_pod_hostname_when_present() {
         let name = dispatch_apalis_worker_name("mnt-app-worker", Some("mnt-worker-abc123"));
 
         assert_eq!(name, "mnt-app-worker-mnt-worker-abc123-dispatch-worker");
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn dispatch_worker_name_falls_back_to_service_name_outside_kubernetes() {
@@ -4850,12 +4878,16 @@ mod worker_identity_tests {
         assert_eq!(name, "mnt-app-worker-dispatch-worker");
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn dispatch_worker_name_ignores_empty_hostname() {
         let name = dispatch_apalis_worker_name("mnt-app-worker", Some("   "));
 
         assert_eq!(name, "mnt-app-worker-dispatch-worker");
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn dispatch_worker_name_uses_default_service_for_empty_service_name() {
@@ -4967,10 +4999,14 @@ mod migration_database_budget_tests {
         assert_eq!(statement_timeout, "1min");
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn migration_database_budgets_accept_exact_readback() {
         assert!(ensure_expected_migration_database_budgets("5s", "1min", true, true).is_ok());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn migration_database_budgets_reject_any_readback_mismatch() {
@@ -5245,6 +5281,8 @@ mod command_database_config_tests {
             .collect()
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn api_with_database_requires_distinct_leave_command_database_url() {
         let error = AppConfig::from_pairs([("MNT_APP_ROLE", "api"), ("DATABASE_URL", RUNTIME_URL)])
@@ -5258,6 +5296,8 @@ mod command_database_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn blank_leave_command_database_url_fails_closed_for_database_backed_api() {
         assert!(
@@ -5269,6 +5309,8 @@ mod command_database_config_tests {
             .is_err()
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn api_accepts_distinct_leave_command_database_url() {
@@ -5291,6 +5333,8 @@ mod command_database_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn api_with_database_requires_distinct_ontology_command_database_url() {
         let error = AppConfig::from_pairs([
@@ -5307,6 +5351,8 @@ mod command_database_config_tests {
             "unexpected error: {error}"
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn api_rejects_command_urls_equal_to_runtime_or_each_other() {
@@ -5347,6 +5393,8 @@ mod command_database_config_tests {
             "ONTOLOGY_COMMAND_DATABASE_URL must be distinct from LEAVE_COMMAND_DATABASE_URL"
         ));
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn connected_role_guards_require_exact_direct_identity_without_membership() {
@@ -5396,6 +5444,8 @@ mod command_database_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn serving_role_guards_reject_each_escalating_attribute() {
         let hostile_attributes = [
@@ -5444,6 +5494,8 @@ mod command_database_config_tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn database_urls_reject_login_role_aliases_and_role_options() {
         assert!(
@@ -5479,6 +5531,8 @@ mod command_database_config_tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn database_urls_require_nonempty_decoded_passwords() {
         for url in [
@@ -5495,6 +5549,8 @@ mod command_database_config_tests {
             assert!(!message.contains("secret"));
         }
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn serving_identity_query_checks_all_memberships_and_role_attributes() {
@@ -5522,6 +5578,8 @@ mod command_database_config_tests {
             assert!(query.contains(timeout));
         }
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn serving_timeout_guards_accept_only_exact_effective_defaults() {
@@ -5564,6 +5622,8 @@ mod command_database_config_tests {
             assert!(message.contains("transaction_timeout=45s"));
         }
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn migration_identity_accepts_only_the_exact_owner_topology() {
@@ -5645,6 +5705,8 @@ mod command_database_config_tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn migration_identity_rejects_membership_and_definer_drift() {
         let mut missing_membership = migration_memberships();
@@ -5725,6 +5787,8 @@ mod command_database_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn migration_identity_rejects_incoming_mnt_app_membership_edge() {
         let error = ensure_expected_migration_database_identity(
@@ -5744,6 +5808,8 @@ mod command_database_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn serving_identity_rejects_outgoing_or_incoming_membership_edges() {
         let error = ensure_expected_serving_database_identity(
@@ -5757,6 +5823,8 @@ mod command_database_config_tests {
         .unwrap_err();
         assert!(error.to_string().contains("membership edge"));
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn api_rejects_pairwise_equal_decoded_database_passwords() {
@@ -5799,6 +5867,8 @@ mod command_database_config_tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn database_free_api_does_not_require_leave_command_database_url() {
         let config = AppConfig::from_pairs([("MNT_APP_ROLE", "api")]).unwrap();
@@ -5807,6 +5877,8 @@ mod command_database_config_tests {
         assert!(config.leave_command_database_url.is_none());
         assert!(config.ontology_command_database_url.is_none());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn worker_and_migrate_do_not_require_leave_command_database_url() {
@@ -5825,6 +5897,8 @@ mod command_database_config_tests {
             assert!(config.ontology_command_database_url.is_none());
         }
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn worker_requires_exact_runtime_login_but_migrate_keeps_owner_url() {
@@ -5896,11 +5970,15 @@ mod email_config_tests {
         ]
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn unset_group_yields_no_config() {
         let vars = HashMap::new();
         assert!(email_config_from_vars(&vars, None).unwrap().is_none());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn fully_set_group_yields_live_config() {
@@ -5912,6 +5990,8 @@ mod email_config_tests {
         assert_eq!(config.username, "ocid1.user.oc1..example");
         assert_eq!(config.from_address, "noreply@example.com");
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn partial_config_missing_username_without_stub_mode_errors() {
@@ -5925,6 +6005,8 @@ mod email_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn partial_config_missing_username_with_stub_mode_falls_back_to_stub() {
         let mut vars = full_email_vars();
@@ -5937,6 +6019,8 @@ mod email_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn partial_config_missing_password_without_stub_mode_errors() {
         let mut vars = full_email_vars();
@@ -5947,6 +6031,8 @@ mod email_config_tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn empty_credentials_without_stub_mode_error() {
         // Empty (not absent) creds — e.g. a Secret mounted with blank values —
@@ -5956,6 +6042,8 @@ mod email_config_tests {
         vars.insert("MNT_EMAIL_SMTP_PASSWORD".to_owned(), String::new());
         assert!(email_config_from_vars(&vars, None).is_err());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn email_stub_mode_env_accepts_only_explicit_non_production_modes() {
@@ -5974,6 +6062,8 @@ mod email_config_tests {
             .collect();
         assert!(email_stub_mode_from_vars(&vars).is_err());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn app_state_without_smtp_or_stub_mode_fails_closed_without_logging_otp() {
@@ -5994,6 +6084,8 @@ mod email_config_tests {
             "without explicit stub mode, missing SMTP must fail closed instead of logging the OTP"
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn app_state_with_explicit_stub_mode_allows_nonprod_otp_logging_stub() {
@@ -6019,6 +6111,7 @@ mod email_config_tests {
     /// error outside explicit stub mode. This is the prod scenario — a ConfigMap
     /// supplies some non-secret fields while the credential Secret is not yet
     /// provisioned — across every subset of the non-secret fields.
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn every_partial_config_without_credentials_errors_without_stub_mode() {
         const NON_SECRET_KEYS: [(&str, &str); 4] = [
@@ -6059,6 +6152,8 @@ mod email_config_tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn creds_present_but_missing_host_still_errors() {
         // With BOTH secrets in hand, a missing non-secret field is a genuine
@@ -6069,12 +6164,16 @@ mod email_config_tests {
         assert!(email_config_from_vars(&vars, None).is_err());
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn creds_present_but_missing_port_still_errors() {
         let mut vars = full_email_vars();
         vars.remove("MNT_EMAIL_SMTP_PORT");
         assert!(email_config_from_vars(&vars, None).is_err());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn creds_present_but_missing_from_still_errors() {
@@ -6083,6 +6182,8 @@ mod email_config_tests {
         assert!(email_config_from_vars(&vars, None).is_err());
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn creds_present_but_invalid_port_still_errors() {
         // A non-numeric port is an operator typo, not a missing Secret — error.
@@ -6090,6 +6191,8 @@ mod email_config_tests {
         vars.insert("MNT_EMAIL_SMTP_PORT".to_owned(), "not-a-port".to_owned());
         assert!(email_config_from_vars(&vars, None).is_err());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn credentials_only_without_relay_fields_errors() {

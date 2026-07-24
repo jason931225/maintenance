@@ -744,6 +744,8 @@ mod tests {
 
     use mnt_kernel_core::{OrgId, UserId};
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn rejects_unknown_one_sided_malformed_and_overlong_queries() {
         let now = OffsetDateTime::UNIX_EPOCH;
@@ -760,6 +762,8 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn defaults_to_the_kst_calendar_day() {
         let now = OffsetDateTime::parse(
@@ -773,6 +777,8 @@ mod tests {
         assert_eq!(query.range.from.date().to_string(), "2026-07-02");
         assert_eq!(query.range.to - query.range.from, Duration::days(1));
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn one_request_instant_drives_both_kst_default_range_and_as_of_at_rollover() {
@@ -802,6 +808,8 @@ mod tests {
         assert_eq!(context.range.to.hour(), 0);
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn explicit_branch_must_intersect_effective_scope() {
         let allowed = BranchId::new();
@@ -809,6 +817,8 @@ mod tests {
         assert!(EffectiveScope::from_query(&BranchScope::single(allowed), Some(allowed)).is_ok());
         assert!(EffectiveScope::from_query(&BranchScope::single(allowed), Some(denied)).is_err());
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[tokio::test]
     async fn workbench_errors_match_the_standard_error_body_contract() {

@@ -567,6 +567,8 @@ mod tests {
     use mnt_kernel_core::{OrgId, UserId};
     use mnt_platform_authz::{EffectiveFeatureGrant, Role};
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn query_is_closed_and_bounded() {
         let uri: Uri = "/api/v1/workflow-runs/for-object?object_type=work_order&object_id=00000000-0000-0000-0000-000000000001&limit=100"
@@ -592,6 +594,8 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn scoped_custom_grant_cannot_cross_from_branch_a_to_b() {
@@ -621,6 +625,8 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn routed_authority_is_resolved_against_the_subject_branch() {
         let org = OrgId::new();
@@ -642,6 +648,8 @@ mod tests {
             "no arbitrary representative branch may turn A authority into B authority"
         );
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn nullable_ticket_is_never_visible_to_a_branch_scoped_principal() {

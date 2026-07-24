@@ -484,12 +484,16 @@ mod tests {
     use super::InboxError;
     use mnt_action_inbox_application::canonical_action_link_kind;
 
+    #[cfg(not(feature = "test-postgres"))]
+
     #[test]
     fn normalizes_the_legacy_workflow_run_alias() {
         assert_eq!(canonical_action_link_kind("workflow_run"), "approval_run");
         assert_eq!(canonical_action_link_kind("approval_run"), "approval_run");
         assert_eq!(canonical_action_link_kind("work_order"), "work_order");
     }
+
+    #[cfg(not(feature = "test-postgres"))]
 
     #[test]
     fn preserves_cursor_validation_and_source_failure_error_codes() {
