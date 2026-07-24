@@ -19,5 +19,10 @@ sqlx = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+mnt-platform-request-context = { workspace = true }
+mnt-platform-test-support = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
 [lints]
 workspace = true

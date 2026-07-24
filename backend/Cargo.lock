@@ -2907,10 +2907,13 @@ dependencies = [
  "mnt-attendance-domain",
  "mnt-kernel-core",
  "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "serde_json",
  "sha2 0.11.0",
  "sqlx 0.9.0",
  "time",
+ "tokio",
  "uuid",
 ]
 

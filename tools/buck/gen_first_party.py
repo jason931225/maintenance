@@ -213,6 +213,9 @@ TEST_RESOURCE_REQUIREMENTS = {
     },
     'mnt-attendance-adapter-postgres': {
         'unit': 'none',
+        'integration': {
+            'tests/cancel_substitution.rs': 'postgres',
+        },
     },
     'mnt-attendance-application': {
         'unit': 'none',
