@@ -4,7 +4,9 @@ import type { components } from "@maintenance/api-client-ts";
 
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { deriveFacilitiesCapabilities } from "./facilitiesCapabilities";
 import { toLocalDateTimeInput } from "./facilitiesDate";
+import { useFacilitiesAuthz } from "./useFacilitiesAuthz";
 
 export type FacilitiesCase = components["schemas"]["FacilitiesCase"];
 type FacilitiesApi = ReturnType<typeof useAuth>["api"];
@@ -45,10 +47,11 @@ function localDateTime(): string {
 export function FacilitiesWorkflowPage() {
   const { api, session } = useAuth();
   const authorityKey = [session?.org_id, session?.user_id, session?.client_session_incarnation].join(":");
-  return <FacilitiesWorkflowSession key={authorityKey} api={api} />;
+  return <FacilitiesWorkflowSession key={authorityKey} api={api} actorId={session?.user_id} />;
 }
 
-export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
+export function FacilitiesWorkflowSession({ api, actorId }: { api: FacilitiesApi; actorId?: string }) {
+  const authz = useFacilitiesAuthz();
   const [cases, setCases] = useState<FacilitiesCase[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [selected, setSelected] = useState<FacilitiesCase>();
@@ -153,19 +156,15 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
     finally { setPending(undefined); }
   }
 
-  const can = useMemo(() => ({
-    triage: selected?.status === "DUE" || selected?.status === "TRIAGED",
-    assign: selected?.status === "SCHEDULED",
-    start: selected?.status === "ASSIGNED" || selected?.status === "REWORK_REQUIRED",
-    observe: selected?.status === "IN_PROGRESS",
-    submit: selected?.status === "IN_PROGRESS",
-    accept: selected?.status === "AWAITING_ACCEPTANCE",
-  }), [selected?.status]);
+  const can = useMemo(
+    () => deriveFacilitiesCapabilities(authz, selected, actorId),
+    [actorId, authz, selected],
+  );
 
   return <main className="mx-auto grid w-full max-w-[1800px] gap-4 px-4 py-5 lg:px-6" aria-labelledby="facilities-title">
     <header className="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-line bg-white px-5 py-4 shadow-sm">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-teal">Integrated Facilities Management</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-teal">{copy.workbenchEyebrow}</p>
         <h1 id="facilities-title" className="mt-1 text-2xl font-bold text-ink">{copy.title}</h1>
         <p className="mt-1 max-w-3xl text-sm text-steel">{copy.description}</p>
       </div>
@@ -173,7 +172,7 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
     </header>
     {notice ? <section role={notice.kind === "error" ? "alert" : "status"} className={`rounded-lg border px-4 py-3 text-sm ${notice.kind === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{notice.text}</section> : null}
 
-    <section className="rounded-xl border border-line bg-white p-4 shadow-sm" aria-labelledby="facilities-intake-title">
+    {can.canCreate ? <section className="rounded-xl border border-line bg-white p-4 shadow-sm" aria-labelledby="facilities-intake-title">
       <h2 id="facilities-intake-title" className="text-base font-bold text-ink">{copy.intakeTitle}</h2>
       <p className="mt-1 text-sm text-steel">{copy.intakeDescription}</p>
       <form className="mt-3 flex flex-wrap gap-3" onSubmit={(event) => { void createCase(event); }}>
@@ -181,7 +180,7 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
         <div className="flex items-end"><button type="submit" disabled={Boolean(pending)} className="rounded-md bg-brand-teal px-4 py-2 font-semibold text-white disabled:opacity-60">{pending?.startsWith("create:") ? copy.creating : copy.create}</button></div>
       </form>
       <p id="facilities-intake-help" className="mt-2 text-xs text-steel">{copy.intakeHelp}</p>
-    </section>
+    </section> : null}
 
     <section className="grid min-h-0 gap-4 xl:grid-cols-[minmax(18rem,0.75fr)_minmax(0,1.7fr)]">
       <section className="rounded-xl border border-line bg-white shadow-sm" aria-labelledby="facilities-list-title">
@@ -189,7 +188,7 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
         <div className="max-h-[58vh] overflow-auto p-2" aria-busy={loading}>
           {loading ? <p className="p-3 text-sm text-steel">{copy.loadingCases}</p> : null}
           {!loading && cases.length === 0 ? <p className="p-3 text-sm text-steel">{copy.emptyCases}</p> : null}
-          {cases.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedId(item.id); }} className={`grid w-full gap-2 rounded-lg p-3 text-left hover:bg-muted-panel ${selectedId === item.id ? "bg-brand-teal/10 ring-1 ring-brand-teal" : ""}`}>
+          {cases.map((item) => <button key={item.id} type="button" aria-label={`${copy.caseLabel} ${item.id}`} aria-pressed={selectedId === item.id} onClick={() => { setSelectedId(item.id); }} className={`grid w-full gap-2 rounded-lg p-3 text-left hover:bg-muted-panel ${selectedId === item.id ? "bg-brand-teal/10 ring-1 ring-brand-teal" : ""}`}>
             <span className="flex items-center justify-between gap-3"><strong className="font-mono text-sm text-ink">{item.id.slice(0, 8)}</strong><span className="rounded-full border border-line px-2 py-0.5 text-xs font-semibold text-ink">{STATUS_LABEL[item.status]}</span></span>
             <span className={`rounded border px-2 py-1 text-xs ${dueTone(item.completionDueAt)}`}>{copy.completionSla} {displayDate(item.completionDueAt)}</span>
             <span className="text-xs text-steel">{item.assigneeId ? `${copy.assigneePrefix} ${item.assigneeId.slice(0, 8)}` : copy.unassigned}</span>
@@ -201,14 +200,14 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
         {!selectedId ? <p className="text-sm text-steel">{copy.selectCase}</p> : null}
         {selectedId && detailLoading && !selected ? <p className="text-sm text-steel">{copy.loadingDetail}</p> : null}
         {selected ? <div className="grid gap-5">
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-steel">Case {selected.id}</p><h2 className="mt-1 text-xl font-bold text-ink">{STATUS_LABEL[selected.status]}</h2></div><span className={`rounded-md border px-3 py-2 text-sm font-semibold ${dueTone(selected.completionDueAt)}`}>{copy.completionSla} {displayDate(selected.completionDueAt)}</span></div>
-          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Metric label={copy.responseSla} value={displayDate(selected.responseDueAt)} /><Metric label={copy.acceptanceSla} value={displayDate(selected.acceptanceDueAt)} /><Metric label={copy.assignee} value={selected.assigneeId ?? copy.unassignedShort} mono /><Metric label={copy.energyDelta} value={selected.energyDeltaKwh ? `${selected.energyDeltaKwh} kWh` : copy.notObserved} /><Metric label={copy.totalCost} value={`${selected.totalCostKrw.toLocaleString("ko-KR")} KRW`} /></dl>
-          {can.triage ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!scheduledFor) return; void command("triage", () => api.POST("/api/v1/facilities/cases/{case_id}/triage", { params: { path: { case_id: selected.id } }, body: { scheduledFor: new Date(scheduledFor).toISOString() } }), selected.id); }}><h3 className="font-bold text-ink">{copy.triageTitle}</h3><label className="mt-3 grid max-w-sm gap-1 text-sm font-medium">{copy.scheduledFor}<input type="datetime-local" required value={scheduledFor} onChange={(event) => { setScheduledFor(event.target.value); }} className="rounded-md border border-line px-3 py-2" /></label><ActionButton pending={pending === "triage"}>{copy.schedule}</ActionButton></form> : null}
-          {can.assign ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!assigneeId.trim()) return; void command("assign", () => api.POST("/api/v1/facilities/cases/{case_id}/assign", { params: { path: { case_id: selected.id } }, body: { assigneeId: assigneeId.trim() } }), selected.id); }}><h3 className="font-bold text-ink">{copy.assignTitle}</h3><label className="mt-3 grid max-w-xl gap-1 text-sm font-medium">{copy.assigneeId}<input required value={assigneeId} onChange={(event) => { setAssigneeId(event.target.value); }} className="rounded-md border border-line px-3 py-2 font-mono" /></label><ActionButton pending={pending === "assign"}>{copy.assign}</ActionButton></form> : null}
-          {can.start ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">{copy.startTitle}</h3><p className="mt-1 text-sm text-steel">{copy.startDescription}</p><ActionButton pending={pending === "start"} onClick={() => void command("start", () => api.POST("/api/v1/facilities/cases/{case_id}/start", { params: { path: { case_id: selected.id } } }), selected.id)}>{copy.start}</ActionButton></section> : null}
-          {can.observe ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); const cost = costKrw.trim() ? Number(costKrw) : undefined; if (cost !== undefined && (!Number.isSafeInteger(cost) || cost < 0)) { setNotice({ kind: "error", text: copy.invalidCost }); return; } void command("observe", () => api.POST("/api/v1/facilities/cases/{case_id}/observations", { params: { path: { case_id: selected.id } }, body: { observedAt: new Date().toISOString(), ...(preKwh.trim() ? { preKwh: preKwh.trim() } : {}), ...(postKwh.trim() ? { postKwh: postKwh.trim() } : {}), ...(cost !== undefined ? { costKrw: cost } : {}) } }), selected.id); }}><h3 className="font-bold text-ink">{copy.observeTitle}</h3><div className="mt-3 grid gap-3 sm:grid-cols-3"><Input label={copy.preKwh} value={preKwh} onChange={setPreKwh} /><Input label={copy.postKwh} value={postKwh} onChange={setPostKwh} /><Input label={copy.costKrw} value={costKrw} onChange={setCostKrw} inputMode="numeric" /></div><ActionButton pending={pending === "observe"}>{copy.observe}</ActionButton></form> : null}
-          {can.submit ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!safetyEvidenceId.trim() || !reportEvidenceId.trim()) { setNotice({ kind: "error", text: copy.evidenceRequired }); return; } void command("submit", () => api.POST("/api/v1/facilities/cases/{case_id}/submit", { params: { path: { case_id: selected.id } }, body: { safetyChecklistEvidenceId: safetyEvidenceId.trim(), serviceReportEvidenceId: reportEvidenceId.trim(), ...(photoEvidenceId.trim() ? { photoEvidenceId: photoEvidenceId.trim() } : {}) } }), selected.id); }}><h3 className="font-bold text-ink">{copy.submitTitle}</h3><div className="mt-3 grid gap-3 lg:grid-cols-3"><Input label={copy.safetyEvidenceId} value={safetyEvidenceId} onChange={setSafetyEvidenceId} required /><Input label={copy.reportEvidenceId} value={reportEvidenceId} onChange={setReportEvidenceId} required /><Input label={copy.photoEvidenceId} value={photoEvidenceId} onChange={setPhotoEvidenceId} /></div><ActionButton pending={pending === "submit"}>{copy.submit}</ActionButton></form> : null}
-          {can.accept ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">{copy.acceptanceTitle}</h3><label className="mt-3 grid max-w-2xl gap-1 text-sm font-medium">{copy.rejectionReason}<textarea value={acceptanceReason} onChange={(event) => { setAcceptanceReason(event.target.value); }} className="min-h-20 rounded-md border border-line px-3 py-2" maxLength={1000} /></label><div className="mt-3 flex flex-wrap gap-2"><ActionButton pending={pending === "accepted"} onClick={() => void command("accepted", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "ACCEPTED" } }), selected.id)}>{copy.accept}</ActionButton><button type="button" disabled={Boolean(pending) || !acceptanceReason.trim()} onClick={() => void command("rejected", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "REJECTED", reason: acceptanceReason.trim() } }), selected.id)} className="rounded-md border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 disabled:opacity-60">{pending === "rejected" ? copy.rejecting : copy.reject}</button></div></section> : null}
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-steel">{copy.caseLabel} {selected.id}</p><h2 className="mt-1 text-xl font-bold text-ink">{STATUS_LABEL[selected.status]}</h2></div><span className={`rounded-md border px-3 py-2 text-sm font-semibold ${dueTone(selected.completionDueAt)}`}>{copy.completionSla} {displayDate(selected.completionDueAt)}</span></div>
+          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Metric label={copy.responseSla} value={displayDate(selected.responseDueAt)} /><Metric label={copy.acceptanceSla} value={displayDate(selected.acceptanceDueAt)} /><Metric label={copy.assignee} value={selected.assigneeId ?? copy.unassignedShort} mono /><Metric label={copy.energyDelta} value={selected.energyDeltaKwh ? `${selected.energyDeltaKwh} ${copy.energyUnit}` : copy.notObserved} /><Metric label={copy.totalCost} value={`${selected.totalCostKrw.toLocaleString("ko-KR")} ${copy.currencyUnit}`} /></dl>
+          {can.canTriage ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!scheduledFor) return; void command("triage", () => api.POST("/api/v1/facilities/cases/{case_id}/triage", { params: { path: { case_id: selected.id } }, body: { scheduledFor: new Date(scheduledFor).toISOString() } }), selected.id); }}><h3 className="font-bold text-ink">{copy.triageTitle}</h3><label className="mt-3 grid max-w-sm gap-1 text-sm font-medium">{copy.scheduledFor}<input type="datetime-local" required value={scheduledFor} onChange={(event) => { setScheduledFor(event.target.value); }} className="rounded-md border border-line px-3 py-2" /></label><ActionButton pending={pending === "triage"}>{copy.schedule}</ActionButton></form> : null}
+          {can.canAssign ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!assigneeId.trim()) return; void command("assign", () => api.POST("/api/v1/facilities/cases/{case_id}/assign", { params: { path: { case_id: selected.id } }, body: { assigneeId: assigneeId.trim() } }), selected.id); }}><h3 className="font-bold text-ink">{copy.assignTitle}</h3><label className="mt-3 grid max-w-xl gap-1 text-sm font-medium">{copy.assigneeId}<input required value={assigneeId} onChange={(event) => { setAssigneeId(event.target.value); }} className="rounded-md border border-line px-3 py-2 font-mono" /></label><ActionButton pending={pending === "assign"}>{copy.assign}</ActionButton></form> : null}
+          {can.canStart ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">{copy.startTitle}</h3><p className="mt-1 text-sm text-steel">{copy.startDescription}</p><ActionButton pending={pending === "start"} onClick={() => void command("start", () => api.POST("/api/v1/facilities/cases/{case_id}/start", { params: { path: { case_id: selected.id } } }), selected.id)}>{copy.start}</ActionButton></section> : null}
+          {can.canObserve ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); const cost = costKrw.trim() ? Number(costKrw) : undefined; if (cost !== undefined && (!Number.isSafeInteger(cost) || cost < 0)) { setNotice({ kind: "error", text: copy.invalidCost }); return; } void command("observe", () => api.POST("/api/v1/facilities/cases/{case_id}/observations", { params: { path: { case_id: selected.id } }, body: { observedAt: new Date().toISOString(), ...(preKwh.trim() ? { preKwh: preKwh.trim() } : {}), ...(postKwh.trim() ? { postKwh: postKwh.trim() } : {}), ...(cost !== undefined ? { costKrw: cost } : {}) } }), selected.id); }}><h3 className="font-bold text-ink">{copy.observeTitle}</h3><div className="mt-3 grid gap-3 sm:grid-cols-3"><Input label={copy.preKwh} value={preKwh} onChange={setPreKwh} /><Input label={copy.postKwh} value={postKwh} onChange={setPostKwh} /><Input label={copy.costKrw} value={costKrw} onChange={setCostKrw} inputMode="numeric" /></div><ActionButton pending={pending === "observe"}>{copy.observe}</ActionButton></form> : null}
+          {can.canSubmit ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!safetyEvidenceId.trim() || !reportEvidenceId.trim()) { setNotice({ kind: "error", text: copy.evidenceRequired }); return; } void command("submit", () => api.POST("/api/v1/facilities/cases/{case_id}/submit", { params: { path: { case_id: selected.id } }, body: { safetyChecklistEvidenceId: safetyEvidenceId.trim(), serviceReportEvidenceId: reportEvidenceId.trim(), ...(photoEvidenceId.trim() ? { photoEvidenceId: photoEvidenceId.trim() } : {}) } }), selected.id); }}><h3 className="font-bold text-ink">{copy.submitTitle}</h3><div className="mt-3 grid gap-3 lg:grid-cols-3"><Input label={copy.safetyEvidenceId} value={safetyEvidenceId} onChange={setSafetyEvidenceId} required /><Input label={copy.reportEvidenceId} value={reportEvidenceId} onChange={setReportEvidenceId} required /><Input label={copy.photoEvidenceId} value={photoEvidenceId} onChange={setPhotoEvidenceId} /></div><ActionButton pending={pending === "submit"}>{copy.submit}</ActionButton></form> : null}
+          {can.canAccept ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">{copy.acceptanceTitle}</h3><label className="mt-3 grid max-w-2xl gap-1 text-sm font-medium">{copy.rejectionReason}<textarea value={acceptanceReason} onChange={(event) => { setAcceptanceReason(event.target.value); }} className="min-h-20 rounded-md border border-line px-3 py-2" maxLength={1000} /></label><div className="mt-3 flex flex-wrap gap-2"><ActionButton pending={pending === "accepted"} onClick={() => void command("accepted", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "ACCEPTED" } }), selected.id)}>{copy.accept}</ActionButton><button type="button" disabled={Boolean(pending) || !acceptanceReason.trim()} onClick={() => void command("rejected", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "REJECTED", reason: acceptanceReason.trim() } }), selected.id)} className="rounded-md border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 disabled:opacity-60">{pending === "rejected" ? copy.rejecting : copy.reject}</button></div></section> : null}
           {selected.status === "CLOSED" ? <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-950"><h3 className="font-bold">{copy.closedTitle}</h3><p className="mt-1 text-sm">{copy.closedDescription}</p></section> : null}
         </div> : null}
       </section>
