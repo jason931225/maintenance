@@ -30,7 +30,7 @@ function serverMessage(error: unknown): string | undefined {
 
 function requestError(status: number, error: unknown): SelfServiceAttendanceTransportError {
   return new SelfServiceAttendanceTransportError(
-    serverMessage(error) ?? `Attendance self-service request failed (${status})`,
+    serverMessage(error) ?? `Attendance self-service request failed (${String(status)})`,
     status,
   );
 }

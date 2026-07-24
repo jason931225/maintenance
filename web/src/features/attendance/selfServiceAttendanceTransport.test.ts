@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
-import { SelfServiceAttendanceTransportError } from "./selfServiceAttendanceApi";
+import type { SelfServiceAttendanceTransportError } from "./selfServiceAttendanceApi";
 import { createSelfServiceAttendanceTransport } from "./selfServiceAttendanceTransport";
 
 const page = {
@@ -27,27 +27,34 @@ function client(get = vi.fn()): ConsoleApiClient {
 
 describe("createSelfServiceAttendanceTransport", () => {
   it("uses exact generated own-resource paths, query names, no-store, and cancellation", async () => {
-    const GET = vi.fn()
-      .mockResolvedValueOnce(result(page))
-      .mockResolvedValueOnce(result(available));
+    type CapturedGetCall = {
+      path: string;
+      init: { params: { query: Record<string, unknown> }; headers: { "Cache-Control": string }; signal?: AbortSignal };
+    };
+    const calls: CapturedGetCall[] = [];
+    const GET = vi.fn((path: string, init: CapturedGetCall["init"]) => {
+      calls.push({ path, init });
+      return Promise.resolve(calls.length === 1 ? result(page) : result(available));
+    });
     const controller = new AbortController();
     const transport = createSelfServiceAttendanceTransport(client(GET));
 
     await expect(transport.listOwnExceptions({ month: "2026-07", status: "OPEN", limit: 50, offset: 0 }, controller.signal)).resolves.toEqual(page);
     await expect(transport.getOwnWeek52("2026-07-20", controller.signal)).resolves.toEqual(available);
 
-    expect(GET).toHaveBeenNthCalledWith(1, "/api/v1/attendance/me/exceptions", {
-      params: { query: { month: "2026-07", status: "OPEN", limit: 50, offset: 0 } },
-      headers: { "Cache-Control": "no-store" }, signal: controller.signal,
-    });
-    expect(GET).toHaveBeenNthCalledWith(2, "/api/v1/attendance/me/week52", {
-      params: { query: { week_start: "2026-07-20" } },
-      headers: { "Cache-Control": "no-store" }, signal: controller.signal,
-    });
-    for (const call of GET.mock.calls) {
-      const query = call[1].params.query as Record<string, unknown>;
+    expect(calls).toEqual([
+      {
+        path: "/api/v1/attendance/me/exceptions",
+        init: { params: { query: { month: "2026-07", status: "OPEN", limit: 50, offset: 0 } }, headers: { "Cache-Control": "no-store" }, signal: controller.signal },
+      },
+      {
+        path: "/api/v1/attendance/me/week52",
+        init: { params: { query: { week_start: "2026-07-20" } }, headers: { "Cache-Control": "no-store" }, signal: controller.signal },
+      },
+    ]);
+    for (const { init } of calls) {
       for (const forbidden of ["branch_id", "employee_id", "actor_id", "org_id", "manager_id"]) {
-        expect(query).not.toHaveProperty(forbidden);
+        expect(init.params.query).not.toHaveProperty(forbidden);
       }
     }
   });

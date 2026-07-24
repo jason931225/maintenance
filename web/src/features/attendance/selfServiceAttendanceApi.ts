@@ -45,8 +45,10 @@ function isRfc3339DateTime(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
   if (!match) return false;
-  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond, , rawOffsetHour, rawOffsetMinute] = match;
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond] = match;
   const [year, month, day, hour, minute, second] = [rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond].map(Number);
+  const rawOffsetHour = match.at(8);
+  const rawOffsetMinute = match.at(9);
   const offsetHour = rawOffsetHour === undefined ? undefined : Number(rawOffsetHour);
   const offsetMinute = rawOffsetMinute === undefined ? undefined : Number(rawOffsetMinute);
   if (!isCalendarDate(`${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`)) return false;
