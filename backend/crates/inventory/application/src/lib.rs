@@ -200,7 +200,11 @@ pub struct ConsumeInventoryCommand {
 /// console: WO/dispatch drills navigate, cycle counts drill to the count, and
 /// external refs (e.g. `PO-118`) render as validated non-navigable codes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum MovementSourceView {
     WorkOrder {
         work_order_id: WorkOrderId,
@@ -221,6 +225,7 @@ pub enum MovementSourceView {
 /// One row of the unified movement ledger
 /// (`ISSUE` ∪ `RECEIPT` ∪ `ADJUSTMENT`, newest first).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InventoryMovementView {
     pub id: Uuid,
     pub item_id: InventoryItemId,
@@ -238,6 +243,7 @@ pub struct InventoryMovementView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InventoryReceiptResult {
     pub movement: InventoryMovementView,
     pub item: InventoryItemView,
@@ -267,6 +273,7 @@ pub struct RecordReceiptCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CycleCountView {
     pub id: Uuid,
     pub cc_code: String,
@@ -291,6 +298,7 @@ pub struct CycleCountView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CycleCountLineView {
     pub id: Uuid,
     pub item_id: InventoryItemId,
@@ -310,6 +318,7 @@ pub struct CycleCountLineView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CycleCountDetail {
     pub count: CycleCountView,
     pub lines: Vec<CycleCountLineView>,
@@ -318,6 +327,7 @@ pub struct CycleCountDetail {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CycleCountPage {
     pub items: Vec<CycleCountView>,
     pub limit: i64,
@@ -349,6 +359,8 @@ pub struct UpsertCountLineCommand {
     pub actor: UserId,
     pub branch_scope: BranchScope,
     pub count_id: Uuid,
+    /// Aggregate cycle-count version observed by the editor.
+    pub expected_version: i32,
     pub item_id: InventoryItemId,
     pub counted_quantity_milli: i64,
     /// Required iff counted differs from the system snapshot.
@@ -395,6 +407,7 @@ pub struct CancelCycleCountCommand {
     pub actor: UserId,
     pub branch_scope: BranchScope,
     pub count_id: Uuid,
+    pub expected_version: i32,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -403,6 +416,7 @@ pub struct CancelCycleCountCommand {
 /// ledger. `inbound_expected_milli`/`reserved_outbound_milli` are honestly 0
 /// until purchase/reservation modules exist.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MrpLineView {
     pub item_id: InventoryItemId,
     pub iv_code: String,

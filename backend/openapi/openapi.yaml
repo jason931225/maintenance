@@ -14958,8 +14958,8 @@ paths:
       operationId: listInventoryMovements
       summary: Read the tenant- and branch-scoped unified ISSUE, RECEIPT, and ADJUSTMENT ledger
       security: [{ bearerAuth: [] }]
-      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Unified movement ledger, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }]
+      responses: { '200': { description: Unified movement ledger, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/InventoryMovement' } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
   /api/v1/inventory/items/{item_id}/receipts:
     post:
       tags: [inventory]
@@ -14967,31 +14967,31 @@ paths:
       summary: Idempotently record a positive receipt and its before delta after ledger row
       security: [{ bearerAuth: [] }]
       parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [quantity_received_milli, idempotency_key], properties: { quantity_received_milli: { type: integer, format: int64, minimum: 1 }, source_ref: { type: string, nullable: true }, memo: { type: string, nullable: true }, idempotency_key: { type: string, minLength: 16, maxLength: 200 } } } } } }
-      responses: { '200': { description: Receipt result, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RecordInventoryReceiptRequest' } } } }
+      responses: { '200': { description: Receipt result, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryReceiptResult' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/inventory/mrp:
     get:
       tags: [inventory]
       operationId: getInventoryMrp
       summary: Deterministic movement-derived MRP with explicit zero inbound and reservation values until those modules exist
       security: [{ bearerAuth: [] }]
-      parameters: [{ name: branch_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: MRP lines, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+      parameters: [{ name: branchId, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: MRP lines, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/InventoryMrpLine' } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
   /api/v1/inventory/cycle-counts:
     get:
       tags: [inventory]
       operationId: listInventoryCycleCounts
       summary: List tenant- and branch-scoped cycle counts
       security: [{ bearerAuth: [] }]
-      parameters: [{ name: branch_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Cycle count page, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+      parameters: [{ name: branchId, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: status, in: query, required: false, schema: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, REJECTED, CANCELLED] } }, { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }]
+      responses: { '200': { description: Cycle count page, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountPage' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
     post:
       tags: [inventory]
       operationId: openInventoryCycleCount
       summary: Open a cycle count in an authorized branch and stock location
       security: [{ bearerAuth: [] }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branch_id, stock_location_id], properties: { branch_id: { $ref: '#/components/schemas/Uuid' }, stock_location_id: { $ref: '#/components/schemas/Uuid' } } } } } }
-      responses: { '200': { description: Cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OpenCycleCountRequest' } } } }
+      responses: { '200': { description: Cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/inventory/cycle-counts/{count_id}:
     get:
       tags: [inventory]
@@ -14999,7 +14999,7 @@ paths:
       summary: Read one authorized cycle count with count lines and applied adjustment movement ids
       security: [{ bearerAuth: [] }]
       parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Cycle count detail, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+      responses: { '200': { description: Cycle count detail, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
   /api/v1/inventory/cycle-counts/{count_id}/lines:
     post:
       tags: [inventory]
@@ -15007,8 +15007,8 @@ paths:
       summary: Upsert a DRAFT count line; a nonzero variance requires a typed reason
       security: [{ bearerAuth: [] }]
       parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [item_id, counted_quantity_milli], properties: { item_id: { $ref: '#/components/schemas/Uuid' }, counted_quantity_milli: { type: integer, format: int64, minimum: 0 }, reason: { type: string, nullable: true, enum: [DAMAGE, LOSS, MISCOUNT, FOUND, OTHER] }, note: { type: string, nullable: true } } } } } }
-      responses: { '200': { description: Updated cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpsertCycleCountLineRequest' } } } }
+      responses: { '200': { description: Updated cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/inventory/cycle-counts/{count_id}/submit:
     post:
       tags: [inventory]
@@ -15016,8 +15016,8 @@ paths:
       summary: Submit a nonempty DRAFT cycle count using optimistic version control
       security: [{ bearerAuth: [] }]
       parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [expected_version], properties: { expected_version: { type: integer, minimum: 1 } } } } } }
-      responses: { '200': { description: Submitted cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountVersionRequest' } } } }
+      responses: { '200': { description: Submitted cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/v1/inventory/cycle-counts/{count_id}/decision:
     post:
       tags: [inventory]
@@ -15025,8 +15025,8 @@ paths:
       summary: Distinct checker approves idempotent adjustments or rejects with a memo
       security: [{ bearerAuth: [] }]
       parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [expected_version, decision], properties: { expected_version: { type: integer, minimum: 1 }, decision: { type: string, enum: [APPROVE, REJECT] }, memo: { type: string, nullable: true }, idempotency_key: { type: string, nullable: true, minLength: 16, maxLength: 200 } } } } } }
-      responses: { '200': { description: Decided cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DecideCycleCountRequest' } } } }
+      responses: { '200': { description: Decided cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/inventory/cycle-counts/{count_id}/cancel:
     post:
       tags: [inventory]
@@ -15034,7 +15034,8 @@ paths:
       summary: Cancel a DRAFT or SUBMITTED count without mutating ledger history
       security: [{ bearerAuth: [] }]
       parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Cancelled cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountVersionRequest' } } } }
+      responses: { '200': { description: Cancelled cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
 components:
   securitySchemes:
     basicAuth:
@@ -30389,3 +30390,57 @@ components:
       additionalProperties: false
       required: [source, quantity_consumed_milli, idempotency_key]
       properties: { source: { $ref: '#/components/schemas/InventoryConsumptionSource' }, quantity_consumed_milli: { type: integer, format: int64, minimum: 1 }, occurred_at: { type: string, format: date-time, nullable: true }, memo: { type: string, nullable: true }, idempotency_key: { type: string, minLength: 16, maxLength: 200 } }
+
+    RecordInventoryReceiptRequest:
+      type: object
+      additionalProperties: false
+      required: [quantityReceivedMilli, idempotencyKey]
+      properties: { quantityReceivedMilli: { type: integer, format: int64, minimum: 1 }, sourceRef: { type: string, nullable: true }, memo: { type: string, nullable: true }, idempotencyKey: { type: string, minLength: 16, maxLength: 200 } }
+    InventoryMovement:
+      type: object
+      required: [id, itemId, ivCode, kind, quantityDeltaMilli, quantityBeforeMilli, quantityAfterMilli, source, actor, occurredAt]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, kind: { type: string, enum: [ISSUE, RECEIPT, ADJUSTMENT] }, quantityDeltaMilli: { type: integer, format: int64 }, quantityBeforeMilli: { type: integer, format: int64 }, quantityAfterMilli: { type: integer, format: int64 }, source: { type: object }, actor: { $ref: '#/components/schemas/Uuid' }, occurredAt: { type: string, format: date-time }, memo: { type: string, nullable: true } }
+    InventoryReceiptResult:
+      type: object
+      required: [movement, item]
+      properties: { movement: { $ref: '#/components/schemas/InventoryMovement' }, item: { $ref: '#/components/schemas/InventoryItem' } }
+    InventoryMrpLine:
+      type: object
+      required: [itemId, ivCode, displayName, unitCode, quantityOnHandMilli, safetyStockMilli, inboundExpectedMilli, reservedOutboundMilli, monthlyUsageMilli, short, proposedOrderMilli]
+      properties: { itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, displayName: { type: string }, unitCode: { type: string }, quantityOnHandMilli: { type: integer, format: int64 }, safetyStockMilli: { type: integer, format: int64 }, inboundExpectedMilli: { type: integer, format: int64 }, reservedOutboundMilli: { type: integer, format: int64 }, monthlyUsageMilli: { type: integer, format: int64 }, coverMonthsCenti: { type: integer, format: int64, nullable: true }, short: { type: boolean }, proposedOrderMilli: { type: integer, format: int64 } }
+    CycleCount:
+      type: object
+      required: [id, ccCode, branchId, stockLocation, status, version, openedBy, lineCount, varianceLineCount, createdAt, updatedAt]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, ccCode: { type: string }, branchId: { $ref: '#/components/schemas/Uuid' }, stockLocation: { $ref: '#/components/schemas/InventoryStockLocationSummary' }, status: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, REJECTED, CANCELLED] }, version: { type: integer }, openedBy: { $ref: '#/components/schemas/Uuid' }, submittedBy: { $ref: '#/components/schemas/Uuid', nullable: true }, submittedAt: { type: string, format: date-time, nullable: true }, decidedBy: { $ref: '#/components/schemas/Uuid', nullable: true }, decidedAt: { type: string, format: date-time, nullable: true }, decisionMemo: { type: string, nullable: true }, lineCount: { type: integer, format: int64 }, varianceLineCount: { type: integer, format: int64 }, createdAt: { type: string, format: date-time }, updatedAt: { type: string, format: date-time } }
+    CycleCountLine:
+      type: object
+      required: [id, itemId, ivCode, displayName, unitCode, systemQuantityMilli, countedQuantityMilli, varianceMilli, recordedBy, recordedAt]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, displayName: { type: string }, unitCode: { type: string }, systemQuantityMilli: { type: integer, format: int64 }, countedQuantityMilli: { type: integer, format: int64 }, varianceMilli: { type: integer, format: int64 }, reason: { type: string, nullable: true, enum: [DAMAGE, LOSS, MISCOUNT, FOUND, OTHER] }, note: { type: string, nullable: true }, recordedBy: { $ref: '#/components/schemas/Uuid' }, recordedAt: { type: string, format: date-time } }
+    CycleCountDetail:
+      type: object
+      required: [count, lines, appliedMovementIds]
+      properties: { count: { $ref: '#/components/schemas/CycleCount' }, lines: { type: array, items: { $ref: '#/components/schemas/CycleCountLine' } }, appliedMovementIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } } }
+    CycleCountPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/CycleCount' } }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 }, total: { type: integer, format: int64 } }
+    OpenCycleCountRequest:
+      type: object
+      additionalProperties: false
+      required: [branchId, stockLocationId]
+      properties: { branchId: { $ref: '#/components/schemas/Uuid' }, stockLocationId: { $ref: '#/components/schemas/Uuid' } }
+    UpsertCycleCountLineRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, itemId, countedQuantityMilli]
+      properties: { expectedVersion: { type: integer, minimum: 1 }, itemId: { $ref: '#/components/schemas/Uuid' }, countedQuantityMilli: { type: integer, format: int64, minimum: 0 }, reason: { type: string, nullable: true, enum: [DAMAGE, LOSS, MISCOUNT, FOUND, OTHER] }, note: { type: string, nullable: true } }
+    CycleCountVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties: { expectedVersion: { type: integer, minimum: 1 } }
+    DecideCycleCountRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, decision]
+      properties: { expectedVersion: { type: integer, minimum: 1 }, decision: { type: string, enum: [APPROVE, REJECT] }, memo: { type: string, nullable: true }, idempotencyKey: { type: string, nullable: true, minLength: 16, maxLength: 200 } }

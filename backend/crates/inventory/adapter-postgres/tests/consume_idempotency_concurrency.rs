@@ -3,9 +3,14 @@
 //! turn a uniqueness race into a generic conflict.
 
 use mnt_inventory_adapter_postgres::PgInventoryStore;
-use mnt_inventory_application::{ConsumeInventoryCommand, ConsumeInventorySource};
+use mnt_inventory_application::{
+    ConsumeInventoryCommand, ConsumeInventorySource, CycleCountDecision, DecideCycleCountCommand,
+    OpenCycleCountCommand, RecordReceiptCommand, SubmitCycleCountCommand, UpsertCountLineCommand,
+};
+use mnt_inventory_domain::VarianceReason;
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, InventoryItemId, OrgId, TraceContext, WorkOrderId,
+    BranchId, BranchScope, ErrorKind, InventoryItemId, InventoryStockLocationId, OrgId,
+    TraceContext, WorkOrderId,
 };
 use mnt_platform_request_context::scope_org;
 use mnt_platform_test_support::{grant_mnt_rt, seed_org_and_super_admin};
@@ -336,6 +341,265 @@ async fn concurrent_explicit_timestamp_mismatch_conflicts_without_second_mutatio
     assert_eq!(events, 1, "timestamp mismatch records no second event");
     assert_eq!(stock, 700, "timestamp mismatch decrements stock once");
     assert_eq!(audits, 1, "timestamp mismatch records one audit");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn cycle_approval_replays_once_and_applies_immutable_variance_to_current_stock(
+    owner_pool: PgPool,
+) {
+    grant_mnt_rt(
+        &owner_pool,
+        &[
+            "GRANT SELECT, INSERT, UPDATE ON inventory_stock_locations TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_items TO mnt_rt",
+            "GRANT SELECT, INSERT ON inventory_consumption_events TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_cycle_counts TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_cycle_count_counters TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_cycle_count_lines TO mnt_rt",
+            "GRANT SELECT, INSERT ON inventory_movements TO mnt_rt",
+            "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
+        ],
+    )
+    .await;
+    let org = OrgId::from_uuid(ORG);
+    let maker = seed_org_and_super_admin(&owner_pool, ORG, "inventory-cycle-maker").await;
+    let checker = seed_org_and_super_admin(&owner_pool, ORG, "inventory-cycle-checker").await;
+    let other_checker =
+        seed_org_and_super_admin(&owner_pool, ORG, "inventory-cycle-other-checker").await;
+    let (branch, item_id, work_order_id) = seed_consumption_fixture(&owner_pool, ORG, maker).await;
+    let location_id: Uuid =
+        sqlx::query_scalar("SELECT stock_location_id FROM inventory_items WHERE id=$1")
+            .bind(*item_id.as_uuid())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    let store = PgInventoryStore::new(two_connection_runtime_role_pool(&owner_pool).await);
+    let now = OffsetDateTime::now_utc();
+    let opened = scope_org(
+        org,
+        store.open_cycle_count(OpenCycleCountCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            branch_id: branch,
+            stock_location_id: InventoryStockLocationId::from_uuid(location_id),
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    let line = scope_org(
+        org,
+        store.upsert_cycle_count_line(UpsertCountLineCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            count_id: opened.count.id,
+            expected_version: opened.count.version,
+            item_id,
+            counted_quantity_milli: 800,
+            reason: Some(VarianceReason::Miscount),
+            note: Some("physical count".to_owned()),
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    let submitted = scope_org(
+        org,
+        store.submit_cycle_count(SubmitCycleCountCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            count_id: opened.count.id,
+            expected_version: line.count.version,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    // An intervening receipt changes current stock from the counted snapshot of 1000 to 1100.
+    scope_org(
+        org,
+        store.record_receipt(RecordReceiptCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            item_id,
+            quantity_received_milli: 100,
+            source_ref: Some("PO-119".to_owned()),
+            memo: None,
+            idempotency_key: "inventory-cycle-intervening-receipt".to_owned(),
+            trace: TraceContext::generate(),
+            requested_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    let approval = DecideCycleCountCommand {
+        actor: checker,
+        branch_scope: BranchScope::All,
+        count_id: opened.count.id,
+        expected_version: submitted.count.version,
+        decision: CycleCountDecision::Approve,
+        memo: Some("verified".to_owned()),
+        idempotency_key: Some("inventory-cycle-approval-key".to_owned()),
+        trace: TraceContext::generate(),
+        occurred_at: now,
+    };
+    let approved = scope_org(org, store.decide_cycle_count(approval.clone()))
+        .await
+        .unwrap();
+    let replay = scope_org(org, store.decide_cycle_count(approval.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        approved.count.version, replay.count.version,
+        "same canonical approval replays its stored outcome"
+    );
+    let stock: i64 =
+        sqlx::query_scalar("SELECT quantity_on_hand_milli FROM inventory_items WHERE id=$1")
+            .bind(*item_id.as_uuid())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stock, 900,
+        "immutable -200 variance applies to locked current 1100 stock"
+    );
+    let adjustments: (i64, i64, i64, i64) = sqlx::query_as("SELECT count(*), min(quantity_before_milli), min(quantity_delta_milli), min(quantity_after_milli) FROM inventory_movements WHERE cycle_count_id=$1")
+        .bind(opened.count.id).fetch_one(&owner_pool).await.unwrap();
+    assert_eq!(adjustments, (1, 1100, -200, 900));
+    let changed_memo = scope_org(
+        org,
+        store.decide_cycle_count(DecideCycleCountCommand {
+            memo: Some("different".to_owned()),
+            ..approval.clone()
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(changed_memo.kind(), ErrorKind::Conflict);
+    let changed_actor = scope_org(
+        org,
+        store.decide_cycle_count(DecideCycleCountCommand {
+            actor: other_checker,
+            ..approval.clone()
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(changed_actor.kind(), ErrorKind::Conflict);
+
+    // An approval that would drive current stock negative must roll its state
+    // transition and audit back with the failed adjustment transaction.
+    let unsafe_count = scope_org(
+        org,
+        store.open_cycle_count(OpenCycleCountCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            branch_id: branch,
+            stock_location_id: InventoryStockLocationId::from_uuid(location_id),
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    let unsafe_line = scope_org(
+        org,
+        store.upsert_cycle_count_line(UpsertCountLineCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            count_id: unsafe_count.count.id,
+            expected_version: unsafe_count.count.version,
+            item_id,
+            counted_quantity_milli: 0,
+            reason: Some(VarianceReason::Loss),
+            note: Some("counted missing stock".to_owned()),
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    let unsafe_submitted = scope_org(
+        org,
+        store.submit_cycle_count(SubmitCycleCountCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            count_id: unsafe_count.count.id,
+            expected_version: unsafe_line.count.version,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    scope_org(
+        org,
+        store.consume_item(ConsumeInventoryCommand {
+            actor: maker,
+            branch_scope: BranchScope::All,
+            item_id,
+            source: ConsumeInventorySource::WorkOrder { work_order_id },
+            quantity_consumed_milli: 500,
+            occurred_at: Some(now),
+            memo: Some("intervening issue".to_owned()),
+            idempotency_key: "inventory-cycle-unsafe-intervening-issue".to_owned(),
+            trace: TraceContext::generate(),
+            requested_at: now,
+        }),
+    )
+    .await
+    .unwrap();
+    let unsafe_approval = scope_org(
+        org,
+        store.decide_cycle_count(DecideCycleCountCommand {
+            actor: checker,
+            branch_scope: BranchScope::All,
+            count_id: unsafe_count.count.id,
+            expected_version: unsafe_submitted.count.version,
+            decision: CycleCountDecision::Approve,
+            memo: Some("would underflow".to_owned()),
+            idempotency_key: Some("inventory-cycle-unsafe-approval-key".to_owned()),
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(unsafe_approval.kind(), ErrorKind::Conflict);
+    let state: String = sqlx::query_scalar("SELECT status FROM inventory_cycle_counts WHERE id=$1")
+        .bind(unsafe_count.count.id)
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+    let unsafe_movements: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM inventory_movements WHERE cycle_count_id=$1")
+            .bind(unsafe_count.count.id)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        state, "SUBMITTED",
+        "failed approval rolls back its status update"
+    );
+    assert_eq!(
+        unsafe_movements, 0,
+        "failed approval leaves no partial adjustment"
+    );
+
+    let denied = scope_org(
+        org,
+        store.get_cycle_count(opened.count.id, BranchScope::none()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        denied.kind(),
+        ErrorKind::Forbidden,
+        "tenant-visible count still rejects a foreign branch scope"
+    );
 }
 
 fn consume_command(

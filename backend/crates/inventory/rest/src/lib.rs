@@ -358,18 +358,14 @@ async fn record_receipt(
         &principal,
     )
     .await?;
-    authorize(
-        &principal,
-        Action::new(Feature::InventoryConsume),
-        item.branch_id,
-    )
-    .map_err(RestError::from_kernel)?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryConsume)?;
+    ensure_scope_allows(&branch_scope, item.branch_id)?;
     Ok(Json(
         state
             .store
             .record_receipt(RecordReceiptCommand {
                 actor: principal.user_id,
-                branch_scope: principal.branch_scope,
+                branch_scope,
                 item_id: InventoryItemId::from_uuid(item_id),
                 quantity_received_milli: body.quantity_received_milli,
                 source_ref: body.source_ref,
@@ -455,14 +451,14 @@ async fn open_cycle_count(
     let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
     let principal = principal_from_headers(&state, &headers).await?;
     let branch = BranchId::from_uuid(body.branch_id);
-    authorize(&principal, Action::new(Feature::InventoryConsume), branch)
-        .map_err(RestError::from_kernel)?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryConsume)?;
+    ensure_scope_allows(&branch_scope, branch)?;
     Ok(Json(
         state
             .store
             .open_cycle_count(OpenCycleCountCommand {
                 actor: principal.user_id,
-                branch_scope: principal.branch_scope,
+                branch_scope,
                 branch_id: branch,
                 stock_location_id: InventoryStockLocationId::from_uuid(body.stock_location_id),
                 trace,
@@ -498,6 +494,7 @@ async fn get_cycle_count(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CountLineBody {
+    expected_version: i32,
     item_id: Uuid,
     counted_quantity_milli: i64,
     reason: Option<VarianceReason>,
@@ -511,13 +508,15 @@ async fn upsert_cycle_count_line(
 ) -> Result<Json<CycleCountDetail>, RestError> {
     let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
     let principal = principal_from_headers(&state, &headers).await?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryConsume)?;
     Ok(Json(
         state
             .store
             .upsert_cycle_count_line(UpsertCountLineCommand {
                 actor: principal.user_id,
-                branch_scope: principal.branch_scope,
+                branch_scope,
                 count_id,
+                expected_version: body.expected_version,
                 item_id: InventoryItemId::from_uuid(body.item_id),
                 counted_quantity_milli: body.counted_quantity_milli,
                 reason: body.reason,
@@ -543,12 +542,13 @@ async fn submit_cycle_count(
 ) -> Result<Json<CycleCountDetail>, RestError> {
     let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
     let principal = principal_from_headers(&state, &headers).await?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryConsume)?;
     Ok(Json(
         state
             .store
             .submit_cycle_count(SubmitCycleCountCommand {
                 actor: principal.user_id,
-                branch_scope: principal.branch_scope,
+                branch_scope,
                 count_id,
                 expected_version: body.expected_version,
                 trace,
@@ -575,12 +575,13 @@ async fn decide_cycle_count(
 ) -> Result<Json<CycleCountDetail>, RestError> {
     let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
     let principal = principal_from_headers(&state, &headers).await?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryConsume)?;
     Ok(Json(
         state
             .store
             .decide_cycle_count(DecideCycleCountCommand {
                 actor: principal.user_id,
-                branch_scope: principal.branch_scope,
+                branch_scope,
                 count_id,
                 expected_version: body.expected_version,
                 decision: body.decision,
@@ -597,16 +598,19 @@ async fn cancel_cycle_count(
     State(state): State<InventoryRestState>,
     headers: HeaderMap,
     Path(count_id): Path<Uuid>,
+    Json(body): Json<VersionBody>,
 ) -> Result<Json<CycleCountDetail>, RestError> {
     let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
     let principal = principal_from_headers(&state, &headers).await?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryConsume)?;
     Ok(Json(
         state
             .store
             .cancel_cycle_count(CancelCycleCountCommand {
                 actor: principal.user_id,
-                branch_scope: principal.branch_scope,
+                branch_scope,
                 count_id,
+                expected_version: body.expected_version,
                 trace,
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -923,6 +927,50 @@ mod tests {
         let scope = authorized_feature_scope(&principal, Feature::InventoryRead).unwrap();
         assert!(scope.allows(first_branch));
         assert!(scope.allows(second_branch));
+    }
+
+    #[test]
+    fn custom_consume_grant_is_narrowed_before_cycle_mutations_reach_the_store() {
+        let allowed = BranchId::new();
+        let denied = BranchId::new();
+        let principal = principal(
+            Role::Member,
+            BranchScope::Branches(BTreeSet::from([allowed, denied])),
+        )
+        .with_effective_feature_grants(vec![EffectiveFeatureGrant::new(
+            Feature::InventoryConsume,
+            PermissionLevel::Allow,
+            BranchScope::single(allowed),
+        )]);
+        let scope = authorized_feature_scope(&principal, Feature::InventoryConsume).unwrap();
+        assert!(ensure_scope_allows(&scope, allowed).is_ok());
+        assert_eq!(
+            ensure_scope_allows(&scope, denied).unwrap_err().status,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn cycle_mutation_bodies_are_strict_camel_case_and_versioned() {
+        let body = serde_json::json!({
+            "expectedVersion": 3,
+            "itemId": "00000000-0000-0000-0000-000000000001",
+            "countedQuantityMilli": 1000,
+            "reason": "MISCOUNT"
+        });
+        assert!(serde_json::from_value::<CountLineBody>(body).is_ok());
+        assert!(
+            serde_json::from_value::<CountLineBody>(serde_json::json!({
+                "expected_version": 3,
+                "item_id": "00000000-0000-0000-0000-000000000001",
+                "counted_quantity_milli": 1000
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<VersionBody>(serde_json::json!({"expectedVersion": 3}))
+                .is_ok()
+        );
     }
 
     #[test]

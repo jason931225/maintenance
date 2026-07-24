@@ -665,7 +665,36 @@ impl PgInventoryStore {
         let note = normalize_optional_text(command.note, 500, "note")?;
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        with_audits::<_,CycleCountDetail,PgInventoryError>(&self.pool,org,|tx|Box::pin(async move { let count=lock_cycle_count_tx(tx,command.count_id).await?.ok_or_else(||KernelError::not_found("cycle count was not found"))?; ensure_branch_allowed(&command.branch_scope,count.branch_id)?; if count.status!=CycleCountStatus::Draft{return Err(KernelError::conflict("only draft cycle counts can be edited").into())}; let item=fetch_item_for_update_tx(tx,command.item_id).await?.ok_or_else(||KernelError::not_found("inventory item was not found"))?; if item.branch_id!=count.branch_id || item.stock_location.id!=count.stock_location.id{return Err(KernelError::conflict("cycle count item must belong to count location and branch").into())}; if counted.value()!=item.quantity_on_hand_milli && command.reason.is_none(){return Err(KernelError::validation("variance reason is required").into())}; sqlx::query(r#"INSERT INTO inventory_cycle_count_lines(id,org_id,count_id,item_id,system_quantity_milli,counted_quantity_milli,reason,note,recorded_by,recorded_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$10) ON CONFLICT(count_id,item_id) DO UPDATE SET system_quantity_milli=EXCLUDED.system_quantity_milli,counted_quantity_milli=EXCLUDED.counted_quantity_milli,reason=EXCLUDED.reason,note=EXCLUDED.note,recorded_by=EXCLUDED.recorded_by,recorded_at=EXCLUDED.recorded_at,updated_at=EXCLUDED.updated_at"#).bind(uuid::Uuid::new_v4()).bind(org_uuid).bind(command.count_id).bind(*command.item_id.as_uuid()).bind(item.quantity_on_hand_milli).bind(counted.value()).bind(command.reason.map(VarianceReason::as_db_str)).bind(note).bind(*command.actor.as_uuid()).bind(command.occurred_at).execute(tx.as_mut()).await?; let detail=fetch_cycle_detail_tx(tx,command.count_id).await?.ok_or_else(||KernelError::internal("cycle count was not readable"))?; let audit=inventory_audit_event("inventory.cycle_count.line.upsert",Some(command.actor),Some(count.branch_id),"inventory_cycle_count",command.count_id,command.trace,command.occurred_at)?.with_org(org);Ok((detail,vec![audit]))})).await
+        with_audits::<_, CycleCountDetail, PgInventoryError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let count = lock_cycle_count_tx(tx, command.count_id)
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("cycle count was not found"))?;
+                ensure_branch_allowed(&command.branch_scope, count.branch_id)?;
+                if count.status != CycleCountStatus::Draft || count.version != command.expected_version {
+                    return Err(KernelError::conflict("cycle count draft version no longer matches").into());
+                }
+                let item = fetch_item_for_update_tx(tx, command.item_id)
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("inventory item was not found"))?;
+                if item.branch_id != count.branch_id || item.stock_location.id != count.stock_location.id {
+                    return Err(KernelError::conflict("cycle count item must belong to count location and branch").into());
+                }
+                if counted.value() != item.quantity_on_hand_milli && command.reason.is_none() {
+                    return Err(KernelError::validation("variance reason is required").into());
+                }
+                sqlx::query(r#"INSERT INTO inventory_cycle_count_lines(id,org_id,count_id,item_id,system_quantity_milli,counted_quantity_milli,reason,note,recorded_by,recorded_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$10) ON CONFLICT(count_id,item_id) DO UPDATE SET system_quantity_milli=EXCLUDED.system_quantity_milli,counted_quantity_milli=EXCLUDED.counted_quantity_milli,reason=EXCLUDED.reason,note=EXCLUDED.note,recorded_by=EXCLUDED.recorded_by,recorded_at=EXCLUDED.recorded_at,updated_at=EXCLUDED.updated_at"#)
+                    .bind(uuid::Uuid::new_v4()).bind(org_uuid).bind(command.count_id).bind(*command.item_id.as_uuid())
+                    .bind(item.quantity_on_hand_milli).bind(counted.value()).bind(command.reason.map(VarianceReason::as_db_str))
+                    .bind(note).bind(*command.actor.as_uuid()).bind(command.occurred_at).execute(tx.as_mut()).await?;
+                sqlx::query("UPDATE inventory_cycle_counts SET version=version+1,updated_at=$2 WHERE id=$1")
+                    .bind(command.count_id).bind(command.occurred_at).execute(tx.as_mut()).await?;
+                let detail = fetch_cycle_detail_tx(tx, command.count_id).await?
+                    .ok_or_else(|| KernelError::internal("cycle count was not readable after line update"))?;
+                let audit = inventory_audit_event("inventory.cycle_count.line.upsert", Some(command.actor), Some(count.branch_id), "inventory_cycle_count", command.count_id, command.trace, command.occurred_at)?.with_org(org);
+                Ok((detail, vec![audit]))
+            })
+        }).await
     }
 
     pub async fn submit_cycle_count(
@@ -681,19 +710,106 @@ impl PgInventoryStore {
         command: CancelCycleCountCommand,
     ) -> Result<CycleCountDetail, PgInventoryError> {
         let org = current_org().map_err(KernelError::from)?;
-        with_audits::<_,CycleCountDetail,PgInventoryError>(&self.pool,org,|tx|Box::pin(async move{let count=lock_cycle_count_tx(tx,command.count_id).await?.ok_or_else(||KernelError::not_found("cycle count was not found"))?;ensure_branch_allowed(&command.branch_scope,count.branch_id)?;if !matches!(count.status,CycleCountStatus::Draft|CycleCountStatus::Submitted){return Err(KernelError::conflict("only draft or submitted cycle counts can be cancelled").into())};sqlx::query("UPDATE inventory_cycle_counts SET status='CANCELLED',version=version+1,updated_at=$2 WHERE id=$1").bind(command.count_id).bind(command.occurred_at).execute(tx.as_mut()).await?;let detail=fetch_cycle_detail_tx(tx,command.count_id).await?.ok_or_else(||KernelError::internal("cancelled count missing"))?;let audit=inventory_audit_event("inventory.cycle_count.cancel",Some(command.actor),Some(count.branch_id),"inventory_cycle_count",command.count_id,command.trace,command.occurred_at)?.with_org(org);Ok((detail,vec![audit]))})).await
+        with_audits::<_, CycleCountDetail, PgInventoryError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let count = lock_cycle_count_tx(tx, command.count_id).await?
+                    .ok_or_else(|| KernelError::not_found("cycle count was not found"))?;
+                ensure_branch_allowed(&command.branch_scope, count.branch_id)?;
+                if !matches!(count.status, CycleCountStatus::Draft | CycleCountStatus::Submitted)
+                    || count.version != command.expected_version {
+                    return Err(KernelError::conflict("cycle count version or state no longer permits cancellation").into());
+                }
+                sqlx::query("UPDATE inventory_cycle_counts SET status='CANCELLED',version=version+1,updated_at=$2 WHERE id=$1")
+                    .bind(command.count_id).bind(command.occurred_at).execute(tx.as_mut()).await?;
+                let detail = fetch_cycle_detail_tx(tx, command.count_id).await?
+                    .ok_or_else(|| KernelError::internal("cancelled count missing"))?;
+                let audit = inventory_audit_event("inventory.cycle_count.cancel", Some(command.actor), Some(count.branch_id), "inventory_cycle_count", command.count_id, command.trace, command.occurred_at)?.with_org(org);
+                Ok((detail, vec![audit]))
+            })
+        }).await
     }
 
     pub async fn decide_cycle_count(
         &self,
         command: DecideCycleCountCommand,
     ) -> Result<CycleCountDetail, PgInventoryError> {
-        let memo = normalize_optional_text(command.memo, 1000, "decision memo")?;
+        let memo = normalize_optional_text(command.memo, 1_000, "decision memo")?;
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        with_audits::<_,CycleCountDetail,PgInventoryError>(&self.pool,org,|tx|Box::pin(async move {let count=lock_cycle_count_tx(tx,command.count_id).await?.ok_or_else(||KernelError::not_found("cycle count was not found"))?;ensure_branch_allowed(&command.branch_scope,count.branch_id)?;if count.status!=CycleCountStatus::Submitted||count.version!=command.expected_version{return Err(KernelError::conflict("cycle count submitted version no longer matches").into())};let submitter:uuid::Uuid=sqlx::query_scalar("SELECT submitted_by FROM inventory_cycle_counts WHERE id=$1").bind(command.count_id).fetch_one(tx.as_mut()).await?;if submitter==*command.actor.as_uuid(){return Err(KernelError::forbidden("cycle count submitter cannot decide the count").into())};if matches!(command.decision,CycleCountDecision::Reject)&&memo.is_none(){return Err(KernelError::validation("rejection memo is required").into())};
-      match command.decision {CycleCountDecision::Reject=>{sqlx::query("UPDATE inventory_cycle_counts SET status='REJECTED',decided_by=$2,decided_at=$3,decision_memo=$4,version=version+1,updated_at=$3 WHERE id=$1").bind(command.count_id).bind(*command.actor.as_uuid()).bind(command.occurred_at).bind(memo).execute(tx.as_mut()).await?;},CycleCountDecision::Approve=>{let key=normalize_idempotency_key(command.idempotency_key.as_deref().ok_or_else(||KernelError::validation("approval idempotency key is required"))?)?;lock_inventory_idempotency_key_tx(tx,org,&key).await?;let fingerprint=sha256_hex(&format!("cycle-approval:v1:{}:{}:{}",command.count_id,command.expected_version,key));sqlx::query("UPDATE inventory_cycle_counts SET status='APPROVED',decided_by=$2,decided_at=$3,decision_memo=$4,decision_idempotency_key=$5,decision_request_fingerprint=$6,version=version+1,updated_at=$3 WHERE id=$1").bind(command.count_id).bind(*command.actor.as_uuid()).bind(command.occurred_at).bind(memo).bind(&key).bind(&fingerprint).execute(tx.as_mut()).await?;let lines=sqlx::query("SELECT item_id,counted_quantity_milli FROM inventory_cycle_count_lines WHERE count_id=$1 AND variance_milli<>0 ORDER BY item_id FOR UPDATE").bind(command.count_id).fetch_all(tx.as_mut()).await?;for line in lines {let item_id:uuid::Uuid=line.try_get("item_id")?;let counted:i64=line.try_get("counted_quantity_milli")?;let item=fetch_item_for_update_tx(tx,InventoryItemId::from_uuid(item_id)).await?.ok_or_else(||KernelError::internal("cycle count line item disappeared"))?;if item.branch_id!=count.branch_id||item.stock_location.id!=count.stock_location.id{return Err(KernelError::conflict("cycle count item moved outside count location").into())};let delta=counted-item.quantity_on_hand_milli;if delta==0{continue};let after=item.quantity_on_hand_milli.checked_add(delta).filter(|v|*v>=0).ok_or_else(||KernelError::conflict("cycle count adjustment would make stock negative"))?;let movement_id=uuid::Uuid::new_v4();sqlx::query("INSERT INTO inventory_movements(id,org_id,branch_id,item_id,stock_location_id,kind,quantity_delta_milli,quantity_before_milli,quantity_after_milli,cycle_count_id,actor_id,occurred_at) VALUES($1,$2,$3,$4,$5,'ADJUSTMENT',$6,$7,$8,$9,$10,$11)").bind(movement_id).bind(org_uuid).bind(*count.branch_id.as_uuid()).bind(item_id).bind(*count.stock_location.id.as_uuid()).bind(delta).bind(item.quantity_on_hand_milli).bind(after).bind(command.count_id).bind(*command.actor.as_uuid()).bind(command.occurred_at).execute(tx.as_mut()).await?;sqlx::query("UPDATE inventory_items SET quantity_on_hand_milli=$2,updated_at=$3 WHERE id=$1").bind(item_id).bind(after).bind(command.occurred_at).execute(tx.as_mut()).await?;}}}
-      let detail=fetch_cycle_detail_tx(tx,command.count_id).await?.ok_or_else(||KernelError::internal("decided count missing"))?;let audit=inventory_audit_event("inventory.cycle_count.decide",Some(command.actor),Some(count.branch_id),"inventory_cycle_count",command.count_id,command.trace,command.occurred_at)?.with_org(org);Ok((detail,vec![audit]))})).await
+        with_audits::<_, CycleCountDetail, PgInventoryError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let count = lock_cycle_count_tx(tx, command.count_id).await?
+                    .ok_or_else(|| KernelError::not_found("cycle count was not found"))?;
+                ensure_branch_allowed(&command.branch_scope, count.branch_id)?;
+
+                // An approve retry is evaluated against its whole canonical payload before
+                // mutable state/version checks. This keeps retries safe after the first
+                // transaction advanced the aggregate version.
+                if matches!(command.decision, CycleCountDecision::Approve) {
+                    let key = normalize_idempotency_key(command.idempotency_key.as_deref()
+                        .ok_or_else(|| KernelError::validation("approval idempotency key is required"))?)?;
+                    lock_inventory_idempotency_key_tx(tx, org, &key).await?;
+                    let fingerprint = cycle_approval_fingerprint(command.count_id, command.expected_version, command.actor, memo.as_deref());
+                    if let Some((existing_count_id, existing_fingerprint)) = sqlx::query_as::<_, (uuid::Uuid, String)>(
+                        "SELECT id, decision_request_fingerprint FROM inventory_cycle_counts WHERE decision_idempotency_key=$1"
+                    ).bind(&key).fetch_optional(tx.as_mut()).await? {
+                        if existing_count_id != command.count_id || existing_fingerprint != fingerprint {
+                            return Err(KernelError::conflict("approval idempotency key was already used with a different cycle decision payload").into());
+                        }
+                        let detail = fetch_cycle_detail_tx(tx, command.count_id).await?
+                            .ok_or_else(|| KernelError::internal("idempotent cycle approval was not readable"))?;
+                        return Ok((detail, Vec::new()));
+                    }
+                    if count.status != CycleCountStatus::Submitted || count.version != command.expected_version {
+                        return Err(KernelError::conflict("cycle count submitted version no longer matches").into());
+                    }
+                    let submitter: uuid::Uuid = sqlx::query_scalar("SELECT submitted_by FROM inventory_cycle_counts WHERE id=$1")
+                        .bind(command.count_id).fetch_one(tx.as_mut()).await?;
+                    if submitter == *command.actor.as_uuid() {
+                        return Err(KernelError::forbidden("cycle count submitter cannot decide the count").into());
+                    }
+                    sqlx::query("UPDATE inventory_cycle_counts SET status='APPROVED',decided_by=$2,decided_at=$3,decision_memo=$4,decision_idempotency_key=$5,decision_request_fingerprint=$6,version=version+1,updated_at=$3 WHERE id=$1")
+                        .bind(command.count_id).bind(*command.actor.as_uuid()).bind(command.occurred_at).bind(memo)
+                        .bind(&key).bind(&fingerprint).execute(tx.as_mut()).await?;
+                    let lines = sqlx::query("SELECT item_id, variance_milli FROM inventory_cycle_count_lines WHERE count_id=$1 AND variance_milli<>0 ORDER BY item_id FOR UPDATE")
+                        .bind(command.count_id).fetch_all(tx.as_mut()).await?;
+                    for line in lines {
+                        let item_id: uuid::Uuid = line.try_get("item_id")?;
+                        // The recorded variance is immutable evidence. Apply it to the
+                        // currently locked stock so receipts/issues after counting survive.
+                        let delta: i64 = line.try_get("variance_milli")?;
+                        let item = fetch_item_for_update_tx(tx, InventoryItemId::from_uuid(item_id)).await?
+                            .ok_or_else(|| KernelError::internal("cycle count line item disappeared"))?;
+                        if item.branch_id != count.branch_id || item.stock_location.id != count.stock_location.id {
+                            return Err(KernelError::conflict("cycle count item moved outside count location").into());
+                        }
+                        let after = item.quantity_on_hand_milli.checked_add(delta).filter(|value| *value >= 0)
+                            .ok_or_else(|| KernelError::conflict("cycle count adjustment would make stock negative"))?;
+                        let movement_id = uuid::Uuid::new_v4();
+                        sqlx::query("INSERT INTO inventory_movements(id,org_id,branch_id,item_id,stock_location_id,kind,quantity_delta_milli,quantity_before_milli,quantity_after_milli,cycle_count_id,actor_id,occurred_at) VALUES($1,$2,$3,$4,$5,'ADJUSTMENT',$6,$7,$8,$9,$10,$11)")
+                            .bind(movement_id).bind(org_uuid).bind(*count.branch_id.as_uuid()).bind(item_id).bind(*count.stock_location.id.as_uuid())
+                            .bind(delta).bind(item.quantity_on_hand_milli).bind(after).bind(command.count_id).bind(*command.actor.as_uuid()).bind(command.occurred_at)
+                            .execute(tx.as_mut()).await?;
+                        sqlx::query("UPDATE inventory_items SET quantity_on_hand_milli=$2,updated_at=$3 WHERE id=$1")
+                            .bind(item_id).bind(after).bind(command.occurred_at).execute(tx.as_mut()).await?;
+                    }
+                } else {
+                    if count.status != CycleCountStatus::Submitted || count.version != command.expected_version {
+                        return Err(KernelError::conflict("cycle count submitted version no longer matches").into());
+                    }
+                    let submitter: uuid::Uuid = sqlx::query_scalar("SELECT submitted_by FROM inventory_cycle_counts WHERE id=$1")
+                        .bind(command.count_id).fetch_one(tx.as_mut()).await?;
+                    if submitter == *command.actor.as_uuid() { return Err(KernelError::forbidden("cycle count submitter cannot decide the count").into()); }
+                    if memo.is_none() { return Err(KernelError::validation("rejection memo is required").into()); }
+                    sqlx::query("UPDATE inventory_cycle_counts SET status='REJECTED',decided_by=$2,decided_at=$3,decision_memo=$4,version=version+1,updated_at=$3 WHERE id=$1")
+                        .bind(command.count_id).bind(*command.actor.as_uuid()).bind(command.occurred_at).bind(memo).execute(tx.as_mut()).await?;
+                }
+                let detail = fetch_cycle_detail_tx(tx, command.count_id).await?
+                    .ok_or_else(|| KernelError::internal("decided count missing"))?;
+                let audit = inventory_audit_event("inventory.cycle_count.decide", Some(command.actor), Some(count.branch_id), "inventory_cycle_count", command.count_id, command.trace, command.occurred_at)?.with_org(org);
+                Ok((detail, vec![audit]))
+            })
+        }).await
     }
 }
 
@@ -1233,6 +1349,27 @@ fn normalize_source_ref(value: Option<String>) -> Result<Option<String>, KernelE
     }
 }
 
+fn cycle_approval_fingerprint(
+    count_id: uuid::Uuid,
+    expected_version: i32,
+    actor: UserId,
+    memo: Option<&str>,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"cycle-approval:v2");
+    hasher.update(count_id.as_bytes());
+    hasher.update(expected_version.to_be_bytes());
+    hasher.update(actor.as_uuid().as_bytes());
+    match memo {
+        Some(value) => {
+            hasher.update([1]);
+            hasher.update(value.as_bytes());
+        }
+        None => hasher.update([0]),
+    }
+    hex::encode(hasher.finalize())
+}
+
 fn receipt_fingerprint(
     item_id: InventoryItemId,
     quantity: PositiveQuantityMilli,
@@ -1459,6 +1596,34 @@ mod tests {
             Some("PO-118")
         );
         assert!(normalize_source_ref(Some("po-118".to_owned())).is_err());
+    }
+
+    #[test]
+    fn cycle_approval_fingerprint_covers_actor_memo_and_optimistic_payload() {
+        let count = uuid::Uuid::from_u128(7);
+        let actor = UserId::from_uuid(uuid::Uuid::from_u128(8));
+        let same = cycle_approval_fingerprint(count, 4, actor, Some("verified"));
+        assert_eq!(
+            same,
+            cycle_approval_fingerprint(count, 4, actor, Some("verified"))
+        );
+        assert_ne!(
+            same,
+            cycle_approval_fingerprint(count, 5, actor, Some("verified"))
+        );
+        assert_ne!(
+            same,
+            cycle_approval_fingerprint(
+                count,
+                4,
+                UserId::from_uuid(uuid::Uuid::from_u128(9)),
+                Some("verified")
+            )
+        );
+        assert_ne!(
+            same,
+            cycle_approval_fingerprint(count, 4, actor, Some("amended"))
+        );
     }
 
     #[test]
