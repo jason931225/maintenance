@@ -4,10 +4,12 @@
 CREATE TABLE ont_action_command_receipts (
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     command_id UUID NOT NULL,
+    actor_id UUID NOT NULL,
     payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32),
     receipt JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (org_id, command_id)
+    PRIMARY KEY (org_id, command_id),
+    FOREIGN KEY (actor_id, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
 );
 
 ALTER TABLE ont_action_command_receipts ENABLE ROW LEVEL SECURITY;

@@ -64,6 +64,7 @@ use mnt_platform_request_context::current_org;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -1068,9 +1069,13 @@ async fn instance_revision_writeback(
                 .bind(command_id.to_string())
                 .execute(tx.as_mut()).await?;
             if let Some(row) = sqlx::query(
-                "SELECT payload_digest, receipt FROM ont_action_command_receipts WHERE org_id = $1 AND command_id = $2",
+                "SELECT actor_id, payload_digest, receipt FROM ont_action_command_receipts WHERE org_id = $1 AND command_id = $2",
             )
             .bind(*org.as_uuid()).bind(command_id).fetch_optional(tx.as_mut()).await? {
+                let receipt_actor: Uuid = row.try_get("actor_id")?;
+                if receipt_actor != *actor.as_uuid() {
+                    return Err(KernelError::forbidden("command_id belongs to another principal").into());
+                }
                 let stored: Vec<u8> = row.try_get("payload_digest")?;
                 if stored != payload_digest {
                     return Err(KernelError::conflict("command_id was already used with a different payload").into());
@@ -1181,8 +1186,8 @@ async fn instance_revision_writeback(
                 gates,
             };
             sqlx::query(
-                "INSERT INTO ont_action_command_receipts (org_id, command_id, payload_digest, receipt, created_at) VALUES ($1, $2, $3, $4, $5)",
-            ).bind(*org.as_uuid()).bind(command_id).bind(&payload_digest)
+                "INSERT INTO ont_action_command_receipts (org_id, command_id, actor_id, payload_digest, receipt, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+            ).bind(*org.as_uuid()).bind(command_id).bind(*actor.as_uuid()).bind(&payload_digest)
                 .bind(serde_json::to_value(&receipt).map_err(|e| KernelError::validation(format!("command receipt did not serialize: {e}")))?)
                 .bind(now).execute(tx.as_mut()).await?;
             Ok((receipt, vec![event]))

@@ -12504,6 +12504,9 @@ export interface components {
             instance: {
                 [key: string]: unknown;
             };
+            gates: {
+                [key: string]: unknown;
+            };
         };
         OntologyActionExecuteOutcome: {
             /** @enum {string} */
@@ -12518,6 +12521,32 @@ export interface components {
                 [key: string]: unknown;
             };
             receipt?: components["schemas"]["OntologyActionCommandReceipt"];
+        };
+        HrReadinessSummary: {
+            imports: {
+                /** Format: int64 */
+                runs: number;
+                /** Format: int64 */
+                applied_runs: number;
+                /** Format: int64 */
+                input_rows: number;
+                /** Format: int64 */
+                candidate_rows: number;
+                /** Format: int64 */
+                preserved_rows: number;
+                /** Format: int64 */
+                ledger_rows: number;
+                latest_import_at?: components["schemas"]["Timestamp"];
+            };
+            payroll: {
+                [key: string]: unknown;
+            };
+            annual_leave: {
+                [key: string]: unknown;
+            };
+            attendance: {
+                [key: string]: unknown;
+            };
         };
         GovernanceOpenOverrideRequest: {
             target_type: string;
@@ -15255,7 +15284,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OntologyActionExecuteOutcome"];
+                    "application/json": components["schemas"]["HrReadinessSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];

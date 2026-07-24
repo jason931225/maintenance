@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  * @param commandId
  * @param payloadDigest
  * @param instance
+ * @param gates
  */
 @Serializable
 
@@ -46,7 +47,10 @@ data class OntologyActionCommandReceipt (
     val payloadDigest: kotlin.String,
 
     @Contextual @SerialName(value = "instance")
-    val instance: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+    val instance: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>,
+
+    @Contextual @SerialName(value = "gates")
+    val gates: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
 
 ) {
 

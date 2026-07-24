@@ -39,9 +39,9 @@ import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.HrOrgChartResponse
+import com.maintenance.api.client.model.HrReadinessSummary
 import com.maintenance.api.client.model.ImportApplyRequest
 import com.maintenance.api.client.model.LeaveBalancePage
-import com.maintenance.api.client.model.OntologyActionExecuteOutcome
 import com.maintenance.api.client.model.ReportEmployeeExitCaseRequest
 
 import kotlinx.serialization.SerialName
@@ -614,7 +614,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * GET /api/v1/hr/readiness-summary
      * Read HR data readiness counters
      * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
-     * @return OntologyActionExecuteOutcome
+     * @return HrReadinessSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -623,11 +623,11 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getHrReadinessSummary() : OntologyActionExecuteOutcome = withContext(Dispatchers.IO) {
+    suspend fun getHrReadinessSummary() : HrReadinessSummary = withContext(Dispatchers.IO) {
         val localVarResponse = getHrReadinessSummaryWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as OntologyActionExecuteOutcome
+            ResponseType.Success -> (localVarResponse as Success<*>).data as HrReadinessSummary
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -645,16 +645,16 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * GET /api/v1/hr/readiness-summary
      * Read HR data readiness counters
      * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
-     * @return ApiResponse<OntologyActionExecuteOutcome?>
+     * @return ApiResponse<HrReadinessSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<OntologyActionExecuteOutcome?> = withContext(Dispatchers.IO) {
+    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<HrReadinessSummary?> = withContext(Dispatchers.IO) {
         val localVariableConfig = getHrReadinessSummaryRequestConfig()
 
-        return@withContext request<Unit, OntologyActionExecuteOutcome>(
+        return@withContext request<Unit, HrReadinessSummary>(
             localVariableConfig
         )
     }

@@ -1994,7 +1994,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OntologyActionExecuteOutcome'
+                $ref: '#/components/schemas/HrReadinessSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -26469,6 +26469,7 @@ components:
       - command_id
       - payload_digest
       - instance
+      - gates
       properties:
         command_id:
           $ref: '#/components/schemas/Uuid'
@@ -26476,6 +26477,9 @@ components:
           type: string
           pattern: '^[a-f0-9]{64}$'
         instance:
+          type: object
+          additionalProperties: true
+        gates:
           type: object
           additionalProperties: true
     OntologyActionExecuteOutcome:
@@ -26498,6 +26502,30 @@ components:
           additionalProperties: true
         receipt:
           $ref: '#/components/schemas/OntologyActionCommandReceipt'
+    HrReadinessSummary:
+      type: object
+      required: [imports, payroll, annual_leave, attendance]
+      properties:
+        imports:
+          type: object
+          required: [runs, applied_runs, input_rows, candidate_rows, preserved_rows, ledger_rows]
+          properties:
+            runs: { type: integer, format: int64 }
+            applied_runs: { type: integer, format: int64 }
+            input_rows: { type: integer, format: int64 }
+            candidate_rows: { type: integer, format: int64 }
+            preserved_rows: { type: integer, format: int64 }
+            ledger_rows: { type: integer, format: int64 }
+            latest_import_at: { $ref: '#/components/schemas/Timestamp' }
+        payroll:
+          type: object
+          additionalProperties: true
+        annual_leave:
+          type: object
+          additionalProperties: true
+        attendance:
+          type: object
+          additionalProperties: true
     GovernanceOpenOverrideRequest:
       type: object
       required:
