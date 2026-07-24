@@ -31,6 +31,7 @@ use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_rest::CommsRestState;
 use mnt_compliance_adapter_postgres::PgComplianceStore;
 use mnt_compliance_rest::ComplianceRestState;
+use mnt_consulting_rest::ConsultingRestState;
 use mnt_dispatch_adapter_postgres::PgDispatchStore;
 use mnt_dispatch_domain::DispatchTimerConfig;
 use mnt_dispatch_rest::DispatchRestState;
@@ -214,6 +215,10 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "benefit",
         paths: mnt_benefit_rest::BENEFIT_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "consulting",
+        paths: mnt_consulting_rest::CONSULTING_ROUTE_PATHS,
     },
     ConfiguredRouteSurface {
         name: "financial",
@@ -2930,6 +2935,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_benefit_rest::router(BenefitRestState::new(
                     benefit_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_consulting_rest::router(ConsultingRestState::new(
+                    pool.clone(),
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_todos_rest::router(TodoRestState::new(

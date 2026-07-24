@@ -23,14 +23,15 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 78] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 80] {
     use Feature::{
         AiAssist, ApprovalFinalize, AssigneeManage, AuditLogRead, AuditStreamAccessLogRead,
         AuditStreamRead, BenefitCatalogManage, BenefitCatalogRead, BranchManage, CompletionReview,
-        ComplianceDomainManage, ComplianceDomainRead, ComplianceEvidenceLink, DailyPlanRequest,
-        DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage, EmployeeDirectoryRead,
-        EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach,
-        ExcelDownload, ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport, ExitSettlementManage,
+        ComplianceDomainManage, ComplianceDomainRead, ComplianceEvidenceLink, ConsultingManage,
+        ConsultingRead, DailyPlanRequest, DailyPlanReview, ElevatedRoleGrant,
+        EmployeeDirectoryManage, EmployeeDirectoryRead, EquipmentCostLedgerRead,
+        EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach, ExcelDownload,
+        ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport, ExitSettlementManage,
         FacilitiesAccept, FacilitiesDispatch, FacilitiesExecute, FacilitiesManage,
         FacilitiesObserve, InspectionRoundComplete, InspectionScheduleManage,
         IntegrityFindingTriage, IntegrityFindingsRead, InventoryConsume, InventoryManage,
@@ -118,6 +119,9 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 78] {
         (ComplianceDomainRead, [D, D, D, A, A, A]),
         (ComplianceDomainManage, [D, D, D, A, D, A]),
         (ComplianceEvidenceLink, [D, D, D, A, D, A]),
+        // Consulting is capability-driven from its first slice.
+        (ConsultingRead, [D, D, D, D, D, D]),
+        (ConsultingManage, [D, D, D, D, D, D]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
         // strategy also names AI 조회 as a branch-filtered server API surface.
         // T0.6's brief requires 22 features, so the AI assistant seam is
@@ -821,7 +825,7 @@ fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 78);
+    assert_eq!(Feature::ALL.len(), 80);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

@@ -2788,6 +2788,7 @@ dependencies = [
  "mnt-comms-rest",
  "mnt-compliance-adapter-postgres",
  "mnt-compliance-rest",
+ "mnt-consulting-rest",
  "mnt-dispatch-adapter-postgres",
  "mnt-dispatch-domain",
  "mnt-dispatch-rest",
@@ -3151,6 +3152,24 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
+]
+
+[[package]]
+name = "mnt-consulting-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "time",
+ "uuid",
 ]
 
 [[package]]

@@ -199,6 +199,11 @@ pub enum Feature {
     BenefitCatalogRead,
     /// Create and maintain tenant benefit-catalog rows, tiers, and conditions.
     BenefitCatalogManage,
+    /// Dedicated consulting pilot read gate. Kept distinct from benefit policy
+    /// management so rollout may remain dark without borrowing authority.
+    ConsultingRead,
+    /// Dedicated consulting pilot mutation gate.
+    ConsultingManage,
     /// Read the tenant compliance domain (regulations, obligations, frameworks,
     /// and controls). Org-wide catalog rows require an org-wide principal;
     /// branch-scoped obligations are separately authorized at their branch.
@@ -300,7 +305,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 78] = [
+    pub const ALL: [Self; 80] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -353,6 +358,8 @@ impl Feature {
         Self::InventoryReorder,
         Self::BenefitCatalogRead,
         Self::BenefitCatalogManage,
+        Self::ConsultingRead,
+        Self::ConsultingManage,
         Self::ComplianceDomainRead,
         Self::ComplianceDomainManage,
         Self::ComplianceEvidenceLink,
@@ -436,6 +443,8 @@ impl Feature {
             Self::InventoryReorder => "inventory_reorder",
             Self::BenefitCatalogRead => "benefit_catalog_read",
             Self::BenefitCatalogManage => "benefit_catalog_manage",
+            Self::ConsultingRead => "consulting_read",
+            Self::ConsultingManage => "consulting_manage",
             Self::ComplianceDomainRead => "compliance_domain_read",
             Self::ComplianceDomainManage => "compliance_domain_manage",
             Self::ComplianceEvidenceLink => "compliance_evidence_link",
@@ -537,6 +546,9 @@ impl Feature {
             // executives can read org-wide catalog state for policy oversight.
             Self::BenefitCatalogRead => [D, D, D, A, A, A],
             Self::BenefitCatalogManage => [D, D, D, A, D, A],
+            // Deliberately deny every built-in role while the console is dark.
+            Self::ConsultingRead => [D, D, D, D, D, D],
+            Self::ConsultingManage => [D, D, D, D, D, D],
             // Compliance's org-owned catalog objects are additionally guarded
             // by the REST boundary's org-wide scope check. The ADMIN cells keep
             // branch-scoped obligation work available without granting an
@@ -650,6 +662,8 @@ impl FromStr for Feature {
             "inventory_reorder" => Ok(Self::InventoryReorder),
             "benefit_catalog_read" => Ok(Self::BenefitCatalogRead),
             "benefit_catalog_manage" => Ok(Self::BenefitCatalogManage),
+            "consulting_read" => Ok(Self::ConsultingRead),
+            "consulting_manage" => Ok(Self::ConsultingManage),
             "compliance_domain_read" => Ok(Self::ComplianceDomainRead),
             "compliance_domain_manage" => Ok(Self::ComplianceDomainManage),
             "compliance_evidence_link" => Ok(Self::ComplianceEvidenceLink),

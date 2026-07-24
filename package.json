@@ -41,6 +41,7 @@
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",
     "test:employee-import-contract": "node --test scripts/check-employee-import-replay-contract.test.mjs",
+    "test:consulting-conflict-contract": "node --test scripts/check-consulting-conflict-contract.test.mjs",
     "test:ontology-write-precondition": "node --test scripts/check-ontology-write-precondition.test.mjs",
     "check:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.py",
     "test:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.test.py",

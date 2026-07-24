@@ -7282,6 +7282,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/consulting/engagements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listConsultingEngagements"];
+        put?: never;
+        post: operations["createConsultingEngagement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getConsultingEngagement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createConsultingDiagnostic"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createConsultingFinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}/initiatives": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createConsultingInitiative"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["transitionConsultingEngagement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createConsultingBenefitObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/consulting/engagements/{engagement_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listConsultingEngagementHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7418,6 +7546,127 @@ export interface components {
             tiers: components["schemas"]["BenefitCatalogTier"][];
             conditions: components["schemas"]["BenefitCatalogCondition"][];
             lifecycle: components["schemas"]["BenefitCatalogLifecycleBinding"];
+        };
+        ConsultingEngagement: {
+            id: components["schemas"]["Uuid"];
+            customer_id: components["schemas"]["Uuid"];
+            customer_document_id?: components["schemas"]["Uuid"];
+            ontology_instance_id?: components["schemas"]["Uuid"];
+            title: string;
+            /** @enum {string} */
+            status: "DRAFT" | "PROPOSED" | "APPROVED" | "IMPLEMENTED" | "MEASURED" | "SUSTAINED" | "CORRECTIVE";
+            approval_id?: components["schemas"]["Uuid"];
+            workflow_execution_id?: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ConsultingEngagementPage: {
+            items: components["schemas"]["ConsultingEngagement"][];
+            limit: number;
+            offset: number;
+            total: number;
+        };
+        ConsultingEngagementDetail: components["schemas"]["ConsultingEngagement"] & {
+            diagnostics: components["schemas"]["ConsultingDiagnostic"][];
+            findings: components["schemas"]["ConsultingFinding"][];
+            initiatives: components["schemas"]["ConsultingInitiative"][];
+            observations: components["schemas"]["ConsultingBenefitObservation"][];
+        };
+        ConsultingEngagementCreateRequest: {
+            customerId: components["schemas"]["Uuid"];
+            customerDocumentId?: components["schemas"]["Uuid"];
+            ontologyInstanceId?: components["schemas"]["Uuid"];
+            title: string;
+            idempotencyKey: string;
+        };
+        ConsultingDiagnostic: {
+            id: components["schemas"]["Uuid"];
+            summary: string;
+            document_id?: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConsultingDiagnosticCreateRequest: {
+            summary: string;
+            documentId?: components["schemas"]["Uuid"];
+        };
+        ConsultingFinding: {
+            id: components["schemas"]["Uuid"];
+            diagnostic_id: components["schemas"]["Uuid"];
+            statement: string;
+            evidence_id: components["schemas"]["Uuid"];
+            document_id?: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConsultingFindingCreateRequest: {
+            diagnosticId: components["schemas"]["Uuid"];
+            statement: string;
+            evidenceId: components["schemas"]["Uuid"];
+            documentId?: components["schemas"]["Uuid"];
+        };
+        ConsultingInitiative: {
+            id: components["schemas"]["Uuid"];
+            finding_id: components["schemas"]["Uuid"];
+            title: string;
+            hypothesis: string;
+            kpi_definition_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            target_direction: "INCREASE" | "DECREASE";
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConsultingInitiativeCreateRequest: {
+            findingId: components["schemas"]["Uuid"];
+            title: string;
+            hypothesis: string;
+            kpiDefinitionId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            targetDirection: "INCREASE" | "DECREASE";
+        };
+        ConsultingBenefitObservation: {
+            id: components["schemas"]["Uuid"];
+            initiative_id: components["schemas"]["Uuid"];
+            kpi_definition_id: components["schemas"]["Uuid"];
+            evidence_id: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            observed_at: string;
+            note: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConsultingObservationCreateRequest: {
+            initiativeId: components["schemas"]["Uuid"];
+            kpiDefinitionId: components["schemas"]["Uuid"];
+            evidenceId: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            observedAt: string;
+            note: string;
+        };
+        ConsultingTransitionRequest: {
+            /** @enum {string} */
+            toStatus: "PROPOSED" | "APPROVED" | "IMPLEMENTED" | "MEASURED" | "SUSTAINED" | "CORRECTIVE";
+            /** Format: int64 */
+            expectedVersion: number;
+            approvalId?: components["schemas"]["Uuid"];
+            reason: string;
+        };
+        ConsultingHistoryEntry: {
+            id: components["schemas"]["Uuid"];
+            event_type: string;
+            from_status?: string | null;
+            to_status?: string | null;
+            /** Format: int64 */
+            version: number;
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            occurred_at: string;
         };
         /** @enum {string} */
         ComplianceRiskLevel: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -26158,6 +26407,248 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+        };
+    };
+    listConsultingEngagements: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant-visible engagements */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingEngagementPage"];
+                };
+            };
+        };
+    };
+    createConsultingEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsultingEngagementCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created or idempotently replayed original response for this exact idempotency key and request payload */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingEngagement"];
+                };
+            };
+            /** @description Idempotency key was previously used with a different request payload */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getConsultingEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence and KPI-lineage detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingEngagementDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createConsultingDiagnostic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsultingDiagnosticCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created diagnostic */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingDiagnostic"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createConsultingFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsultingFindingCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created evidence-linked finding */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingFinding"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createConsultingInitiative: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsultingInitiativeCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created KPI-referenced initiative */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingInitiative"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    transitionConsultingEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsultingTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Transitioned engagement */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingEngagement"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createConsultingBenefitObservation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsultingObservationCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description KPI/evidence lineage reference */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingBenefitObservation"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listConsultingEngagementHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Append-only engagement history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultingHistoryEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }
