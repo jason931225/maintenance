@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.1",
+  "task_id": "t_50c98255",
+  "artifact_set": "PF-REF3 official Palantir parity-reference repair",
+  "generated_at": "2026-07-19T18:52:00Z",
+  "input_custody": [
+    {"task":"t_a2c4119f","attachment_id":1180,"filename":"PF-REF1-palantir-official-source-ledger-2026-07-19.json","sha256":"0094f259efea9e276a70eb143500d1720561bb31cd376dbdeeda715625818847"},
+    {"task":"t_a2c4119f","attachment_id":1181,"filename":"PF-REF1-palantir-official-capability-matrix-2026-07-19.md","sha256":"82a42ba7eed5ebefcb3f5c665025372c1381c874de4134e7e2bec5d2a4219b42"},
+    {"task":"t_a2c4119f","attachment_id":1182,"filename":"PF-REF1-palantir-official-synthesis-2026-07-19.md","sha256":"af163723cd18d32dab77ac2b14f79762306b291b0826d72c9c41f894c7944e5e"},
+    {"task":"t_a2c4119f","attachment_id":1183,"filename":"PF-REF1-palantir-official-receipt-2026-07-19.md","sha256":"e112a1a5186990866a31894edb43b255d6ef3d31c3a2b8015909207502e03bab"},
+    {"task":"t_4355e336","attachment_id":1210,"filename":"PF-REF2-palantir-fresh-official-review-2026-07-19.md","sha256":"843436b8546292c33e557a309bb7d8e1e1b68531c2b80fe4f527f9bf9176d1d9"},
+    {"task":"t_4355e336","attachment_id":1211,"filename":"PF-REF2-palantir-review-manifest-2026-07-19.json","sha256":"a6af7ebea4fff85f28c87830a18eb197f49db4b19e8ec94ed571bfe1e17056a4"},
+    {"task":"t_4355e336","attachment_id":1212,"filename":"PF-REF2-palantir-review-receipt-2026-07-19.md","sha256":"f0e540df033daab1a2b4e9ffbe8a7820d548686b32e66400c1a11d026015f5b4"}
+  ],
+  "lifecycle_custody": {"path":"/Users/jasonlee/Developer/canonical-no-regrets-engineering-lifecycle.md","sha256_verified":"25778cd94a64062e3976673bab91c93f252840faef0f6f9280374eb8aad846cf","operation":"read_only"},
+  "artifacts_before_upload": [
+    {"path":"docs/evidence/PF-REF3-palantir-official-source-ledger-2026-07-19.json","sha256":"c01e9dbdb4be63574775ab2d2b79819cdea57c87aba70ac9423527f99bf820c4","kind":"source_ledger"},
+    {"path":"docs/evidence/PF-REF3-palantir-official-capability-matrix-2026-07-19.md","sha256":"db7b6d9888b79a5477c0279bf9c31436cc7077b9ffabbe03ed2b34cb2fde7fb3","kind":"capability_matrix"},
+    {"path":"docs/evidence/PF-REF3-palantir-official-synthesis-route249-handoff-2026-07-19.md","sha256":"a839623bcc8dd617667d8d75610fbfd647df6cf1842de32a9cb02ef7126f835e","kind":"synthesis_route249_handoff"}
+  ],
+  "source_revalidation": {"official_domain":"www.palantir.com","direct_urls":31,"http_200":31,"retrieved_at_range_utc":"2026-07-19T18:47:37Z..2026-07-19T18:49:40Z","per_source_metadata":"canonical_url,retrieved_at,http_status,source_date_status,current_availability_qualification,section_claim_mappings","source_date_policy":"not_exposed_on_rendered_page unless explicitly noted; do not infer a publication/update date from a footer/copyright year or crawler date"},
+  "remediation": {
+    "PF2-01":"P22 records the formerly unledgered Functions getting-started URL.",
+    "PF2-02":"P23-P31 add narrow official coverage for Builds, Pipeline Builder, transforms, Workflow Lineage, policy/versioning, and operations.",
+    "PF2-03":"M01-M14 classify sourced declaration, inference, console requirement, and held claim separately; C01-C12 are console-only tests.",
+    "PF2-04":"P09 and P12 carry their separate current caveats and every source has per-page custody metadata."
+  },
+  "hard_gates": [
+    {"gate":"official_direct_source_only","result":"PASS","evidence":"31 direct Palantir documentation URLs, each live HTTP 200"},
+    {"gate":"source_custody","result":"PASS","evidence":"P22 added to controlling ledger; all matrix source IDs resolve to ledger entries"},
+    {"gate":"requested_coverage","result":"PASS","evidence":"P23-P31 separately map Builds, Pipeline Builder/transforms, Workflow Lineage, policy/versioning, and observability"},
+    {"gate":"declared_vs_inferred_boundary","result":"PASS","evidence":"four-way matrix classification; held inventory names unsupported semantics"},
+    {"gate":"P09_P12_attribution","result":"PASS","evidence":"P09 Action-type migration distinct from P12 project-permission migration/enrollment"},
+    {"gate":"beyond_parity_nonclaim","result":"PASS","evidence":"Korea, legal hold/DSR, PostgreSQL RLS, fresh fence/idempotency and tamper-evident audit are console-only"},
+    {"gate":"product_program_lifecycle_mutation","result":"PASS","evidence":"evidence-path artifacts only; lifecycle checksum reverified read-only"},
+    {"gate":"fresh_independent_review","result":"PENDING_REQUIRED","evidence":"terminal status intentionally requests a new independent review"}
+  ],
+  "algorithmic_routing_receipt": {
+    "role":"researcher",
+    "model_family":"GPT-5.6",
+    "model_used":"gpt-5.6-terra",
+    "no_gpt_5_5":"true",
+    "hard_gate_mode":"enabled; hard-gate failure overrides utility",
+    "utility_formula":"U=0.72Q+0.13E+0.15T",
+    "quality_bias":"quality weighted highest"
+  },
+  "terminal_request":"OFFICIAL_PARITY_REFERENCE_REPAIR_COMPLETE_PENDING_FRESH_REVIEW",
+  "non_claim":"This manifest does not claim product implementation, deployed behavior, or Palantir parity."
+}
