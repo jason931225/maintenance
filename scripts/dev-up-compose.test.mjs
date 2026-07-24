@@ -33,6 +33,8 @@ const commandRoleInit = readFileSync(
   new URL("../ops/postgres-reconcile-topology.sh", import.meta.url),
   "utf8",
 );
+const ciGates = readFileSync(new URL("../docs/CI-GATES.md", import.meta.url), "utf8");
+const playwrightConfig = readFileSync(new URL("../playwright.config.ts", import.meta.url), "utf8");
 
 test("mox localserve creates its config below the named volume root", () => {
   assert.match(compose, /localserve/);
@@ -381,5 +383,34 @@ test("dev-auth bootstrap alone enables the console preview and CI preserves the 
     ci,
     /Dev-mode e2e[\s\S]*?MNT_DEV_AUTH_E2E: "1"[\s\S]*?VITE_CONSOLE_DEV_PREVIEW: "1"/,
     "CI test selection must use the same paired flags",
+  );
+});
+
+test("authoritative dev-auth instructions pair console preview with every Attendance command", () => {
+  const pairedEnv = "MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1";
+  const documentedCommands = [
+    `${pairedEnv} npm run dev:bootstrap`,
+    `${pairedEnv} node scripts/dev-up.mjs bootstrap`,
+    `${pairedEnv} npx playwright test --project=dev-auth`,
+  ];
+  for (const command of documentedCommands) {
+    assert.match(ciGates, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  for (const command of ciGates.matchAll(/`([^`]+)`/g)) {
+    const value = command[1];
+    if (
+      value.includes("MNT_DEV_AUTH_E2E=1") ||
+      value.includes("npx playwright test --project=dev-auth")
+    ) {
+      assert.match(value, /MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1/);
+    }
+  }
+  assert.match(
+    playwrightConfig,
+    /MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1[\s\S]*?node scripts\/dev-up\.mjs bootstrap/,
+  );
+  assert.match(
+    playwrightConfig,
+    /MNT_DEV_AUTH_E2E=1[\s\S]*?VITE_CONSOLE_DEV_PREVIEW=1[\s\S]*?npx playwright test --project=dev-auth/,
   );
 });

@@ -111,8 +111,10 @@ swift run --package-path ios MaintenanceFieldCoreBehaviorTests
 CI also runs heavier or runner-contextual gates. Reproduce them locally only when
 their prerequisites are available:
 
-- `npm run dev:bootstrap`, `/readyz`, `MNT_DEV_AUTH_E2E=1 npm run dev:bootstrap`,
-  and `npx playwright test --project=dev-auth` for the dev-up/dev-auth smoke.
+- `npm run dev:bootstrap`, `/readyz`,
+  `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 npm run dev:bootstrap`, and
+  `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`
+  for the dev-up/dev-auth smoke.
 - `bash e2e/run.sh` for the full browser user-story suite after Postgres, Python
   helpers, Rust backend, Node dependencies, and Playwright Chromium are ready.
 - `./gradlew fieldApi34DebugAndroidTest` for Android instrumented E2E after
@@ -223,8 +225,9 @@ names only, not incidental workflow prose or runner setup text.
   `mnt-platform-provisioning`.
 - **dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e**:
   `node scripts/dev-up.mjs bootstrap`, `/readyz` curl, `node scripts/dev-up.mjs
-  down`, dev-auth bootstrap with `MNT_DEV_AUTH_E2E=1`, and `npx playwright test
-  --project=dev-auth`.
+  down`, dev-auth bootstrap with
+  `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 node scripts/dev-up.mjs bootstrap`, and
+  `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`.
 - **API clients — TypeScript / Kotlin generation and compile**:
   `npm run gen:api:portable`, `git diff --exit-code -- clients/ts
   clients/kotlin`, `npm run check:ts`, and `npm run check:kotlin`. The local
@@ -855,8 +858,9 @@ The dev-up smoke and browser E2E jobs are local only when their service/runtime
 dependencies are available:
 
 - **dev-up smoke:** `node scripts/dev-up.mjs bootstrap`, `/readyz`, cleanup with
-  `node scripts/dev-up.mjs down`, dev-auth bootstrap with `MNT_DEV_AUTH_E2E=1`,
-  and `npx playwright test --project=dev-auth`.
+  `node scripts/dev-up.mjs down`, dev-auth bootstrap with
+  `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 node scripts/dev-up.mjs bootstrap`, and
+  `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`.
 - **Browser E2E:** `bash e2e/run.sh` after CI-equivalent setup for Postgres,
   `psql`, Python E2E helpers, Rust `mnt-app`, Node dependencies, and Playwright
   Chromium. This is the all-user-stories browser gate and should be used for UI

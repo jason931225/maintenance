@@ -18,13 +18,14 @@ import { defineConfig, devices } from "@playwright/test";
  * switcher, and weakening its DEV-only predicate to make it render there is
  * exactly the wrong fix (mnt-gate-dev-auth-absence + dev_auth_absence.rs
  * already prove the feature is compiled OUT of a default/release build; this
- * spec proves the opposite build actually works). Set MNT_DEV_AUTH_E2E=1 and
- * bring up the real stack first — `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs
- * bootstrap` starts the backend WITH dev-auth and the Vite dev server in the
- * background; `node scripts/dev-up.mjs down` tears both down — then run this
- * config; a "dev-auth" project appears and the default "chromium" project
- * skips the spec. Unset (the default everywhere else, including the existing
- * "Browser E2E" CI job), this file behaves exactly as before.
+ * spec proves the opposite build actually works). Attendance coverage needs the
+ * exact paired local flags: `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1
+ * node scripts/dev-up.mjs bootstrap` starts the backend WITH dev-auth and the
+ * console-preview Vite child. Then run `MNT_DEV_AUTH_E2E=1
+ * VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`.
+ * `node scripts/dev-up.mjs down` tears the stack down. Without the preview flag
+ * Attendance is deliberately excluded from the dev-auth project; unset remains
+ * the default everywhere else, including the production Browser E2E job.
  */
 const PORT = Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
