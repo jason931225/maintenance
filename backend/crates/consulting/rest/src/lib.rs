@@ -7,10 +7,12 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use mnt_kernel_core::{BranchScope, ErrorKind, KernelError};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
-use mnt_platform_db::{DbError, with_org_conn};
+use mnt_platform_db::{DbError, with_audits, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -258,7 +260,7 @@ async fn create_engagement(
     let actor_id = *actor.user_id.as_uuid();
     let id = Uuid::new_v4();
     let request_hash = request_hash(&body);
-    let (response_status, value) = with_org_conn(&state.pool, org, |tx| Box::pin(async move {
+    let (response_status, value) = with_audits(&state.pool, org, |tx| Box::pin(async move {
         require_reference_kind(tx, body.customer_document_id, "DOCUMENT").await?;
         require_reference_kind(tx, body.ontology_instance_id, "ONTOLOGY_INSTANCE").await?;
         let row = sqlx::query("INSERT INTO consulting_engagements (id, org_id, customer_id, customer_document_id, ontology_instance_id, title, idempotency_key, idempotency_request_hash, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (org_id, idempotency_key) DO NOTHING RETURNING id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, idempotency_response_status, created_at, updated_at")
@@ -272,8 +274,8 @@ async fn create_engagement(
                 .bind(id)
                 .execute(tx.as_mut())
                 .await?;
-            insert_history(tx, *org.as_uuid(), id, actor_id, "engagement.created", None, Some("DRAFT"), 1, serde_json::json!({"customer_id": body.customer_id})).await?;
-            return Ok((status, value));
+            let audit = insert_history(tx, *org.as_uuid(), id, actor_id, "engagement.created", None, Some("DRAFT"), 1, serde_json::json!({"customer_id": body.customer_id})).await?;
+            return Ok(((status, value), vec![audit]));
         }
         let replay = sqlx::query("SELECT idempotency_request_hash, idempotency_response_status, idempotency_response FROM consulting_engagements WHERE org_id=$1 AND idempotency_key=$2")
             .bind(*org.as_uuid()).bind(body.idempotency_key.trim()).fetch_one(tx.as_mut()).await?;
@@ -284,7 +286,7 @@ async fn create_engagement(
         let status: i16 = replay.try_get("idempotency_response_status")?;
         let value = serde_json::from_value(replay.try_get("idempotency_response")?)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        Ok((status, value))
+        Ok(((status, value), Vec::new()))
     })).await.map_err(RestError::conflict_or_db)?;
     let response_status = StatusCode::from_u16(response_status as u16).map_err(|_| {
         RestError::kernel(KernelError::validation(
@@ -325,7 +327,27 @@ async fn create_diagnostic(
     required(&body.summary, "summary")?;
     let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
-    let item = with_org_conn(&state.pool, org, |tx| Box::pin(async move { ensure_writable_engagement(tx, id).await?; require_reference_kind(tx, body.document_id, "DOCUMENT").await?; let row = sqlx::query("INSERT INTO consulting_diagnostics (org_id, engagement_id, summary, document_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, summary, document_id, created_at").bind(*org.as_uuid()).bind(id).bind(body.summary.trim()).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; let engagement_version=version(tx,id).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"diagnostic.recorded",None,None,engagement_version,serde_json::json!({"diagnostic_id": row.try_get::<Uuid,_>("id")?})).await?; diagnostic(&row).map_err(DbError::from) })).await.map_err(RestError::conflict_or_db)?;
+    let item = with_audits(&state.pool, org, |tx| Box::pin(async move {
+        ensure_writable_engagement(tx, id).await?;
+        require_reference_kind(tx, body.document_id, "DOCUMENT").await?;
+        let row = sqlx::query("INSERT INTO consulting_diagnostics (org_id, engagement_id, summary, document_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, summary, document_id, created_at")
+            .bind(*org.as_uuid()).bind(id).bind(body.summary.trim()).bind(body.document_id).bind(actor_id)
+            .fetch_one(tx.as_mut()).await?;
+        let engagement_version = version(tx, id).await?;
+        let audit = insert_history(
+            tx,
+            *org.as_uuid(),
+            id,
+            actor_id,
+            "diagnostic.recorded",
+            None,
+            None,
+            engagement_version,
+            serde_json::json!({"diagnostic_id": row.try_get::<Uuid, _>("id")?}),
+        ).await?;
+        let item = diagnostic(&row).map_err(DbError::from)?;
+        Ok((item, vec![audit]))
+    })).await.map_err(RestError::conflict_or_db)?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -340,7 +362,37 @@ async fn create_finding(
     required(&body.statement, "statement")?;
     let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
-    let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move { ensure_writable_engagement(tx,id).await?; require_reference_kind(tx, Some(body.evidence_id), "EVIDENCE").await?; require_reference_kind(tx, body.document_id, "DOCUMENT").await?; let exists: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_diagnostics WHERE id=$1 AND engagement_id=$2)").bind(body.diagnostic_id).bind(id).fetch_one(tx.as_mut()).await?; if !exists{return Err(DbError::Sqlx(sqlx::Error::RowNotFound))}; let row=sqlx::query("INSERT INTO consulting_findings (org_id,engagement_id,diagnostic_id,statement,evidence_id,document_id,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,diagnostic_id,statement,evidence_id,document_id,created_at").bind(*org.as_uuid()).bind(id).bind(body.diagnostic_id).bind(body.statement.trim()).bind(body.evidence_id).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; let engagement_version=version(tx,id).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"finding.recorded",None,None,engagement_version,serde_json::json!({"finding_id":row.try_get::<Uuid,_>("id")?,"evidence_id":body.evidence_id})).await?; finding(&row).map_err(DbError::from)})).await.map_err(RestError::conflict_or_db)?;
+    let item = with_audits(&state.pool, org, |tx| Box::pin(async move {
+        ensure_writable_engagement(tx, id).await?;
+        require_reference_kind(tx, Some(body.evidence_id), "EVIDENCE").await?;
+        require_reference_kind(tx, body.document_id, "DOCUMENT").await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_diagnostics WHERE id=$1 AND engagement_id=$2)")
+            .bind(body.diagnostic_id).bind(id).fetch_one(tx.as_mut()).await?;
+        if !exists {
+            return Err(DbError::Sqlx(sqlx::Error::RowNotFound));
+        }
+        let row = sqlx::query("INSERT INTO consulting_findings (org_id,engagement_id,diagnostic_id,statement,evidence_id,document_id,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,diagnostic_id,statement,evidence_id,document_id,created_at")
+            .bind(*org.as_uuid()).bind(id).bind(body.diagnostic_id).bind(body.statement.trim())
+            .bind(body.evidence_id).bind(body.document_id).bind(actor_id)
+            .fetch_one(tx.as_mut()).await?;
+        let engagement_version = version(tx, id).await?;
+        let audit = insert_history(
+            tx,
+            *org.as_uuid(),
+            id,
+            actor_id,
+            "finding.recorded",
+            None,
+            None,
+            engagement_version,
+            serde_json::json!({
+                "finding_id": row.try_get::<Uuid, _>("id")?,
+                "evidence_id": body.evidence_id,
+            }),
+        ).await?;
+        let item = finding(&row).map_err(DbError::from)?;
+        Ok((item, vec![audit]))
+    })).await.map_err(RestError::conflict_or_db)?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -361,7 +413,36 @@ async fn create_initiative(
     }
     let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
-    let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move {ensure_writable_engagement(tx,id).await?; require_reference_kind(tx, Some(body.kpi_definition_id), "KPI_DEFINITION").await?; let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_findings WHERE id=$1 AND engagement_id=$2)").bind(body.finding_id).bind(id).fetch_one(tx.as_mut()).await?; if !exists{return Err(DbError::Sqlx(sqlx::Error::RowNotFound))} let row=sqlx::query("INSERT INTO consulting_initiatives (org_id,engagement_id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_at").bind(*org.as_uuid()).bind(id).bind(body.finding_id).bind(body.title.trim()).bind(body.hypothesis.trim()).bind(body.kpi_definition_id).bind(body.target_direction).bind(actor_id).fetch_one(tx.as_mut()).await?;let engagement_version=version(tx,id).await?;insert_history(tx,*org.as_uuid(),id,actor_id,"initiative.proposed",None,None,engagement_version,serde_json::json!({"initiative_id":row.try_get::<Uuid,_>("id")?,"kpi_definition_id":body.kpi_definition_id})).await?; initiative(&row).map_err(DbError::from)})).await.map_err(RestError::conflict_or_db)?;
+    let item = with_audits(&state.pool, org, |tx| Box::pin(async move {
+        ensure_writable_engagement(tx, id).await?;
+        require_reference_kind(tx, Some(body.kpi_definition_id), "KPI_DEFINITION").await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_findings WHERE id=$1 AND engagement_id=$2)")
+            .bind(body.finding_id).bind(id).fetch_one(tx.as_mut()).await?;
+        if !exists {
+            return Err(DbError::Sqlx(sqlx::Error::RowNotFound));
+        }
+        let row = sqlx::query("INSERT INTO consulting_initiatives (org_id,engagement_id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_at")
+            .bind(*org.as_uuid()).bind(id).bind(body.finding_id).bind(body.title.trim())
+            .bind(body.hypothesis.trim()).bind(body.kpi_definition_id).bind(body.target_direction).bind(actor_id)
+            .fetch_one(tx.as_mut()).await?;
+        let engagement_version = version(tx, id).await?;
+        let audit = insert_history(
+            tx,
+            *org.as_uuid(),
+            id,
+            actor_id,
+            "initiative.proposed",
+            None,
+            None,
+            engagement_version,
+            serde_json::json!({
+                "initiative_id": row.try_get::<Uuid, _>("id")?,
+                "kpi_definition_id": body.kpi_definition_id,
+            }),
+        ).await?;
+        let item = initiative(&row).map_err(DbError::from)?;
+        Ok((item, vec![audit]))
+    })).await.map_err(RestError::conflict_or_db)?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -376,7 +457,70 @@ async fn transition(
     required(&body.reason, "reason")?;
     let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
-    let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move { let current=ensure_writable_engagement(tx,id).await?; if !allowed(&current.status,&body.to_status){return Err(DbError::Sqlx(sqlx::Error::Protocol("invalid consulting transition".into())))} if body.to_status=="APPROVED" { let approval_id=body.approval_id.ok_or_else(|| sqlx::Error::Protocol("approvalId is required for APPROVED".into()))?; let consumed: Option<Uuid>=sqlx::query_scalar("INSERT INTO gov_approval_consumptions (org_id, approval_id, consumed_by) SELECT $1, a.id, $2 FROM gov_approvals a WHERE a.id=$3 AND a.org_id=$1 AND a.decision='approved' AND a.kind='consulting.engagement.approval' AND a.target_ref=$4 AND a.requested_by <> $2 AND NOT EXISTS (SELECT 1 FROM gov_approval_consumptions c WHERE c.org_id=$1 AND c.approval_id=a.id) ON CONFLICT (org_id, approval_id) DO NOTHING RETURNING approval_id").bind(*org.as_uuid()).bind(actor_id).bind(approval_id).bind(id).fetch_optional(tx.as_mut()).await?; if consumed.is_none(){return Err(DbError::Sqlx(sqlx::Error::Protocol("approval is not an unused four-eyes authorization for this engagement".into())))} } if body.to_status=="IMPLEMENTED" { let ready: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE engagement_id=$1)").bind(id).fetch_one(tx.as_mut()).await?; if !ready{return Err(DbError::Sqlx(sqlx::Error::Protocol("an initiative is required before implementation closure".into())))} } if matches!(body.to_status.as_str(), "SUSTAINED"|"CORRECTIVE") { let ready: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_benefit_observations WHERE engagement_id=$1)").bind(id).fetch_one(tx.as_mut()).await?; if !ready{return Err(DbError::Sqlx(sqlx::Error::Protocol("a benefit observation is required before outcome closure".into())))} } let row=sqlx::query("UPDATE consulting_engagements SET status=$1, approval_id=COALESCE($2,approval_id), version=version+1, updated_at=now() WHERE id=$3 AND version=$4 RETURNING id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at").bind(&body.to_status).bind(body.approval_id).bind(id).bind(body.expected_version).fetch_optional(tx.as_mut()).await?; let row=row.ok_or(sqlx::Error::RowNotFound)?;let value=engagement(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"engagement.transitioned",Some(&current.status),Some(&value.status),value.version,serde_json::json!({"reason":body.reason,"approval_id":body.approval_id})).await?;Ok(value)})).await.map_err(RestError::conflict_or_db)?;
+    let value = with_audits(&state.pool, org, |tx| Box::pin(async move {
+        let current = ensure_writable_engagement(tx, id).await?;
+        if !allowed(&current.status, &body.to_status) {
+            return Err(DbError::Sqlx(sqlx::Error::Protocol(
+                "invalid consulting transition".into(),
+            )));
+        }
+        if body.to_status == "APPROVED" {
+            let approval_id = body.approval_id.ok_or_else(|| {
+                sqlx::Error::Protocol("approvalId is required for APPROVED".into())
+            })?;
+            let consumed: Option<Uuid> = sqlx::query_scalar("INSERT INTO gov_approval_consumptions (org_id, approval_id, consumed_by) SELECT $1, a.id, $2 FROM gov_approvals a WHERE a.id=$3 AND a.org_id=$1 AND a.decision='approved' AND a.kind='consulting.engagement.approval' AND a.target_ref=$4 AND a.requested_by <> $2 AND NOT EXISTS (SELECT 1 FROM gov_approval_consumptions c WHERE c.org_id=$1 AND c.approval_id=a.id) ON CONFLICT (org_id, approval_id) DO NOTHING RETURNING approval_id")
+                .bind(*org.as_uuid()).bind(actor_id).bind(approval_id).bind(id)
+                .fetch_optional(tx.as_mut()).await?;
+            if consumed.is_none() {
+                return Err(DbError::Sqlx(sqlx::Error::Protocol(
+                    "approval is not an unused four-eyes authorization for this engagement".into(),
+                )));
+            }
+        }
+        if body.to_status == "IMPLEMENTED" {
+            let ready: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE engagement_id=$1)",
+            )
+            .bind(id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            if !ready {
+                return Err(DbError::Sqlx(sqlx::Error::Protocol(
+                    "an initiative is required before implementation closure".into(),
+                )));
+            }
+        }
+        if matches!(body.to_status.as_str(), "SUSTAINED" | "CORRECTIVE") {
+            let ready: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM consulting_benefit_observations WHERE engagement_id=$1)",
+            )
+            .bind(id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            if !ready {
+                return Err(DbError::Sqlx(sqlx::Error::Protocol(
+                    "a benefit observation is required before outcome closure".into(),
+                )));
+            }
+        }
+        let row = sqlx::query("UPDATE consulting_engagements SET status=$1, approval_id=COALESCE($2,approval_id), version=version+1, updated_at=now() WHERE id=$3 AND version=$4 RETURNING id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at")
+            .bind(&body.to_status).bind(body.approval_id).bind(id).bind(body.expected_version)
+            .fetch_optional(tx.as_mut()).await?;
+        let row = row.ok_or(sqlx::Error::RowNotFound)?;
+        let value = engagement(&row)?;
+        let audit = insert_history(
+            tx,
+            *org.as_uuid(),
+            id,
+            actor_id,
+            "engagement.transitioned",
+            Some(&current.status),
+            Some(&value.status),
+            value.version,
+            serde_json::json!({"reason": body.reason, "approval_id": body.approval_id}),
+        ).await?;
+        Ok((value, vec![audit]))
+    })).await.map_err(RestError::conflict_or_db)?;
     Ok(Json(value))
 }
 
@@ -391,7 +535,44 @@ async fn record_observation(
     required(&body.note, "note")?;
     let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
-    let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move {let e=ensure_writable_engagement(tx,id).await?;if e.status!="IMPLEMENTED" {return Err(DbError::Sqlx(sqlx::Error::Protocol("implementation review must be completed before a benefit observation".into())))}require_reference_kind(tx, Some(body.kpi_definition_id), "KPI_DEFINITION").await?;require_reference_kind(tx, Some(body.evidence_id), "EVIDENCE").await?;let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE id=$1 AND engagement_id=$2 AND kpi_definition_id=$3)").bind(body.initiative_id).bind(id).bind(body.kpi_definition_id).fetch_one(tx.as_mut()).await?;if !valid{return Err(DbError::Sqlx(sqlx::Error::RowNotFound))}let row=sqlx::query("INSERT INTO consulting_benefit_observations (org_id,engagement_id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_at").bind(*org.as_uuid()).bind(id).bind(body.initiative_id).bind(body.kpi_definition_id).bind(body.evidence_id).bind(body.observed_at).bind(body.note.trim()).bind(actor_id).fetch_one(tx.as_mut()).await?;let item=observation(&row)?;let engagement_version=version(tx,id).await?;insert_history(tx,*org.as_uuid(),id,actor_id,"benefit.observed",None,None,engagement_version,serde_json::json!({"observation_id":item.id,"kpi_definition_id":item.kpi_definition_id,"evidence_id":item.evidence_id})).await?;Ok(item)})).await.map_err(RestError::conflict_or_db)?;
+    let item = with_audits(&state.pool, org, |tx| Box::pin(async move {
+        let engagement = ensure_writable_engagement(tx, id).await?;
+        if engagement.status != "IMPLEMENTED" {
+            return Err(DbError::Sqlx(sqlx::Error::Protocol(
+                "implementation review must be completed before a benefit observation".into(),
+            )));
+        }
+        require_reference_kind(tx, Some(body.kpi_definition_id), "KPI_DEFINITION").await?;
+        require_reference_kind(tx, Some(body.evidence_id), "EVIDENCE").await?;
+        let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE id=$1 AND engagement_id=$2 AND kpi_definition_id=$3)")
+            .bind(body.initiative_id).bind(id).bind(body.kpi_definition_id)
+            .fetch_one(tx.as_mut()).await?;
+        if !valid {
+            return Err(DbError::Sqlx(sqlx::Error::RowNotFound));
+        }
+        let row = sqlx::query("INSERT INTO consulting_benefit_observations (org_id,engagement_id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_at")
+            .bind(*org.as_uuid()).bind(id).bind(body.initiative_id).bind(body.kpi_definition_id)
+            .bind(body.evidence_id).bind(body.observed_at).bind(body.note.trim()).bind(actor_id)
+            .fetch_one(tx.as_mut()).await?;
+        let item = observation(&row)?;
+        let engagement_version = version(tx, id).await?;
+        let audit = insert_history(
+            tx,
+            *org.as_uuid(),
+            id,
+            actor_id,
+            "benefit.observed",
+            None,
+            None,
+            engagement_version,
+            serde_json::json!({
+                "observation_id": item.id,
+                "kpi_definition_id": item.kpi_definition_id,
+                "evidence_id": item.evidence_id,
+            }),
+        ).await?;
+        Ok((item, vec![audit]))
+    })).await.map_err(RestError::conflict_or_db)?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -493,9 +674,27 @@ async fn insert_history(
     to: Option<&str>,
     version: i64,
     payload: serde_json::Value,
-) -> Result<(), DbError> {
-    sqlx::query("INSERT INTO consulting_engagement_history (org_id,engagement_id,actor_id,event_type,from_status,to_status,version,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)").bind(org).bind(id).bind(actor).bind(event).bind(from).bind(to).bind(version).bind(payload).execute(tx.as_mut()).await?;
-    Ok(())
+) -> Result<AuditEvent, DbError> {
+    sqlx::query("INSERT INTO consulting_engagement_history (org_id,engagement_id,actor_id,event_type,from_status,to_status,version,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)").bind(org).bind(id).bind(actor).bind(event).bind(from).bind(to).bind(version).bind(&payload).execute(tx.as_mut()).await?;
+    let action =
+        AuditAction::new(event).map_err(|error| DbError::CodeIssuance(error.to_string()))?;
+    Ok(AuditEvent::new(
+        Some(UserId::from_uuid(actor)),
+        action,
+        "consulting_engagement",
+        id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::from_uuid(org))
+    .with_snapshots(
+        from.map(|status| serde_json::json!({"status": status})),
+        Some(serde_json::json!({
+            "status": to,
+            "version": version,
+            "payload": payload,
+        })),
+    ))
 }
 fn engagement(row: &sqlx::postgres::PgRow) -> Result<Engagement, sqlx::Error> {
     Ok(Engagement {
