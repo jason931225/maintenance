@@ -164,6 +164,8 @@ export const attendanceStrings = {
     candidatesDenied: "대근 가능 인원을 볼 권한이 없습니다.",
     candidatesError: "대근 가능 인원을 불러오지 못했습니다.",
     retryCandidates: "다시 시도",
+    previousCandidates: "이전 인원",
+    nextCandidates: "다음 인원",
     assign: "배정",
     empty: "배정 가능한 인원이 없습니다.",
     reasonKind: {

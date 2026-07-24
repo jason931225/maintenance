@@ -49,6 +49,7 @@ export function SubstitutionCandidateDialog({
   const [to, setTo] = useState("");
   const [fieldError, setFieldError] = useState<string>();
   const [retry, setRetry] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [candidates, setCandidates] = useState<CandidateState>({ state: "idle" });
   const fromMinutes = parseMinutes(from);
   const toMinutes = parseMinutes(to);
@@ -76,7 +77,7 @@ export function SubstitutionCandidateDialog({
           to_minutes: toMinutes,
           search: query.trim() || undefined,
           limit: CANDIDATE_LIMIT,
-          offset: 0,
+          offset,
         },
         controller.signal,
       )
@@ -93,7 +94,17 @@ export function SubstitutionCandidateDialog({
         });
       });
     return () => controller.abort();
-  }, [transport, gap.employee_id, gap.work_date, fromMinutes, toMinutes, hasValidWindow, query, retry]);
+  }, [
+    transport,
+    gap.employee_id,
+    gap.work_date,
+    fromMinutes,
+    toMinutes,
+    hasValidWindow,
+    query,
+    retry,
+    offset,
+  ]);
 
   const windowMessage = useMemo(() => {
     if (!from && !to) return text.sub.candidateWindow;
@@ -131,16 +142,16 @@ export function SubstitutionCandidateDialog({
       <label className="attendance__field" htmlFor={siteId}>{text.sub.site}<input id={siteId} value={site} required onChange={(event) => setSite(event.target.value)} /></label>
       <label className="attendance__field" htmlFor={roleId}>{text.sub.role}<input id={roleId} value={role} required onChange={(event) => setRole(event.target.value)} /></label>
       <div className="attendance__modalhead">
-        <label className="attendance__field" htmlFor={fromId}>{text.sub.from}<input id={fromId} type="time" value={from} required onChange={(event) => setFrom(event.target.value)} /></label>
-        <label className="attendance__field" htmlFor={toId}>{text.sub.to}<input id={toId} type="time" value={to} required onChange={(event) => setTo(event.target.value)} /></label>
+        <label className="attendance__field" htmlFor={fromId}>{text.sub.from}<input id={fromId} type="time" value={from} required onChange={(event) => { setFrom(event.target.value); setOffset(0); }} /></label>
+        <label className="attendance__field" htmlFor={toId}>{text.sub.to}<input id={toId} type="time" value={to} required onChange={(event) => { setTo(event.target.value); setOffset(0); }} /></label>
       </div>
-      <label className="attendance__field" htmlFor={searchId}>{text.sub.poolSearch}<input id={searchId} type="search" value={query} disabled={!hasValidWindow || busy} onChange={(event) => setQuery(event.target.value)} /></label>
+      <label className="attendance__field" htmlFor={searchId}>{text.sub.poolSearch}<input id={searchId} type="search" value={query} disabled={!hasValidWindow || busy} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} /></label>
       {fieldError && <span className="attendance__fielderror" role="alert">{fieldError}</span>}
       {windowMessage && <p role="status" className="attendance__status">{windowMessage}</p>}
       {candidates.state === "loading" && <p role="status" className="attendance__status">{text.loading}</p>}
       {candidates.state === "denied" && <p role="status" className="attendance__status">{text.sub.candidatesDenied}</p>}
       {candidates.state === "error" && <div className="attendance__alert" role="alert"><span>{text.sub.candidatesError}</span><button type="button" className="attendance__ghostbtn" disabled={busy} onClick={() => setRetry((value) => value + 1)}>{text.sub.retryCandidates}</button></div>}
-      {candidates.state === "ready" && (candidates.data.items.length === 0 ? <p role="status" className="attendance__status">{text.sub.empty}</p> : candidates.data.items.map((candidate) => <div key={candidate.employee_id} className="attendance__poolrow"><span className="attendance__poolname">{candidate.employee_name}</span><button type="button" className="attendance__actionbtn" disabled={busy} onClick={() => assign(candidate)}>{text.sub.assign}</button></div>))}
+      {candidates.state === "ready" && (candidates.data.items.length === 0 ? <p role="status" className="attendance__status">{text.sub.empty}</p> : <><div role="list">{candidates.data.items.map((candidate) => <div key={candidate.employee_id} role="listitem" className="attendance__poolrow"><span className="attendance__poolname">{candidate.employee_name}</span><button type="button" className="attendance__actionbtn" disabled={busy} onClick={() => assign(candidate)}>{text.sub.assign}</button></div>)}</div><div className="attendance__modalactions">{candidates.data.offset > 0 && <button type="button" className="attendance__ghostbtn" disabled={busy} onClick={() => setOffset(Math.max(0, candidates.data.offset - candidates.data.limit))}>{text.sub.previousCandidates}</button>}{candidates.data.offset + candidates.data.limit < candidates.data.total && <button type="button" className="attendance__ghostbtn" disabled={busy} onClick={() => setOffset(candidates.data.offset + candidates.data.limit)}>{text.sub.nextCandidates}</button>}</div></>)}
       <div className="attendance__modalactions"><button type="button" className="attendance__ghostbtn" disabled={busy} onClick={() => { if (!busy) onClose(); }}>{text.sub.cancel}</button></div>
     </Dialog>
   );
