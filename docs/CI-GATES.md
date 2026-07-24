@@ -86,7 +86,8 @@ for s in \
 done
 npm run web:lint
 npm run web:test
-npm run web:build
+npm run test:production-dev-auth-guards --workspace @console/web
+npm run check:production-dev-auth-absence --workspace @console/web
 
 # Deployment and mobile parity gates
 npm run check:k8s                         # render manifests; CI warns if no live cluster
@@ -212,9 +213,10 @@ names only, not incidental workflow prose or runner setup text.
 
 ### Web console package scripts run by CI
 
-- `web:build`
+- `web:check:production-dev-auth-absence`
 - `web:lint`
 - `web:test`
+- `web:test:production-dev-auth-guards`
 
 - **Backend — fmt / clippy / test / gates**: `cargo fmt --all -- --check`,
   `SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings`,
@@ -245,9 +247,11 @@ names only, not incidental workflow prose or runner setup text.
   `check:payroll-release-gate`, `check:financial-maturity`,
   `check:cx-reporting-maturity`, and `check:operations-intelligence-maturity`,
   followed by `npm run lint --workspace @console/web`,
-  `npm run test --workspace @console/web`, and
-  `npm run build --workspace @console/web`. Root shortcuts are
-  `web:lint`, `web:test`, and `web:build`.
+  `npm run test --workspace @console/web`,
+  `npm run test:production-dev-auth-guards --workspace @console/web`, and
+  `npm run check:production-dev-auth-absence --workspace @console/web`.
+  The last command builds the production bundle before asserting that dev-auth
+  entrypoints are absent. Root shortcuts are `web:lint` and `web:test`.
 - **API contract — app OpenAPI and generated TS round-trip**:
   `npm run check:openapi-app` and `npm run test:contract` with
   `CONTRACT_DATABASE_URL`.
