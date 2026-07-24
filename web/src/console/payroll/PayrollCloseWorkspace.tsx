@@ -11,6 +11,7 @@ import { Card } from "../../components/ui/card";
 import { PageEmpty } from "../../components/states/PageEmpty";
 import { PageError } from "../../components/states/PageError";
 import { SkeletonTable } from "../../components/states/Skeleton";
+import { ko } from "../../i18n/ko";
 
 type Run = components["schemas"]["PayrollRunSummary"];
 type Line = components["schemas"]["PayrollLineSummary"];
@@ -49,14 +50,8 @@ const LINE_STATUSES = new Set([
   "ISSUED",
   "VOID",
 ]);
-const labels: Record<string, string> = {
-  STAGED: "산정 중",
-  BLOCKED_LEGAL_GATE: "법정 게이트 차단",
-  READY_FOR_REVIEW: "검토 대기",
-  APPROVED: "승인됨",
-  ISSUED: "발행됨",
-  VOID: "무효",
-};
+const copy = ko.payroll.closeWorkspace;
+
 const tone = (s: string) =>
   s === "BLOCKED_LEGAL_GATE" || s === "VOID"
     ? "border-red-200 bg-red-50 text-red-800"
@@ -64,7 +59,7 @@ const tone = (s: string) =>
       ? "border-amber-200 bg-amber-50 text-amber-900"
       : "border-emerald-200 bg-emerald-50 text-emerald-800";
 const hours = (n: number | null | undefined) =>
-  n == null ? "—" : `${n.toFixed(1)}시간`;
+  n == null ? copy.hours.unavailable : copy.hours.value(n);
 const denied = (response: Response) =>
   response.status === 401 || response.status === 403;
 function validRun(value: unknown): value is Run {
@@ -283,7 +278,7 @@ export function PayrollCloseWorkspace({
     () => [
       {
         key: "run",
-        header: "지급 기간",
+        header: copy.columns.period,
         cell: (r) => (
           <>
             <b>{r.source_label}</b>
@@ -295,16 +290,20 @@ export function PayrollCloseWorkspace({
       },
       {
         key: "status",
-        header: "마감 상태",
+        header: copy.columns.status,
         cell: (r) => (
-          <Badge className={tone(r.status)}>{labels[r.status]}</Badge>
+          <Badge className={tone(r.status)}>{copy.statuses[r.status]}</Badge>
         ),
       },
       {
         key: "calc",
-        header: "산정",
+        header: copy.columns.calculation,
         cell: (r) => (
-          <span>{r.calculation_enabled ? "산정 가능" : "산정 차단"}</span>
+          <span>
+            {r.calculation_enabled
+              ? copy.calculation.enabled
+              : copy.calculation.blocked}
+          </span>
         ),
       },
     ],
@@ -313,7 +312,7 @@ export function PayrollCloseWorkspace({
   const lineCols: Array<DataTableColumn<Line>> = [
     {
       key: "employee",
-      header: "직원",
+      header: copy.columns.employee,
       cell: (l) => (
         <>
           <b>{l.employee_display_name}</b>
@@ -321,27 +320,35 @@ export function PayrollCloseWorkspace({
         </>
       ),
     },
-    { key: "regular", header: "정규", cell: (l) => hours(l.regular_hours) },
-    { key: "overtime", header: "연장", cell: (l) => hours(l.overtime_hours) },
+    {
+      key: "regular",
+      header: copy.columns.regular,
+      cell: (l) => hours(l.regular_hours),
+    },
+    {
+      key: "overtime",
+      header: copy.columns.overtime,
+      cell: (l) => hours(l.overtime_hours),
+    },
     {
       key: "source",
-      header: "원천",
+      header: copy.columns.source,
       cell: (l) => (
         <span>
           {l.gross_pay_source_present &&
           l.net_pay_source_present &&
           l.nts_tax_row_status === "VERIFIED_SOURCE_ROW"
-            ? "확인된 원천 행"
-            : "검증 또는 원천 누락"}
+            ? copy.source.verified
+            : copy.source.incomplete}
         </span>
       ),
     },
     {
       key: "status",
-      header: "산정 상태",
+      header: copy.columns.calculationStatus,
       cell: (l) => (
         <Badge className={tone(l.calculation_status)}>
-          {labels[l.calculation_status]}
+          {copy.statuses[l.calculation_status]}
         </Badge>
       ),
     },
@@ -351,11 +358,9 @@ export function PayrollCloseWorkspace({
       <Card className="grid gap-3">
         <div className="flex flex-wrap justify-between gap-3">
           <div>
-            <p className="text-xs font-bold text-steel">급여 · 마감 운영</p>
-            <h2 className="text-lg font-bold">급여 마감 명부</h2>
-            <p className="text-sm text-steel">
-              감사되는 회차와 직원별 준비 상태를 읽기 전용으로 확인합니다.
-            </p>
+            <p className="text-xs font-bold text-steel">{copy.list.eyebrow}</p>
+            <h2 className="text-lg font-bold">{copy.list.title}</h2>
+            <p className="text-sm text-steel">{copy.list.description}</p>
           </div>
           <Button
             size="sm"
@@ -363,26 +368,23 @@ export function PayrollCloseWorkspace({
             onClick={() => void loadRuns()}
             disabled={runsState === "loading"}
           >
-            새로고침
+            {copy.list.refresh}
           </Button>
         </div>
         {runsState === "loading" && !runs.length ? (
           <SkeletonTable rows={4} cols={3} />
         ) : null}
         {runsState === "denied" ? (
-          <PageError
-            status={403}
-            message="급여 회차 명부 열람 권한이 없습니다."
-          />
+          <PageError status={403} message={copy.list.denied} />
         ) : null}
         {runsState === "error" ? (
           <PageError
-            message="급여 회차 명부를 불러오지 못했습니다."
+            message={copy.list.error}
             onRetry={() => void loadRuns()}
           />
         ) : null}
         {runsState === "ready" && !runs.length ? (
-          <PageEmpty message="현재 조회 가능한 급여 회차가 없습니다." />
+          <PageEmpty message={copy.list.empty} />
         ) : null}
         {runs.length ? (
           <>
@@ -391,7 +393,7 @@ export function PayrollCloseWorkspace({
               columns={cols}
               getRowKey={(r) => r.id}
               getRowAriaLabel={(r) =>
-                `${r.source_label} ${labels[r.status]} 상세 열기`
+                copy.list.detailAria(r.source_label, copy.statuses[r.status])
               }
               onRowClick={(r) => void loadDetail(r)}
             />
@@ -402,7 +404,7 @@ export function PayrollCloseWorkspace({
                 onClick={() => void loadRuns(true)}
                 disabled={runsState === "loading"}
               >
-                회차 더 불러오기
+                {copy.list.loadMore}
               </Button>
             ) : null}
           </>
@@ -415,16 +417,13 @@ export function PayrollCloseWorkspace({
       ) : null}
       {detail.kind === "denied" ? (
         <Card>
-          <PageError
-            status={403}
-            message="이 급여 회차 상세 열람 권한이 없습니다."
-          />
+          <PageError status={403} message={copy.detail.denied} />
         </Card>
       ) : null}
       {detail.kind === "error" ? (
         <Card>
           <PageError
-            message="급여 회차 상세를 불러오지 못했습니다."
+            message={copy.detail.error}
             onRetry={() => void loadDetail(detail.run)}
           />
         </Card>
@@ -432,8 +431,10 @@ export function PayrollCloseWorkspace({
       {detail.kind === "ready" ? (
         <Card className="grid gap-3">
           <div>
-            <p className="text-xs font-bold text-steel">선택된 회차</p>
-            <h2 className="text-lg font-bold">급여 회차 상세</h2>
+            <p className="text-xs font-bold text-steel">
+              {copy.detail.eyebrow}
+            </p>
+            <h2 className="text-lg font-bold">{copy.detail.title}</h2>
             <p className="text-sm text-steel">
               {detail.run.source_label} · {detail.run.period_start} ~{" "}
               {detail.run.period_end}
@@ -446,7 +447,7 @@ export function PayrollCloseWorkspace({
               getRowKey={(l) => l.id}
             />
           ) : (
-            <PageEmpty message="이 회차에는 현재 조회 가능한 직원별 급여 준비 행이 없습니다." />
+            <PageEmpty message={copy.detail.empty} />
           )}
           {detail.nextOffset !== null ? (
             <Button
@@ -454,13 +455,10 @@ export function PayrollCloseWorkspace({
               variant="secondary"
               onClick={() => void loadDetail(detail.run, true)}
             >
-              직원 행 더 불러오기
+              {copy.detail.loadMore}
             </Button>
           ) : null}
-          <p className="text-xs text-steel">
-            승인·발행·명세 배포 작업은 현재 읽기 API 계약에 포함되지 않아 이
-            화면에서 실행하지 않습니다.
-          </p>
+          <p className="text-xs text-steel">{copy.detail.readOnlyNotice}</p>
         </Card>
       ) : null}
     </div>

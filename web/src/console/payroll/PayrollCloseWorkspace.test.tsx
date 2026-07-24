@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
+import { ko } from "../../i18n/ko";
 import { PayrollCloseWorkspace } from "./PayrollCloseWorkspace";
 
 const run = {
@@ -72,6 +73,15 @@ function renderWorkspace(
 afterEach(() => vi.restoreAllMocks());
 
 describe("PayrollCloseWorkspace", () => {
+  it("uses the Korean catalog for audited close status and hour formatters", () => {
+    const copy = ko.payroll.closeWorkspace;
+    expect(copy.statuses.READY_FOR_REVIEW).toBe("검토 대기");
+    expect(copy.hours.value(1.5)).toBe("1.5시간");
+    expect(
+      copy.list.detailAria("2026년 6월", copy.statuses.READY_FOR_REVIEW),
+    ).toBe("2026년 6월 검토 대기 상세 열기");
+  });
+
   it("loads an audited run list and opens its real readiness lines with keyboard", async () => {
     const get = vi.fn((path: string) =>
       path === "/api/v1/payroll/runs"
