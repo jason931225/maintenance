@@ -5,6 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import hashlib
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -104,6 +108,46 @@ class ImpactPlannerTests(unittest.TestCase):
         )
         self.assertNotEqual(base, candidate)
         self.assertEqual("incompatible_buck_toolchain_or_cell_configuration", manifest["fallback_reason"])
+
+    def test_two_identical_sha_plans_are_byte_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            (repo / "tools").mkdir(parents=True)
+            (repo / ".buckconfig").write_text("[cells]\n  root = .\n", encoding="utf-8")
+            buck = repo / "tools/buck2"
+            buck.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "case \"$1\" in\n"
+                "  audit) printf 'root: %s\\nprelude: %s/prelude\\n' \"$PWD\" \"$PWD\" ;;\n"
+                "  uquery) printf '%s\\n' '{\"root//backend:unit\":{\"labels\":[\"owner.backend\",\"resource.none\"]}}' ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            buck.chmod(0o755)
+            for command in (
+                ["git", "init", "-q", str(repo)],
+                ["git", "-C", str(repo), "config", "user.email", "test@example.invalid"],
+                ["git", "-C", str(repo), "config", "user.name", "Impact Test"],
+                ["git", "-C", str(repo), "add", "."],
+                ["git", "-C", str(repo), "commit", "-qm", "fixture"],
+            ):
+                subprocess.run(command, check=True)
+            sha = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True, capture_output=True, check=True
+            ).stdout.strip()
+            first, second = Path(directory) / "first.json", Path(directory) / "second.json"
+            for output in (first, second):
+                subprocess.run(
+                    ["python3", str(PLAN), "--repo", str(repo), "--base", sha, "--candidate", sha, "--output", str(output)],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+            first_bytes, second_bytes = first.read_bytes(), second.read_bytes()
+            self.assertEqual(first_bytes, second_bytes)
+            self.assertEqual(hashlib.sha256(first_bytes).hexdigest(), hashlib.sha256(second_bytes).hexdigest())
 
     def test_manifest_json_is_bounded_and_stably_serialized(self) -> None:
         manifest = self.module.build_manifest(
