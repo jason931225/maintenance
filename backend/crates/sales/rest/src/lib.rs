@@ -16,7 +16,7 @@
 //! no audit markers.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
@@ -27,6 +27,7 @@ use mnt_kernel_core::{
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
+use mnt_platform_request_context::TrustedClientIp;
 use mnt_platform_storage::SeaweedS3Storage;
 use mnt_sales_adapter_postgres::{PgSalesError, PgSalesStore};
 use mnt_sales_application::{
@@ -117,11 +118,6 @@ pub struct SalesRestState {
     /// media route then 404s rather than serving, exactly as the listing URL is
     /// still emitted but resolves to a missing object.
     media_storage: Option<MediaStorage>,
-    /// Number of trusted reverse proxies in front of this service. Drives the
-    /// `X-Forwarded-For` client-IP derivation in the inquiry rate limiter: the
-    /// real client is the Nth-from-the-right XFF entry. Clamped to at least 1 so
-    /// the spoofable left-most entry is never blindly trusted.
-    trusted_proxy_count: usize,
     /// The tenant that owns the PUBLIC storefront — the org under which the
     /// unauthenticated catalog reads run and public inquiries are recorded. The
     /// storefront carries no JWT, so its tenant cannot be derived from a request
@@ -143,16 +139,14 @@ struct MediaStorage {
 }
 
 impl SalesRestState {
-    /// Construct with a default of one trusted proxy. Prefer
-    /// [`SalesRestState::with_trusted_proxy_count`] when the deployment puts a
-    /// known number of proxies in front of the service.
+    /// Construct with the legacy KNL storefront tenant. The app composition root
+    /// overrides it for a re-minted storefront organization when configured.
     #[must_use]
     pub fn new(store: PgSalesStore, jwt_verifier: Option<JwtVerifier>) -> Self {
         Self {
             store,
             jwt_verifier,
             media_storage: None,
-            trusted_proxy_count: 1,
             storefront_org: OrgId::knl(),
         }
     }
@@ -164,14 +158,6 @@ impl SalesRestState {
     #[must_use]
     pub fn with_storefront_org(mut self, storefront_org: OrgId) -> Self {
         self.storefront_org = storefront_org;
-        self
-    }
-
-    /// Set the number of trusted reverse proxies (from `MNT_TRUSTED_PROXY_COUNT`).
-    /// A value of 0 is treated as 1.
-    #[must_use]
-    pub fn with_trusted_proxy_count(mut self, trusted_proxy_count: usize) -> Self {
-        self.trusted_proxy_count = trusted_proxy_count.max(1);
         self
     }
 
@@ -445,10 +431,17 @@ async fn storefront_get_listing_media(
 async fn submit_inquiry(
     State(state): State<SalesRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<SubmitInquiryRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let now = OffsetDateTime::now_utc();
-    rate_limit(&state.store, &headers, state.trusted_proxy_count, now).await?;
+    rate_limit(
+        &state.store,
+        &headers,
+        trusted_client_ip.map(|Extension(ip)| ip),
+        now,
+    )
+    .await?;
 
     // Generic validation: never echo a field value, never leak which field
     // failed beyond a coarse message.
@@ -863,14 +856,14 @@ fn validate_listing_text_bounds(
 async fn rate_limit(
     store: &PgSalesStore,
     headers: &HeaderMap,
-    trusted_proxy_count: usize,
+    trusted_client_ip: Option<TrustedClientIp>,
     now: OffsetDateTime,
 ) -> Result<(), RestError> {
     let window_start = floor_to_window(now);
 
     let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
-    if let Some(ip) = client_ip(headers, trusted_proxy_count) {
-        buckets.push((format!("ip:{ip}"), RATE_LIMIT_PER_IP));
+    if let Some(ip) = trusted_client_ip {
+        buckets.push((format!("ip:{}", ip.get()), RATE_LIMIT_PER_IP));
     }
     if let Some(device) = client_device_id(headers) {
         buckets.push((format!("dev:{device}"), RATE_LIMIT_PER_DEVICE));
@@ -896,28 +889,8 @@ fn floor_to_window(now: OffsetDateTime) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(floored).unwrap_or(now)
 }
 
-/// Derive the rate-limit client IP from the proxy-set `X-Forwarded-For`.
-///
-/// XFF is appended left-to-right, so the RIGHTMOST entry is what the closest
-/// trusted proxy observed and the left-most entries are attacker-spoofable. With
-/// `trusted_proxy_count` proxies in front of this service the real client is the
-/// Nth-from-the-right entry (index `len - trusted_proxy_count`); a shorter chain
-/// clamps to the left-most available entry rather than underflowing. Used only as
-/// an opaque rate-limit key; never logged. Mirrors the support/auth-rest fix.
-fn client_ip(headers: &HeaderMap, trusted_proxy_count: usize) -> Option<String> {
-    let forwarded = headers.get("x-forwarded-for")?.to_str().ok()?;
-    let entries: Vec<&str> = forwarded
-        .split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .collect();
-    if entries.is_empty() {
-        return None;
-    }
-    let hops = trusted_proxy_count.max(1);
-    let index = entries.len().saturating_sub(hops);
-    entries.get(index).map(|ip| (*ip).to_owned())
-}
+/// The process ingress resolves the peer and forwarding chain once; this rate
+/// limiter consumes only its [`TrustedClientIp`] extension.
 
 /// Optional, client-controlled `X-Device-Id`; bounded length + restricted
 /// charset. On rejection the caller falls back to per-IP limiting alone.

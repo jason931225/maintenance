@@ -4,6 +4,7 @@
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
+use axum::extract::ConnectInfo;
 use http::{Request, StatusCode, header};
 use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
@@ -31,13 +32,17 @@ async fn build_with_public_intake_org(owner_pool: &PgPool, public_intake_org: Or
     // unauthenticated, and notifications degrade gracefully. Exercise the app
     // with the production-like runtime role so FORCE RLS (not a BYPASSRLS test
     // owner) governs tenant writes/reads at the REST surface.
-    router(
-        SupportRestState::new(
-            PgSupportStore::new(runtime_role_pool(owner_pool).await),
-            None,
-            None,
-        )
-        .with_storefront_org(public_intake_org),
+    mnt_platform_request_context::with_trusted_client_ip(
+        router(
+            SupportRestState::new(
+                PgSupportStore::new(runtime_role_pool(owner_pool).await),
+                None,
+                None,
+            )
+            .with_storefront_org(public_intake_org),
+        ),
+        1,
+        vec!["10.0.0.0/8".parse().unwrap()],
     )
 }
 
@@ -51,13 +56,17 @@ fn intake_request(ip: &str) -> Request<Body> {
         "requester_contact": "010-0000-0000"
     })
     .to_string();
-    Request::builder()
+    let mut request = Request::builder()
         .method("POST")
         .uri("/api/v1/support/intake")
         .header("content-type", "application/json")
         .header("x-forwarded-for", ip)
         .body(Body::from(body))
-        .unwrap()
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        "10.0.0.3:443".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    request
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]

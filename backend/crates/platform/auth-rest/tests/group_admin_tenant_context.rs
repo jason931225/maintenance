@@ -76,7 +76,6 @@ fn state_with_keys(pool: PgPool, keys: &Keys) -> AuthRestState {
             jwt_public_key_pem: keys.public_pem.clone(),
             refresh_token_ttl: Duration::days(30),
             refresh_family_absolute_ttl: Duration::hours(24),
-            trusted_proxy_count: 1,
             cookie_secure: false,
         },
     )

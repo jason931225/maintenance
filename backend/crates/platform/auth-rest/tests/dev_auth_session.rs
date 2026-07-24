@@ -76,7 +76,6 @@ fn test_state(pool: PgPool) -> AuthRestState {
             jwt_public_key_pem: public_pem,
             refresh_token_ttl: Duration::days(30),
             refresh_family_absolute_ttl: Duration::hours(24),
-            trusted_proxy_count: 1,
             cookie_secure: false,
         },
     )

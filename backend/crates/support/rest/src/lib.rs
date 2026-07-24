@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -26,6 +26,7 @@ use mnt_kernel_core::{
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_platform_push::{FcmPushMessage, PushNotifier};
+use mnt_platform_request_context::TrustedClientIp;
 use mnt_support_adapter_postgres::{
     MAX_BODY_CHARS, MAX_REQUESTER_CONTACT_CHARS, MAX_REQUESTER_NAME_CHARS, MAX_TITLE_CHARS,
     PgSupportError, PgSupportStore,
@@ -82,18 +83,12 @@ pub struct SupportRestState {
     /// reminted storefront/support tenants would be hidden from same-org staff by
     /// RLS.
     public_intake_org: OrgId,
-    /// Number of trusted reverse proxies in front of this service. Drives the
-    /// `X-Forwarded-For` client-IP derivation in the intake rate limiter: the
-    /// real client is the Nth-from-the-right XFF entry. Clamped to at least 1 so
-    /// the spoofable left-most entry is never blindly trusted.
-    trusted_proxy_count: usize,
 }
 
 impl SupportRestState {
-    /// Construct with a legacy KNL public-intake org and a default of one trusted
-    /// proxy. Prefer [`SupportRestState::with_storefront_org`] and
-    /// [`SupportRestState::with_trusted_proxy_count`] from the app composition
-    /// root so configured public storefront/support tenants are used.
+    /// Construct with a legacy KNL public-intake org. Prefer
+    /// [`SupportRestState::with_storefront_org`] from the app composition root
+    /// so configured public storefront/support tenants are used.
     #[must_use]
     pub fn new(
         store: PgSupportStore,
@@ -105,7 +100,6 @@ impl SupportRestState {
             jwt_verifier,
             push_notifier,
             public_intake_org: OrgId::knl(),
-            trusted_proxy_count: 1,
         }
     }
 
@@ -114,14 +108,6 @@ impl SupportRestState {
     #[must_use]
     pub fn with_storefront_org(mut self, org: OrgId) -> Self {
         self.public_intake_org = org;
-        self
-    }
-
-    /// Set the number of trusted reverse proxies (from `MNT_TRUSTED_PROXY_COUNT`).
-    /// A value of 0 is treated as 1.
-    #[must_use]
-    pub fn with_trusted_proxy_count(mut self, trusted_proxy_count: usize) -> Self {
-        self.trusted_proxy_count = trusted_proxy_count.max(1);
         self
     }
 
@@ -402,10 +388,17 @@ async fn add_comment(
 async fn customer_intake(
     State(state): State<SupportRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<CustomerIntakeRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let now = OffsetDateTime::now_utc();
-    rate_limit(&state.store, &headers, state.trusted_proxy_count, now).await?;
+    rate_limit(
+        &state.store,
+        &headers,
+        trusted_client_ip.map(|Extension(ip)| ip),
+        now,
+    )
+    .await?;
 
     // Generic validation: never echo the PII contact, never leak which field
     // failed beyond a coarse message.
@@ -518,14 +511,14 @@ async fn deliver_one(
 async fn rate_limit(
     store: &PgSupportStore,
     headers: &HeaderMap,
-    trusted_proxy_count: usize,
+    trusted_client_ip: Option<TrustedClientIp>,
     now: OffsetDateTime,
 ) -> Result<(), RestError> {
     let window_start = floor_to_window(now);
 
     let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
-    if let Some(ip) = client_ip(headers, trusted_proxy_count) {
-        buckets.push((format!("ip:{ip}"), RATE_LIMIT_PER_IP));
+    if let Some(ip) = trusted_client_ip {
+        buckets.push((format!("ip:{}", ip.get()), RATE_LIMIT_PER_IP));
     }
     if let Some(device) = client_device_id(headers) {
         buckets.push((format!("dev:{device}"), RATE_LIMIT_PER_DEVICE));
@@ -551,28 +544,8 @@ fn floor_to_window(now: OffsetDateTime) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(floored).unwrap_or(now)
 }
 
-/// Derive the rate-limit client IP from the proxy-set `X-Forwarded-For`.
-///
-/// XFF is appended left-to-right, so the RIGHTMOST entry is what the closest
-/// trusted proxy observed and the left-most entries are attacker-spoofable. With
-/// `trusted_proxy_count` proxies in front of this service the real client is the
-/// Nth-from-the-right entry (index `len - trusted_proxy_count`); a shorter chain
-/// clamps to the left-most available entry rather than underflowing. Used only as
-/// an opaque rate-limit key; never logged. Mirrors the auth-rest fix.
-fn client_ip(headers: &HeaderMap, trusted_proxy_count: usize) -> Option<String> {
-    let forwarded = headers.get("x-forwarded-for")?.to_str().ok()?;
-    let entries: Vec<&str> = forwarded
-        .split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .collect();
-    if entries.is_empty() {
-        return None;
-    }
-    let hops = trusted_proxy_count.max(1);
-    let index = entries.len().saturating_sub(hops);
-    entries.get(index).map(|ip| (*ip).to_owned())
-}
+/// The process ingress resolves the peer and forwarding chain once; this rate
+/// limiter consumes only its [`TrustedClientIp`] extension.
 
 /// Optional, client-controlled `X-Device-Id`; bounded length + restricted
 /// charset. On rejection the caller falls back to per-IP limiting alone.
@@ -788,63 +761,6 @@ mod tests {
     use super::client_ip;
     use axum::http::HeaderMap;
 
-    fn headers_with_xff(value: &str) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", value.parse().unwrap());
-        headers
-    }
-
-    #[test]
-    fn client_ip_uses_nth_from_right_with_one_trusted_proxy() {
-        // One trusted proxy: the rightmost entry is the proxy's view of the
-        // client; prepended (spoofed) entries to the left are ignored.
-        let headers = headers_with_xff("9.9.9.9, 8.8.8.8, 203.0.113.7");
-        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_honors_higher_trusted_proxy_count() {
-        // Two trusted proxies: take the 2nd-from-right entry, ignoring the
-        // spoofable left-most one.
-        let headers = headers_with_xff("1.2.3.4, 203.0.113.7, 10.0.0.2");
-        assert_eq!(client_ip(&headers, 2).as_deref(), Some("203.0.113.7"));
-        assert_ne!(client_ip(&headers, 2).as_deref(), Some("1.2.3.4"));
-    }
-
-    #[test]
-    fn client_ip_ignores_left_most_spoofed_entry() {
-        // A single-hop deployment must not trust the attacker-controlled
-        // left-most entry; it takes the rightmost real entry instead.
-        let headers = headers_with_xff("1.2.3.4, 203.0.113.7");
-        assert_ne!(client_ip(&headers, 1).as_deref(), Some("1.2.3.4"));
-        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_clamps_when_chain_shorter_than_expected() {
-        // A misconfigured/short chain yields the left-most available entry
-        // rather than underflowing.
-        let headers = headers_with_xff("203.0.113.7");
-        assert_eq!(client_ip(&headers, 3).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_zero_proxy_count_is_treated_as_one() {
-        // 0 is clamped to 1 so the left-most entry is never blindly trusted.
-        let headers = headers_with_xff("1.2.3.4, 203.0.113.7");
-        assert_eq!(client_ip(&headers, 0).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_none_without_header() {
-        assert_eq!(client_ip(&HeaderMap::new(), 1), None);
-    }
-
-    /// `rate_limit` takes `now` as an explicit parameter, so its window/cap/reset
-    /// behavior is driven here with a synthetic clock instead of racing real
-    /// wall-clock minute boundaries across a burst of DB round-trips — the root
-    /// cause of the flaky HTTP-level intake rate-limit test. Mirrors auth-rest's
-    /// `rate_limit_trips_at_cap_and_resets_after_window`.
     #[sqlx::test(migrations = "../../platform/db/migrations")]
     async fn rate_limit_trips_at_cap_and_resets_after_window(pool: sqlx::PgPool) {
         use super::{RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW, rate_limit};
@@ -857,20 +773,35 @@ mod tests {
         let window1 = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
 
         for attempt in 0..RATE_LIMIT_PER_IP {
-            rate_limit(&store, &headers, 1, window1)
-                .await
-                .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
+            rate_limit(
+                &store,
+                &headers,
+                Some(TrustedClientIp::new("203.0.113.50".parse().unwrap())),
+                window1,
+            )
+            .await
+            .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
         }
 
-        let tripped = rate_limit(&store, &headers, 1, window1)
-            .await
-            .expect_err("the request past the cap in the same window must trip 429");
+        let tripped = rate_limit(
+            &store,
+            &headers,
+            Some(TrustedClientIp::new("203.0.113.50".parse().unwrap())),
+            window1,
+        )
+        .await
+        .expect_err("the request past the cap in the same window must trip 429");
         assert_eq!(tripped.status, StatusCode::TOO_MANY_REQUESTS);
 
         // Advancing past the fixed window resets the per-IP bucket.
         let window2 = window1 + RATE_LIMIT_WINDOW;
-        rate_limit(&store, &headers, 1, window2)
-            .await
-            .expect("a new window must reset the per-IP bucket");
+        rate_limit(
+            &store,
+            &headers,
+            Some(TrustedClientIp::new("203.0.113.50".parse().unwrap())),
+            window2,
+        )
+        .await
+        .expect("a new window must reset the per-IP bucket");
     }
 }

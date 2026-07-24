@@ -27,6 +27,7 @@ use axum::extract::{ConnectInfo, Request};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use ipnet::IpNet;
 use mnt_kernel_core::{
     AccessScope, AuditRequestContext, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
     UserId,
@@ -76,6 +77,86 @@ impl TrustedClientIp {
     pub const fn get(self) -> IpAddr {
         self.0
     }
+}
+
+/// Resolve the client IP at the sole trusted HTTP ingress boundary.
+///
+/// A forwarding header is considered only when the deployment explicitly
+/// configures one or more trusted proxy hops *and* Axum supplied the direct
+/// transport peer.  Malformed or incomplete chains fall back to that peer;
+/// they never promote an attacker-controlled header value.  This is the only
+/// place that interprets `X-Forwarded-For` in the HTTP process.
+#[must_use]
+pub fn resolve_trusted_client_ip(
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    trusted_proxy_count: usize,
+    trusted_proxy_cidrs: &[IpNet],
+) -> IpAddr {
+    if trusted_proxy_count == 0
+        || !trusted_proxy_cidrs
+            .iter()
+            .any(|network| network.contains(&peer.ip()))
+    {
+        return peer.ip();
+    }
+
+    let Some(forwarded) = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+    else {
+        return peer.ip();
+    };
+
+    let entries = forwarded
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(str::parse::<IpAddr>)
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(entries) = entries else {
+        return peer.ip();
+    };
+
+    // The configured count is the number of proxy addresses to the right of
+    // the client in the chain.  A short chain cannot establish that boundary,
+    // so fail closed to the direct transport peer instead of clamping into a
+    // potentially caller-prepended value.
+    entries
+        .len()
+        .checked_sub(trusted_proxy_count)
+        .and_then(|index| entries.get(index).copied())
+        .unwrap_or_else(|| peer.ip())
+}
+
+/// Insert a [`TrustedClientIp`] extension at the process ingress.
+///
+/// Call this once on the fully-composed app router. Domain routers and rate
+/// limiters consume the extension and never parse raw forwarding headers.
+pub fn with_trusted_client_ip<S>(
+    router: axum::Router<S>,
+    trusted_proxy_count: usize,
+    trusted_proxy_cidrs: Vec<IpNet>,
+) -> axum::Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    router.layer(axum::middleware::from_fn(
+        move |mut request: Request, next: Next| async move {
+            if let Some(ConnectInfo(peer)) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+                let client_ip = resolve_trusted_client_ip(
+                    request.headers(),
+                    *peer,
+                    trusted_proxy_count,
+                    &trusted_proxy_cidrs,
+                );
+                request
+                    .extensions_mut()
+                    .insert(TrustedClientIp::new(client_ip));
+            }
+            next.run(request).await
+        },
+    ))
 }
 
 /// Why a request could not be given a tenant context.
@@ -616,6 +697,45 @@ mod tests {
         assert_eq!(
             trusted_or_direct_client_ip(&request),
             Some("192.0.2.11".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_uses_only_the_configured_trusted_suffix() {
+        let headers = HeaderMap::from_iter([(
+            "x-forwarded-for",
+            "198.51.100.250, 203.0.113.7, 10.0.0.2".parse().unwrap(),
+        )]);
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            "203.0.113.7".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_never_uses_raw_xff_without_a_configured_proxy() {
+        let headers =
+            HeaderMap::from_iter([("x-forwarded-for", "198.51.100.250".parse().unwrap())]);
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(resolve_trusted_client_ip(&headers, peer, 0, &[]), peer.ip());
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "a short chain cannot turn a caller header into the trusted client"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_xff_from_an_untrusted_transport_peer() {
+        let headers =
+            HeaderMap::from_iter([("x-forwarded-for", "198.51.100.250".parse().unwrap())]);
+        let peer = "192.0.2.10:443".parse().unwrap();
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 1, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip()
         );
     }
 
