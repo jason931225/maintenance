@@ -96,13 +96,31 @@ function classifyRoots(rawRoots, sharedPatterns, migrationRoots) {
 export function buckIsolationDir(anchorSha, laneId) {
   if (!FULL_SHA.test(anchorSha) || typeof laneId !== 'string' || !/^[A-Za-z0-9#._-]+$/.test(laneId)) throw new Error('invalid immutable lane identity for Buck isolation');
   const slug = laneId.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
-  return `.buck2/console-epochs/${anchorSha.slice(0, 12)}/${slug.slice(0, 72)}`;
+  // The slug is only for operator readability.  The full lane identity hash
+  // prevents distinct long IDs with the same readable prefix from colliding.
+  return `.buck2/console-epochs/${anchorSha.slice(0, 12)}/${slug.slice(0, 72)}-${createHash('sha256').update(laneId).digest('hex')}`;
 }
 function laneScore(capability, qualityBias) { const score = finiteNumber(capability.priority?.score); const c = finiteNumber(capability.priority?.inputs?.correctness_and_risk_reduction, score); const v = finiteNumber(capability.priority?.inputs?.verification_readiness, score); return (1 - qualityBias) * score + qualityBias * ((c + v) / 2); }
 function conflictBetween(left, right) { for (const a of left.private_roots) for (const b of right.private_roots) if (patternsOverlap(a, b)) return [a, b]; return null; }
-function reviewReceipt(capability, anchorSha) {
-  const receipt = capability.state?.independent_review_receipt;
-  return receipt && typeof receipt === 'object' && receipt.status === 'approved' && receipt.anchor_sha === anchorSha && FULL_SHA.test(receipt.review_commit ?? '') ? receipt : null;
+function reviewReceipts(capability) { return arrays(capability.state?.independent_review_receipts); }
+function nonemptyIdentity(value) { return typeof value === 'string' && /^[A-Za-z0-9._@/-]+$/.test(value); }
+function staticReviewReceipt(receipt, anchorSha, lane) {
+  if (!receipt || typeof receipt !== 'object' || receipt.status !== 'approved' || receipt.anchor_sha !== anchorSha) return null;
+  if (receipt.lane_id !== lane.laneId || receipt.implementer !== lane.owner || !nonemptyIdentity(receipt.reviewer) || receipt.reviewer === receipt.implementer) return null;
+  if (!FULL_SHA.test(receipt.leaf_commit ?? '') || !FULL_SHA.test(receipt.review_commit ?? '') || receipt.leaf_commit === receipt.review_commit || !/^[0-9a-f]{64}$/.test(receipt.leaf_result_sha256 ?? '')) return null;
+  return receipt;
+}
+function reviewReceipt(capability, anchorSha, lane) {
+  return reviewReceipts(capability).find((receipt) => staticReviewReceipt(receipt, anchorSha, lane)) ?? null;
+}
+export function validateReviewReceiptForAnchor(receipt, anchor, lane, operations) {
+  const valid = staticReviewReceipt(receipt, anchor, lane);
+  if (!valid) throw new Error('review receipt is not an exact independent leaf result receipt');
+  if (!operations.hasCommit(valid.leaf_commit)) throw new Error('review receipt leaf commit does not exist');
+  if (!operations.hasCommit(valid.review_commit)) throw new Error('review receipt review commit does not exist');
+  if (!operations.isAncestor(anchor, valid.leaf_commit)) throw new Error('review receipt leaf commit is not anchored to the epoch');
+  if (!operations.isAncestor(valid.leaf_commit, valid.review_commit)) throw new Error('review receipt review commit does not custody the reviewed leaf result');
+  return valid;
 }
 function validateInputs(registry, options) {
   if (!registry || registry.schema_version !== 'console-capability-registry-v1') throw new Error('unsupported console capability registry schema');
@@ -159,14 +177,15 @@ export function buildFanoutPlan(registry, options) {
     const unassigned = classes.privateRoots.filter((root) => !assigned.some((entry) => patternFullyCovers(entry, root)));
     unassignedByCapability.set(capability.id, unassigned);
     if (sourceComplete(capability)) {
-      if (!reviewReceipt(capability, options.anchorSha)) held.push({ capability_id: capability.id, lane_id: `${capability.id}#completed-review`, reasons: ['completed_source_missing_exact_review_receipt'] });
+      if (unassigned.length) held.push({ capability_id: capability.id, lane_id: `${capability.id}#unowned-roots`, reasons: ['unassigned_private_ownership_roots'], unassigned_roots: unassigned });
+      else if (!lanes.every((lane) => reviewReceipt(capability, options.anchorSha, lane) && !options.runtimeReviewEligibility?.[lane.laneId])) held.push({ capability_id: capability.id, lane_id: `${capability.id}#completed-review`, reasons: ['completed_source_missing_exact_leaf_review_receipts'] });
       else completed.push(capability.id);
       continue;
     }
     if (unassigned.length) held.push({ capability_id: capability.id, lane_id: `${capability.id}#unowned-roots`, reasons: ['unassigned_private_ownership_roots'], unassigned_roots: unassigned });
     const incomplete = [];
     for (const lane of lanes) {
-      if (laneSourceComplete(capability, lane.kind)) { completedLeafLanes.push(lane.laneId); if (!reviewReceipt(capability, options.anchorSha)) reviewReady.push({ capability_id: capability.id, lane_id: lane.laneId, reason: 'source_lane_complete_exact_independent_review_required' }); continue; }
+      if (laneSourceComplete(capability, lane.kind)) { completedLeafLanes.push(lane.laneId); if (!reviewReceipt(capability, options.anchorSha, lane) || options.runtimeReviewEligibility?.[lane.laneId]) reviewReady.push({ capability_id: capability.id, lane_id: lane.laneId, reason: 'source_lane_complete_exact_independent_review_required' }); continue; }
       incomplete.push(lane);
       const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
       const reasons = [];
@@ -178,6 +197,7 @@ export function buildFanoutPlan(registry, options) {
       if (!roots.privateRoots.length) reasons.push('missing_private_ownership_roots');
       const resources = validResources(lane.resources);
       if (!resources) reasons.push('invalid_lane_resource_requirements');
+      if (options.runtimeLaneEligibility?.[lane.laneId]) reasons.push(options.runtimeLaneEligibility[lane.laneId]);
       if (lane.roots.some((root) => normalizePattern(root).startsWith('backend/')) && stateText(capability, 'backend') !== 'not_applicable' && !lane.buckTargets.length) reasons.push('missing_backend_buck_targets');
       if (reasons.length) { held.push({ capability_id: capability.id, lane_id: lane.laneId, reasons }); continue; }
       admitted.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, worktree: lane.worktree, branch: lane.branch, resources, buck_isolation_dir: buckIsolationDir(options.anchorSha, lane.laneId), signature_story_id: capability.signature_story.id, evidence_path: capability.evidence_path, private_roots: roots.privateRoots, shared_roots: sharedByCapability.get(capability.id), excluded_shared_roots: roots.excludedSharedRoots, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), dependencies: [...new Set(arrays(capability.dependencies))].sort(compareText) });
@@ -206,13 +226,15 @@ export function buildFanoutPlan(registry, options) {
   const selectedCapabilities = [...new Set(selected.map((lane) => lane.capability_id))].sort(compareText);
   const mergeDependencyHolds = selectedCapabilities.map((id) => ({ capability_id: id, unresolved_dependencies: selected.find((lane) => lane.capability_id === id).dependencies.filter((dependency) => !byId.has(dependency) || !sourceComplete(byId.get(dependency))) })).filter((entry) => entry.unresolved_dependencies.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
   const consolidationQueue = selectedCapabilities.map((id) => {
-    const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set(selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const receipt = reviewReceipt(capability, options.anchorSha); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
+    const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set(selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const lanes = sourceLaneDefinitions(capability); const hasReviews = lanes.every((lane) => reviewReceipt(capability, options.anchorSha, lane) && !options.runtimeReviewEligibility?.[lane.laneId]); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
     const prerequisites = [];
-    if (!receipt) prerequisites.push('exact_leaf_review_receipt_required');
+    if (!hasReviews) prerequisites.push('exact_leaf_review_receipts_required');
     if (!consolidation?.owner || consolidation.owner !== registry.shared_collision_roots.owner) prerequisites.push('invalid_consolidation_owner');
     if (typeof consolidation?.worktree !== 'string' || !path.isAbsolute(consolidation.worktree)) prerequisites.push('invalid_consolidation_worktree');
     if (typeof consolidation?.branch !== 'string' || !consolidation.branch.trim()) prerequisites.push('invalid_consolidation_branch');
     if (!consolidationResources) prerequisites.push('invalid_consolidation_resource_requirements');
+    else if (RESOURCE_KEYS.some((key) => consolidationResources[key] > budgets[key])) prerequisites.push('consolidation_resources_exceed_epoch_capacity');
+    if (options.runtimeConsolidationEligibility?.[capability.id]) prerequisites.push(options.runtimeConsolidationEligibility[capability.id]);
     return { capability_id: id, shared_roots: sharedByCapability.get(id) ?? [], ready_after_leaf_review: prerequisites.length === 0 && awaiting.length === 0 && !(unassignedByCapability.get(id) ?? []).length, review_prerequisites: prerequisites, awaiting_lane_ids: awaiting, awaiting_unassigned_roots: unassignedByCapability.get(id) ?? [] };
   }).filter((entry) => entry.shared_roots.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
   const reviewQueue = [...selected.map((lane) => ({ capability_id: lane.capability_id, lane_id: lane.lane_id, reason: 'leaf_result_requires_exact_independent_review_receipt' })), ...reviewReady].sort((a,b) => compareText(a.capability_id,b.capability_id) || compareText(a.reason,b.reason));
@@ -248,28 +270,40 @@ function assertSourceRevision(repoRoot, value, anchor) {
 }
 function worktreeEntries(repoRoot) { const output = git(repoRoot, ['worktree', 'list', '--porcelain']); const entries = []; let current = {}; for (const line of output.split('\n')) { if (!line) { if (current.worktree) entries.push(current); current = {}; } else { const [key, ...rest] = line.split(' '); current[key] = rest.join(' '); } } if (current.worktree) entries.push(current); return entries; }
 function assertAnchorAuthority(repoRoot, anchor, registryPath, registry, generatedPath, generated) { if (git(repoRoot, ['rev-parse', '--verify', anchor]) !== anchor) throw new Error('anchor is not a resolvable immutable commit'); if (git(repoRoot, ['status', '--porcelain']) !== '') throw new Error('planner requires a clean worktree'); assertSourceRevision(repoRoot, registry.source_revision, anchor); const anchoredRegistry = readAnchorJson(repoRoot, anchor, registryPath); if (registryDigest(anchoredRegistry) !== registryDigest(registry)) throw new Error('registry differs from anchor blob'); const anchoredGenerated = readAnchorJson(repoRoot, anchor, generatedPath); if (digest(anchoredGenerated) !== digest(generated)) throw new Error('generated-face authority differs from anchor blob'); try { git(repoRoot, ['cat-file', '-e', `${anchor}:backend/crates/platform/db/migrations`]); } catch { throw new Error('migration authority root missing at anchor'); } }
-function validateDeclaredWorktrees(repoRoot, plan, anchor) {
-  const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry]));
-  const owners = new Set(), worktrees = new Set(), branches = new Set(); const admitted = [];
-  for (const lane of plan.selected) {
-    let reason = null; const entry = byPath.get(lane.worktree);
-    if (!entry || entry.branch !== `refs/heads/${lane.branch}`) reason = 'declared_worktree_or_branch_not_live';
-    else if (git(lane.worktree, ['status', '--porcelain']) !== '') reason = 'declared_worktree_dirty';
-    else {
-      const head = git(lane.worktree, ['rev-parse', 'HEAD']);
-      if (head !== anchor && !gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', anchor, head])) reason = 'declared_worktree_head_not_anchor_descendant';
-    }
-    for (const [label, values, value] of [['owner', owners, lane.owner], ['worktree', worktrees, lane.worktree], ['branch', branches, lane.branch]]) {
-      if (values.has(value)) reason ??= `duplicate_${label}_within_epoch`; values.add(value);
-    }
-    if (reason) plan.held.push({ capability_id: lane.capability_id, lane_id: lane.lane_id, reasons: [reason], runtime_admission: true }); else admitted.push(lane);
-  }
-  const admittedIds = new Set(admitted.map((lane) => lane.lane_id)); const admittedCapabilities = new Set(admitted.map((lane) => lane.capability_id));
-  plan.selected = admitted;
-  plan.review_queue = plan.review_queue.filter((entry) => !entry.lane_id || admittedIds.has(entry.lane_id));
-  plan.consolidation_queue = plan.consolidation_queue.filter((entry) => admittedCapabilities.has(entry.capability_id));
-  plan.policy.allocated_resources = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, admitted.reduce((sum, lane) => sum + lane.resources[key], 0)]));
+function declaredWorktreeReason(repoRoot, byPath, declaration, anchor) {
+  const entry = byPath.get(declaration.worktree);
+  if (!entry || entry.branch !== `refs/heads/${declaration.branch}`) return 'declared_worktree_or_branch_not_live';
+  if (git(declaration.worktree, ['status', '--porcelain']) !== '') return 'declared_worktree_dirty';
+  const head = git(declaration.worktree, ['rev-parse', 'HEAD']);
+  return head === anchor || gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', anchor, head]) ? null : 'declared_worktree_head_not_anchor_descendant';
 }
-function main() { const args = parseArgs(process.argv.slice(2)); const repoRoot = process.cwd(); const registry = readAnchorJson(repoRoot, args.anchorSha, args.registryPath); const generatedPath = registry.shared_collision_roots?.generated_face_registry; if (typeof generatedPath !== 'string') throw new Error('missing generated-face authority path'); const generated = readAnchorJson(repoRoot, args.anchorSha, generatedPath); assertAnchorAuthority(repoRoot, args.anchorSha, args.registryPath, registry, generatedPath, generated); const plan = buildFanoutPlan(registry, { anchorSha: args.anchorSha, maxWriters: args.maxWriters, qualityBias: args.qualityBias, generatedFaces: generated }); validateDeclaredWorktrees(repoRoot, plan, args.anchorSha); process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`); }
+function runtimeEligibility(repoRoot, registry, anchor) {
+  const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry]));
+  const runtimeLaneEligibility = {}, runtimeConsolidationEligibility = {}, runtimeReviewEligibility = {};
+  for (const capability of registry.capabilities) {
+    for (const lane of sourceLaneDefinitions(capability)) {
+      const reason = declaredWorktreeReason(repoRoot, byPath, lane, anchor);
+      if (reason) runtimeLaneEligibility[lane.laneId] = reason;
+      const receipt = reviewReceipt(capability, anchor, lane);
+      if (receipt) {
+        try {
+          validateReviewReceiptForAnchor(receipt, anchor, lane, {
+            hasCommit: (sha) => gitSucceeds(repoRoot, ['cat-file', '-e', `${sha}^{commit}`]),
+            isAncestor: (ancestor, descendant) => gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', ancestor, descendant]),
+          });
+        } catch {
+          runtimeReviewEligibility[lane.laneId] = 'invalid_exact_leaf_review_receipt';
+        }
+      }
+    }
+    const consolidation = capability.lane_assignments?.consolidation;
+    if (consolidation) {
+      const reason = declaredWorktreeReason(repoRoot, byPath, consolidation, anchor);
+      if (reason) runtimeConsolidationEligibility[capability.id] = reason;
+    }
+  }
+  return { runtimeLaneEligibility, runtimeConsolidationEligibility, runtimeReviewEligibility };
+}
+function main() { const args = parseArgs(process.argv.slice(2)); const repoRoot = process.cwd(); const registry = readAnchorJson(repoRoot, args.anchorSha, args.registryPath); const generatedPath = registry.shared_collision_roots?.generated_face_registry; if (typeof generatedPath !== 'string') throw new Error('missing generated-face authority path'); const generated = readAnchorJson(repoRoot, args.anchorSha, generatedPath); assertAnchorAuthority(repoRoot, args.anchorSha, args.registryPath, registry, generatedPath, generated); const runtime = runtimeEligibility(repoRoot, registry, args.anchorSha); const plan = buildFanoutPlan(registry, { anchorSha: args.anchorSha, maxWriters: args.maxWriters, qualityBias: args.qualityBias, generatedFaces: generated, ...runtime }); process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`); }
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) { try { main(); } catch (error) { process.stderr.write(`console-fanout-plan: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; } }

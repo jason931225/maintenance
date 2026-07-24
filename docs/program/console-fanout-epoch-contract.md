@@ -48,7 +48,7 @@ excuse to block an otherwise safe leaf implementation.
 Each selected lane receives a deterministic, epoch-scoped Buck isolation path:
 
 ```text
-.buck2/console-epochs/<anchor-12>/<lane-slug>
+.buck2/console-epochs/<anchor-12>/<lane-slug>-<sha256(full-lane-id)>
 ```
 
 Run Buck through `tools/buck2 --isolation-dir <that path> ...`. Concurrent
@@ -61,8 +61,14 @@ graph ownership.
 
 Shared OpenAPI, generated clients, migrations, route/nav, tokens, and generated
 Buck faces are never leaf writes. A consolidation entry remains false until an
-exact-anchor independent-review receipt is approved and the consolidation owner,
-worktree, branch, and resource declaration are valid. Review fans out per leaf;
+exact-anchor independent-review receipt is approved for every leaf and the
+consolidation owner, worktree, branch, and resource declaration are valid. The
+planner discovers the consolidation worktree through `git worktree list
+--porcelain`, verifies its exact branch, cleanliness, anchor-descendant HEAD,
+and that its resource demand fits the epoch capacity before it can be ready.
+Each leaf receipt names its exact lane and implementer, a distinct reviewer, the
+reviewed leaf commit, the SHA-256 leaf-result digest, and a review commit that
+exists and descends from that leaf commit. Review fans out per leaf;
 rejections return only to the leaf owner. The consolidated exact tip then runs
 cheap admission, affected Buck targets, resource-class shards, browser stories,
 and the full backstop.
