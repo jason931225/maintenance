@@ -1202,7 +1202,7 @@ async fn instance_revision_writeback(
 fn action_command_digest(
     action_key: &str,
     command: &ActionCommand,
-    attributes: &Value,
+    _attributes: &Value,
 ) -> Result<Vec<u8>, PgOntologyError> {
     let canonical = serde_json::json!({
         "action_key": action_key,
@@ -1215,11 +1215,26 @@ fn action_command_digest(
         "checklist_all_acknowledged": command.checklist_all_acknowledged,
         "four_eyes_request_ref": command.four_eyes_request_ref,
         "expected_revision": command.expected_revision,
-        "attributes": attributes,
     });
-    let bytes = serde_json::to_vec(&canonical)
+    let bytes = serde_json::to_vec(&canonical_json(&canonical))
         .map_err(|e| KernelError::validation(format!("command payload did not serialize: {e}")))?;
     Ok(Sha256::digest(bytes).to_vec())
+}
+
+/// Recursively sort JSON object keys before digesting a client command. The
+/// digest intentionally excludes derived/current instance attributes: those can
+/// change after a transport loss without changing the command being retried.
+fn canonical_json(value: &Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.iter().map(canonical_json).collect()),
+        Value::Object(values) => Value::Object(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), canonical_json(value)))
+                .collect(),
+        ),
+        primitive => primitive.clone(),
+    }
 }
 
 fn digest_hex(bytes: &[u8]) -> String {
@@ -1966,5 +1981,12 @@ mod tests {
             current.etag.as_str()
         );
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
+    }
+
+    #[test]
+    fn command_digest_canonicalizer_sorts_nested_payload_keys() {
+        let left = serde_json::json!({"z": {"b": 2, "a": 1}, "a": [ {"d": 4, "c": 3} ]});
+        let right = serde_json::json!({"a": [ {"c": 3, "d": 4} ], "z": {"a": 1, "b": 2}});
+        assert_eq!(canonical_json(&left), canonical_json(&right));
     }
 }

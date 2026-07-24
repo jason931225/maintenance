@@ -376,8 +376,6 @@ src/main/kotlin/com/maintenance/api/client/model/HrOrgChartEmployee.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartPosition.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartUnit.kt
-src/main/kotlin/com/maintenance/api/client/model/HrReadinessSummary.kt
-src/main/kotlin/com/maintenance/api/client/model/HrReadinessSummaryImports.kt
 src/main/kotlin/com/maintenance/api/client/model/ImportApplyRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/InboxDocConfirmReceiptRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/InboxDocDetail.kt

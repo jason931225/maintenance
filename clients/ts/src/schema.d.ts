@@ -12522,32 +12522,6 @@ export interface components {
             };
             receipt?: components["schemas"]["OntologyActionCommandReceipt"];
         };
-        HrReadinessSummary: {
-            imports: {
-                /** Format: int64 */
-                runs: number;
-                /** Format: int64 */
-                applied_runs: number;
-                /** Format: int64 */
-                input_rows: number;
-                /** Format: int64 */
-                candidate_rows: number;
-                /** Format: int64 */
-                preserved_rows: number;
-                /** Format: int64 */
-                ledger_rows: number;
-                latest_import_at?: components["schemas"]["Timestamp"];
-            };
-            payroll: {
-                [key: string]: unknown;
-            };
-            annual_leave: {
-                [key: string]: unknown;
-            };
-            attendance: {
-                [key: string]: unknown;
-            };
-        };
         GovernanceOpenOverrideRequest: {
             target_type: string;
             target_id: components["schemas"]["Uuid"];
@@ -15284,7 +15258,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HrReadinessSummary"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -15353,15 +15329,6 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-            /** @description The supplied expected_revision is stale. */
-            412: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
             422: components["responses"]["ValidationError"];
         };
     };
