@@ -1,11 +1,12 @@
+import type { components } from "@maintenance/api-client-ts";
+
 import type { ConsoleApiClient } from "../../api/client";
 
-// Hand-written response contracts for the logistics pilot routes. The backend
-// serializes ad-hoc `serde_json::json!` values (openapi.yaml declares no
-// response schemas yet), so these mirror
-// `backend/crates/logistics/adapter-postgres/src/lib.rs` verbatim. The
-// openapi manifest under docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/
-// asks the integrator to promote these into generated client types.
+// Response contracts are the generated client types (openapi.yaml declares the
+// logistics response schemas since the CAP-LOGISTICS-PILOT openapi manifest was
+// applied). The aggregate status unions below stay hand-written: each response
+// narrows to the statuses that operation can produce, while the screen tracks
+// rows across their whole lifecycle.
 
 export type AsnStatus = "EXPECTED" | "PARTIAL_RECEIVED" | "RECEIVED" | "PUTAWAY";
 export type FulfillmentStatus =
@@ -27,24 +28,11 @@ export interface CreateAsnInput {
   expectedQuantity: number;
 }
 
-export interface AsnCreated {
-  id: string;
-  status: AsnStatus;
-  branchId: string;
-}
+export type AsnCreated = components["schemas"]["LogisticsAsnCreated"];
 
-export interface ReceiptResult {
-  id: string;
-  status: AsnStatus;
-  /** Cumulative received total for the ASN. Absent on an idempotent replay. */
-  receivedQuantity?: number;
-  replayed?: boolean;
-}
+export type ReceiptResult = components["schemas"]["LogisticsAsnReceipt"];
 
-export interface PutawayResult {
-  id: string;
-  status: AsnStatus;
-}
+export type PutawayResult = components["schemas"]["LogisticsAsnPutaway"];
 
 export interface ReleaseFulfillmentInput {
   branchId: string;
@@ -54,38 +42,17 @@ export interface ReleaseFulfillmentInput {
   dueAt: string;
 }
 
-export interface FulfillmentReleased {
-  id: string;
-  status: FulfillmentStatus;
-  reservedQuantity: number;
-}
+export type FulfillmentReleased = components["schemas"]["LogisticsFulfillmentReleased"];
 
-export interface PickPackResult {
-  id: string;
-  status: FulfillmentStatus;
-  pickedQuantity: number;
-}
+export type PickResult = components["schemas"]["LogisticsFulfillmentPicked"];
 
-export interface DispatchResult {
-  /** The created shipment aggregate id. */
-  id: string;
-  fulfillmentId: string;
-  status: ShipmentStatus;
-}
+export type PackResult = components["schemas"]["LogisticsFulfillmentPacked"];
 
-export interface PodResult {
-  id: string;
-  status: ShipmentStatus;
-  recipientConfirmedEvidenceReference: string;
-  slaAssessment: SlaAssessment;
-}
+export type DispatchResult = components["schemas"]["LogisticsShipmentDispatched"];
 
-export interface SettlementResult {
-  id: string;
-  status: ShipmentStatus;
-  operationalCost: { currency: string; amountMinor: number };
-  financeGlPosting: null;
-}
+export type PodResult = components["schemas"]["LogisticsPodVerified"];
+
+export type SettlementResult = components["schemas"]["LogisticsShipmentSettlement"];
 
 export class LogisticsApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -115,9 +82,9 @@ export function newIdempotencyKey(): string {
 /**
  * Wire encoding for the backend's datetime fields (`dueAt`, `confirmedAt`,
  * `settledAt`). The deployed rest crate deserializes them as plain
- * `time::OffsetDateTime` WITHOUT `time::serde::rfc3339` — deviating from both
- * the repo convention and openapi.yaml's declared `format: date-time` — so the
- * only accepted wire form is time's default serde tuple
+ * `time::OffsetDateTime` WITHOUT `time::serde::rfc3339` — deviating from the
+ * repo convention — so the only accepted wire form (and the one openapi.yaml
+ * now declares as LogisticsTimeTuple) is time's default serde tuple
  * `[year, ordinal-day, hour, minute, second, nanosecond, offset_h, offset_m, offset_s]`
  * (verified against time 0.3.47 with the workspace feature set; RFC3339
  * strings are rejected with 422). Encoded in UTC, so the offset is always 0.
@@ -147,15 +114,7 @@ export function toTimeWire(
   ];
 }
 
-/**
- * Logistics-pilot transport bound to the authenticated ConsoleApiClient.
- *
- * openapi.yaml omits the request bodies of pick/pack/dispatch/pod/settle (the
- * generated client types them `requestBody?: never` although the backend
- * requires a body), so those five pass their verified body through `as never`
- * to keep the client's bearer/refresh/cache middleware. The openapi manifest
- * removes the casts once the integrator regenerates the clients.
- */
+/** Logistics-pilot transport bound to the authenticated ConsoleApiClient. */
 export function createLogisticsApi(api: ConsoleApiClient) {
   return {
     createAsn: async (input: CreateAsnInput, signal?: AbortSignal) => {
@@ -184,11 +143,8 @@ export function createLogisticsApi(api: ConsoleApiClient) {
       return requireData(response) as PutawayResult;
     },
     release: async (input: ReleaseFulfillmentInput, signal?: AbortSignal) => {
-      // `dueAt` must ride as the time-crate tuple (see toTimeWire), which the
-      // generated client (declared as `format: date-time`) cannot type.
-      const body = { ...input, dueAt: toTimeWire(input.dueAt) };
       const response = await api.POST("/api/v1/logistics/fulfillments", {
-        body: body as never,
+        body: { ...input, dueAt: toTimeWire(input.dueAt) },
         signal,
       });
       return requireData(response) as FulfillmentReleased;
@@ -200,18 +156,18 @@ export function createLogisticsApi(api: ConsoleApiClient) {
     ) => {
       const response = await api.POST("/api/v1/logistics/fulfillments/{fulfillment_id}/pick", {
         params: { path: { fulfillment_id: fulfillmentId } },
-        body: input as never,
+        body: input,
         signal,
       });
-      return requireData(response) as PickPackResult;
+      return requireData(response) as PickResult;
     },
     pack: async (fulfillmentId: string, input: { branchId: string }, signal?: AbortSignal) => {
       const response = await api.POST("/api/v1/logistics/fulfillments/{fulfillment_id}/pack", {
         params: { path: { fulfillment_id: fulfillmentId } },
-        body: input as never,
+        body: input,
         signal,
       });
-      return requireData(response) as PickPackResult;
+      return requireData(response) as PackResult;
     },
     dispatch: async (
       fulfillmentId: string,
@@ -220,7 +176,7 @@ export function createLogisticsApi(api: ConsoleApiClient) {
     ) => {
       const response = await api.POST("/api/v1/logistics/fulfillments/{fulfillment_id}/dispatch", {
         params: { path: { fulfillment_id: fulfillmentId } },
-        body: input as never,
+        body: input,
         signal,
       });
       return requireData(response) as DispatchResult;
@@ -232,7 +188,7 @@ export function createLogisticsApi(api: ConsoleApiClient) {
     ) => {
       const response = await api.POST("/api/v1/logistics/shipments/{shipment_id}/pod", {
         params: { path: { shipment_id: shipmentId } },
-        body: { ...input, confirmedAt: toTimeWire(input.confirmedAt) } as never,
+        body: { ...input, confirmedAt: toTimeWire(input.confirmedAt) },
         signal,
       });
       return requireData(response) as PodResult;
@@ -244,7 +200,7 @@ export function createLogisticsApi(api: ConsoleApiClient) {
     ) => {
       const response = await api.POST("/api/v1/logistics/shipments/{shipment_id}/settlements", {
         params: { path: { shipment_id: shipmentId } },
-        body: { ...input, settledAt: toTimeWire(input.settledAt) } as never,
+        body: { ...input, settledAt: toTimeWire(input.settledAt) },
         signal,
       });
       return requireData(response) as SettlementResult;
