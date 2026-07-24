@@ -14,10 +14,15 @@ import {
 
 type CandidateState =
   | { state: "idle" }
-  | { state: "loading" }
-  | { state: "denied" }
-  | { state: "error" }
-  | { state: "ready"; data: Page<SubstitutionCandidate> };
+  | { state: "denied"; requestKey: string }
+  | { state: "error"; requestKey: string }
+  | {
+      state: "ready";
+      requestKey: string;
+      data: Page<SubstitutionCandidate>;
+    };
+
+type VisibleCandidateState = CandidateState | { state: "loading" };
 
 const CANDIDATE_LIMIT = 25;
 
@@ -77,6 +82,13 @@ export function SubstitutionCandidateDialog({
       offset,
     };
   }, [gap.employee_id, gap.work_date, offset, query, window]);
+  const candidateRequestKey = useMemo(
+    () =>
+      candidateQuery
+        ? JSON.stringify({ ...candidateQuery, retry })
+        : undefined,
+    [candidateQuery, retry],
+  );
   const siteId = useId();
   const roleId = useId();
   const fromId = useId();
@@ -84,13 +96,14 @@ export function SubstitutionCandidateDialog({
   const searchId = useId();
 
   useEffect(() => {
-    if (!candidateQuery) return;
+    if (!candidateQuery || !candidateRequestKey) return;
     const controller = new AbortController();
-    setCandidates({ state: "loading" });
     void transport
       .listSubstitutionCandidates(candidateQuery, controller.signal)
       .then((data) => {
-        if (!controller.signal.aborted) setCandidates({ state: "ready", data });
+        if (!controller.signal.aborted) {
+          setCandidates({ state: "ready", requestKey: candidateRequestKey, data });
+        }
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
@@ -99,14 +112,20 @@ export function SubstitutionCandidateDialog({
             cause instanceof AttendanceTransportError && cause.status === 403
               ? "denied"
               : "error",
+          requestKey: candidateRequestKey,
         });
       });
-    return () => controller.abort();
-  }, [transport, candidateQuery, retry]);
+    return () => {
+      controller.abort();
+    };
+  }, [transport, candidateQuery, candidateRequestKey]);
 
-  const visibleCandidates = hasValidWindow
-    ? candidates
-    : ({ state: "idle" } as const);
+  const visibleCandidates: VisibleCandidateState = !hasValidWindow
+    ? { state: "idle" }
+    : candidates.state === "idle" ||
+        candidates.requestKey !== candidateRequestKey
+      ? { state: "loading" }
+      : candidates;
 
   const windowMessage = useMemo(() => {
     if (!from && !to) return text.sub.candidateWindow;

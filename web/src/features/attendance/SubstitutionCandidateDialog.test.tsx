@@ -60,13 +60,17 @@ describe("SubstitutionCandidateDialog", () => {
     await userEvent.type(within(dialog).getByLabelText("시작"), "09:00");
     expect(listSubstitutionCandidates).not.toHaveBeenCalled();
     await userEvent.type(within(dialog).getByLabelText("종료"), "18:00");
-    await waitFor(() => expect(listSubstitutionCandidates).toHaveBeenCalledWith(
-      expect.objectContaining({ covered_employee_id: "covered-1", cover_date: "2026-07-23", from_minutes: 540, to_minutes: 1080, limit: 25, offset: 0 }),
-      expect.any(AbortSignal),
-    ));
+    await waitFor(() => {
+      expect(listSubstitutionCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({ covered_employee_id: "covered-1", cover_date: "2026-07-23", from_minutes: 540, to_minutes: 1080, limit: 25, offset: 0 }),
+        expect.any(AbortSignal),
+      );
+    });
 
     await userEvent.type(within(dialog).getByLabelText("이름 검색"), "박");
-    await waitFor(() => expect(requests.some((signal) => signal.aborted)).toBe(true));
+    await waitFor(() => {
+      expect(requests.some((signal) => signal.aborted)).toBe(true);
+    });
     await userEvent.type(within(dialog).getByLabelText("현장"), "상주");
     await userEvent.type(within(dialog).getByLabelText("역할"), "경비");
     await userEvent.click(await within(dialog).findByRole("button", { name: "배정" }));
@@ -128,11 +132,15 @@ describe("SubstitutionCandidateDialog", () => {
     const dialog = screen.getByRole("dialog", { name: "대근 편성" });
     await enterWindow(dialog);
     await userEvent.click(await within(dialog).findByRole("button", { name: "다음 인원" }));
-    await waitFor(() => expect(staleSignal).toBeDefined());
+    await waitFor(() => {
+      expect(staleSignal).toBeDefined();
+    });
     await userEvent.type(within(dialog).getByLabelText("이름 검색"), "박");
     expect(await within(dialog).findByText("검색 결과 대근자")).toBeVisible();
     expect(staleSignal?.aborted).toBe(true);
     stalePage.resolve({ items: [{ employee_id: "worker-stale", employee_name: "오래된 페이지 대근자", branch_id: "branch-1" }], total: 26, limit: 25, offset: 25 });
-    await waitFor(() => expect(within(dialog).queryByText("오래된 페이지 대근자")).toBeNull());
+    await waitFor(() => {
+      expect(within(dialog).queryByText("오래된 페이지 대근자")).toBeNull();
+    });
   });
 });
