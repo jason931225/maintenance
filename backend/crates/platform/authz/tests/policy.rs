@@ -23,7 +23,7 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 80] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 88] {
     use Feature::{
         AiAssist, ApprovalFinalize, AssigneeManage, AuditLogRead, AuditStreamAccessLogRead,
         AuditStreamRead, BenefitCatalogManage, BenefitCatalogRead, BranchManage, CompletionReview,
@@ -33,6 +33,8 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 80] {
         EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach, ExcelDownload,
         ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport, ExitSettlementManage,
         FacilitiesAccept, FacilitiesDispatch, FacilitiesExecute, FacilitiesManage,
+        Equipment3rApprove, Equipment3rAssess, Equipment3rDispatch, Equipment3rDisposition,
+        Equipment3rInspect, Equipment3rObserve, Equipment3rQuote, Equipment3rRegistry,
         FacilitiesObserve, InspectionRoundComplete, InspectionScheduleManage,
         IntegrityFindingTriage, IntegrityFindingsRead, InventoryConsume, InventoryManage,
         InventoryRead, InventoryReorder, KpiExclusionManage, KpiRead, LifecycleManage, Login,
@@ -164,6 +166,15 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 80] {
         (FacilitiesAccept, [D, D, D, A, D, A]),
         (FacilitiesObserve, [D, A, A, A, A, A]),
         (ProductionSourceIngest, [D, D, D, D, D, D]),
+        // Equipment 3R: capability-driven, custom-grant only.
+        (Equipment3rRegistry, [D, D, D, D, D, D]),
+        (Equipment3rQuote, [D, D, D, D, D, D]),
+        (Equipment3rApprove, [D, D, D, D, D, D]),
+        (Equipment3rDispatch, [D, D, D, D, D, D]),
+        (Equipment3rInspect, [D, D, D, D, D, D]),
+        (Equipment3rAssess, [D, D, D, D, D, D]),
+        (Equipment3rDisposition, [D, D, D, D, D, D]),
+        (Equipment3rObserve, [D, D, D, D, D, D]),
     ]
 }
 
@@ -825,7 +836,7 @@ fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 80);
+    assert_eq!(Feature::ALL.len(), 88);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

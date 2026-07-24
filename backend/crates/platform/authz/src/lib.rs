@@ -302,10 +302,34 @@ pub enum Feature {
     /// are all denied; a registered service principal receives this only via an
     /// explicit tenant-scoped effective grant.
     ProductionSourceIngest,
+    /// Register serialized 3R rental units. Custom-grant only: no built-in
+    /// role fallback.
+    Equipment3rRegistry,
+    /// Create idempotent 3R rental-case quotes. Custom-grant only: no built-in
+    /// role fallback.
+    Equipment3rQuote,
+    /// Approve or decline a quoted 3R rental case (four-eyes enforced).
+    /// Custom-grant only: no built-in role fallback.
+    Equipment3rApprove,
+    /// Dispatch an approved 3R case and record customer handover. Custom-grant
+    /// only: no built-in role fallback.
+    Equipment3rDispatch,
+    /// Record on-rent 3R inspections and maintenance. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rInspect,
+    /// Record 3R returns and return assessments. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rAssess,
+    /// Complete repair/refurbish/resale dispositions. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rDisposition,
+    /// Read 3R units, rental cases, and history. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rObserve,
 }
 
 impl Feature {
-    pub const ALL: [Self; 80] = [
+    pub const ALL: [Self; 88] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -386,6 +410,14 @@ impl Feature {
         Self::FacilitiesAccept,
         Self::FacilitiesObserve,
         Self::ProductionSourceIngest,
+        Self::Equipment3rRegistry,
+        Self::Equipment3rQuote,
+        Self::Equipment3rApprove,
+        Self::Equipment3rDispatch,
+        Self::Equipment3rInspect,
+        Self::Equipment3rAssess,
+        Self::Equipment3rDisposition,
+        Self::Equipment3rObserve,
     ];
 
     #[must_use]
@@ -471,6 +503,14 @@ impl Feature {
             Self::FacilitiesAccept => "facilities_accept",
             Self::FacilitiesObserve => "facilities_observe",
             Self::ProductionSourceIngest => "production_source_ingest",
+            Self::Equipment3rRegistry => "equipment_3r_registry",
+            Self::Equipment3rQuote => "equipment_3r_quote",
+            Self::Equipment3rApprove => "equipment_3r_approve",
+            Self::Equipment3rDispatch => "equipment_3r_dispatch",
+            Self::Equipment3rInspect => "equipment_3r_inspect",
+            Self::Equipment3rAssess => "equipment_3r_assess",
+            Self::Equipment3rDisposition => "equipment_3r_disposition",
+            Self::Equipment3rObserve => "equipment_3r_observe",
         }
     }
 
@@ -601,6 +641,17 @@ impl Feature {
             Self::FacilitiesAccept => [D, D, D, A, D, A],
             Self::FacilitiesObserve => [D, A, A, A, A, A],
             Self::ProductionSourceIngest => [D, D, D, D, D, D],
+            // Equipment 3R is capability-driven from its first slice. Built-in
+            // roles do not silently widen access; explicit tenant grants are
+            // the only allow path.
+            Self::Equipment3rRegistry
+            | Self::Equipment3rQuote
+            | Self::Equipment3rApprove
+            | Self::Equipment3rDispatch
+            | Self::Equipment3rInspect
+            | Self::Equipment3rAssess
+            | Self::Equipment3rDisposition
+            | Self::Equipment3rObserve => [D, D, D, D, D, D],
         }
     }
 }
@@ -690,6 +741,14 @@ impl FromStr for Feature {
             "facilities_accept" => Ok(Self::FacilitiesAccept),
             "facilities_observe" => Ok(Self::FacilitiesObserve),
             "production_source_ingest" => Ok(Self::ProductionSourceIngest),
+            "equipment_3r_registry" => Ok(Self::Equipment3rRegistry),
+            "equipment_3r_quote" => Ok(Self::Equipment3rQuote),
+            "equipment_3r_approve" => Ok(Self::Equipment3rApprove),
+            "equipment_3r_dispatch" => Ok(Self::Equipment3rDispatch),
+            "equipment_3r_inspect" => Ok(Self::Equipment3rInspect),
+            "equipment_3r_assess" => Ok(Self::Equipment3rAssess),
+            "equipment_3r_disposition" => Ok(Self::Equipment3rDisposition),
+            "equipment_3r_observe" => Ok(Self::Equipment3rObserve),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
