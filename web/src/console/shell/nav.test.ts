@@ -34,7 +34,7 @@ describe("console nav deny-by-omission", () => {
   it("exposes only the ADR-0025-reviewed sales vertical slice", () => {
     const s = screens(grants([ROLES.MEMBER]));
     expect(MOUNTED_SCREEN_KEYS).toEqual(
-      expect.arrayContaining(["overview", "mywork", "people", "sales", "mail"]),
+      expect.arrayContaining(["overview", "attendance", "mywork", "people", "sales", "mail"]),
     );
     expect(EXPOSED_SCREEN_KEYS).toEqual(["sales"]);
     // The sole exposed screen remains deny-by-omission for a no-grant member.
@@ -60,9 +60,11 @@ describe("console nav deny-by-omission", () => {
   it("shows management analytics + HR to ADMIN, but never RoleManage surfaces", () => {
     const s = screens(grants([ROLES.ADMIN]), MOUNTED_SCREEN_KEYS);
     expect(s.has("people")).toBe(true);
+    expect(s.has("attendance")).toBe(true);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(true);
     expect(s.has("dashboard")).toBe(true);
+    expect(s.has("attendance")).toBe(true);
     expect(s.has("sales")).toBe(true);
     // RoleManage-tier is SUPER_ADMIN-only, never unlocked for ADMIN
     expect(s.has("policy")).toBe(false);
@@ -85,7 +87,9 @@ describe("console nav deny-by-omission", () => {
       MOUNTED_SCREEN_KEYS,
     );
     expect(s.has("dashboard")).toBe(true);
+    expect(s.has("attendance")).toBe(true);
     expect(s.has("people")).toBe(true);
+    expect(s.has("attendance")).toBe(true);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(false); // different feature — still hidden
   });

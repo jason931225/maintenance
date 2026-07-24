@@ -84,6 +84,7 @@ export interface ConsoleNavGroup {
  */
 export const MOUNTED_SCREEN_KEYS = [
   "overview",
+  "attendance",
   "mywork",
   "inbox",
   "leave",
@@ -199,7 +200,12 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
         icon: "calc",
         gate: g(DIRECTORY_ROLES, [FEATURES.EMPLOYEE_DIRECTORY_READ]),
       },
-      { screen: "attendance", labelKey: "console.shell.nav.attendance", icon: "clock" },
+      {
+        screen: "attendance",
+        labelKey: "console.shell.nav.attendance",
+        icon: "clock",
+        gate: g(DIRECTORY_ROLES, [FEATURES.EMPLOYEE_DIRECTORY_READ]),
+      },
       { screen: "leave", labelKey: "console.shell.nav.leave", icon: "calCheck" },
       { screen: "benefit", labelKey: "console.shell.nav.benefit", icon: "heart", gate: g(MANAGEMENT_ROLES, [FEATURES.BENEFIT_CATALOG_READ]) },
     ],

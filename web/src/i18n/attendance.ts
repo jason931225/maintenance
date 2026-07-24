@@ -5,6 +5,7 @@
  */
 export const attendanceStrings = {
   title: "근태",
+  noBranch: "근태를 확인할 활성 지점이 없습니다. 지점 권한을 확인한 뒤 다시 로그인하세요.",
   denied: "근태 현황을 볼 권한이 없습니다.",
   retry: "다시 시도",
   loading: "불러오는 중",

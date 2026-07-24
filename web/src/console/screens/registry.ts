@@ -4,6 +4,7 @@
 import type { ComponentType } from "react";
 import type { MountedScreenKey } from "../shell/nav";
 
+import { AttendanceScreenBody } from "../../features/attendance";
 import { ApprovalScreenBody } from "../appr/ApprovalScreenBody";
 import { AuditScreenBody } from "../audit/AuditScreenBody";
 import { MailScreenBody } from "../mail";
@@ -31,6 +32,7 @@ import { EquipmentScreenBody } from "../equipment";
 
 export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> = {
   overview: OverviewScreen,
+  attendance: AttendanceScreenBody,
   mywork: MyWorkScreen,
   inbox: InboxScreen,
   dashboard: DashboardBody,

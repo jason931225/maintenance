@@ -1,35 +1,52 @@
+import { useMemo } from "react";
+
 import { useActiveBranchId, useAuth } from "../../context/auth";
+import { attendanceStrings as text } from "../../i18n/attendance";
 
 import { AttendanceScreen } from "./AttendanceScreen";
 import { deriveAttendanceCapabilities } from "./attendanceCapabilities";
-import type { AttendanceTransport } from "./attendanceApi";
+import { createAttendanceApiTransport } from "./attendanceTransport";
 import { useAttendanceConsoleAuthz } from "./useAttendanceConsoleAuthz";
 
 /**
- * Module-owned body adapter. Shared router/generated-client integration supplies
- * the authenticated Attendance transport explicitly; this leaf never guesses
- * at missing generated paths or falls back to an untyped client.
+ * Registry-mountable, prop-less Attendance body. The authenticated console API
+ * and active JWT branch are the sole transport/branch authority. A missing
+ * branch is not replaced with an empty ID: there is no legal read or mutation
+ * target, so the body reports that state explicitly.
  */
-export function AttendanceConsoleRoute({
-  branchId,
-  transport,
-}: {
-  branchId: string;
-  transport: AttendanceTransport;
-}) {
-  return <AttendanceConsoleBody branchId={branchId} transport={transport} />;
+export function AttendanceScreenBody() {
+  const { api, session } = useAuth();
+  const branchId = useActiveBranchId();
+
+  if (branchId === undefined) {
+    return (
+      <section className="attendance" aria-label={text.title}>
+        <div className="attendance__panel">
+          <h1>{text.title}</h1>
+          <p role="status">{text.noBranch}</p>
+        </div>
+      </section>
+    );
+  }
+
+  return <AuthenticatedAttendanceBody api={api} branchId={branchId} session={session} />;
 }
 
-export function AttendanceConsoleBody({
+function AuthenticatedAttendanceBody({
+  api,
   branchId,
-  transport,
+  session,
 }: {
+  api: ReturnType<typeof useAuth>["api"];
   branchId: string;
-  transport: AttendanceTransport;
+  session: ReturnType<typeof useAuth>["session"];
 }) {
-  const { session } = useAuth();
   const authz = useAttendanceConsoleAuthz();
   const capabilities = deriveAttendanceCapabilities(authz, branchId);
+  const transport = useMemo(
+    () => createAttendanceApiTransport(api, branchId),
+    [api, branchId],
+  );
 
   return (
     <AttendanceScreen
@@ -42,15 +59,7 @@ export function AttendanceConsoleBody({
   );
 }
 
-/**
- * Shared registry adapter. Its caller owns the generated-client binding and
- * provides the current active branch; a missing transport cannot be masked.
- */
-export function AttendanceScreenBody({
-  transport,
-}: {
-  transport: AttendanceTransport;
-}) {
-  const branchId = useActiveBranchId();
-  return <AttendanceConsoleBody branchId={branchId ?? ""} transport={transport} />;
+/** Public module route uses the same prop-less authenticated body as the registry. */
+export function AttendanceConsoleRoute() {
+  return <AttendanceScreenBody />;
 }
