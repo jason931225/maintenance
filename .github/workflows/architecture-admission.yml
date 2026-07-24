@@ -4,8 +4,28 @@ permissions:
   contents: read
 jobs:
   admission:
-    # Bootstrap installs authority only. The enforcement-stage merge activates it.
-    if: ${{ false }}
+    name: Architecture admission (advisory)
     runs-on: ubuntu-latest
     steps:
-      - run: 'true'
+      - name: Checkout protected authority only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: authority
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout candidate as untrusted data
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch protected parent into candidate object database
+        run: git -C candidate fetch --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+      - name: Run protected-parent checker over candidate data
+        env:
+          PROTECTED_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test authority/scripts/architecture/check-boundaries.test.mjs
+          node authority/scripts/architecture/check-boundaries.mjs --root "$GITHUB_WORKSPACE/candidate" --protected-base-sha "$PROTECTED_BASE"
