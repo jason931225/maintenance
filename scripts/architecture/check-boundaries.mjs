@@ -21,16 +21,17 @@ function componentLayer(path, root) {
   const match = normal(relative(join(root, "backend/crates"), path)).match(/^([^/]+)\/(domain|application|adapter-[^/]+|rest)\//);
   return match ? { component: match[1], layer: match[2].startsWith("adapter-") ? "adapter" : match[2] } : null;
 }
-function cargoDependencies(text) {
+function cargoDependencies(text, workspaceDependencies = new Map()) {
   let inDependencies = false;
   const dependencies = [];
   for (const line of text.split(/\r?\n/)) {
-    if (/^\[(?:dev-)?dependencies\]$/.test(line)) { inDependencies = true; continue; }
+    if (/^\[(?:workspace\.)?(?:target\..+\.)?(?:dev-)?dependencies\]$/.test(line)) { inDependencies = true; continue; }
     if (/^\[/.test(line)) { inDependencies = false; continue; }
     if (!inDependencies) continue;
     const match = line.match(/^([\w-]+)\s*=\s*(.*)$/);
     if (!match) continue;
-    dependencies.push({ alias: match[1], package: match[2].match(/package\s*=\s*"([^"]+)"/)?.[1] ?? match[1] });
+    const alias = match[1];
+    dependencies.push({ alias, package: match[2].match(/package\s*=\s*"([^"]+)"/)?.[1] ?? (match[2].includes("workspace = true") ? workspaceDependencies.get(alias) ?? alias : alias) });
   }
   return dependencies;
 }
@@ -43,8 +44,10 @@ function importsIn(text) { return [...text.matchAll(/(?:import|export)\s+(?:type
 function featurePath(path) { return normal(path).match(/^features\/([^/]+)(?:\/|$)/)?.[1] ?? null; }
 function manifestForSource(source) { return join(dirname(dirname(source)), "Cargo.toml"); }
 function isGeneratedApiExport(text) {
+  const aliases = [...text.matchAll(/import\s+type\s+\{([^}]+)\}\s+from\s+["']@maintenance\/api-client-ts["']/g)]
+    .flatMap((match) => match[1].split(",").map((part) => part.trim().split(/\s+as\s+/).at(-1)).filter(Boolean));
   return /export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+["']@maintenance\/api-client-ts["']/.test(text)
-    || /export\s+type\s+\w+\s*=\s*(?:components|operations|paths)\b/.test(text);
+    || aliases.some((alias) => new RegExp(`export\\s+type\\s+\\w+\\s*=\\s*${alias}\\b`).test(text));
 }
 
 export function collectViolations(root, changedPaths = []) {
@@ -53,9 +56,11 @@ export function collectViolations(root, changedPaths = []) {
   const selected = (path) => changed.size === 0 || changed.has(normal(path));
   const violations = [];
   const backend = join(absoluteRoot, "backend/crates");
+  const workspaceManifest = join(absoluteRoot, "backend/Cargo.toml");
+  const workspaceDependencies = new Map((existsSync(workspaceManifest) ? cargoDependencies(readFileSync(workspaceManifest, "utf8")) : []).map((dependency) => [dependency.alias, dependency.package]));
   const dependencyCache = new Map();
   const dependenciesFor = (manifest) => {
-    if (!dependencyCache.has(manifest)) dependencyCache.set(manifest, existsSync(manifest) ? cargoDependencies(readFileSync(manifest, "utf8")) : []);
+    if (!dependencyCache.has(manifest)) dependencyCache.set(manifest, existsSync(manifest) ? cargoDependencies(readFileSync(manifest, "utf8"), workspaceDependencies) : []);
     return dependencyCache.get(manifest);
   };
 
@@ -82,9 +87,10 @@ export function collectViolations(root, changedPaths = []) {
     if (["domain", "application"].includes(layer.layer) && aliases.some((alias) => new RegExp(`\\b${alias}::`).test(text))) {
       violations.push(violation("backend-inner-framework", source, "framework-import"));
     }
-    // REST is transport-only: no direct persistence/mutation in handlers or helpers.
-    if (layer.layer === "rest" && /\b(?:sqlx|diesel|sea_orm)::|\.(?:execute|fetch_one|fetch_all|fetch_optional)\s*\(|\b(?:INSERT|UPDATE|DELETE)\s+INTO\b|\b\w+\.(?:status|state|lifecycle_state)\s*=/.test(text)) {
-      violations.push(violation("rest-delegation-boundary", source, "direct-persistence-or-lifecycle-mutation"));
+    // REST is transport-only: it delegates to application DTOs/use cases, never
+    // persistence nor a component's domain lifecycle model.
+    if (layer.layer === "rest" && (new RegExp(`\\bmnt_${layer.component.replaceAll("-", "_")}_domain::`).test(text) || /\b(?:sqlx|diesel|sea_orm)::|\.(?:execute|fetch_one|fetch_all|fetch_optional)\s*\(|\b(?:INSERT|UPDATE|DELETE)\s+INTO\b/.test(text))) {
+      violations.push(violation("rest-application-boundary", source, "direct-persistence-or-domain-model"));
     }
   }
 
@@ -107,7 +113,7 @@ export function collectViolations(root, changedPaths = []) {
       if (structured && targetFeature === sourceFeature && targetLayer && FRONTEND_LAYERS.get(targetLayer) > FRONTEND_LAYERS.get(structured)) {
         violations.push(violation("frontend-dependency-direction", source, `${structured}->${targetLayer}`));
       }
-      if (sourceFeature && targetFeature && sourceFeature !== targetFeature && !/\/features\/[^/]+\/(?:public|index)\.(?:ts|tsx)$/.test(targetRelative)) {
+      if (targetFeature && sourceFeature !== targetFeature && !/\/features\/[^/]+\/(?:public|index)\.(?:ts|tsx)$/.test(targetRelative)) {
         violations.push(violation("module-public-surface", source, `${sourceFeature}->${targetFeature}`));
       }
       if (generatedExportModules.has(normal(target)) && !(/^api\//.test(sourceRelative) || /^features\/[^/]+\/adapters\//.test(sourceRelative))) {
@@ -118,10 +124,11 @@ export function collectViolations(root, changedPaths = []) {
   for (const path of changed.size ? changed : walk(web)) {
     if (/^(?:shared\/|components\/shared\/)/.test(normal(relative(web, path)))) violations.push(violation("no-global-shared-dumping-ground", path, "use-ui-or-console-capability"));
   }
-  return violations.map((item) => {
+  return [...new Map(violations.map((item) => {
     const path = normal(relative(absoluteRoot, item.path));
-    return { ...item, path, id: `${item.rule}:${path}:${item.detail}` };
-  }).sort((a, b) => a.id.localeCompare(b.id));
+    const normalized = { ...item, path, id: `${item.rule}:${path}:${item.detail}` };
+    return [normalized.id, normalized];
+  })).values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function evaluateLedgerGrowth(ledger, trustedLedger) {
@@ -132,33 +139,54 @@ export function evaluateLedgerGrowth(ledger, trustedLedger) {
     return prior === JSON.stringify(entry) ? [] : [{ rule: "exception-ledger-growth", path: "scripts/architecture/exception-ledger.json", detail: `modified:${entry.id}`, id: `exception-ledger-growth:${entry.id}` }];
   });
 }
+export function validateLedger(ledger, today = new Date().toISOString().slice(0, 10)) {
+  const ids = new Set();
+  return (ledger.exceptions ?? []).flatMap((entry) => {
+    const issues = [];
+    if (!entry.id || ids.has(entry.id)) issues.push("duplicate-or-missing-id");
+    ids.add(entry.id);
+    if (!entry.owner?.trim()) issues.push("missing-owner");
+    if (!entry.target?.trim()) issues.push("missing-target");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.expiresOn ?? "") || entry.expiresOn < today) issues.push("stale-or-missing-expiry");
+    return issues.map((detail) => ({ rule: "exception-ledger-validity", path: "scripts/architecture/exception-ledger.json", detail: `${detail}:${entry.id}`, id: `exception-ledger-validity:${detail}:${entry.id}` }));
+  });
+}
+export function validateCiBaseline(root, suppliedSha, contract) {
+  const expected = contract.immutableCommit;
+  const fail = (detail) => [{ rule: "ci-baseline-contract", path: "scripts/architecture/ci-baseline-contract.json", detail, id: `ci-baseline-contract:${detail}` }];
+  if (!/^[0-9a-f]{40}$/.test(suppliedSha ?? "")) return fail("baseline-must-be-full-immutable-sha");
+  if (suppliedSha !== expected) return fail("baseline-does-not-match-protected-contract");
+  try {
+    if (execFileSync("git", ["-C", root, "rev-parse", `${suppliedSha}^{commit}`], { encoding: "utf8" }).trim() !== suppliedSha) return fail("baseline-identity-mismatch");
+    execFileSync("git", ["-C", root, "merge-base", "--is-ancestor", suppliedSha, "HEAD"]);
+    return [];
+  } catch { return fail("baseline-is-not-an-ancestor-of-head"); }
+}
 export function evaluateArchitecture(root, changedPaths = [], debt = [], ledgerFailures = []) {
   const known = new Set(debt.map((entry) => typeof entry === "string" ? entry : entry.id));
   const violations = collectViolations(root, changedPaths);
   return { violations, failures: [...ledgerFailures, ...violations.filter((item) => !known.has(item.id))], debt: violations.filter((item) => known.has(item.id)) };
 }
 function parseArgs(args) {
-  const result = { root: process.cwd(), changedPaths: [], format: "json", trustedBaseRef: null };
+  const result = { root: process.cwd(), changedPaths: [], format: "json", ciBaselineSha: null };
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--root") result.root = args[++index];
     else if (args[index] === "--changed-path") result.changedPaths.push(args[++index]);
     else if (args[index] === "--changed-paths-file") result.changedPaths.push(...readFileSync(args[++index], "utf8").split(/\r?\n/).filter(Boolean));
-    else if (args[index] === "--trusted-base-ref") result.trustedBaseRef = args[++index];
+    else if (args[index] === "--ci-baseline-sha") result.ciBaselineSha = args[++index];
     else if (args[index] === "--format") result.format = args[++index];
     else throw new Error(`unknown argument: ${args[index]}`);
   }
   return result;
 }
-function trustedLedger(root, ref) {
-  return JSON.parse(execFileSync("git", ["-C", root, "show", `${ref}:scripts/architecture/exception-ledger.json`], { encoding: "utf8" }));
-}
 if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
   const options = parseArgs(process.argv.slice(2));
   const ledgerPath = join(resolve(options.root), "scripts/architecture/exception-ledger.json");
   const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
-  const baseRef = options.trustedBaseRef ?? ledger.trustedBaseRef;
-  const ledgerFailures = baseRef ? evaluateLedgerGrowth(ledger, trustedLedger(resolve(options.root), baseRef)) : [{ rule: "exception-ledger-trust", path: "scripts/architecture/exception-ledger.json", detail: "missing-trusted-base-ref", id: "exception-ledger-trust:missing-trusted-base-ref" }];
-  const result = evaluateArchitecture(options.root, options.changedPaths, ledger.exceptions ?? [], ledgerFailures);
-  process.stdout.write(`${JSON.stringify({ mode: options.changedPaths.length ? "changed-paths" : "full", trustedBaseRef: baseRef, ...result }, null, 2)}\n`);
+  const contract = JSON.parse(readFileSync(join(resolve(options.root), "scripts/architecture/ci-baseline-contract.json"), "utf8"));
+  const baselineFailures = validateCiBaseline(resolve(options.root), options.ciBaselineSha, contract);
+  const ledgerFailures = validateLedger(ledger);
+  const result = evaluateArchitecture(options.root, options.changedPaths, ledger.exceptions ?? [], [...baselineFailures, ...ledgerFailures]);
+  process.stdout.write(`${JSON.stringify({ mode: options.changedPaths.length ? "changed-paths" : "full", ciBaselineSha: options.ciBaselineSha, ...result }, null, 2)}\n`);
   process.exitCode = result.failures.length ? 1 : 0;
 }

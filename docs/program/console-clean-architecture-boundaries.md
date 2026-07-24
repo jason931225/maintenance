@@ -94,3 +94,18 @@ editing the debt list.
 The gate also treats an API module which exports a generated-client type as a
 transport leak when a UI consumer imports it. API modules may map wire types to
 adapter/public DTOs, but the generated type itself must not cross that public boundary.
+
+### Immutable CI baseline contract
+
+CI supplies `--ci-baseline-sha` from its protected merge-parent metadata. The gate
+accepts only the full 40-character SHA pinned in
+`scripts/architecture/ci-baseline-contract.json`, resolves it to exactly that commit,
+and requires it to be an ancestor of `HEAD`. `HEAD`, symbolic refs, abbreviated SHAs,
+and alternate bases are rejected. The ledger is regenerated only after confirming
+there is no `backend/` or `web/` diff from that exact baseline. Each exception needs a
+unique ID, accountable owner, migration target, and non-stale expiry.
+
+REST is fail-closed at the transport/application boundary: REST source and helpers may
+not access persistence APIs or import their component domain model directly. Lifecycle
+models must enter REST through application DTOs/use cases; this avoids guessing policy
+from a field name such as `status`.

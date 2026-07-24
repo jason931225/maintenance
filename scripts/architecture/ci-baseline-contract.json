@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "purpose": "CI must supply this exact immutable protected PR-488 integration commit via --ci-baseline-sha.",
+  "immutableCommit": "49301e1e84dcee74c49f1582a67e353d995d8c08"
+}
