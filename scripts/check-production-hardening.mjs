@@ -898,11 +898,10 @@ export function evaluateExpandContractReleaseChecks(readText) {
 export function evaluateWorkflowHardeningChecks(readText) {
   const result = createResult();
   const productionHardeningTestCommand =
-    "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs";
+    "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs";
   const ciPath = ".github/workflows/ci.yml";
   const securityPath = ".github/workflows/security.yml";
   const imageReleasePath = ".github/workflows/image-release.yml";
-  const protectedMainCiGatePath = "scripts/wait-for-protected-main-ci.sh";
   const promotionAuthorityPath =
     "scripts/check-production-promotion-authority.py";
   const productionAuthorizationPath =
@@ -928,12 +927,6 @@ export function evaluateWorkflowHardeningChecks(readText) {
     readText,
     imageReleasePath,
     "image-release workflow",
-  );
-  const protectedMainCiGate = requirePresentText(
-    result,
-    readText,
-    protectedMainCiGatePath,
-    "protected-main CI gate script",
   );
   const promotionAuthority = requirePresentText(
     result,
@@ -1106,37 +1099,74 @@ export function evaluateWorkflowHardeningChecks(readText) {
     "Security workflow must run npm run check:production-hardening as an active step",
   );
 
+  const activeImageRelease = stripHashComments(imageReleaseWorkflow);
+  const workflowRunTrigger = extractYamlMappingBlock(
+    activeImageRelease,
+    "workflow_run",
+    2,
+  );
+  const ciAdmissionJob = extractYamlMappingBlock(
+    activeImageRelease,
+    "ci-admission",
+    2,
+  );
+  const buildJob = extractYamlMappingBlock(activeImageRelease, "build", 2);
+  const mergeJob = extractYamlMappingBlock(activeImageRelease, "merge", 2);
+  const releaseProbeForAdmission = extractYamlMappingBlock(
+    activeImageRelease,
+    "release-probe",
+    2,
+  );
   requirement(
     result,
-    workflowHasRun(imageReleaseWorkflow, [
-      /\bbash\s+scripts\/wait-for-protected-main-ci\.sh\b/,
-    ]) &&
-      [
-        /\bgh\s+run\s+list\b/,
-        /--workflow\s+ci\.yml\b/,
-        /--commit\b/,
-        /--event\s+push\b/,
-        /--branch\s+main\b/,
-        /\.event\s*==\s*["']push["']/,
-        /\.headBranch\s*==\s*["']main["']/,
-        /\bconclusion\b/,
-        /\bsuccess\b/,
-        /\bexit\s+1\b/,
-      ].every((pattern) => pattern.test(protectedMainCiGate)),
-    "image-release portable gate: active CI success wait",
-    "image-release must actively wait for successful protected-main push CI for the same SHA and fail non-success conclusions",
+    /workflows:\s*\["CI"\]/.test(workflowRunTrigger) &&
+      /types:\s*\[completed\]/.test(workflowRunTrigger) &&
+      /branches:\s*\[main\]/.test(workflowRunTrigger) &&
+      !/^  push:/m.test(activeImageRelease) &&
+      ciAdmissionJob !== "" &&
+      /WORKFLOW_CONCLUSION:\s*\$\{\{\s*github\.event\.workflow_run\.conclusion\s*\}\}/.test(ciAdmissionJob) &&
+      /WORKFLOW_HEAD_SHA:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha\s*\}\}/.test(ciAdmissionJob) &&
+      /\[\[ "\$WORKFLOW_CONCLUSION" == "success" \]\]/.test(ciAdmissionJob) &&
+      /\[\[ "\$WORKFLOW_EVENT" == "push" && "\$WORKFLOW_HEAD_BRANCH" == "main" \]\]/.test(ciAdmissionJob) &&
+      /candidate_sha="\$WORKFLOW_HEAD_SHA"/.test(ciAdmissionJob) &&
+      /actions\/workflows\/ci\.yml\/runs\?event=push&branch=main&head_sha=\$\{candidate_sha\}&status=completed/.test(ciAdmissionJob) &&
+      /\.head_sha == \$sha/.test(ciAdmissionJob) &&
+      /\.conclusion == "success"/.test(ciAdmissionJob) &&
+      /repos\/\$\{REPO\}\/git\/ref\/heads\/main/.test(ciAdmissionJob) &&
+      /candidate is no longer immutable current main/.test(ciAdmissionJob) &&
+      /release_sha=\$candidate_sha/.test(ciAdmissionJob) &&
+      !/wait-for-protected-main-ci|\bsleep\b|gh\s+run\s+list/.test(ciAdmissionJob) &&
+      /needs:\s*ci-admission/.test(buildJob) &&
+      /needs:\s*(?:build|\[[^\]]*\bbuild\b[^\]]*\])/.test(mergeJob) &&
+      /needs:\s*(?:merge|\[[^\]]*\bmerge\b[^\]]*\])/.test(releaseProbeForAdmission) &&
+      (activeImageRelease.match(/needs\.ci-admission\.outputs\.release_sha/g) ?? []).length >= 5,
+    "image-release admission: completed CI exact-SHA immutable-main gate before publication",
+    "image-release must trigger only from completed CI, fail closed on non-success/stale exact SHAs, avoid polling, and wire the admitted SHA before build, scan, sign, promote, or publication",
   );
-
-  const activeImageRelease = stripHashComments(imageReleaseWorkflow);
   const workflowDispatch = extractYamlMappingBlock(
     activeImageRelease,
     "workflow_dispatch",
     2,
   );
+  const candidateShaInput = extractYamlMappingBlock(
+    workflowDispatch,
+    "candidate_sha",
+    6,
+  );
   const productionPromotionInput = extractYamlMappingBlock(
     workflowDispatch,
     "promote_production",
     6,
+  );
+  requirement(
+    result,
+    extractYamlScalar(candidateShaInput, "required") === "true" &&
+      extractYamlScalar(candidateShaInput, "type") === "string" &&
+      /DISPATCH_CANDIDATE_SHA:\s*\$\{\{\s*inputs\.candidate_sha\s*\}\}/.test(ciAdmissionJob) &&
+      /\[\[ "\$DISPATCH_REF" == "refs\/heads\/main" && "\$RUN_ATTEMPT" == "1" \]\]/.test(ciAdmissionJob) &&
+      /\[\[ "\$candidate_sha" =~ \^\[0-9a-f\]\{40\}\$ \]\]/.test(ciAdmissionJob),
+    "image-release recovery: required exact-SHA first-attempt main dispatch",
+    "image-release workflow_dispatch recovery must require a lowercase 40-character candidate_sha and reject non-main or rerun attempts",
   );
   requirement(
     result,
@@ -1197,7 +1227,7 @@ export function evaluateWorkflowHardeningChecks(readText) {
     "image-release must bind the mutation job to the production environment",
   );
   const exactCheckoutIndex = bumpDigestJob.search(
-    /uses:\s*actions\/checkout@[0-9a-f]{40}[\s\S]*?ref:\s*\$\{\{\s*github\.sha\s*\}\}/,
+    /uses:\s*actions\/checkout@[0-9a-f]{40}[\s\S]*?ref:\s*\$\{\{\s*needs\.ci-admission\.outputs\.release_sha\s*\}\}/,
   );
   const initialAuthorityIndex = bumpDigestJob.indexOf(
     "python3 scripts/check-production-promotion-authority.py initial",
@@ -1223,7 +1253,7 @@ export function evaluateWorkflowHardeningChecks(readText) {
       resetAuthorityIndex > mutationIndex &&
       commitIndex > resetAuthorityIndex,
     "image-release production promotion: exact-SHA authorization and consumption",
-    "image-release bump-digests must re-check github.sha, bump digests, reset one-shot authorization, and then commit",
+    "image-release bump-digests must re-check the admitted exact SHA, bump digests, reset one-shot authorization, and then commit",
   );
   requirement(
     result,

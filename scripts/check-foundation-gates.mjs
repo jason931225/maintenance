@@ -258,8 +258,8 @@ for (const securityNeedle of [
   requireIncludes(".github/workflows/security.yml", securityNeedle, `security workflow: ${securityNeedle}`);
 }
 for (const releaseNeedle of [
-  "docs/specs/**",
-  "Wait for CI success",
+  "workflow_run:",
+  "Admit exact successful CI candidate",
   "Trivy scan both arches (fail on HIGH/CRITICAL)",
   "target: linux/amd64",
   "target: linux/arm64",

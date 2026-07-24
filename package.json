@@ -45,7 +45,7 @@
     "test:ontology-write-precondition": "node --test scripts/check-ontology-write-precondition.test.mjs",
     "check:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.py",
     "test:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.test.py",
-    "test:production-hardening": "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs",
+    "test:production-hardening": "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs",
     "web:dev": "npm --workspace web run dev",
     "dev:doctor": "node scripts/dev-up.mjs doctor",
     "dev:up": "node scripts/dev-up.mjs up",

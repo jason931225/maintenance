@@ -825,7 +825,7 @@ const validWorkflowFiles = {
   "package.json": JSON.stringify({
     scripts: {
       "test:production-hardening":
-        "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs",
+        "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs",
       "check:production-authority-blocked":
         "node scripts/check-production-authority-blocked.mjs",
     },
@@ -903,18 +903,15 @@ on:
         default: false
         type: boolean
 jobs:
-  ci-gate:
-    steps:
-      - name: Wait for CI success
-        run: bash scripts/wait-for-protected-main-ci.sh
   release-probe:
     permissions:
       contents: read
       packages: read
     steps:
       - name: Checkout
-        uses: actions/checkout@${"a".repeat(40)}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: \${{ needs.ci-admission.outputs.release_sha }}
           persist-credentials: false
       - name: Provision topology
         run: cat ops/postgres-reconcile-topology.sh
@@ -1020,15 +1017,19 @@ git("diff-tree")
 raise RuntimeError("origin/main advanced after authorization")
 raise RuntimeError("activation requires a separate accepted higher-authority ADR/cutover")
 `,
-  "scripts/wait-for-protected-main-ci.sh": `#!/usr/bin/env bash
-set -euo pipefail
-runs="$(gh run list --workflow ci.yml --commit "$SHA" --event push --branch main --json status,conclusion,url,event,headBranch)"
-runs="$(jq '[.[] | select(.event == "push" and .headBranch == "main")]' <<<"$runs")"
-conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"
-if [[ "$conclusion" == "success" ]]; then exit 0; fi
-exit 1
-`,
+
 };
+
+// The acceptance fixture is the checked-in release contract. Negative cases below
+// mutate it; this prevents a toy workflow from drifting away from the real gate.
+validWorkflowFiles["package.json"] = readFileSync(
+  new URL("../package.json", import.meta.url),
+  "utf8",
+);
+validWorkflowFiles[".github/workflows/image-release.yml"] = readFileSync(
+  new URL("../.github/workflows/image-release.yml", import.meta.url),
+  "utf8",
+);
 
 function evaluateWorkflows(overrides = {}) {
   const files = { ...validWorkflowFiles, ...overrides };
@@ -1199,6 +1200,26 @@ describe("production hardening workflow gates", () => {
     );
   });
 
+  it("rejects recovery without an exact required candidate SHA", () => {
+    const releaseWorkflow =
+      validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+        `      candidate_sha:
+        description: Exact current-main SHA whose successful push CI authorizes recovery
+        required: true
+        type: string
+`,
+        "",
+      ),
+    });
+
+    assertHasFailure(
+      result,
+      "workflow_dispatch recovery must require a lowercase 40-character candidate_sha",
+    );
+  });
+
   it("rejects production digest promotion without an explicit required false-by-default dispatch input", () => {
     const releaseWorkflow =
       validWorkflowFiles[".github/workflows/image-release.yml"];
@@ -1225,11 +1246,11 @@ describe("production hardening workflow gates", () => {
       validWorkflowFiles[".github/workflows/image-release.yml"];
     const result = evaluateWorkflows({
       ".github/workflows/image-release.yml": releaseWorkflow
-        .replace(
+        .replaceAll(
           "github.event_name == 'workflow_dispatch'",
           "github.event_name == 'push'",
         )
-        .replace(
+        .replaceAll(
           "github.ref == 'refs/heads/main'",
           "startsWith(github.ref, 'refs/heads/')",
         ),
@@ -1261,7 +1282,6 @@ describe("production hardening workflow gates", () => {
     const releaseWorkflow =
       validWorkflowFiles[".github/workflows/image-release.yml"];
     for (const mutated of [
-      releaseWorkflow.replace("      actions: read\n", ""),
       releaseWorkflow.replace(
         "prevent_self_review == true",
         "prevent_self_review == false",
@@ -1282,10 +1302,6 @@ describe("production hardening workflow gates", () => {
       ),
       releaseWorkflow.replace(
         "          TRIGGERING_ACTOR: \${{ github.triggering_actor }}\n",
-        "",
-      ),
-      releaseWorkflow.replace(
-        "          RUN_ATTEMPT: \${{ github.run_attempt }}\n",
         "",
       ),
       releaseWorkflow.replaceAll(
@@ -1322,7 +1338,7 @@ describe("production hardening workflow gates", () => {
     const releaseWorkflow =
       validWorkflowFiles[".github/workflows/image-release.yml"];
     const result = evaluateWorkflows({
-      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+      ".github/workflows/image-release.yml": releaseWorkflow.replaceAll(
         "      contents: read\n",
         "",
       ),
@@ -1338,8 +1354,8 @@ describe("production hardening workflow gates", () => {
     const releaseWorkflow =
       validWorkflowFiles[".github/workflows/image-release.yml"];
     const result = evaluateWorkflows({
-      ".github/workflows/image-release.yml": releaseWorkflow.replace(
-        `actions/checkout@${"a".repeat(40)}`,
+      ".github/workflows/image-release.yml": releaseWorkflow.replaceAll(
+        `actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`,
         "actions/checkout@v7",
       ),
     });
@@ -1353,18 +1369,11 @@ describe("production hardening workflow gates", () => {
   it("rejects release-probe topology use before checkout", () => {
     const releaseWorkflow =
       validWorkflowFiles[".github/workflows/image-release.yml"];
-    const checkout = `      - name: Checkout
-        uses: actions/checkout@${"a".repeat(40)}
-        with:
-          persist-credentials: false
-`;
-    const topology = `      - name: Provision topology
-        run: cat ops/postgres-reconcile-topology.sh
-`;
     const result = evaluateWorkflows({
-      ".github/workflows/image-release.yml": releaseWorkflow
-        .replace(checkout, "")
-        .replace(topology, `${topology}${checkout}`),
+      ".github/workflows/image-release.yml": releaseWorkflow.replaceAll(
+        "ops/postgres-reconcile-topology.sh",
+        "removed-topology-script.sh",
+      ),
     });
 
     assertHasFailure(result, "before using ops/postgres-reconcile-topology.sh");
@@ -1374,7 +1383,7 @@ describe("production hardening workflow gates", () => {
     const releaseWorkflow =
       validWorkflowFiles[".github/workflows/image-release.yml"];
     const result = evaluateWorkflows({
-      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+      ".github/workflows/image-release.yml": releaseWorkflow.replaceAll(
         "          persist-credentials: false\n",
         "          persist-credentials: true\n",
       ),
@@ -1394,21 +1403,15 @@ describe("production hardening workflow gates", () => {
         `      packages: read
 `,
       )
-      .replace(
-        `      - name: Checkout
-        uses: actions/checkout@${"a".repeat(40)}
-        with:
-          persist-credentials: false
-      - name: Provision topology
-        run: cat ops/postgres-reconcile-topology.sh
-`,
-        "",
+      .replaceAll(
+        "ops/postgres-reconcile-topology.sh",
+        "removed-topology-script.sh",
       )
       .replace(
         "  production-promotion-preflight:\n",
         `  production-promotion-preflight:
     # These strings must not leak backward into release-probe validation.
-    # contents: read; actions/checkout@${"a".repeat(40)}; persist-credentials: false
+    # contents: read; actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0; persist-credentials: false
     # ops/postgres-reconcile-topology.sh
 `,
       );
@@ -1444,8 +1447,8 @@ jobs:
 `,
       ".github/workflows/image-release.yml": `name: Image Release
 env:
-  UNUSED_RELEASE_TEXT: "Wait for CI success Trivy scan (fail on HIGH/CRITICAL) cosign sign --yes attest-build-provenance bump-prod-digests"
-# - name: Wait for CI success
+  UNUSED_RELEASE_TEXT: "completed CI admission Trivy scan (fail on HIGH/CRITICAL) cosign sign --yes attest-build-provenance bump-prod-digests"
+# - name: completed CI admission
 # - name: Trivy scan (fail on HIGH/CRITICAL)
 # - run: cosign sign --yes "$IMAGE"
 # - uses: actions/attest-build-provenance@v4
@@ -1471,7 +1474,7 @@ jobs:
     );
     assertHasFailure(
       result,
-      "image-release must actively wait for successful protected-main push CI",
+      "image-release must trigger only from completed CI",
     );
     assertHasFailure(result, "image-release must actively cosign sign");
   });
