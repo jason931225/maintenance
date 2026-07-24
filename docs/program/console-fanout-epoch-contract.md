@@ -40,10 +40,19 @@ A source lane is admissible only with:
   `browser`, `ios`, `graph`, and `cas`; and
 - disjoint private roots.
 
-The deterministic quality-weighted maximal independent set is bounded by the
-writer budget and all resource budgets. Capacity or root collisions are explicit
-holds, not silent scheduling omissions. Dependencies are merge holds, not an
-excuse to block an otherwise safe leaf implementation.
+The deterministic quality-weighted maximal independent set admits source writers
+only on disjoint private roots and the writer limit. Source leaves run cheap
+checks and may fan out; expensive `rust_compile`, graph, CAS, Postgres, browser,
+and iOS capacity never reduces that safe source admission. Dependencies are merge
+holds, not an excuse to block an otherwise safe leaf implementation.
+
+Expensive verification is a separate exact-SHA queue. Compatible reviewed leaves
+are grouped by exact SHA/cache affinity and run through one canonical local Buck
+daemon with a combined target set; vector capacities schedule those jobs and an
+age value takes precedence over density so low-density work cannot starve. The
+local cold-Rust authority is at most two concurrent jobs, each `-j 6`. Only
+incompatible state receives an isolation directory: Buck isolated daemons do not
+share local cache. This contract makes no remote-cache or remote-execution claim.
 
 Each selected lane receives a deterministic, epoch-scoped Buck isolation path:
 
@@ -51,11 +60,9 @@ Each selected lane receives a deterministic, epoch-scoped Buck isolation path:
 .buck2/console-epochs/<anchor-12>/<lane-slug>-<sha256(full-lane-id)>
 ```
 
-Run Buck through `tools/buck2 --isolation-dir <that path> ...`. Concurrent
-worktrees therefore cannot invalidate each other’s daemon due to constraints or
-version drift. Reuse the same path inside a lane to preserve incremental local
-state; remote/content caches remain shared. This changes no Buck cells or build
-graph ownership.
+Run Buck through `tools/buck2 --isolation-dir <that path> ...` only for an
+incompatible state. Compatible exact-SHA verification belongs on the canonical
+local daemon/train. This changes no Buck cells or build graph ownership.
 
 ## Review and consolidation
 
@@ -72,14 +79,16 @@ Reviewer identity is accepted only when the review commit author/committer and
 verified signing fingerprint match trusted epoch-base authority. Reviewer IDs
 and canonical uppercase signing fingerprints are each unique in that authority;
 each authority row declares exact non-empty author and committer names/emails.
-The planner invokes `git verify-commit --raw` and accepts exactly one machine
-readable `[GNUPG:] VALIDSIG <fingerprint>` record whose complete fingerprint is
-equal to the declared fingerprint. It rejects unsigned commits, key or
+The authority carries a format-discriminated signing declaration. For `gpg`, the
+planner invokes `git verify-commit --raw` and accepts exactly one machine-readable
+`[GNUPG:] VALIDSIG <fingerprint>` record. For `ssh`, it accepts exactly one raw
+Git verification record with the declared principal and full `SHA256:` key
+fingerprint. In either format it rejects unsigned commits, key/principal/
 fingerprint mismatches, malformed or duplicate status records, and unavailable
 verification tooling; it never treats author text or a fingerprint substring as
-signature proof. The operator prerequisite for live admission is a usable local
-Git/GPG verifier with the trusted reviewer public key and the required trust
-policy available. If that signer infrastructure is not configured, receipts
+signature proof. The live prerequisite is a usable local Git verifier with the
+trusted reviewer public key and required trust policy (the repository uses SSH
+allowed-signers authority). If signer infrastructure is unavailable, receipts
 fail closed: source planning can continue, but completion and consolidation
 remain held.
 
@@ -91,6 +100,14 @@ unrelated admission changes, duplicate references, and disconnected review
 commits are rejected. Receipt content equality is compared through canonical
 JSON bytes/digests, rather than JavaScript object identity, so separately parsed
 identical immutable receipt content remains valid.
+
+All immutable JSON (registry, generated authority, receipts, admission manifest,
+and immutable evidence) is parsed only after rejecting duplicate object keys;
+the planner retains raw and canonical SHA-256 digests for that parsed content.
+The complete closure is a serialized rebase/cherry-pick admission train:
+`epoch → authorized leaf → direct receipt-only review → … → manifest-only
+admission`. No merge, unreviewed intermediate, unrelated commit, or divergent
+leaf branch is admitted.
 
 Shared OpenAPI, generated clients, migrations, route/nav, tokens, and generated
 Buck faces are never leaf writes. A consolidation entry remains false until an
