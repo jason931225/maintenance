@@ -400,6 +400,36 @@ fn legal(from: &str, to: &str) -> bool {
             | ("AWAITING_ACCEPTANCE", "CLOSED")
     )
 }
+
+#[cfg(test)]
+mod transition_tests {
+    use super::legal;
+
+    #[test]
+    fn allows_the_scheduled_hvac_happy_path_transitions() {
+        for transition in [
+            ("DUE", "SCHEDULED"),
+            ("SCHEDULED", "ASSIGNED"),
+            ("ASSIGNED", "IN_PROGRESS"),
+            ("IN_PROGRESS", "SUBMITTED"),
+            ("SUBMITTED", "AWAITING_ACCEPTANCE"),
+            ("AWAITING_ACCEPTANCE", "CLOSED"),
+        ] {
+            assert!(legal(transition.0, transition.1));
+        }
+    }
+
+    #[test]
+    fn rejects_a_terminal_case_transition() {
+        assert!(!legal("CLOSED", "IN_PROGRESS"));
+    }
+
+    #[test]
+    fn permits_rework_only_from_a_rejected_submission() {
+        assert!(legal("SUBMITTED", "REWORK_REQUIRED"));
+        assert!(legal("REWORK_REQUIRED", "IN_PROGRESS"));
+    }
+}
 async fn triage(
     State(s): State<FacilitiesRestState>,
     h: HeaderMap,
