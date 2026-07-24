@@ -89,3 +89,84 @@ export async function listBranches(api: ConsoleApiClient): Promise<BranchSummary
   if (!data) throw new ApiCallError(response.status, error);
   return data.filter((branch) => !branch.deactivated_at);
 }
+
+/** Runtime view of the generated `AccountDrillEntry` wire schema. The
+ * generated client selects the operation; this concrete view is only exposed
+ * after the fail-closed decoder validates every wire field. */
+export interface AccountDrillEntry {
+  voucher_id: string;
+  voucher_no: string;
+  status: "DRAFT" | "BALANCE_CHECKED" | "APPROVED" | "POSTED" | "REVERSED";
+  line_id: string;
+  account_code: string;
+  side: "DEBIT" | "CREDIT";
+  amount_won: number;
+  source_object_type?: string | null;
+  source_object_id?: string | null;
+  entry_at: string;
+}
+
+export class FinanceAccountDrillContractError extends Error {
+  constructor() {
+    super("accountDrill returned an invalid response");
+    this.name = "FinanceAccountDrillContractError";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function hasPairedSourceIdentity(type: unknown, id: unknown): boolean {
+  return (type == null && id == null) || (isString(type) && isString(id));
+}
+
+function isAccountDrillEntry(value: unknown): value is AccountDrillEntry {
+  return (
+    isRecord(value) &&
+    isString(value.voucher_id) &&
+    isString(value.voucher_no) &&
+    (value.status === "DRAFT" ||
+      value.status === "BALANCE_CHECKED" ||
+      value.status === "APPROVED" ||
+      value.status === "POSTED" ||
+      value.status === "REVERSED") &&
+    isString(value.line_id) &&
+    isString(value.account_code) &&
+    (value.side === "DEBIT" || value.side === "CREDIT") &&
+    isFiniteNumber(value.amount_won) &&
+    hasPairedSourceIdentity(value.source_object_type, value.source_object_id) &&
+    isString(value.entry_at)
+  );
+}
+
+export function parseAccountDrillEntries(value: unknown): AccountDrillEntry[] {
+  if (!Array.isArray(value) || !value.every(isAccountDrillEntry)) {
+    throw new FinanceAccountDrillContractError();
+  }
+  return value;
+}
+
+/** Real GL account drill. Account scope, organization scope, and authorization
+ * are exclusively enforced by the backend; this UI only renders the returned
+ * tenant-authorized voucher-line identities. */
+export async function listAccountDrillEntries(
+  api: ConsoleApiClient,
+  accountCode: string,
+  signal?: AbortSignal,
+): Promise<AccountDrillEntry[]> {
+  const { data, error, response } = await api.GET(
+    "/api/v1/finance-gl/accounts/{account_code}/entries",
+    { params: { path: { account_code: accountCode } }, signal },
+  );
+  if (!data) throw new ApiCallError(response.status, error);
+  return parseAccountDrillEntries(data);
+}

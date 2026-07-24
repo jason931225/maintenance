@@ -58,6 +58,22 @@ function createApi() {
     if (path === "/api/v1/finance-gl/vouchers/{voucher_id}") {
       return { data: approvedVoucher };
     }
+    if (path === "/api/v1/finance-gl/accounts/{account_code}/entries") {
+      return {
+        data: [{
+          voucher_id: "v-1",
+          voucher_no: "VC-1001",
+          status: "POSTED",
+          line_id: "line-1",
+          account_code: "101",
+          side: "DEBIT",
+          amount_won: 500_000,
+          source_object_type: "purchase_request",
+          source_object_id: "pr-9001",
+          entry_at: "2026-07-09T01:00:00Z",
+        }],
+      };
+    }
     if (path === "/api/v1/branches") {
       return { data: [{ id: "branch-1", region_id: "region-1", name: "본사", deactivated_at: null, created_at: "2026-01-01T00:00:00Z" }] };
     }
@@ -120,6 +136,49 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
     // postVoucher is offered once APPROVED; reverseVoucher is not.
     expect(screen.getByRole("button", { name: "전기" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "반제" })).not.toBeInTheDocument();
+  });
+
+  it("opens a real account ledger from the selected voucher's account chip and preserves voucher/source identity", async () => {
+    const { GET } = renderFinance();
+
+    const accountChip = await screen.findByRole("button", { name: "계정 101" });
+    await userEvent.click(accountChip);
+
+    const ledger = await screen.findByRole("region", { name: "계정원장 101" });
+    expect(within(ledger).getByText("VC-1001")).toBeVisible();
+    expect(within(ledger).getByText("₩500,000")).toBeVisible();
+    expect(within(ledger).getByText("purchase_request / pr-9001")).toBeVisible();
+    expect(GET).toHaveBeenCalledWith(
+      "/api/v1/finance-gl/accounts/{account_code}/entries",
+      expect.objectContaining({ params: { path: { account_code: "101" } } }),
+    );
+  });
+
+  it("discards an older account-ledger response after the operator selects a different account", async () => {
+    const first = Promise.withResolvers<{ data: never[] }>();
+    const second = Promise.withResolvers<{ data: never[] }>();
+    const api = createConsoleApiClient("finance-module-test-token");
+    let accountCalls = 0;
+    vi.spyOn(api, "GET").mockImplementation(async (path: unknown) => {
+      if (path === "/api/v1/finance-gl/vouchers") return { data: [approvedVoucher] };
+      if (path === "/api/v1/finance-gl/vouchers/{voucher_id}") return { data: approvedVoucher };
+      if (path === "/api/v1/finance-gl/accounts/{account_code}/entries") {
+        accountCalls += 1;
+        return accountCalls === 1 ? first.promise : second.promise;
+      }
+      if (path === "/api/v1/branches") return { data: [] };
+      throw new Error(`unexpected GET ${String(path)}`);
+    });
+    render(<PolicyGateProvider gate={allowGate}><GenericModuleScreen config={financeModuleScreen} api={api} /></PolicyGateProvider>);
+
+    await userEvent.click(await screen.findByRole("button", { name: "계정 101" }));
+    await userEvent.click(screen.getByRole("button", { name: "계정 201" }));
+    second.resolve({ data: [] });
+    expect(await screen.findByText("기록 없음")).toBeVisible();
+    first.resolve({ data: [] });
+    await waitFor(() => {
+      expect(screen.queryByText("STALE")).not.toBeInTheDocument();
+    });
   });
 
   it("offers reverseVoucher (not postVoucher) once a voucher is posted", async () => {

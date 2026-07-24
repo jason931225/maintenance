@@ -2158,6 +2158,15 @@ export const ko = {
           ok: "차대 일치",
           blocked: "차대 불일치",
         },
+        accountLedger: {
+          title: (accountCode: string) => `계정원장 ${accountCode}`,
+          loading: "계정원장 불러오는 중",
+          empty: "기록 없음",
+          denied: "이 계정의 원장 조회 권한이 없습니다.",
+          failed: "계정원장을 불러오지 못했습니다.",
+          sourceAbsent: "연결된 원천 문서 없음",
+          close: "닫기",
+        },
         validationReasons: {
           unbalanced: "차대 불일치",
           invalid_gl_account: "계정과목 오류",
