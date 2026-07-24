@@ -80,6 +80,8 @@ impl CycleCountStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MovementKind {
+    /// Legacy consumption ledger projection; never persisted in inventory_movements.
+    Issue,
     Receipt,
     Adjustment,
 }
@@ -87,12 +89,14 @@ impl MovementKind {
     #[must_use]
     pub const fn as_db_str(self) -> &'static str {
         match self {
+            Self::Issue => "ISSUE",
             Self::Receipt => "RECEIPT",
             Self::Adjustment => "ADJUSTMENT",
         }
     }
     pub fn parse(value: &str) -> Result<Self, KernelError> {
         match value.trim() {
+            "ISSUE" => Ok(Self::Issue),
             "RECEIPT" => Ok(Self::Receipt),
             "ADJUSTMENT" => Ok(Self::Adjustment),
             other => Err(KernelError::validation(format!(
@@ -508,6 +512,7 @@ mod tests {
             assert_eq!(CycleCountStatus::parse(wire).unwrap(), status);
         }
         for (kind, wire) in [
+            (MovementKind::Issue, "ISSUE"),
             (MovementKind::Receipt, "RECEIPT"),
             (MovementKind::Adjustment, "ADJUSTMENT"),
         ] {
@@ -530,10 +535,10 @@ mod tests {
             assert_eq!(VarianceReason::parse(wire).unwrap(), reason);
         }
         assert!(CycleCountStatus::parse("VOID").is_err());
-        assert!(MovementKind::parse("ISSUE").is_err());
+        assert!(MovementKind::parse("TRANSFER").is_err());
         assert!(VarianceReason::parse("THEFT").is_err());
         assert!(serde_json::from_str::<CycleCountStatus>("\"VOID\"").is_err());
-        assert!(serde_json::from_str::<MovementKind>("\"ISSUE\"").is_err());
+        assert!(serde_json::from_str::<MovementKind>("\"TRANSFER\"").is_err());
         assert!(serde_json::from_str::<VarianceReason>("\"THEFT\"").is_err());
     }
 

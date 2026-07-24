@@ -12,11 +12,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_inventory_adapter_postgres::{PgInventoryError, PgInventoryStore};
 use mnt_inventory_application::{
-    ConsumeInventoryCommand, ConsumeInventorySource, InventoryConsumptionEventView,
-    InventoryConsumptionResult, InventoryItemPage, InventoryItemView, ListConsumptionEventsQuery,
-    ListInventoryItemsQuery,
+    CancelCycleCountCommand, ConsumeInventoryCommand, ConsumeInventorySource, CycleCountDecision,
+    CycleCountDetail, CycleCountPage, DecideCycleCountCommand, InventoryConsumptionEventView,
+    InventoryConsumptionResult, InventoryItemPage, InventoryItemView, InventoryMovementView,
+    InventoryReceiptResult, ListConsumptionEventsQuery, ListCycleCountsQuery,
+    ListInventoryItemsQuery, ListMovementsQuery, MrpLineView, MrpQuery, OpenCycleCountCommand,
+    RecordReceiptCommand, SubmitCycleCountCommand, UpsertCountLineCommand,
 };
-use mnt_inventory_domain::InventoryItemStatus;
+use mnt_inventory_domain::{CycleCountStatus, InventoryItemStatus, VarianceReason};
 use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, InventoryItemId, InventoryStockLocationId, KernelError,
     P1DispatchId, SiteId, TraceContext, WorkOrderId,
@@ -35,10 +38,34 @@ pub const INVENTORY_ITEMS_PATH: &str = "/api/v1/inventory/items";
 pub const INVENTORY_ITEM_PATH_TEMPLATE: &str = "/api/v1/inventory/items/{item_id}";
 pub const INVENTORY_ITEM_CONSUMPTIONS_PATH_TEMPLATE: &str =
     "/api/v1/inventory/items/{item_id}/consumptions";
+pub const INVENTORY_ITEM_MOVEMENTS_PATH_TEMPLATE: &str =
+    "/api/v1/inventory/items/{item_id}/movements";
+pub const INVENTORY_ITEM_RECEIPTS_PATH_TEMPLATE: &str =
+    "/api/v1/inventory/items/{item_id}/receipts";
+pub const INVENTORY_MRP_PATH: &str = "/api/v1/inventory/mrp";
+pub const INVENTORY_CYCLE_COUNTS_PATH: &str = "/api/v1/inventory/cycle-counts";
+pub const INVENTORY_CYCLE_COUNT_PATH_TEMPLATE: &str = "/api/v1/inventory/cycle-counts/{count_id}";
+pub const INVENTORY_CYCLE_COUNT_LINES_PATH_TEMPLATE: &str =
+    "/api/v1/inventory/cycle-counts/{count_id}/lines";
+pub const INVENTORY_CYCLE_COUNT_SUBMIT_PATH_TEMPLATE: &str =
+    "/api/v1/inventory/cycle-counts/{count_id}/submit";
+pub const INVENTORY_CYCLE_COUNT_DECIDE_PATH_TEMPLATE: &str =
+    "/api/v1/inventory/cycle-counts/{count_id}/decision";
+pub const INVENTORY_CYCLE_COUNT_CANCEL_PATH_TEMPLATE: &str =
+    "/api/v1/inventory/cycle-counts/{count_id}/cancel";
 pub const INVENTORY_ROUTE_PATHS: &[&str] = &[
     INVENTORY_ITEMS_PATH,
     INVENTORY_ITEM_PATH_TEMPLATE,
     INVENTORY_ITEM_CONSUMPTIONS_PATH_TEMPLATE,
+    INVENTORY_ITEM_MOVEMENTS_PATH_TEMPLATE,
+    INVENTORY_ITEM_RECEIPTS_PATH_TEMPLATE,
+    INVENTORY_MRP_PATH,
+    INVENTORY_CYCLE_COUNTS_PATH,
+    INVENTORY_CYCLE_COUNT_PATH_TEMPLATE,
+    INVENTORY_CYCLE_COUNT_LINES_PATH_TEMPLATE,
+    INVENTORY_CYCLE_COUNT_SUBMIT_PATH_TEMPLATE,
+    INVENTORY_CYCLE_COUNT_DECIDE_PATH_TEMPLATE,
+    INVENTORY_CYCLE_COUNT_CANCEL_PATH_TEMPLATE,
 ];
 
 #[derive(Clone)]
@@ -67,6 +94,30 @@ pub fn router(state: InventoryRestState) -> Router {
         .route(
             INVENTORY_ITEM_CONSUMPTIONS_PATH_TEMPLATE,
             get(list_consumptions).post(consume_item),
+        )
+        .route(INVENTORY_ITEM_MOVEMENTS_PATH_TEMPLATE, get(list_movements))
+        .route(INVENTORY_ITEM_RECEIPTS_PATH_TEMPLATE, post(record_receipt))
+        .route(INVENTORY_MRP_PATH, get(mrp))
+        .route(
+            INVENTORY_CYCLE_COUNTS_PATH,
+            get(list_cycle_counts).post(open_cycle_count),
+        )
+        .route(INVENTORY_CYCLE_COUNT_PATH_TEMPLATE, get(get_cycle_count))
+        .route(
+            INVENTORY_CYCLE_COUNT_LINES_PATH_TEMPLATE,
+            post(upsert_cycle_count_line),
+        )
+        .route(
+            INVENTORY_CYCLE_COUNT_SUBMIT_PATH_TEMPLATE,
+            post(submit_cycle_count),
+        )
+        .route(
+            INVENTORY_CYCLE_COUNT_DECIDE_PATH_TEMPLATE,
+            post(decide_cycle_count),
+        )
+        .route(
+            INVENTORY_CYCLE_COUNT_CANCEL_PATH_TEMPLATE,
+            post(cancel_cycle_count),
         )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
@@ -242,6 +293,326 @@ async fn consume_item(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PageParams {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn list_movements(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(item_id): Path<Uuid>,
+    Query(page): Query<PageParams>,
+) -> Result<Json<Vec<InventoryMovementView>>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let item = find_item(
+        &state.store,
+        InventoryItemId::from_uuid(item_id),
+        &principal,
+    )
+    .await?;
+    authorize(
+        &principal,
+        Action::new(Feature::InventoryRead),
+        item.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .list_movements(ListMovementsQuery {
+                branch_scope: principal.branch_scope,
+                item_id: InventoryItemId::from_uuid(item_id),
+                limit: page.limit,
+                offset: page.offset,
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReceiptBody {
+    quantity_received_milli: i64,
+    source_ref: Option<String>,
+    memo: Option<String>,
+    idempotency_key: String,
+}
+async fn record_receipt(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(item_id): Path<Uuid>,
+    Json(body): Json<ReceiptBody>,
+) -> Result<Json<InventoryReceiptResult>, RestError> {
+    validate_idempotency_key(&body.idempotency_key).map_err(RestError::from_kernel)?;
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    let item = find_item(
+        &state.store,
+        InventoryItemId::from_uuid(item_id),
+        &principal,
+    )
+    .await?;
+    authorize(
+        &principal,
+        Action::new(Feature::InventoryConsume),
+        item.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .record_receipt(RecordReceiptCommand {
+                actor: principal.user_id,
+                branch_scope: principal.branch_scope,
+                item_id: InventoryItemId::from_uuid(item_id),
+                quantity_received_milli: body.quantity_received_milli,
+                source_ref: body.source_ref,
+                memo: body.memo,
+                idempotency_key: body.idempotency_key,
+                trace,
+                requested_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BranchParams {
+    branch_id: Uuid,
+}
+async fn mrp(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Query(params): Query<BranchParams>,
+) -> Result<Json<Vec<MrpLineView>>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let branch = BranchId::from_uuid(params.branch_id);
+    authorize(&principal, Action::new(Feature::InventoryRead), branch)
+        .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .mrp(MrpQuery {
+                branch_scope: principal.branch_scope,
+                branch_id: branch,
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CycleListParams {
+    branch_id: Uuid,
+    status: Option<CycleCountStatus>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+async fn list_cycle_counts(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Query(params): Query<CycleListParams>,
+) -> Result<Json<CycleCountPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let branch = BranchId::from_uuid(params.branch_id);
+    authorize(&principal, Action::new(Feature::InventoryRead), branch)
+        .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .list_cycle_counts(ListCycleCountsQuery {
+                branch_scope: principal.branch_scope,
+                branch_id: branch,
+                status: params.status,
+                limit: params.limit,
+                offset: params.offset,
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OpenCountBody {
+    branch_id: Uuid,
+    stock_location_id: Uuid,
+}
+async fn open_cycle_count(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Json(body): Json<OpenCountBody>,
+) -> Result<Json<CycleCountDetail>, RestError> {
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    let branch = BranchId::from_uuid(body.branch_id);
+    authorize(&principal, Action::new(Feature::InventoryConsume), branch)
+        .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .open_cycle_count(OpenCycleCountCommand {
+                actor: principal.user_id,
+                branch_scope: principal.branch_scope,
+                branch_id: branch,
+                stock_location_id: InventoryStockLocationId::from_uuid(body.stock_location_id),
+                trace,
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+async fn get_cycle_count(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(count_id): Path<Uuid>,
+) -> Result<Json<CycleCountDetail>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let detail = state
+        .store
+        .get_cycle_count(count_id, principal.branch_scope.clone())
+        .await
+        .map_err(RestError::from_store)?
+        .ok_or_else(|| {
+            RestError::from_kernel(KernelError::not_found("cycle count was not found"))
+        })?;
+    authorize(
+        &principal,
+        Action::new(Feature::InventoryRead),
+        detail.count.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(detail))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CountLineBody {
+    item_id: Uuid,
+    counted_quantity_milli: i64,
+    reason: Option<VarianceReason>,
+    note: Option<String>,
+}
+async fn upsert_cycle_count_line(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(count_id): Path<Uuid>,
+    Json(body): Json<CountLineBody>,
+) -> Result<Json<CycleCountDetail>, RestError> {
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    Ok(Json(
+        state
+            .store
+            .upsert_cycle_count_line(UpsertCountLineCommand {
+                actor: principal.user_id,
+                branch_scope: principal.branch_scope,
+                count_id,
+                item_id: InventoryItemId::from_uuid(body.item_id),
+                counted_quantity_milli: body.counted_quantity_milli,
+                reason: body.reason,
+                note: body.note,
+                trace,
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct VersionBody {
+    expected_version: i32,
+}
+async fn submit_cycle_count(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(count_id): Path<Uuid>,
+    Json(body): Json<VersionBody>,
+) -> Result<Json<CycleCountDetail>, RestError> {
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    Ok(Json(
+        state
+            .store
+            .submit_cycle_count(SubmitCycleCountCommand {
+                actor: principal.user_id,
+                branch_scope: principal.branch_scope,
+                count_id,
+                expected_version: body.expected_version,
+                trace,
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DecideBody {
+    expected_version: i32,
+    decision: CycleCountDecision,
+    memo: Option<String>,
+    idempotency_key: Option<String>,
+}
+async fn decide_cycle_count(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(count_id): Path<Uuid>,
+    Json(body): Json<DecideBody>,
+) -> Result<Json<CycleCountDetail>, RestError> {
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    Ok(Json(
+        state
+            .store
+            .decide_cycle_count(DecideCycleCountCommand {
+                actor: principal.user_id,
+                branch_scope: principal.branch_scope,
+                count_id,
+                expected_version: body.expected_version,
+                decision: body.decision,
+                memo: body.memo,
+                idempotency_key: body.idempotency_key,
+                trace,
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+async fn cancel_cycle_count(
+    State(state): State<InventoryRestState>,
+    headers: HeaderMap,
+    Path(count_id): Path<Uuid>,
+) -> Result<Json<CycleCountDetail>, RestError> {
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    Ok(Json(
+        state
+            .store
+            .cancel_cycle_count(CancelCycleCountCommand {
+                actor: principal.user_id,
+                branch_scope: principal.branch_scope,
+                count_id,
+                trace,
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .map_err(RestError::from_store)?,
+    ))
 }
 
 async fn find_item(
@@ -623,6 +994,11 @@ mod tests {
         assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_ITEMS_PATH));
         assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_ITEM_PATH_TEMPLATE));
         assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_ITEM_CONSUMPTIONS_PATH_TEMPLATE));
+        assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_ITEM_MOVEMENTS_PATH_TEMPLATE));
+        assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_ITEM_RECEIPTS_PATH_TEMPLATE));
+        assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_MRP_PATH));
+        assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_CYCLE_COUNTS_PATH));
+        assert!(INVENTORY_ROUTE_PATHS.contains(&INVENTORY_CYCLE_COUNT_DECIDE_PATH_TEMPLATE));
         assert_eq!(
             INVENTORY_ROUTE_PATHS
                 .iter()

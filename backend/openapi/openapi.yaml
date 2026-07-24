@@ -14952,6 +14952,89 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/inventory/items/{item_id}/movements:
+    get:
+      tags: [inventory]
+      operationId: listInventoryMovements
+      summary: Read the tenant- and branch-scoped unified ISSUE, RECEIPT, and ADJUSTMENT ledger
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Unified movement ledger, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/inventory/items/{item_id}/receipts:
+    post:
+      tags: [inventory]
+      operationId: receiveInventoryItem
+      summary: Idempotently record a positive receipt and its before delta after ledger row
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [quantity_received_milli, idempotency_key], properties: { quantity_received_milli: { type: integer, format: int64, minimum: 1 }, source_ref: { type: string, nullable: true }, memo: { type: string, nullable: true }, idempotency_key: { type: string, minLength: 16, maxLength: 200 } } } } } }
+      responses: { '200': { description: Receipt result, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/mrp:
+    get:
+      tags: [inventory]
+      operationId: getInventoryMrp
+      summary: Deterministic movement-derived MRP with explicit zero inbound and reservation values until those modules exist
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: branch_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: MRP lines, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /api/v1/inventory/cycle-counts:
+    get:
+      tags: [inventory]
+      operationId: listInventoryCycleCounts
+      summary: List tenant- and branch-scoped cycle counts
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: branch_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Cycle count page, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [inventory]
+      operationId: openInventoryCycleCount
+      summary: Open a cycle count in an authorized branch and stock location
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branch_id, stock_location_id], properties: { branch_id: { $ref: '#/components/schemas/Uuid' }, stock_location_id: { $ref: '#/components/schemas/Uuid' } } } } } }
+      responses: { '200': { description: Cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/cycle-counts/{count_id}:
+    get:
+      tags: [inventory]
+      operationId: getInventoryCycleCount
+      summary: Read one authorized cycle count with count lines and applied adjustment movement ids
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Cycle count detail, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/inventory/cycle-counts/{count_id}/lines:
+    post:
+      tags: [inventory]
+      operationId: upsertInventoryCycleCountLine
+      summary: Upsert a DRAFT count line; a nonzero variance requires a typed reason
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [item_id, counted_quantity_milli], properties: { item_id: { $ref: '#/components/schemas/Uuid' }, counted_quantity_milli: { type: integer, format: int64, minimum: 0 }, reason: { type: string, nullable: true, enum: [DAMAGE, LOSS, MISCOUNT, FOUND, OTHER] }, note: { type: string, nullable: true } } } } } }
+      responses: { '200': { description: Updated cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/cycle-counts/{count_id}/submit:
+    post:
+      tags: [inventory]
+      operationId: submitInventoryCycleCount
+      summary: Submit a nonempty DRAFT cycle count using optimistic version control
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [expected_version], properties: { expected_version: { type: integer, minimum: 1 } } } } } }
+      responses: { '200': { description: Submitted cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/inventory/cycle-counts/{count_id}/decision:
+    post:
+      tags: [inventory]
+      operationId: decideInventoryCycleCount
+      summary: Distinct checker approves idempotent adjustments or rejects with a memo
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [expected_version, decision], properties: { expected_version: { type: integer, minimum: 1 }, decision: { type: string, enum: [APPROVE, REJECT] }, memo: { type: string, nullable: true }, idempotency_key: { type: string, nullable: true, minLength: 16, maxLength: 200 } } } } } }
+      responses: { '200': { description: Decided cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/cycle-counts/{count_id}/cancel:
+    post:
+      tags: [inventory]
+      operationId: cancelInventoryCycleCount
+      summary: Cancel a DRAFT or SUBMITTED count without mutating ledger history
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Cancelled cycle count, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
 components:
   securitySchemes:
     basicAuth:
