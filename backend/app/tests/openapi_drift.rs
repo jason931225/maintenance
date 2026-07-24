@@ -434,7 +434,9 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
         );
     }
     assert!(
-        endpoint.contains("name: as_of, in: query, required: false, schema: { type: integer, format: int64 }"),
+        endpoint.contains(
+            "name: as_of, in: query, required: false, schema: { type: integer, format: int64 }"
+        ),
         "EV as_of must be an optional immutable registration sequence"
     );
     assert!(
@@ -481,7 +483,9 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
         .expect("TimestampAuthorityProofView must follow EvidenceCopyView");
     let copy = &OPENAPI_YAML[copy_start..copy_end];
     assert!(
-        copy.contains("evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }"),
+        copy.contains(
+            "evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }"
+        ),
         "EV copy view must expose the server-derived evidentiary classification"
     );
     assert!(
@@ -497,7 +501,10 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
         .map(|offset| status_start + offset)
         .expect("EvidenceCopyView must follow EvidenceCopyEvidentiaryStatus");
     let status = &OPENAPI_YAML[status_start..status_end];
-    assert!(status.contains("enum: [VERIFIED_ORIGINAL, ORIGINAL_UNVERIFIED, NON_EVIDENTIARY_DERIVATIVE]"));
+    assert!(
+        status
+            .contains("enum: [VERIFIED_ORIGINAL, ORIGINAL_UNVERIFIED, NON_EVIDENTIARY_DERIVATIVE]")
+    );
 }
 
 #[test]
