@@ -805,11 +805,18 @@ impl PgOrgStore {
             .unwrap_or(DEFAULT_USER_LIMIT)
             .clamp(1, MAX_USER_LIMIT);
         let offset = query.offset.unwrap_or(0).max(0);
-        let scope = scope.clone();
+        // A requested branch is not an additional SQL predicate: it narrows
+        // the effective authorization scope itself. Keeping the two EXISTS
+        // predicates independent would admit a user that belongs to both an
+        // allowed branch and the requested-but-forbidden branch, leaking the
+        // identity and count through the latter filter.
+        let scope = query.branch_id.map_or_else(
+            || scope.clone(),
+            |branch_id| scope.intersect(&BranchScope::single(branch_id)),
+        );
         let result_scope = scope.clone();
         let search = query.search;
         let team = query.team;
-        let branch_id = query.branch_id;
         let include_inactive = query.include_inactive;
 
         let push_filter = move |builder: &mut QueryBuilder<Postgres>| {
@@ -827,15 +834,6 @@ impl PgOrgStore {
                         .push_bind(branch_ids)
                         .push("))");
                 }
-            }
-            if let Some(branch_id) = branch_id {
-                builder
-                    .push(
-                        " AND EXISTS (SELECT 1 FROM user_branches ub_filter \
-                           WHERE ub_filter.user_id = u.id AND ub_filter.branch_id = ",
-                    )
-                    .push_bind(*branch_id.as_uuid())
-                    .push(")");
             }
             if let Some(search) = &search {
                 builder
@@ -885,9 +883,6 @@ impl PgOrgStore {
             let mut user = fetch_user(&self.pool, UserId::from_uuid(id)).await?;
             user.branch_ids
                 .retain(|branch| result_scope.allows(*branch));
-            if let Some(branch_id) = branch_id {
-                user.branch_ids.retain(|branch| *branch == branch_id);
-            }
             items.push(user);
         }
         Ok(UserPage {
