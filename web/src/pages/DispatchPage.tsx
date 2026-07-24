@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import type { components } from "@maintenance/api-client-ts";
 import type { UserSummary, WorkOrderListItem } from "../api/types";
+import type { PendingDispatchOffersLoadResult } from "../features/dispatch/MechanicDispatchOffers";
 type WorkResultType = components["schemas"]["WorkResultType"];
 import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -455,6 +456,26 @@ export function DispatchPage() {
     }
   }
 
+  const listPendingDispatchOffers = useCallback(
+    async (signal: AbortSignal): Promise<PendingDispatchOffersLoadResult> => {
+      const response = await api
+        .GET("/api/v1/me/dispatch-offers", { signal })
+        .catch(() => undefined);
+      if (!response?.data) {
+        return { status: response?.response.status };
+      }
+      return { items: response.data.items };
+    },
+    [api],
+  );
+
+  const dispatchSessionFence = [
+    session?.client_session_incarnation,
+    session?.org_id,
+    session?.user_id,
+    session?.branches?.join(","),
+  ].join(":");
+
   const lookupDispatch = useCallback(
     async (dispatchId: string): Promise<P1DispatchSummary | undefined> => {
       const response = await api
@@ -612,7 +633,12 @@ export function DispatchPage() {
 
         {isMechanic || isManager ? (
           <MechanicDispatchOffers
+            key={dispatchSessionFence}
             onLookup={lookupDispatch}
+            onListPendingOffers={
+              isMechanic ? listPendingDispatchOffers : undefined
+            }
+            sessionFence={dispatchSessionFence}
             onRespond={respondDispatch}
             readOnly={!isMechanic}
           />

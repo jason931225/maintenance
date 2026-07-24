@@ -458,13 +458,21 @@ describe("DispatchPage search and deep-link", () => {
 });
 
 describe("DispatchPage mechanic accept/decline", () => {
-  it("looks up a dispatch and accepts it", async () => {
+  it("lists the authenticated mechanic's pending offer and accepts it without a pasted code", async () => {
     const user = userEvent.setup();
     const responded = vi.fn();
+    const pendingOffer = {
+      dispatch_id: DISPATCH_ID,
+      work_order_id: workOrderListItems[0].id,
+      branch_id: branchId,
+      request_no: workOrderListItems[0].request_no,
+      accept_window_started_at: "2026-06-12T09:00:00Z",
+      accept_window_ends_at: "2026-06-12T09:05:00Z",
+    };
     server.use(
       workOrdersHandler(),
-      http.get("*/api/v1/p1-dispatches/:id", () =>
-        HttpResponse.json(dispatchSummary),
+      http.get("*/api/v1/me/dispatch-offers", () =>
+        HttpResponse.json({ items: [pendingOffer] }),
       ),
       http.post(
         "*/api/v1/p1-dispatches/:id/responses",
@@ -480,15 +488,26 @@ describe("DispatchPage mechanic accept/decline", () => {
 
     renderApp(makeAuthContext(mechanicSession));
 
-    await user.type(await screen.findByLabelText("배차 코드"), DISPATCH_ID);
-    await user.click(screen.getByRole("button", { name: "조회" }));
+    const offerQueue = await screen.findByRole("region", {
+      name: "P1 배차 대기 목록",
+    });
+    expect(within(offerQueue).getByText(workOrderListItems[0].request_no)).toBeVisible();
+    expect(
+      within(offerQueue).getByRole("link", {
+        name: workOrderListItems[0].request_no,
+      }),
+    ).toHaveAttribute("href", `/work-orders/${workOrderListItems[0].id}`);
+    expect(screen.queryByLabelText("배차 코드")).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole("button", { name: "수락" }));
+    await user.click(within(offerQueue).getByRole("button", { name: "수락" }));
 
     await waitFor(() => {
       expect(responded).toHaveBeenCalledWith({ response: "ACCEPT" });
     });
     expect(await screen.findByText("배차를 수락했습니다.")).toBeVisible();
+    expect(
+      within(offerQueue).queryByText(workOrderListItems[0].request_no),
+    ).not.toBeInTheDocument();
   });
 
   it("hides manager controls from a mechanic", async () => {
