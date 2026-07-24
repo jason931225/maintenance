@@ -812,7 +812,7 @@ async fn acknowledge_week52(
         .active_employee_home_branch(*p.org_id.as_uuid(), body.employee_id)
         .await
         .map_err(RestError::store)?;
-    require_resource_branch(&p, MANAGE, branch)?;
+    require_resource_branch(&p, EXCEPTION_MANAGE, branch)?;
     let command = AcknowledgeWeek52 {
         employee_id: body.employee_id,
         week_start: validate_week52_start(parse_date(&body.week_start, "weekStart")?).map_err(
