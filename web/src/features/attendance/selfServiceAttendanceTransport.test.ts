@@ -64,6 +64,20 @@ describe("createSelfServiceAttendanceTransport", () => {
     await expect(transport.getOwnWeek52("2026-07-20")).resolves.toEqual(unavailable);
   });
 
+  it.each([null, undefined])("fails closed with 502 for an absent successful Week52 body (%#)", async (body) => {
+    const GET = vi.fn().mockResolvedValue(result(body));
+    await expect(createSelfServiceAttendanceTransport(client(GET)).getOwnWeek52("2026-07-20")).rejects.toMatchObject({
+      name: "SelfServiceAttendanceTransportError", status: 502,
+    } satisfies Partial<SelfServiceAttendanceTransportError>);
+  });
+
+  it("preserves a non-2xx status even when Week52 has no body", async () => {
+    const GET = vi.fn().mockResolvedValue(result(undefined, 422, { error: { code: "INVALID_WEEK", message: "week_start must be Monday" } }));
+    await expect(createSelfServiceAttendanceTransport(client(GET)).getOwnWeek52("2026-07-20")).rejects.toMatchObject({
+      name: "SelfServiceAttendanceTransportError", status: 422, message: "week_start must be Monday",
+    });
+  });
+
   it.each([
     { status: "available" },
     { status: "not_available", projection: available.projection },

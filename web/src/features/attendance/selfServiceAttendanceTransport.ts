@@ -65,7 +65,10 @@ export function createSelfServiceAttendanceTransport(api: ConsoleApiClient): Sel
         headers: NO_STORE,
         signal,
       });
-      if (!data) throw requestError(response.status, error);
+      if (!response.ok) throw requestError(response.status, error);
+      if (!data) {
+        throw new SelfServiceAttendanceTransportError("Attendance Week52 response violated its contract", 502);
+      }
       const envelope: GeneratedWeek52 = data;
       if (!isValidOwnWeek52(envelope)) {
         throw new SelfServiceAttendanceTransportError("Attendance Week52 response violated its contract", 502);
