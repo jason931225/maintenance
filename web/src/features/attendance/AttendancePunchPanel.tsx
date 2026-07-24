@@ -11,6 +11,7 @@ import { ko } from "../../i18n/ko";
 import { attendanceStrings as attendanceText } from "../../i18n/attendance";
 import { formatKoreanDateTime } from "../../lib/datetime";
 import { attendanceRecordToPin } from "../workspace/adapters";
+import { attendanceAuthorityKey } from "./attendanceAuthority";
 
 const ATTENDANCE_KINDS = [
   "CLOCK_IN",
@@ -61,7 +62,7 @@ interface AttendancePunchPanelProps {
 /** Reusable personal punch, payroll-linkage, and attendance-history panel. */
 export function AttendancePunchPanel({ active = true }: AttendancePunchPanelProps = {}) {
   const { session } = useAuth();
-  const sessionIdentity = session?.client_session_incarnation ?? session?.access_token;
+  const sessionIdentity = attendanceAuthorityKey(session);
   if (!active) return null;
   if (!sessionIdentity) return null;
   return <AttendancePunchPanelInner key={sessionIdentity} sessionIdentity={sessionIdentity} />;

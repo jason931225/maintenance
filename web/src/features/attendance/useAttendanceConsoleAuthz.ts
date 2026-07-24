@@ -7,6 +7,7 @@ import {
   makePolicyGate,
   type AuthzProjection,
 } from "../../console/policy/authz";
+import { attendanceAuthorityKey } from "./attendanceAuthority";
 
 /**
  * Attendance's route adapter consumes the console's canonical parsed authz
@@ -15,15 +16,14 @@ import {
 export function useAttendanceConsoleAuthz(active = true) {
   const { session } = useAuth();
   const floor = useMemo(() => jwtFloorProjection(session), [session]);
-  const sessionIdentity =
-    session?.client_session_incarnation ?? session?.access_token;
+  const authorityKey = attendanceAuthorityKey(session);
   const token = session?.access_token;
   const [authoritative, setAuthoritative] = useState<{
-    sessionIdentity: string | undefined;
+    authorityKey: string | undefined;
     projection: AuthzProjection;
   }>();
   const projection =
-    active && authoritative && authoritative.sessionIdentity === sessionIdentity
+    active && authoritative && authoritative.authorityKey === authorityKey
       ? authoritative.projection
       : floor;
 
@@ -32,15 +32,12 @@ export function useAttendanceConsoleAuthz(active = true) {
     const controller = new AbortController();
     void fetchAuthzProjection(token, controller.signal).then((next) => {
       if (!controller.signal.aborted && next)
-        setAuthoritative({ sessionIdentity, projection: next });
+        setAuthoritative({ authorityKey, projection: next });
     });
     return () => {
       controller.abort();
     };
-    // The effective session identity owns this request's lifetime. A token
-    // refresh within the same incarnation must not replace its cache key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, sessionIdentity]);
+  }, [active, authorityKey, token]);
 
   return useMemo(
     () => makePolicyGate(projection, projection.source === "authz"),

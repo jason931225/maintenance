@@ -8,6 +8,7 @@ import { AttendancePunchPanel } from "./AttendancePunchPanel";
 
 import { AttendanceScreen } from "./AttendanceScreen";
 import { SelfServiceAttendancePanel } from "./SelfServiceAttendancePanel";
+import { attendanceAuthorityKey } from "./attendanceAuthority";
 import { deriveAttendanceCapabilities } from "./attendanceCapabilities";
 import { createAttendanceApiTransport } from "./attendanceTransport";
 import { createSelfServiceAttendanceTransport } from "./selfServiceAttendanceTransport";
@@ -26,8 +27,7 @@ export function AttendanceScreenBody({ active = true }: { active?: boolean }) {
     () => createSelfServiceAttendanceTransport(api),
     [api],
   );
-  const sessionIdentity =
-    session?.client_session_incarnation ?? session?.access_token;
+  const sessionIdentity = attendanceAuthorityKey(session);
   const selfServicePanel = (
     <SelfServiceAttendancePanel
       api={ownTransport}
@@ -96,7 +96,7 @@ function AuthenticatedAttendanceBody({
         branchId={branchId}
         actorId={session?.user_id}
         capabilities={capabilities}
-        sessionKey={session?.client_session_incarnation ?? session?.access_token}
+        sessionKey={attendanceAuthorityKey(session)}
         active={active}
       />
       {personalAttendance}

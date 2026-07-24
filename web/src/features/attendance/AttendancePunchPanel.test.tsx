@@ -201,8 +201,18 @@ describe("AttendancePunchPanel", () => {
       }),
       http.post("*/api/v1/hr/attendance-records/me", () => postA),
     );
-    const sessionA: AuthSession = { access_token: "a", user_id: "user-a", roles: ["MECHANIC"] };
-    const sessionB: AuthSession = { access_token: "b", user_id: "user-b", roles: ["MECHANIC"] };
+    const sessionA: AuthSession = {
+      access_token: "a",
+      client_session_incarnation: "same-incarnation",
+      user_id: "user-a",
+      roles: ["MECHANIC"],
+    };
+    const sessionB: AuthSession = {
+      access_token: "b",
+      client_session_incarnation: "same-incarnation",
+      user_id: "user-b",
+      roles: ["MECHANIC"],
+    };
     const view = renderApp(sessionA);
     await screen.findByRole("button", { name: "출근 기록" });
     await user.click(screen.getByRole("button", { name: "출근 기록" }));
@@ -215,6 +225,49 @@ describe("AttendancePunchPanel", () => {
     expect(reads).toBe(2);
     view.rerender(<AuthContext.Provider value={makeAuthContext(undefined)}><AttendancePunchPanel /></AuthContext.Provider>);
     expect(screen.queryByRole("heading", { name: "출퇴근 및 기록" })).not.toBeInTheDocument();
+  });
+
+  it("removes prior records synchronously while a same-incarnation refresh reloads", async () => {
+    let resolveB!: (response: HttpResponse) => void;
+    const responseB = new Promise<HttpResponse>((resolve) => { resolveB = resolve; });
+    let reads = 0;
+    server.use(
+      http.get("*/api/v1/hr/attendance-records/me", () => {
+        reads += 1;
+        if (reads === 1) {
+          return HttpResponse.json({
+            items: [{ ...baseRecord, payroll_material_ref_id: "A-PAYROLL" }],
+          });
+        }
+        return responseB;
+      }),
+    );
+    const sessionA: AuthSession = {
+      access_token: "a",
+      client_session_incarnation: "same-incarnation",
+      user_id: "user-a",
+      roles: ["MECHANIC"],
+    };
+    const sessionB: AuthSession = {
+      access_token: "b",
+      client_session_incarnation: "same-incarnation",
+      user_id: "user-b",
+      roles: ["MECHANIC"],
+    };
+    const view = renderApp(sessionA);
+    expect(await screen.findByText("A-PAYROLL")).toBeInTheDocument();
+
+    view.rerender(
+      <AuthContext.Provider value={makeAuthContext(sessionB)}>
+        <AttendancePunchPanel />
+      </AuthContext.Provider>,
+    );
+
+    expect(screen.queryByText("A-PAYROLL")).not.toBeInTheDocument();
+    resolveB(HttpResponse.json({
+      items: [{ ...baseRecord, payroll_material_ref_id: "B-PAYROLL" }],
+    }));
+    expect(await screen.findByText("B-PAYROLL")).toBeInTheDocument();
   });
 
   it("supersedes a deferred initial read with the post-write reload", async () => {

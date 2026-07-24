@@ -50,12 +50,12 @@ describe("useAttendanceConsoleAuthz", () => {
     mockFetchAuthzProjection.mockReset();
   });
 
-  it("separates same-token authoritative projections by session incarnation", async () => {
+  it("ignores a stale authz response after a same-incarnation token refresh", async () => {
     const oldResponse = deferred<AuthzProjection | undefined>();
     const currentResponse = deferred<AuthzProjection | undefined>();
     let session = {
-      access_token: "same-token",
-      client_session_incarnation: "incarnation-a",
+      access_token: "token-a",
+      client_session_incarnation: "incarnation",
       feature_grants: [],
     };
     mockUseAuth.mockImplementation(() => ({ session }));
@@ -72,7 +72,7 @@ describe("useAttendanceConsoleAuthz", () => {
       }),
     ).toBe(false);
 
-    session = { ...session, client_session_incarnation: "incarnation-b" };
+    session = { ...session, access_token: "token-b" };
     rerender();
     await waitFor(() => {
       expect(mockFetchAuthzProjection).toHaveBeenCalledTimes(2);
@@ -98,6 +98,55 @@ describe("useAttendanceConsoleAuthz", () => {
           minPermission: "allow",
         }),
       ).toBe(true);
+    });
+  });
+
+  it("withdraws cached authority immediately when a refreshed token reduces grants", async () => {
+    const reducedResponse = deferred<AuthzProjection | undefined>();
+    let session = {
+      access_token: "token-a",
+      client_session_incarnation: "incarnation",
+      feature_grants: [],
+    };
+    mockUseAuth.mockImplementation(() => ({ session }));
+    mockFetchAuthzProjection
+      .mockResolvedValueOnce(projection("employee_directory_read"))
+      .mockImplementationOnce(() => reducedResponse.promise);
+
+    const { result, rerender } = renderHook(() => useAttendanceConsoleAuthz());
+    await waitFor(() => {
+      expect(
+        result.current.allows({
+          feature: "employee_directory_read",
+          branch: "branch-1",
+          minPermission: "allow",
+        }),
+      ).toBe(true);
+    });
+
+    session = { ...session, access_token: "token-b" };
+    rerender();
+
+    expect(
+      result.current.allows({
+        feature: "employee_directory_read",
+        branch: "branch-1",
+        minPermission: "allow",
+      }),
+    ).toBe(false);
+    await waitFor(() => {
+      expect(mockFetchAuthzProjection).toHaveBeenCalledTimes(2);
+    });
+
+    reducedResponse.resolve(projection("period_lock_manage"));
+    await waitFor(() => {
+      expect(
+        result.current.allows({
+          feature: "employee_directory_read",
+          branch: "branch-1",
+          minPermission: "allow",
+        }),
+      ).toBe(false);
     });
   });
 

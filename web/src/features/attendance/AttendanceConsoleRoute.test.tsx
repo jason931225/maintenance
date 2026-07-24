@@ -6,8 +6,8 @@ import type { AuthSession } from "../../context/auth";
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import { AttendanceScreenBody } from "./AttendanceConsoleRoute";
 
-const screenSpy = vi.fn((props: { selfServicePanel?: ReactElement }) => (
-  <div data-testid="attendance-screen">
+const screenSpy = vi.fn((props: { selfServicePanel?: ReactElement; sessionKey?: string }) => (
+  <div data-testid="attendance-screen" data-session={props.sessionKey}>
     {props.selfServicePanel}
     <span data-testid="manager-workspace">manager workspace</span>
   </div>
@@ -33,7 +33,7 @@ const punchSpy = vi.fn(() => <section data-testid="punch-panel">punch</section>)
 
 vi.mock("./AttendanceScreen", () => ({
   AttendanceScreen: (props: unknown) =>
-    screenSpy(props as { selfServicePanel?: ReactElement }),
+    screenSpy(props as { selfServicePanel?: ReactElement; sessionKey?: string }),
 }));
 vi.mock("./SelfServiceAttendancePanel", () => ({
   SelfServiceAttendancePanel: (props: {
@@ -56,9 +56,13 @@ vi.mock("./useAttendanceConsoleAuthz", () => ({
   useAttendanceConsoleAuthz: () => authzSpy(),
 }));
 
-function session(branches: string[], incarnation = "session-a"): AuthSession {
+function session(
+  branches: string[],
+  incarnation = "session-a",
+  accessToken = "token",
+): AuthSession {
   return {
-    access_token: "token",
+    access_token: accessToken,
     user_id: "user-a",
     org_id: "org-a",
     client_session_incarnation: incarnation,
@@ -80,10 +84,7 @@ describe("AttendanceScreenBody", () => {
         <AttendanceScreenBody />
       </AuthTestProvider>,
     );
-    expect(screen.getByTestId("self-service")).toHaveAttribute(
-      "data-session",
-      "session-a",
-    );
+    expect(screen.getByTestId("self-service")).toHaveAttribute("data-session");
     expect(screen.queryByTestId("attendance-screen")).toBeNull();
     expect(authzSpy).not.toHaveBeenCalled();
     expect(managerTransportSpy).not.toHaveBeenCalled();
@@ -140,19 +141,17 @@ describe("AttendanceScreenBody", () => {
         <AttendanceScreenBody />
       </AuthTestProvider>,
     );
-    expect(screen.getByTestId("self-service")).toHaveAttribute(
-      "data-session",
-      "one",
-    );
+    const firstAuthorityKey = screen
+      .getByTestId("self-service")
+      .getAttribute("data-session");
     rerender(
       <AuthTestProvider session={session([], "two")} overrides={{ api }}>
         <AttendanceScreenBody />
       </AuthTestProvider>,
     );
-    expect(screen.getByTestId("self-service")).toHaveAttribute(
-      "data-session",
-      "two",
-    );
+    expect(
+      screen.getByTestId("self-service").getAttribute("data-session"),
+    ).not.toBe(firstAuthorityKey);
     rerender(
       <AuthTestProvider session={undefined} overrides={{ api }}>
         <AttendanceScreenBody />
@@ -182,5 +181,29 @@ describe("AttendanceScreenBody", () => {
     );
     expect(screen.queryByTestId("attendance-screen")).toBeNull();
     expect(screen.getByTestId("self-service")).toBeVisible();
+  });
+
+  it("rekeys personal and manager surfaces when a token refreshes within one incarnation", () => {
+    const api = client();
+    const { rerender } = render(
+      <AuthTestProvider session={session(["branch-a"], "same", "token-a")} overrides={{ api }}>
+        <AttendanceScreenBody />
+      </AuthTestProvider>,
+    );
+    const firstPersonalKey = screen.getByTestId("self-service").getAttribute("data-session");
+    const firstManagerKey = screen.getByTestId("attendance-screen").getAttribute("data-session");
+
+    rerender(
+      <AuthTestProvider session={session(["branch-a"], "same", "token-b")} overrides={{ api }}>
+        <AttendanceScreenBody />
+      </AuthTestProvider>,
+    );
+
+    expect(screen.getByTestId("self-service").getAttribute("data-session")).not.toBe(
+      firstPersonalKey,
+    );
+    expect(screen.getByTestId("attendance-screen").getAttribute("data-session")).not.toBe(
+      firstManagerKey,
+    );
   });
 });
