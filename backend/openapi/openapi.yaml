@@ -14626,7 +14626,7 @@ paths:
         - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
         - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 1000000 } }
       responses:
-        '200': { description: Linked employee exception page, or an empty page when the principal is unlinked, content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceExceptionPage' } } } }
+        '200': { description: "Linked employee exception page, or an empty page when the principal is unlinked", content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceExceptionPage' } } } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -14639,7 +14639,7 @@ paths:
       parameters:
         - { name: week_start, in: query, required: true, schema: { type: string, format: date }, description: ISO week Monday. }
       responses:
-        '200': { description: Linked employee Week-52 projection, or null when the principal is unlinked, content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceWeek52', nullable: true } } } }
+        '200': { description: "Linked employee Week-52 projection, or null when the principal is unlinked", content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceWeek52', nullable: true } } } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
