@@ -578,7 +578,9 @@ export function AppRouter() {
             {/* Legacy equipment page: kept at /equipment/legacy during transition */}
             <Route path="/equipment/legacy" element={<EquipmentPage />} />
           </Route>
-          <Route path="/facilities" element={<FacilitiesPage />} />
+          <Route element={<RequireNavItemRoute itemKey="facilities" />}>
+            <Route path="/facilities" element={<FacilitiesPage />} />
+          </Route>
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<FinancialPage />} />
           </Route>

@@ -84,6 +84,7 @@ export const ko = {
     "daily-plan": "계획업무",
     collaboration: "협업 허브",
     inspection: "정기 예방정비",
+    facilities: "시설 운영",
     messenger: "메신저",
     mail: "메일함",
     support: "고객지원",

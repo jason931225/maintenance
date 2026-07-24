@@ -47,6 +47,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "daily-plan",
     "collaboration",
     "inspection",
+    "facilities",
     "support",
     "ontology",
     "workflows",
@@ -88,6 +89,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "daily-plan",
     "collaboration",
     "inspection",
+    "facilities",
     "support",
     "ontology",
     "kpi",
@@ -125,6 +127,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch-map",
     "intake",
     "collaboration",
+    "facilities",
     "support",
     "ontology",
     "kpi",
@@ -155,6 +158,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "daily-plan",
     "collaboration",
     "inspection",
+    "facilities",
     "support",
     "reporting",
     "equipment",
@@ -173,6 +177,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch-map",
     "intake",
     "collaboration",
+    "facilities",
     "support",
     "reporting",
     "equipment",
@@ -261,6 +266,24 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("config-console", [ROLES.SUPER_ADMIN])).toBe(true);
     expect(isNavItemVisible("config-console", [ROLES.EXECUTIVE])).toBe(false);
     expect(isNavItemVisible("config-console", [ROLES.MECHANIC])).toBe(false);
+  });
+
+  it("shows Facilities only to FacilitiesObserve holders", () => {
+    for (const role of [
+      ROLES.SUPER_ADMIN,
+      ROLES.ADMIN,
+      ROLES.EXECUTIVE,
+      ROLES.MECHANIC,
+      ROLES.RECEPTIONIST,
+    ]) {
+      expect(isNavItemVisible("facilities", [role])).toBe(true);
+    }
+    expect(isNavItemVisible("facilities", [ROLES.MEMBER])).toBe(false);
+    expect(
+      isNavItemVisible("facilities", [ROLES.MEMBER], undefined, [
+        FEATURES.FACILITIES_OBSERVE,
+      ]),
+    ).toBe(true);
   });
 
   it("hides admin-only pages from every non-admin role", () => {
