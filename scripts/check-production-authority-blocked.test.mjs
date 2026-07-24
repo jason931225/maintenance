@@ -145,15 +145,36 @@ function run(root, ...args) {
   );
 }
 function runWithEnvironment(root, environment, ...args) {
+  return runAtPath(root, root, environment, ...args);
+}
+function runAtPath(root, executableRoot, environment, ...args) {
   return spawnSync(
     process.execPath,
-    [join(root, "scripts/check-production-authority-blocked.mjs"), ...args],
+    [
+      join(executableRoot, "scripts/check-production-authority-blocked.mjs"),
+      ...args,
+    ],
     {
       cwd: tmpdir(),
       encoding: "buffer",
       env: { ...process.env, ...environment },
     },
   );
+}
+function installGitLogShim(root) {
+  const bin = join(root, "shim-bin"),
+    log = join(root, "git.log");
+  mkdirSync(bin);
+  const realGit = spawnSync("which", ["git"], {
+    encoding: "utf8",
+  }).stdout.trim();
+  const shim = join(bin, "git");
+  writeFileSync(
+    shim,
+    `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "$GIT_LOG"\nexec "${realGit}" "$@"\n`,
+  );
+  chmodSync(shim, 0o755);
+  return { bin, log };
 }
 function assertFailure(result, code) {
   assert.notEqual(result.status, 0);
@@ -265,19 +286,27 @@ describe("production authority blocked observation CLI", () => {
     assertFailure(run(root, "HEAD"), "COMMIT_SHA_FORMAT");
     assertFailure(run(root, zero), "COMMIT_SHA_ZERO");
   });
-  it("runs when the executable path uses a filesystem alias", () => {
-    const { root } = fixture();
+  it("evaluates from the canonical repository root when the executable path uses a filesystem alias", () => {
+    const { root, sha } = fixture();
     const alias = `${root}-alias`;
-    symlinkSync(root, alias, "dir");
+    symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
     cleanup.push(alias);
+    const { bin, log } = installGitLogShim(root);
 
-    const result = spawnSync(
-      process.execPath,
-      [join(alias, "scripts/check-production-authority-blocked.mjs")],
-      { cwd: tmpdir(), encoding: "buffer" },
+    const result = runAtPath(
+      root,
+      alias,
+      { PATH: `${bin}:${process.env.PATH}`, GIT_LOG: log },
+      sha,
     );
 
-    assertFailure(result, "ARGUMENT_COUNT");
+    assert.equal(result.status, 0, result.stderr.toString());
+    assert.equal(JSON.parse(result.stdout).evaluated_commit_sha, sha);
+    const evaluatorRoot = realpathSync(root);
+    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
+      `${evaluatorRoot}|cat-file -t ${sha}`,
+      ...paths.map((path) => `${evaluatorRoot}|show ${sha}:${path}`),
+    ]);
   });
   it("rejects every non-exact SHA form before touching Git", () => {
     const { root } = fixture();
@@ -464,18 +493,7 @@ describe("production authority blocked observation CLI", () => {
   });
   it("uses exactly one object query and five fixed-order blob reads from the evaluator repository root", () => {
     const { root, sha } = fixture();
-    const bin = join(root, "shim-bin"),
-      log = join(root, "git.log");
-    mkdirSync(bin);
-    const realGit = spawnSync("which", ["git"], {
-      encoding: "utf8",
-    }).stdout.trim();
-    const shim = join(bin, "git");
-    writeFileSync(
-      shim,
-      `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "$GIT_LOG"\nexec "${realGit}" "$@"\n`,
-    );
-    chmodSync(shim, 0o755);
+    const { bin, log } = installGitLogShim(root);
     const result = runWithEnvironment(
       root,
       { PATH: `${bin}:${process.env.PATH}`, GIT_LOG: log },
