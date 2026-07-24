@@ -95,7 +95,10 @@ CREATE OR REPLACE FUNCTION consulting_reject_terminal_engagement_write()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD.status IN ('SUSTAINED','CORRECTIVE') THEN
-    RAISE EXCEPTION 'terminal consulting engagement is immutable';
+    RAISE EXCEPTION USING
+      ERRCODE = 'P0001',
+      MESSAGE = 'terminal consulting engagement is immutable',
+      CONSTRAINT = 'consulting_terminal_immutable';
   END IF;
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
@@ -112,13 +115,19 @@ BEGIN
     SELECT 1 FROM consulting_engagements
     WHERE id=OLD.engagement_id AND org_id=OLD.org_id AND status IN ('SUSTAINED','CORRECTIVE')
   ) THEN
-    RAISE EXCEPTION 'terminal consulting engagement is immutable';
+    RAISE EXCEPTION USING
+      ERRCODE = 'P0001',
+      MESSAGE = 'terminal consulting engagement is immutable',
+      CONSTRAINT = 'consulting_terminal_immutable';
   END IF;
   IF TG_OP <> 'DELETE' AND EXISTS (
     SELECT 1 FROM consulting_engagements
     WHERE id=NEW.engagement_id AND org_id=NEW.org_id AND status IN ('SUSTAINED','CORRECTIVE')
   ) THEN
-    RAISE EXCEPTION 'terminal consulting engagement is immutable';
+    RAISE EXCEPTION USING
+      ERRCODE = 'P0001',
+      MESSAGE = 'terminal consulting engagement is immutable',
+      CONSTRAINT = 'consulting_terminal_immutable';
   END IF;
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;

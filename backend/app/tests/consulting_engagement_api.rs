@@ -424,6 +424,142 @@ async fn consulting_engagement_story_is_tenant_scoped_idempotent_and_terminal(ow
     .await;
 }
 
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn terminal_transition_winning_after_child_precheck_returns_conflict_without_write(
+    owner_pool: PgPool,
+) {
+    let fixture = seed_fixture(&owner_pool).await;
+    let keys = keys();
+    let requester_token = bearer(&keys, fixture.requester, fixture.org);
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let service = build_router(app_state(runtime_pool, &keys));
+
+    let created = send(
+        service.clone(),
+        "POST",
+        "/api/v1/consulting/engagements",
+        Some(&requester_token),
+        Some(json!({
+            "customerId": fixture.customer,
+            "customerDocumentId": fixture.document,
+            "ontologyInstanceId": fixture.ontology,
+            "title": "Exercise the terminal-write race",
+            "idempotencyKey": "consulting-terminal-race"
+        })),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.json);
+    let engagement_id = response_uuid(&created.json, "id");
+
+    let gate_key = (Uuid::new_v4().as_u128() & i64::MAX as u128) as i64;
+    // PostgreSQL orders same-event triggers by name: `pause` runs after the
+    // handler precheck and before the migration's `terminal` trigger.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE OR REPLACE FUNCTION consulting_test_pause_diagnostic_insert() \
+         RETURNS TRIGGER LANGUAGE plpgsql AS $$ \
+         BEGIN \
+           PERFORM pg_advisory_xact_lock({gate_key}); \
+           RETURN NEW; \
+         END; \
+         $$; \
+         CREATE TRIGGER trg_consulting_diagnostics_pause \
+           BEFORE INSERT ON consulting_diagnostics \
+           FOR EACH ROW EXECUTE FUNCTION consulting_test_pause_diagnostic_insert();"
+    )))
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let mut gate = owner_pool.begin().await.unwrap();
+    let gate_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(gate.as_mut())
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(gate_key)
+        .execute(gate.as_mut())
+        .await
+        .unwrap();
+
+    let request_service = service.clone();
+    let request_token = requester_token.clone();
+    let request_path = format!("/api/v1/consulting/engagements/{engagement_id}/diagnostics");
+    let request = tokio::spawn(async move {
+        send(
+            request_service,
+            "POST",
+            &request_path,
+            Some(&request_token),
+            Some(json!({"summary": "must lose to terminal transition"})),
+        )
+        .await
+    });
+
+    wait_for_advisory_waiter(&owner_pool, gate_pid).await;
+    sqlx::query(
+        "UPDATE consulting_engagements \
+         SET status = 'SUSTAINED', version = version + 1, updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(engagement_id)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    gate.commit().await.unwrap();
+
+    let response = tokio::time::timeout(std::time::Duration::from_secs(10), request)
+        .await
+        .expect("diagnostic request remained blocked")
+        .unwrap();
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.json);
+    assert_eq!(response.json["error"]["code"], "conflict");
+    assert_eq!(
+        response.json["error"]["message"],
+        "terminal consulting engagements are immutable"
+    );
+
+    let child_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM consulting_diagnostics WHERE engagement_id = $1")
+            .bind(engagement_id)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(child_count, 0, "terminal race must not write a child");
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM consulting_engagements WHERE id = $1")
+            .bind(engagement_id)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "SUSTAINED");
+}
+
+async fn wait_for_advisory_waiter(owner_pool: &PgPool, blocker_pid: i32) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS ( \
+                   SELECT 1 FROM pg_locks \
+                   WHERE locktype = 'advisory' \
+                     AND NOT granted \
+                     AND $1 = ANY(pg_blocking_pids(pid)) \
+                 )",
+            )
+            .bind(blocker_pid)
+            .fetch_one(owner_pool)
+            .await
+            .unwrap();
+            if blocked {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("diagnostic insert never reached the advisory-lock barrier");
+}
+
 async fn assert_terminal_runtime_writes_rejected(
     pool: &PgPool,
     org: OrgId,
@@ -530,12 +666,7 @@ async fn assert_terminal_owner_deletes_rejected(
             .execute(pool)
             .await
             .expect_err("terminal trigger must reject owner delete");
-        assert!(
-            error
-                .to_string()
-                .contains("terminal consulting engagement is immutable"),
-            "unexpected owner DELETE error for {table}: {error}"
-        );
+        assert_terminal_database_error(&error, &format!("owner DELETE on {table}"));
     }
 }
 
@@ -543,11 +674,27 @@ async fn assert_terminal_trigger(pool: &PgPool, org: OrgId, statement: &str, id:
     let error = execute_as_org(pool, org, statement, id)
         .await
         .expect_err("terminal trigger must reject write");
-    assert!(
-        error
-            .to_string()
-            .contains("terminal consulting engagement is immutable"),
-        "unexpected terminal-write error: {error}"
+    assert_terminal_database_error(&error, "runtime terminal write");
+}
+
+fn assert_terminal_database_error(error: &sqlx::Error, operation: &str) {
+    let sqlx::Error::Database(database) = error else {
+        panic!("unexpected {operation} error: {error}");
+    };
+    assert_eq!(
+        database.code().as_deref(),
+        Some("P0001"),
+        "unexpected {operation} SQLSTATE"
+    );
+    assert_eq!(
+        database.constraint(),
+        Some("consulting_terminal_immutable"),
+        "unexpected {operation} constraint identity"
+    );
+    assert_eq!(
+        database.message(),
+        "terminal consulting engagement is immutable",
+        "unexpected {operation} message"
     );
 }
 

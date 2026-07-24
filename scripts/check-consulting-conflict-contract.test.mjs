@@ -94,3 +94,25 @@ test("terminal consulting child mutations expose typed conflicts in OpenAPI and 
     assert.match(kotlinOperation, /localVarError\.statusCode/);
   }
 });
+
+test("terminal trigger identity is mapped narrowly to the typed conflict", () => {
+  const migration = read(
+    "backend/crates/platform/db/migrations/0174_create_consulting_engagements.sql",
+  );
+  const rest = read("backend/crates/consulting/rest/src/lib.rs");
+
+  assert.equal(
+    migration.match(/CONSTRAINT = 'consulting_terminal_immutable'/g)?.length,
+    3,
+    "every terminal trigger branch must emit the stable constraint identity",
+  );
+  assert.match(rest, /database\.code\(\)\.as_deref\(\) == Some\("P0001"\)/);
+  assert.match(
+    rest,
+    /database\.constraint\(\) == Some\("consulting_terminal_immutable"\)/,
+  );
+  assert.match(
+    rest,
+    /database\.message\(\) == "terminal consulting engagement is immutable"/,
+  );
+});

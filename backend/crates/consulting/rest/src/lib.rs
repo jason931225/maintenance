@@ -701,6 +701,17 @@ impl RestError {
             mnt_platform_db::DbError::Sqlx(sqlx::Error::Protocol(message)) => {
                 Self::new(StatusCode::CONFLICT, "conflict", message)
             }
+            mnt_platform_db::DbError::Sqlx(sqlx::Error::Database(database))
+                if database.code().as_deref() == Some("P0001")
+                    && database.constraint() == Some("consulting_terminal_immutable")
+                    && database.message() == "terminal consulting engagement is immutable" =>
+            {
+                Self::new(
+                    StatusCode::CONFLICT,
+                    "conflict",
+                    "terminal consulting engagements are immutable",
+                )
+            }
             _ => Self::db(error),
         }
     }
