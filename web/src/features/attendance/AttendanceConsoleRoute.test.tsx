@@ -1,16 +1,55 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, type ReactElement } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type { AuthSession } from "../../context/auth";
-import { attendanceStrings as text } from "../../i18n/attendance";
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import { AttendanceScreenBody } from "./AttendanceConsoleRoute";
 
-const screenSpy = vi.fn(() => <div data-testid="attendance-screen" />);
-vi.mock("./AttendanceScreen", () => ({ AttendanceScreen: (props: unknown) => screenSpy(props) }));
+const screenSpy = vi.fn((props: { selfServicePanel?: ReactElement }) => (
+  <div data-testid="attendance-screen">
+    {props.selfServicePanel}
+    <span data-testid="manager-workspace">manager workspace</span>
+  </div>
+));
+const authzSpy = vi.fn(() => ({ allows: () => true }));
+const managerTransportSpy = vi.fn(() => ({
+  listSubstitutionCandidates: vi.fn(),
+}));
+const selfTransportSpy = vi.fn(() => ({
+  listOwnExceptions: vi.fn(),
+  getOwnWeek52: vi.fn(),
+}));
+const panelSpy = vi.fn(
+  (props: { sessionIdentity: string | undefined; active: boolean }) => (
+    <section
+      data-testid="self-service"
+      data-session={props.sessionIdentity}
+      data-active={String(props.active)}
+    />
+  ),
+);
+
+vi.mock("./AttendanceScreen", () => ({
+  AttendanceScreen: (props: unknown) =>
+    screenSpy(props as { selfServicePanel?: ReactElement }),
+}));
+vi.mock("./SelfServiceAttendancePanel", () => ({
+  SelfServiceAttendancePanel: (props: {
+    sessionIdentity: string | undefined;
+    active: boolean;
+  }) => panelSpy(props),
+}));
+vi.mock("./attendanceTransport", () => ({
+  createAttendanceApiTransport: (...args: unknown[]) =>
+    managerTransportSpy(...args),
+}));
+vi.mock("./selfServiceAttendanceTransport", () => ({
+  createSelfServiceAttendanceTransport: (...args: unknown[]) =>
+    selfTransportSpy(...args),
+}));
 vi.mock("./useAttendanceConsoleAuthz", () => ({
-  useAttendanceConsoleAuthz: () => ({ allows: () => true }),
+  useAttendanceConsoleAuthz: () => authzSpy(),
 }));
 
 function session(branches: string[], incarnation = "session-a"): AuthSession {
@@ -22,58 +61,97 @@ function session(branches: string[], incarnation = "session-a"): AuthSession {
     branches,
   };
 }
-
 function client(): ConsoleApiClient {
   return { GET: vi.fn(), POST: vi.fn() } as unknown as ConsoleApiClient;
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("AttendanceScreenBody", () => {
-  it("renders a truthful no-active-branch state and creates no adapter", () => {
+  it("renders self-service for a branchless member without manager authz, transport, selectors, or controls", () => {
     render(
       <AuthTestProvider session={session([])} overrides={{ api: client() }}>
         <AttendanceScreenBody />
       </AuthTestProvider>,
     );
-
-    expect(screen.getByText(text.noBranch)).toBeVisible();
+    expect(screen.getByTestId("self-service")).toHaveAttribute(
+      "data-session",
+      "session-a",
+    );
     expect(screen.queryByTestId("attendance-screen")).toBeNull();
+    expect(authzSpy).not.toHaveBeenCalled();
+    expect(managerTransportSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("manager-workspace")).toBeNull();
   });
 
-  it("binds the current session and active branch to a prop-less registry body", () => {
+  it("passes the own panel before the manager workspace for a branched manager", () => {
     const api = client();
     render(
       <AuthTestProvider session={session(["branch-a"])} overrides={{ api }}>
         <AttendanceScreenBody />
       </AuthTestProvider>,
     );
-
     expect(screen.getByTestId("attendance-screen")).toBeVisible();
-    expect(screenSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        branchId: "branch-a",
-        actorId: "user-a",
-        sessionKey: "session-a",
-      }),
-    );
-    const props = screenSpy.mock.calls.at(-1)?.[0] as { transport: { listSubstitutionCandidates: unknown } };
-    expect(props.transport.listSubstitutionCandidates).toEqual(expect.any(Function));
+    expect(authzSpy).toHaveBeenCalledTimes(1);
+    expect(managerTransportSpy).toHaveBeenCalledWith(api, "branch-a");
+    const workspace = screen.getByTestId("attendance-screen");
+    expect(
+      [...workspace.children].map((element) =>
+        element.getAttribute("data-testid"),
+      ),
+    ).toEqual(["self-service", "manager-workspace"]);
   });
 
-  it("rebinds to a replacement session rather than retaining the previous branch", () => {
+  it("replaces and removes employee authority rather than retaining a previous panel session", () => {
     const api = client();
     const { rerender } = render(
-      <AuthTestProvider session={session(["branch-a"], "one")} overrides={{ api }}>
+      <AuthTestProvider session={session([], "one")} overrides={{ api }}>
         <AttendanceScreenBody />
       </AuthTestProvider>,
+    );
+    expect(screen.getByTestId("self-service")).toHaveAttribute(
+      "data-session",
+      "one",
     );
     rerender(
-      <AuthTestProvider session={session(["branch-b"], "two")} overrides={{ api }}>
+      <AuthTestProvider session={session([], "two")} overrides={{ api }}>
         <AttendanceScreenBody />
       </AuthTestProvider>,
     );
-
-    expect(screenSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ branchId: "branch-b", sessionKey: "two" }),
+    expect(screen.getByTestId("self-service")).toHaveAttribute(
+      "data-session",
+      "two",
     );
+    rerender(
+      <AuthTestProvider session={undefined} overrides={{ api }}>
+        <AttendanceScreenBody />
+      </AuthTestProvider>,
+    );
+    expect(screen.getByTestId("self-service")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(screen.getByTestId("self-service")).not.toHaveAttribute(
+      "data-session",
+    );
+  });
+
+  it("removes manager composition when the active branch is removed", () => {
+    const api = client();
+    const { rerender } = render(
+      <AuthTestProvider session={session(["branch-a"])} overrides={{ api }}>
+        <AttendanceScreenBody />
+      </AuthTestProvider>,
+    );
+    expect(screen.getByTestId("attendance-screen")).toBeVisible();
+    rerender(
+      <AuthTestProvider session={session([])} overrides={{ api }}>
+        <AttendanceScreenBody />
+      </AuthTestProvider>,
+    );
+    expect(screen.queryByTestId("attendance-screen")).toBeNull();
+    expect(screen.getByTestId("self-service")).toBeVisible();
   });
 });

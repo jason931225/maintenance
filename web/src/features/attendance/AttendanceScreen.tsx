@@ -51,6 +51,8 @@ type Props = {
   capabilities: AttendanceCapabilities;
   /** Changes whenever auth replaces the effective tenant/session. */
   sessionKey: string | undefined;
+  /** Employee self-service content rendered before any manager workspace. */
+  selfServicePanel?: ReactElement;
   /** Injectable clock for deterministic tests; defaults to the wall clock. */
   now?: () => Date;
 };
@@ -157,6 +159,7 @@ function AttendanceScreenBodyInner({
   transport,
   capabilities,
   sessionKey,
+  selfServicePanel,
   now,
 }: Props) {
   const clock = now ?? (() => new Date());
@@ -367,6 +370,7 @@ function AttendanceScreenBodyInner({
   const recordItems = records.s === "ready" ? records.data.items : [];
 
   if (!capabilities.canRead) {
+    if (selfServicePanel) return <main className="attendance">{selfServicePanel}</main>;
     return (
       <main className="attendance">
         <div className="attendance__header">
@@ -401,6 +405,7 @@ function AttendanceScreenBodyInner({
 
   return (
     <main className="attendance" aria-busy={busy}>
+      {selfServicePanel}
       <div className="attendance__header">
         <div>
           <h1>{text.title}</h1>

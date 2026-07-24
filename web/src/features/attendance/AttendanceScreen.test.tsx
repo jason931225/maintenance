@@ -237,9 +237,9 @@ function transport(overrides: TransportOverrides = {}): AttendanceTransport {
     listAttendanceRecords: vi.fn<AttendanceTransport["listAttendanceRecords"]>(
       () => Promise.resolve(records),
     ),
-    listSubstitutionCandidates: vi.fn<AttendanceTransport["listSubstitutionCandidates"]>(
-      () => Promise.resolve(page(candidates.items)),
-    ),
+    listSubstitutionCandidates: vi.fn<
+      AttendanceTransport["listSubstitutionCandidates"]
+    >(() => Promise.resolve(page(candidates.items))),
     ...overrides,
   };
 }
@@ -661,7 +661,9 @@ describe("AttendanceScreen", () => {
       "18:00",
     );
     await userEvent.click(
-      await within(failedDialog).findByRole("button", { name: text.sub.assign }),
+      await within(failedDialog).findByRole("button", {
+        name: text.sub.assign,
+      }),
     );
     expect(await screen.findByText("substitute failed")).toBeVisible();
     expect(screen.getByRole("dialog", { name: text.sub.title })).toBeVisible();
@@ -1504,5 +1506,60 @@ describe("AttendanceScreen", () => {
       closeTrigger,
     );
     preflightView.unmount();
+  });
+});
+
+describe("AttendanceScreen self-service composition", () => {
+  it("renders self-service before the manager workspace without adding it to the manager fence", async () => {
+    const { container } = render(
+      <AttendanceScreen
+        transport={transport()}
+        branchId="branch-1"
+        actorId="actor-1"
+        capabilities={manager}
+        sessionKey="session-a"
+        selfServicePanel={
+          <section data-testid="self-service-panel">own attendance</section>
+        }
+        now={NOW}
+      />,
+    );
+    await screen.findByText(text.title);
+    const main = container.querySelector("main.attendance");
+    expect(main?.firstElementChild).toHaveAttribute(
+      "data-testid",
+      "self-service-panel",
+    );
+    expect(
+      screen.getByText(text.header.liveSuffix, { exact: false }),
+    ).toBeVisible();
+  });
+
+  it("renders an own panel without manager reads when manager authority is denied", () => {
+    const listExceptions = vi.fn<AttendanceTransport["listExceptions"]>(() =>
+      Promise.resolve(page(exceptions)),
+    );
+    render(
+      <AttendanceScreen
+        transport={transport({ listExceptions })}
+        branchId="branch-1"
+        actorId="actor-1"
+        capabilities={denied}
+        sessionKey="session-a"
+        selfServicePanel={
+          <section data-testid="self-service-panel">own attendance</section>
+        }
+        now={NOW}
+      />,
+    );
+    expect(screen.getByTestId("self-service-panel")).toBeVisible();
+    expect(screen.queryByText(text.denied)).toBeNull();
+    expect(listExceptions).not.toHaveBeenCalled();
+  });
+
+  it("preserves the legacy manager-denied fallback without an own panel", () => {
+    renderScreen(transport(), denied);
+    expect(screen.getByText(text.denied)).toBeVisible();
+    expect(screen.queryByTestId("self-service-panel")).toBeNull();
   });
 });
