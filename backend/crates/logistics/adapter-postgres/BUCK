@@ -21,6 +21,7 @@ rust_library(
         "//backend/crates/logistics/domain:mnt-logistics-domain",
         "//backend/crates/platform/db:mnt-platform-db",
         "//backend/crates/platform/request-context:mnt-platform-request-context",
+        "//third-party/rust:hex",
         "//third-party/rust:serde_json",
         "//third-party/rust:sha2",
         "//third-party/rust:sqlx",

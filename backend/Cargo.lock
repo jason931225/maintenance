@@ -2796,6 +2796,8 @@ dependencies = [
  "mnt-dispatch-worker",
  "mnt-docs-adapter-postgres",
  "mnt-docs-rest",
+ "mnt-equipment-adapter-postgres",
+ "mnt-equipment-rest",
  "mnt-erp-domain",
  "mnt-facilities-rest",
  "mnt-finance-gl-adapter-postgres",
@@ -3970,6 +3972,7 @@ dependencies = [
 name = "mnt-logistics-adapter-postgres"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "mnt-kernel-core",
  "mnt-logistics-domain",
  "mnt-platform-db",
