@@ -13,7 +13,7 @@ const S = forecastStrings();
 // useNavigate is the only router surface ForecastBody touches — mock it so drill
 // navigation is observable without a router provider.
 const navigateSpy = vi.fn();
-vi.mock("react-router-dom", () => ({
+vi.mock("react-router", () => ({
   useNavigate: () => navigateSpy,
 }));
 

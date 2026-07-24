@@ -1,6 +1,6 @@
 import { Bell, LogOut, MapPin, Menu, PanelRight, RefreshCw, Search, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
 import { GroupScopeSwitcher } from "../../features/group/GroupScopeSwitcher";

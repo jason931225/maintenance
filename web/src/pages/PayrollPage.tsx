@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ConsoleApiClient } from "../api/client";

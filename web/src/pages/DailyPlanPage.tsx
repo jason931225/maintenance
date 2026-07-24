@@ -1,6 +1,6 @@
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {

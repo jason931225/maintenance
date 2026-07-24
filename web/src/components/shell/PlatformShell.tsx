@@ -8,7 +8,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { Suspense, useEffect, useRef } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";

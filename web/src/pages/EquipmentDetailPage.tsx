@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useEffect, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router";
 
 import type {
   ExecuteObjectActionRequest,

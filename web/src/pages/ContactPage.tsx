@@ -1,6 +1,6 @@
 import { type SyntheticEvent, useId, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Phone } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import type { InquiryTopic } from "../api/types";
 import { useAuth } from "../context/auth";

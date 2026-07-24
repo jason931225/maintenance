@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { resolveRowTitle } from "../../../lib/rowTitle";
 import { ko } from "../../../i18n/ko";

@@ -3,7 +3,7 @@ import "leaflet/dist/leaflet.css";
 import { MapPinned, Navigation } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import type {
   ArrivalEvent,

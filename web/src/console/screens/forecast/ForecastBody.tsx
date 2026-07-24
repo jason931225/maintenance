@@ -7,7 +7,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import type { AssetLifecycleCostSummary, EquipmentListItem } from "../../../api/types";
 import { useAuth } from "../../../context/auth";

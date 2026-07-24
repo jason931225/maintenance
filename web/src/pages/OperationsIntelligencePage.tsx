@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { PageHeader } from "../components/shell/PageHeader";
 import { Badge } from "../components/ui/badge";

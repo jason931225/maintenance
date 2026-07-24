@@ -10,7 +10,7 @@
 import "../tokens.css";
 
 import { type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { LifecycleCard } from "./LifecycleCard";
 import { LifecycleCardView } from "./LifecycleCardView";

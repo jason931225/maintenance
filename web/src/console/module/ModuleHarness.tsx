@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { useAuth, type AuthSession } from "../../context/auth";
 import { PolicyGateProvider } from "../policy/PolicyGated";

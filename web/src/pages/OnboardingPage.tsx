@@ -1,6 +1,6 @@
 import { Monitor, QrCode } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";

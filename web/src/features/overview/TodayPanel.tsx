@@ -3,7 +3,7 @@
 // derived from their latest attendance record.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import type { TodoSummary } from "../../api/types";
 import { Chip, SectionCard } from "../../components/console/primitives";

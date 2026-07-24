@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router";
 
 import { useAuth } from "../context/auth";
 import { FEATURES, hasAnyFeatureGrant, hasAnyRole, ROLES } from "./shell/nav";

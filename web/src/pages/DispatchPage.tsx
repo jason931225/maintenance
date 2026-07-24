@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 
 import type { components } from "@maintenance/api-client-ts";
 import type { UserSummary, WorkOrderListItem } from "../api/types";

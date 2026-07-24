@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useRef, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router";
 
 import { useAuth, type AuthSession, type ViewAsState } from "../../context/auth";
 import { TitleProvider } from "../../context/title";

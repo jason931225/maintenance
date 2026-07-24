@@ -24,10 +24,10 @@ The feature components under `src/features/` are clean and well-tested — they 
 ## 1. Dependencies to Install
 
 ### Router
-Install `react-router-dom` v7 (file-based or component routing, component mode is fine for this scale):
+Install `react-router` v8 (component routing is appropriate for this console):
 
 ```bash
-npm install react-router-dom@^7
+npm install react-router@^8.3.0
 ```
 
 No other new runtime dependencies are required. `lucide-react` is already installed at `0.555.0`. `@fontsource/pretendard` is already installed. All shadcn-style primitives (`button`, `card`, `input`, `textarea`, `badge`) already exist in `src/components/ui/`.
@@ -488,7 +488,7 @@ export function AppShell() {
 // src/main.tsx
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 import { AuthProvider } from "./context/auth";
 import { AppRouter } from "./AppRouter";
 import "./styles.css";
@@ -511,7 +511,7 @@ createRoot(root).render(
 
 ```tsx
 // src/AppRouter.tsx
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router";
 import { AppShell } from "./components/shell/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
@@ -1125,7 +1125,7 @@ The following review fixes must survive the decomposition:
 
 ## 11. Implementation Order (Recommended)
 
-1. **Install react-router-dom** — `npm install react-router-dom@^7`
+1. **Install React Router** — `npm install react-router@^8.3.0`
 2. **Create `AuthContext`** (`src/context/auth.tsx`) with `useState` only; no storage yet. Wire up `main.tsx`.
 3. **Create `AppShell`** with stub sidebar (no active states yet) and topbar skeleton. Confirm layout renders.
 4. **Create `AppRouter`** with all routes. Confirm navigation works between stub pages.
@@ -1194,7 +1194,7 @@ equipment: {
 
 | Concern | Before | After |
 |---|---|---|
-| Router | `window.location.pathname` check | `react-router-dom` v7 `<Routes>` |
+| Router | `window.location.pathname` check | `react-router` v8 `<Routes>` |
 | Auth state | `useState` in `App.tsx` | `AuthContext` + `AuthProvider` |
 | Data fetching | All in `App.tsx` | Each page owns its own fetch |
 | Mutations | All in `App.tsx` | Each page owns its mutations |

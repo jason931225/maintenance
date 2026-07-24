@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 
 import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";

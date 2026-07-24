@@ -9,7 +9,7 @@
 import "../tokens.css";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";

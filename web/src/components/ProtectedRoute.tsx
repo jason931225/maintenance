@@ -1,4 +1,4 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router";
 
 import { PageSpinner } from "./states/PageSpinner";
 import { hasGrantedConsoleAccess } from "./shell/nav";

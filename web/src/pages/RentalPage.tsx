@@ -1,5 +1,5 @@
 import { type SyntheticEvent, useId, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ArrowRight, ChevronRight } from "lucide-react";
 
 import { ko } from "../i18n/ko";

@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 
 import pretendard400Url from "@fontsource/pretendard/files/pretendard-latin-400-normal.woff2?url";
 import { AuthProvider } from "./context/auth";

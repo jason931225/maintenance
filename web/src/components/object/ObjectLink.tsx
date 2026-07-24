@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { cn, safeLabel } from "../../lib/utils";
 
