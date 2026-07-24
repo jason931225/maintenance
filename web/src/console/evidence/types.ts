@@ -141,8 +141,8 @@ export type VerifyOutcome =
   | { state: "denied" }
   /** The request failed before the backend returned an integrity verdict; retry is allowed. */
   | { state: "error" }
-  /** Object storage is not configured (503), so fixity cannot be checked yet. */
-  | { state: "unavailable" };
+  /** The storage check could not establish fixity, with any known copy evidence retained. */
+  | { state: "unavailable"; copyVerdicts: CopyVerdictMap };
 
 export type VerifyEvidence = (
   detail: EvidenceObjectDetail,

@@ -2,7 +2,7 @@ import type { components } from "@maintenance/api-client-ts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
-import { ApiCallError } from "../../api/ontologyActions";
+import type { ApiCallError } from "../../api/ontologyActions";
 import { aggregateFixity, aggregateTsa, listEvidenceObjectPage, verifyEvidenceObject } from "./evidenceApi";
 
 type EvidenceCopyView = components["schemas"]["EvidenceCopyView"];
@@ -176,13 +176,50 @@ describe("verifyEvidenceObject", () => {
   it("returns unavailable only when the backend truthfully reports storage unavailable", async () => {
     const POST = vi.fn().mockResolvedValue({
       data: undefined,
-      error: { error: { code: "unavailable", message: "storage is not configured" } },
+      error: { error: { code: "evidence_store_unavailable", message: "storage is not configured" } },
       response: { status: 503 },
     });
 
     await expect(verifyEvidenceObject({ POST } as unknown as ConsoleApiClient, "ev-1")).resolves.toEqual({
       state: "unavailable",
+      copyVerdicts: new Map(),
     });
+  });
+
+  it("keeps an indeterminate 200 report pending while preserving per-copy storage evidence", async () => {
+    const POST = vi.fn().mockResolvedValue({
+      data: {
+        evidence_object_id: "ev-1",
+        verified_at: "2026-07-24T00:00:00Z",
+        outcome: "INDETERMINATE",
+        copies: [
+          { copy_id: "copy-1", copy_kind: "ORIGINAL", status: "CHECKSUM_UNAVAILABLE" },
+          { copy_id: "copy-2", copy_kind: "DERIVATIVE", status: "STORAGE_ERROR" },
+        ],
+      },
+      response: { status: 200 },
+    });
+
+    await expect(verifyEvidenceObject({ POST } as unknown as ConsoleApiClient, "ev-1")).resolves.toEqual({
+      state: "unavailable",
+      copyVerdicts: new Map([
+        ["copy-1", "CHECKSUM_UNAVAILABLE"],
+        ["copy-2", "STORAGE_ERROR"],
+      ]),
+    });
+  });
+
+  it("keeps a non-storage 503 retryable instead of falsely claiming evidence storage is unavailable", async () => {
+    const POST = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { error: { code: "unavailable", message: "JWT verification is not configured" } },
+      response: { status: 503 },
+    });
+
+    await expect(verifyEvidenceObject({ POST } as unknown as ConsoleApiClient, "ev-1")).rejects.toMatchObject({
+      name: "ApiCallError",
+      status: 503,
+    } satisfies Partial<ApiCallError>);
   });
 
   it("preserves a denied verification request instead of relabeling it as unavailable", async () => {

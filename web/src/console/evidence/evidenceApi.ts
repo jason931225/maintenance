@@ -30,6 +30,19 @@ type EvidenceHoldRequest = components["schemas"]["EvidenceHoldRequest"];
 
 const T = ko.console.evidence;
 
+/** Stable docs-rest envelope code for a verify request whose evidence store is unavailable. */
+const EVIDENCE_STORE_UNAVAILABLE = "evidence_store_unavailable";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasEvidenceStoreUnavailableCode(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const payload = error["error"];
+  return isRecord(payload) && payload["code"] === EVIDENCE_STORE_UNAVAILABLE;
+}
+
 function mapSource(view: EvidenceObjectView): EvidenceSourceRef {
   return {
     code: view.source.source_code ?? view.source.source_id,
@@ -249,20 +262,28 @@ export async function verifyEvidenceObject(
     params: { path: { id } },
   });
   if (!data) {
-    // The REST endpoint reserves 503 for an unconfigured/unreachable evidence
-    // store. Every other non-success result is material (especially 401/403)
-    // and must reach the action layer rather than being mislabeled as storage
-    // unavailability.
-    if (response.status === 503) return { state: "unavailable" };
+    // A 503 is not sufficient evidence that fixity storage is unavailable:
+    // auth/global infrastructure can also be unavailable. Only the stable
+    // docs-rest envelope code identifies this specific pending condition.
+    if (response.status === 503 && hasEvidenceStoreUnavailableCode(error)) {
+      return { state: "unavailable", copyVerdicts: new Map() };
+    }
     throw new ApiCallError(response.status, error);
   }
   const report: EvidenceVerifyReport = data;
+  const verdicts = copyVerdicts(report);
   if (report.outcome === "VERIFIED") {
-    return { state: "verified", processedAt: report.verified_at, copyVerdicts: copyVerdicts(report) };
+    return { state: "verified", processedAt: report.verified_at, copyVerdicts: verdicts };
+  }
+  if (report.outcome !== "MISMATCH") {
+    // INDETERMINATE means one or more copies could not be confirmed (for
+    // example, no checksum or a storage read error). It is not a corruption
+    // verdict; retain the per-copy evidence while keeping the aggregate pending.
+    return { state: "unavailable", copyVerdicts: verdicts };
   }
   const failing = report.copies.filter((c) => c.status !== "MATCH");
   const reason = failing.length > 0 ? failing.map((c) => `${c.copy_kind}:${c.status}`).join(", ") : null;
-  return { state: "failed", reason, copyVerdicts: copyVerdicts(report) };
+  return { state: "failed", reason, copyVerdicts: verdicts };
 }
 
 export async function applyLegalHold(

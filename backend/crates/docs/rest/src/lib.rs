@@ -684,6 +684,16 @@ impl RestError {
         }
     }
 
+    /// Distinguishes a fixity-storage outage from generic 503s (for example,
+    /// JWT verifier infrastructure), which the console must keep retryable.
+    fn evidence_store_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "evidence_store_unavailable",
+            message: message.into(),
+        }
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -710,9 +720,9 @@ impl RestError {
 
     fn from_verify(error: VerifyError) -> Self {
         match error {
-            VerifyError::StorageUnconfigured => {
-                Self::unavailable("evidence storage is not configured for fixity verification")
-            }
+            VerifyError::StorageUnconfigured => Self::evidence_store_unavailable(
+                "evidence storage is not configured for fixity verification",
+            ),
             VerifyError::NotFound => {
                 Self::from_kernel(KernelError::not_found("EV object was not found"))
             }
@@ -833,6 +843,20 @@ const fn code_for_error_kind(kind: ErrorKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evidence_store_unavailability_has_a_stable_distinct_error_code() {
+        let error = RestError::from_verify(VerifyError::StorageUnconfigured);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "evidence_store_unavailable");
+    }
+
+    #[test]
+    fn generic_service_unavailability_keeps_the_generic_error_code() {
+        let error = RestError::unavailable("JWT verification is not configured for evidence API");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "unavailable");
+    }
 
     #[test]
     fn normalize_accepts_hex_and_base64_and_rejects_junk() {

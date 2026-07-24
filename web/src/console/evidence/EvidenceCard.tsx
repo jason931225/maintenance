@@ -303,14 +303,14 @@ export function EvidenceCard({
     // fresh verified/failed result repopulates them.
     setCopyVerdicts(new Map());
     if (!verify) {
-      setOutcome({ state: "unavailable" });
+      setOutcome({ state: "unavailable", copyVerdicts: new Map() });
       return;
     }
     setOutcome("running");
     try {
       const result = await verify(detail);
       setOutcome(result);
-      if (result.state === "verified" || result.state === "failed") {
+      if (result.state === "verified" || result.state === "failed" || result.state === "unavailable") {
         setCopyVerdicts(result.copyVerdicts);
       }
     } catch (error) {
