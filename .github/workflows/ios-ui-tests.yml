@@ -12,18 +12,33 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   ios-ui-tests:
-    name: iOS — XCUITest + accessibility audit (Simulator)
-    # This public-repository gate intentionally runs on a one-job GitHub-hosted
-    # VM. Untrusted pull-request code must never reach a reusable self-hosted
-    # macOS runner; a future self-hosted lane requires a separately governed
-    # ephemeral/JIT runner group with teardown attestation.
+    name: iOS — ${{ matrix.batch }} (Simulator)
+    # Five independent GitHub-hosted workers bound fanout while keeping
+    # untrusted pull-request code away from reusable self-hosted macOS runners.
     runs-on: macos-26
-    # Measured named-shard watchdogs cap the complete fail-slow sweep below
-    # 45 minutes. The remaining budget covers the cold hermetic toolchain,
-    # backend, Simulator, result verification, and identity-aware cleanup.
-    timeout-minutes: 90
+    # The largest batch has 810 seconds of original shard watchdogs. A
+    # 30-minute cold setup and cleanup reserve makes the static bound 43.5
+    # minutes, below this worker ceiling without inflating test watchdogs.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        include:
+          - batch: core
+            shards: "preflight login-validation accessibility-id-parity"
+          - batch: critical
+            shards: "critical-path camera-capture"
+          - batch: messenger-dynamic
+            shards: "messenger audit-dynamic-today audit-dynamic-detail"
+          - batch: audit-standard
+            shards: "audit-dynamic-messenger audit-dynamic-login accessibility-standard"
+          - batch: audit-adaptive
+            shards: "accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5"
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      MNT_IOS_BATCH_NAME: ${{ matrix.batch }}
+      MNT_IOS_SHARD_BATCH: ${{ matrix.shards }}
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -35,8 +50,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          install -d -m 700 "$D"
+          D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MNT_IOS_BATCH_NAME}"
+          install -d -m 700 "$D" "$D/auth" "$D/raw-xcresults" "$D/artifacts"
+          printf '%s\n' "$MNT_IOS_BATCH_NAME" > "$D/artifacts/batch-name.txt"
+          read -r -a shard_manifest <<< "$MNT_IOS_SHARD_BATCH"
+          printf '%s\n' "${shard_manifest[@]}" > "$D/artifacts/shard-manifest.txt"
           printf '%s\n' "MNT_IOS_JOB_ROOT=$D" "CARGO_HOME=$D/cargo-home" "RUSTUP_HOME=$D/rustup-home" "CARGO_TARGET_DIR=$D/cargo-target" >> "$GITHUB_ENV"
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -81,8 +99,9 @@ jobs:
           readonly MNT_IOS_NODE_BIN="$RUNNER_TOOL_CACHE/node/24.16.0/$NODE_ARCH/bin/node"
           test -x "$MNT_IOS_NODE_BIN"; test ! -L "$MNT_IOS_NODE_BIN"; test "$("$MNT_IOS_NODE_BIN" --version)" = v24.16.0
           (cd "$GITHUB_WORKSPACE" && "$MNT_IOS_NODE_BIN" --test scripts/boot-backend-port-conflict.test.mjs scripts/boot-ios-ui-backend.test.mjs scripts/check-ios-ui-test-fail-closed.test.mjs scripts/verify-xcresult-test-results.test.mjs && "$MNT_IOS_NODE_BIN" scripts/check-ios-ui-test-fail-closed.mjs)
-          ROOT="$GITHUB_WORKSPACE"; D="$MNT_IOS_JOB_ROOT"; AUTH_DIR="$D/auth"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres-18.4"; DERIVED="$D/derived-data"; RAW_RESULTS="$D/raw-xcresults"; ARTIFACTS="$D/artifacts"; PROJECT="$PWD/MaintenanceField.xcodeproj"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$PWD/project.ci.yml"; STATE="$D/state"; UUID=""; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"
+          ROOT="$GITHUB_WORKSPACE"; D="$MNT_IOS_JOB_ROOT"; AUTH_DIR="$D/auth"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres-18.4"; DERIVED="$D/derived-data"; RAW_RESULTS="$D/raw-xcresults"; ARTIFACTS="$D/artifacts"; PROJECT="$PWD/MaintenanceField.xcodeproj"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$PWD/project.ci.yml"; STATE="$D/state"; UUID=""; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"; SECRETS_FILE="$AUTH_DIR/artifact-secret-values"; SESSION_MINTED_MARKER="$AUTH_DIR/session-material-minted"
           install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$RAW_RESULTS" "$ARTIFACTS"; umask 077; test ! -e "$PROJECT"
+          : > "$SECRETS_FILE"; chmod 600 "$SECRETS_FILE"
           TIMINGS="$ARTIFACTS/pipeline-timings.tsv"; ACTIVE_PHASE="$ARTIFACTS/active-phase.txt"; TIMING_ACTIVE=0
           printf 'phase\tseconds\tstatus\tbudget_seconds\n' > "$TIMINGS"
           timing_start() {
@@ -170,7 +189,7 @@ jobs:
           xcrun simctl list runtimes -j | python3 -c 'import json,sys; target=sys.argv[1]; assert any(x.get("isAvailable") and x.get("identifier") == target for x in json.load(sys.stdin)["runtimes"])' "$SIM_RUNTIME"
           SIM_DEVICE_TYPE=com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro
           xcrun simctl list devicetypes -j | python3 -c 'import json,sys; target=sys.argv[1]; assert any(x.get("identifier") == target for x in json.load(sys.stdin)["devicetypes"])' "$SIM_DEVICE_TYPE"
-          UUID="$(xcrun simctl create "Maintenance CI ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$SIM_DEVICE_TYPE" "$SIM_RUNTIME")"; write_state; xcrun simctl boot "$UUID"; xcrun simctl bootstatus "$UUID" -b
+          UUID="$(xcrun simctl create "Maintenance CI ${MNT_IOS_BATCH_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$SIM_DEVICE_TYPE" "$SIM_RUNTIME")"; write_state; xcrun simctl boot "$UUID"; xcrun simctl bootstatus "$UUID" -b
           xcodebuild build-for-testing -onlyUsePackageVersionsFromResolvedFile -project MaintenanceField.xcodeproj -scheme MaintenanceFieldApp -destination "platform=iOS Simulator,id=$UUID" -derivedDataPath "$DERIVED"
           BUILT_PLIST="$(find "$DERIVED/Build/Products" -path '*MaintenanceFieldApp.app/Info.plist' -print -quit)"; test -n "$BUILT_PLIST"; # Built.app/Info.plist receives CI-only NSAllowsLocalNetworking
           /usr/libexec/PlistBuddy -c 'Print :UILaunchScreen' "$BUILT_PLIST" >/dev/null
@@ -242,7 +261,6 @@ jobs:
           chmod 600 "$XCTESTRUN"
           timing_finish passed
           export MNT_UITEST_BASE_URL="$URL" MNT_UITEST_WORK_ORDER_ID_DETAIL=00000000-0000-0000-0000-000000f00004 MNT_UITEST_WORK_ORDER_ID_START=00000000-0000-0000-0000-000000f00003 MNT_UITEST_WORK_ORDER_ID_REPORT=00000000-0000-0000-0000-000000f00004 MNT_UITEST_WORK_ORDER_ID_REPORT_SUCCESS=00000000-0000-0000-0000-000000f00005 MNT_UITEST_WORK_ORDER_ID_ADMIN_APPROVE=00000000-0000-0000-0000-000000f00007 MNT_UITEST_WORK_ORDER_ID_ADMIN_REJECT=00000000-0000-0000-0000-000000f00008 MNT_UITEST_WORK_ORDER_ID_CAMERA=00000000-0000-0000-0000-000000f00004 MNT_UITEST_MESSENGER_THREAD_ID=00000000-0000-0000-0000-000000c10001 MNT_UITEST_MESSENGER_INITIAL_MESSAGE_ID=00000000-0000-0000-0000-000000c20001
-          SECRETS_FILE="$AUTH_DIR/artifact-secret-values"; : > "$SECRETS_FILE"; chmod 600 "$SECRETS_FILE"
           configure_shard() {
             local shard_name="$1"
             SHARD_FIXTURE_PROFILE=full
@@ -252,7 +270,7 @@ jobs:
             SHARD_SELECTORS=()
             case "$shard_name" in
               preflight)
-                SHARD_TIMEOUT_SECONDS=180
+                SHARD_TIMEOUT_SECONDS=90
                 SHARD_SELECTORS=(MaintenanceFieldUITests/PreflightUITests)
                 ;;
               login-validation)
@@ -264,7 +282,7 @@ jobs:
                 SHARD_SELECTORS=(MaintenanceFieldUITests/FieldAccessibilityIDParityTests)
                 ;;
               critical-path)
-                SHARD_TIMEOUT_SECONDS=540
+                SHARD_TIMEOUT_SECONDS=360
                 SHARD_SELECTORS=(MaintenanceFieldUITests/FieldCriticalPathUITests)
                 ;;
               messenger)
@@ -272,7 +290,7 @@ jobs:
                 SHARD_SELECTORS=(MaintenanceFieldUITests/MessengerUITests)
                 ;;
               camera-capture)
-                SHARD_TIMEOUT_SECONDS=150
+                SHARD_TIMEOUT_SECONDS=90
                 SHARD_SELECTORS=(MaintenanceFieldUITests/CameraCaptureUITests)
                 ;;
               audit-dynamic-today)
@@ -357,6 +375,7 @@ jobs:
             echo "::add-mask::$MNT_UITEST_ACCESS_TOKEN"
             echo "::add-mask::$MNT_UITEST_REFRESH_TOKEN"
             printf '%s\n' "$otp" "$MNT_UITEST_ACCESS_TOKEN" "$MNT_UITEST_REFRESH_TOKEN" >> "$SECRETS_FILE" || { rm -f "$AUTH_DIR/tokens.json"; return 1; }
+            : > "$SESSION_MINTED_MARKER"
             rm -f "$AUTH_DIR/tokens.json"
             (cd "$ROOT" && python3 scripts/patch-ios-xctestrun.py "$XCTESTRUN" --target MaintenanceFieldUITests --ui-target-app-path '__TESTROOT__/Debug-iphonesimulator/MaintenanceFieldApp.app' --env MNT_UITEST_BASE_URL --env MNT_UITEST_ACCESS_TOKEN --env MNT_UITEST_REFRESH_TOKEN --env MNT_UITEST_WORK_ORDER_ID_DETAIL --env MNT_UITEST_WORK_ORDER_ID_START --env MNT_UITEST_WORK_ORDER_ID_REPORT --env MNT_UITEST_WORK_ORDER_ID_REPORT_SUCCESS --env MNT_UITEST_WORK_ORDER_ID_ADMIN_APPROVE --env MNT_UITEST_WORK_ORDER_ID_ADMIN_REJECT --env MNT_UITEST_WORK_ORDER_ID_CAMERA --env MNT_UITEST_MESSENGER_THREAD_ID --env MNT_UITEST_MESSENGER_INITIAL_MESSAGE_ID) || return 1
           }
@@ -411,7 +430,11 @@ jobs:
             fi
             return "$status"
           }
-          SHARD_MANIFEST=(preflight login-validation accessibility-id-parity critical-path messenger camera-capture audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5); VERIFY_ARGS=(); TEST_STATUS=0
+          read -r -a SHARD_MANIFEST <<< "$MNT_IOS_SHARD_BATCH"
+          ((${#SHARD_MANIFEST[@]} > 0))
+          printf '%s\n' "$MNT_IOS_BATCH_NAME" > "$ARTIFACTS/batch-name.txt"
+          printf '%s\n' "${SHARD_MANIFEST[@]}" > "$ARTIFACTS/shard-manifest.txt"
+          TEST_STATUS=0
           for shard_name in "${SHARD_MANIFEST[@]}"; do
             result="$RAW_RESULTS/$shard_name.xcresult"; summary="$ARTIFACTS/$shard_name-summary.json"; tests="$ARTIFACTS/$shard_name-tests.json"
             timing_start "test:$shard_name"
@@ -448,7 +471,6 @@ jobs:
             run_xcode_with_timeout "$shard_name" "$result" "$SHARD_TIMEOUT_SECONDS" "${SHARD_SELECTORS[@]}" || { shard_status=$?; TEST_STATUS=1; }
             xcrun xcresulttool get test-results summary --path "$result" --format json > "$summary" || { (( shard_status == 0 )) && shard_status=1; TEST_STATUS=1; }
             xcrun xcresulttool get test-results tests --path "$result" --format json > "$tests" || { (( shard_status == 0 )) && shard_status=1; TEST_STATUS=1; }
-            VERIFY_ARGS+=(--summary "$summary" --tests "$tests")
             if (( shard_status == 0 )); then
               timing_finish passed
             elif (( shard_status == 124 )); then
@@ -457,10 +479,6 @@ jobs:
               timing_finish failed
             fi
           done
-          timing_start structured-result-verification
-          verification_status=passed
-          "$MNT_IOS_NODE_BIN" "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests" || { TEST_STATUS=1; verification_status=failed; }
-          timing_finish "$verification_status"
           timing_start runtime-cleanup
           cleanup_status=passed
           if ! clean_runtime; then
@@ -480,7 +498,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"; UPLOAD_DIR="$D/artifacts"; RAW_RESULTS="$D/raw-xcresults"; SECRETS_FILE="$D/auth/artifact-secret-values"
+          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MNT_IOS_BATCH_NAME}}"; UPLOAD_DIR="$D/artifacts"; RAW_RESULTS="$D/raw-xcresults"; SECRETS_FILE="$D/auth/artifact-secret-values"; SESSION_MINTED_MARKER="$D/auth/session-material-minted"
           [[ -d "$UPLOAD_DIR" ]] || exit 0
           # xctestrun receives renewable session material. xcresult bundles can
           # retain that runner environment in compressed diagnostics, so they
@@ -495,7 +513,7 @@ jobs:
             exit 1
           fi
           [[ -d "$RAW_RESULTS" ]] || { echo 'missing private raw xcresult directory' >&2; exit 1; }
-          if find "$UPLOAD_DIR" -mindepth 1 -print -quit | grep -q .; then
+          if [[ -e "$SESSION_MINTED_MARKER" ]]; then
             [[ -s "$SECRETS_FILE" ]] || { echo 'artifacts exist without the owned raw-session scan source' >&2; exit 1; }
             while IFS= read -r secret_value; do
               [[ -n "$secret_value" ]] || continue
@@ -504,19 +522,22 @@ jobs:
                 exit 1
               fi
             done < "$SECRETS_FILE"
+          elif [[ -s "$SECRETS_FILE" ]]; then
+            echo 'raw-session scan source exists without its session-minted marker' >&2
+            exit 1
           fi
       - name: Upload test results
         if: always() && steps.artifact-scan.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         # Reconstruct the exact owned path so artifact ownership remains visible
         # and independently checkable at this security boundary.
-        with: {name: ios-ui-test-results, path: "${{ runner.temp }}/ios-ui-${{ github.run_id }}-${{ github.run_attempt }}/artifacts", if-no-files-found: warn, retention-days: 7}
+        with: {name: "ios-ui-test-results-${{ matrix.batch }}", path: "${{ runner.temp }}/ios-ui-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.batch }}/artifacts", if-no-files-found: error, retention-days: 7}
       - name: Always prove cleanup of exact owned resources
         if: always()
         shell: bash
         run: |
           set -u
-          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"; STATE="$D/state"; failed=0
+          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MNT_IOS_BATCH_NAME}}"; STATE="$D/state"; failed=0
           if [[ -s "$STATE" ]]; then
             # shellcheck source=/dev/null
             . "$STATE"
@@ -529,3 +550,66 @@ jobs:
           rm -rf "$D"
           [[ ! -e "$D" ]] || failed=1
           exit "$failed"
+
+  ios-ui-results:
+    name: iOS — aggregate structured results
+    needs: ios-ui-tests
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install pinned Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with: {node-version: "24.16.0"}
+      - name: Download uniquely named batch artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ios-ui-test-results-*
+          path: ${{ runner.temp }}/ios-ui-results
+      - name: Verify complete structured result union
+        if: always()
+        shell: bash
+        env:
+          WORKER_RESULT: ${{ needs.ios-ui-tests.result }}
+          RESULTS_ROOT: ${{ runner.temp }}/ios-ui-results
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard audit-adaptive)
+          EXPECTED_SHARDS=(preflight login-validation accessibility-id-parity critical-path messenger camera-capture audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5)
+          for batch_name in "${EXPECTED_BATCHES[@]}"; do
+            batch_dir="$RESULTS_ROOT/ios-ui-test-results-$batch_name"
+            test -d "$batch_dir"
+            test "$(cat "$batch_dir/batch-name.txt")" = "$batch_name"
+            case "$batch_name" in
+              core) expected_manifest='preflight login-validation accessibility-id-parity' ;;
+              critical) expected_manifest='critical-path camera-capture' ;;
+              messenger-dynamic) expected_manifest='messenger audit-dynamic-today audit-dynamic-detail' ;;
+              audit-standard) expected_manifest='audit-dynamic-messenger audit-dynamic-login accessibility-standard' ;;
+              audit-adaptive) expected_manifest='accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5' ;;
+              *) exit 1 ;;
+            esac
+            test "$(paste -sd' ' "$batch_dir/shard-manifest.txt")" = "$expected_manifest"
+          done
+          test "$(find "$RESULTS_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'ios-ui-test-results-*' | wc -l | tr -d ' ')" = 5
+          test "$(find "$RESULTS_ROOT" -type f -name '*-summary.json' | wc -l | tr -d ' ')" = 15
+          test "$(find "$RESULTS_ROOT" -type f -name '*-tests.json' | wc -l | tr -d ' ')" = 15
+          VERIFY_ARGS=()
+          for shard_name in "${EXPECTED_SHARDS[@]}"; do
+            mapfile -t summaries < <(find "$RESULTS_ROOT" -type f -name "$shard_name-summary.json" -print)
+            mapfile -t tests < <(find "$RESULTS_ROOT" -type f -name "$shard_name-tests.json" -print)
+            ((${#summaries[@]} == 1))
+            ((${#tests[@]} == 1))
+            VERIFY_ARGS+=(--summary "${summaries[0]}" --tests "${tests[0]}")
+          done
+          node scripts/verify-xcresult-test-results.mjs "${VERIFY_ARGS[@]}" --swift-tests ios/UITests
+          if [[ "$WORKER_RESULT" != success ]]; then
+            echo "::error title=iOS UI worker failure::one or more isolated shard batches failed" >&2
+            exit 1
+          fi

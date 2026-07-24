@@ -6,9 +6,45 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-function iosJob(workflow) {
-  const match = workflow.match(/^[ ]{2}ios-ui-tests:\s*$(.*?)(?=^[ ]{2}[A-Za-z0-9_-]+:\s*$|(?![\s\S]))/ms);
+function workflowJob(workflow, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = workflow.match(new RegExp(`^[ ]{2}${escaped}:\\s*$(.*?)(?=^[ ]{2}[A-Za-z0-9_-]+:\\s*$|(?![\\s\\S]))`, "ms"));
   return match?.[0] ?? "";
+}
+
+function iosJob(workflow) {
+  return workflowJob(workflow, "ios-ui-tests");
+}
+
+const expectedShardBudgets = new Map([
+  ["preflight", 90],
+  ["login-validation", 90],
+  ["accessibility-id-parity", 45],
+  ["critical-path", 360],
+  ["messenger", 210],
+  ["camera-capture", 90],
+  ["audit-dynamic-today", 150],
+  ["audit-dynamic-detail", 150],
+  ["audit-dynamic-messenger", 150],
+  ["audit-dynamic-login", 120],
+  ["accessibility-standard", 360],
+  ["accessibility-largest", 240],
+  ["accessibility-dark", 240],
+  ["dynamic-type-large", 150],
+  ["dynamic-type-ax5", 180],
+]);
+
+const expectedShardBatches = new Map([
+  ["core", ["preflight", "login-validation", "accessibility-id-parity"]],
+  ["critical", ["critical-path", "camera-capture"]],
+  ["messenger-dynamic", ["messenger", "audit-dynamic-today", "audit-dynamic-detail"]],
+  ["audit-standard", ["audit-dynamic-messenger", "audit-dynamic-login", "accessibility-standard"]],
+  ["audit-adaptive", ["accessibility-largest", "accessibility-dark", "dynamic-type-large", "dynamic-type-ax5"]],
+]);
+
+function matrixShardBatches(job) {
+  return new Map([...job.matchAll(/^[ ]{10}- batch:\s*([a-z0-9-]+)\s*\n[ ]{12}shards:\s*"([^"]+)"\s*$/gm)]
+    .map((match) => [match[1], match[2].trim().split(/\s+/)]));
 }
 
 function steps(job) {
@@ -38,43 +74,53 @@ function hasHostedUntrustedBoundary(job) {
     && !/\bruns-on:\s*\$\{\{/.test(job);
 }
 
+function hasExactShaBatchIsolation(job) {
+  return /actions\/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0/.test(job)
+    && /ref:\s*\$\{\{ github\.sha \}\}/.test(job)
+    && /fetch-depth:\s*1/.test(job)
+    && /persist-credentials:\s*false/.test(job)
+    && /test\s+"\$\(git rev-parse HEAD\)"\s*=\s*"\$GITHUB_SHA"/.test(job)
+    && /D="\$RUNNER_TEMP\/ios-ui-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}-\$\{MNT_IOS_BATCH_NAME\}"/.test(job)
+    && /MNT_IOS_JOB_ROOT=\$D/.test(job)
+    && /RAW_RESULTS="\$D\/raw-xcresults"/.test(job)
+    && /ARTIFACTS="\$D\/artifacts"/.test(job)
+    && /XCTESTRUN="\$\(find\s+"\$DERIVED\/Build\/Products"/.test(job)
+    && /simctl\s+create\s+"Maintenance CI \$\{MNT_IOS_BATCH_NAME\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}"/.test(job)
+    && /name:\s*"ios-ui-test-results-\$\{\{ matrix\.batch \}\}"/.test(job)
+    && /path:\s*"\$\{\{ runner\.temp \}\}\/ios-ui-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.batch \}\}\/artifacts"/.test(job);
+}
+
 function hasCompleteFailSlowRuntimeBudget(job) {
   const timeout = /timeout-minutes:\s*(\d+)\b/.exec(job);
-  const manifest = /SHARD_MANIFEST=\(([^)]*)\)/.exec(job);
-  if (timeout === null || manifest === null) return false;
+  const batches = matrixShardBatches(job);
+  if (timeout === null || batches.size !== expectedShardBatches.size) return false;
 
-  const timeoutMinutes = Number(timeout[1]);
-  const expectedBudgets = new Map([
-    ["preflight", 180],
-    ["login-validation", 90],
-    ["accessibility-id-parity", 45],
-    ["critical-path", 540],
-    ["messenger", 210],
-    ["camera-capture", 150],
-    ["audit-dynamic-today", 150],
-    ["audit-dynamic-detail", 150],
-    ["audit-dynamic-messenger", 150],
-    ["audit-dynamic-login", 120],
-    ["accessibility-standard", 360],
-    ["accessibility-largest", 240],
-    ["accessibility-dark", 240],
-    ["dynamic-type-large", 150],
-    ["dynamic-type-ax5", 180],
-  ]);
-  const declaredShards = manifest[1].trim().split(/\s+/).filter(Boolean);
-  if (declaredShards.length !== expectedBudgets.size
-      || declaredShards.some((name, index) => name !== [...expectedBudgets.keys()][index])) return false;
-  for (const [shard, seconds] of expectedBudgets) {
+  for (const [batch, expectedShards] of expectedShardBatches) {
+    const declared = batches.get(batch);
+    if (declared === undefined
+        || declared.length !== expectedShards.length
+        || declared.some((name, index) => name !== expectedShards[index])) return false;
+  }
+  const declaredShards = [...batches.values()].flat();
+  if (new Set(declaredShards).size !== expectedShardBudgets.size
+      || declaredShards.some((shard) => !expectedShardBudgets.has(shard))) return false;
+
+  for (const [shard, seconds] of expectedShardBudgets) {
     const escaped = shard.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const budget = new RegExp(`${escaped}\\)[\\s\\S]{0,220}SHARD_TIMEOUT_SECONDS=${seconds}\\b`);
     if (!budget.test(job)) return false;
   }
 
-  const testBudgetSeconds = [...expectedBudgets.values()].reduce((total, seconds) => total + seconds, 0);
-  const setupVerificationAndCleanupReserveSeconds = 30 * 60;
-  const minimumSeconds = testBudgetSeconds + setupVerificationAndCleanupReserveSeconds;
-
-  return timeoutMinutes * 60 >= minimumSeconds && timeoutMinutes <= 90;
+  const maximumBatchSeconds = Math.max(...[...batches.values()].map((shards) => (
+    shards.reduce((total, shard) => total + expectedShardBudgets.get(shard), 0)
+  )));
+  const setupAndCleanupReserveSeconds = 30 * 60;
+  return Number(timeout[1]) === 45
+    && maximumBatchSeconds === 810
+    && maximumBatchSeconds + setupAndCleanupReserveSeconds <= 45 * 60
+    && /strategy:\s*\n[ ]{6}fail-fast:\s*false\s*\n[ ]{6}max-parallel:\s*5\b/.test(job)
+    && /read\s+-r\s+-a\s+SHARD_MANIFEST\s+<<<\s+"\$MNT_IOS_SHARD_BATCH"/.test(job)
+    && /-parallel-testing-enabled\s+NO\b/.test(job);
 }
 
 function hasPipelineTimingTelemetry(job) {
@@ -84,7 +130,6 @@ function hasPipelineTimingTelemetry(job) {
     "rust-debug-build",
     "database-and-backend-bootstrap",
     "xcode-project-and-test-build",
-    "structured-result-verification",
     "runtime-cleanup",
   ];
   return /TIMINGS="\$ARTIFACTS\/pipeline-timings\.tsv";\s*ACTIVE_PHASE="\$ARTIFACTS\/active-phase\.txt"/.test(activeJob)
@@ -120,7 +165,7 @@ function hasPinnedToolchain(job, workflow) {
   const overriddenRunnerEnvironment = /(?:^|\n)[ \t]*(?:["'])?(?:RUNNER_TOOL_CACHE|RUNNER_ARCH)(?:["'])?[ \t]*:|[,{][ \t]*(?:["'])?(?:RUNNER_TOOL_CACHE|RUNNER_ARCH)(?:["'])?[ \t]*:/.test(workflow);
   const injectedStartupEnvironment = /(?:^|\n)[ \t]*(?:["'])?(?:BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|DYLD_FRAMEWORK_PATH|LD_PRELOAD)(?:["'])?[ \t]*:|[,{][ \t]*(?:["'])?(?:BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|DYLD_FRAMEWORK_PATH|LD_PRELOAD)(?:["'])?[ \t]*:/.test(workflow);
   const yamlEnvironmentSections = workflow.match(/^[ \t]*env:[^\n]*$/gm) ?? [];
-  const exactJobEnvironment = /^[ ]{4}env:\n[ ]{6}DEVELOPER_DIR: \/Applications\/Xcode_26\.6\.app\/Contents\/Developer\n(?=^[ ]{4}steps:)/m.test(job);
+  const exactJobEnvironment = /^[ ]{4}env:\n[ ]{6}DEVELOPER_DIR: \/Applications\/Xcode_26\.6\.app\/Contents\/Developer\n[ ]{6}MNT_IOS_BATCH_NAME: \$\{\{ matrix\.batch \}\}\n[ ]{6}MNT_IOS_SHARD_BATCH: \$\{\{ matrix\.shards \}\}\n(?=^[ ]{4}steps:)/m.test(job);
   const exactBackendEnvironment = /^[ ]{8}env: \{CARGO_INCREMENTAL: "0", CARGO_PROFILE_DEV_DEBUG: "0", SQLX_OFFLINE: "true"\}$/m.test(activeBackendStep);
   const backendShellEntries = activeBackendStep.match(/^[ ]{8}shell:[^\n]*$/gm) ?? [];
   const exactEnvironmentFileWrite = /printf '%s\\n' "MNT_IOS_JOB_ROOT=\$D" "CARGO_HOME=\$D\/cargo-home" "RUSTUP_HOME=\$D\/rustup-home" "CARGO_TARGET_DIR=\$D\/cargo-target" >> "\$GITHUB_ENV"/.test(activeJob);
@@ -131,7 +176,7 @@ function hasPinnedToolchain(job, workflow) {
     && !poisonedEnvironment
     && !overriddenRunnerEnvironment
     && !injectedStartupEnvironment
-    && yamlEnvironmentSections.length === 2
+    && yamlEnvironmentSections.length === 3
     && exactJobEnvironment
     && exactBackendEnvironment
     && backendShellEntries.length === 1
@@ -302,15 +347,14 @@ function hasValidLoopbackWebauthnPolicy(job, launcher) {
   const launch = matches[0]?.index ?? -1;
   const pidRead = activeJob.indexOf('BACKEND_PID="$(cat "$BACKEND_PID_FILE")"');
   const forbiddenLowLevelControls = /\b(?:E2E_AUTH_DIR|E2E_HTTP_ADDR|E2E_PORT_CONFLICT_MODE|E2E_COLDSTART_OTP|E2E_RP_ORIGIN|E2E_RP_ID)\b|e2e\/harness\/boot-backend\.sh/;
-  const approvedBackendStepSha256 = "038d3fff2cbbe28b710d0670f2ea3a978b7bdadbd2fb3aba25ac1ef1f598d041";
+  const approvedBackendStepSha256 = "a62f56f83d490244b1af995d29f1040f03363ceaaa0f63758a0aeb8e0145437f";
   const approvedLauncherSha256 = "a153fab32c9f4ca597605ec126d40e3bfc106c0ce17c368078e22c265ca9f1ad";
   const backendStepSha256 = createHash("sha256").update(backendStep).digest("hex");
   const launcherSha256 = createHash("sha256").update(launcher).digest("hex");
   const trustedNodeInvocations = activeJob.match(/"\$MNT_IOS_NODE_BIN"/g) ?? [];
   return matches.length === 1
     && (activeJob.match(/scripts\/boot-ios-ui-backend\.mjs/g) ?? []).length === 1
-    && trustedNodeInvocations.length === 7
-    && /"\$MNT_IOS_NODE_BIN"\s+"\$ROOT\/scripts\/verify-xcresult-test-results\.mjs"\s+"\$\{VERIFY_ARGS\[@\]\}"\s+--swift-tests\s+"\$ROOT\/ios\/UITests"/.test(activeJob)
+    && trustedNodeInvocations.length === 6
     && !/(?:^|[;&|(])[ \t]*node[ \t]+/m.test(activeJob)
     && !forbiddenLowLevelControls.test(activeJob)
     && db !== -1 && launch > db && pidRead > launch
@@ -346,15 +390,7 @@ function hasJobLocalPostgres(job) {
 function hasPerClassSessions(job) {
   const activeJob = stripInertShellData(job);
   const fixtures = ["f00004", "f00003", "f00005", "f00007", "f00008", "c10001", "c20001"];
-  const manifest = /SHARD_MANIFEST=\(([^)]*)\)/.exec(activeJob);
-  const expectedShards = [
-    "preflight", "login-validation", "accessibility-id-parity", "critical-path", "messenger", "camera-capture",
-    "audit-dynamic-today", "audit-dynamic-detail", "audit-dynamic-messenger", "audit-dynamic-login",
-    "accessibility-standard", "accessibility-largest", "accessibility-dark", "dynamic-type-large", "dynamic-type-ax5",
-  ];
-  const declaredShards = manifest?.[1].trim().split(/\s+/).filter(Boolean) ?? [];
-  return declaredShards.length === expectedShards.length
-    && declaredShards.every((shard, index) => shard === expectedShards[index])
+  return /read\s+-r\s+-a\s+SHARD_MANIFEST\s+<<<\s+"\$MNT_IOS_SHARD_BATCH"/.test(activeJob)
     && /secret\s*\(\)\s*\{\s*openssl\s+rand\s+-hex\s+\d+;\s*\}/.test(activeJob)
     && /mint_shard_session\s*\(\)\s*\{[\s\S]{0,240}local\s+fixture_profile="\$1"\s+otp\s+hash[\s\S]{0,400}unset\s+MNT_UITEST_ACCESS_TOKEN\s+MNT_UITEST_REFRESH_TOKEN[\s\S]{0,240}rm\s+-f\s+"\$AUTH_DIR\/otp\.json"\s+"\$AUTH_DIR\/tokens\.json"[\s\S]{0,240}otp="\$\(secret\)"\s+\|\|\s+return\s+1/.test(activeJob)
     && /echo\s+"::add-mask::\$otp"/.test(activeJob)
@@ -462,25 +498,14 @@ function hasMode600Xctestrun(job) {
 
 function hasExactFailSlowExecution(job) {
   const activeJob = job;
-  const expectedShards = [
-    "preflight", "login-validation", "accessibility-id-parity", "critical-path", "messenger", "camera-capture",
-    "audit-dynamic-today", "audit-dynamic-detail", "audit-dynamic-messenger", "audit-dynamic-login",
-    "accessibility-standard", "accessibility-largest", "accessibility-dark", "dynamic-type-large", "dynamic-type-ax5",
-  ];
-  const declaration = /SHARD_MANIFEST=\(([^)]*)\)/.exec(activeJob);
-  const declared = declaration?.[1].trim().split(/\s+/).filter(Boolean) ?? [];
-  if (declared.length !== expectedShards.length || declared.some((name, index) => name !== expectedShards[index])) return false;
-
-  const loop = /for\s+shard_name\s+in\s+"\$\{SHARD_MANIFEST\[@\]\}";\s*do([\s\S]*?)^[ \t]*done\s*\n[ \t]*timing_start\s+structured-result-verification/m.exec(activeJob);
+  const loop = /for\s+shard_name\s+in\s+"\$\{SHARD_MANIFEST\[@\]\}";\s*do([\s\S]*?)^[ \t]*done\s*\n[ \t]*timing_start\s+runtime-cleanup/m.exec(activeJob);
   if (!loop) return false;
   const body = loop[1];
   const loopEnd = (loop.index ?? -1) + loop[0].length;
   const resultDeclaration = /result="\$RAW_RESULTS\/\$shard_name\.xcresult";\s*summary="\$ARTIFACTS\/\$shard_name-summary\.json";\s*tests="\$ARTIFACTS\/\$shard_name-tests\.json"/.exec(body);
   const setupFailure = (name, text) => new RegExp(`if\\s+!\\s+${name}[\\s\\S]{0,520}${text}[\\s\\S]{0,280}TEST_STATUS=1[\\s\\S]{0,240}timing_finish\\s+setup-failed[\\s\\S]{0,120}continue`).test(body);
-  const verifier = /"\$MNT_IOS_NODE_BIN"\s+"\$ROOT\/scripts\/verify-xcresult-test-results\.mjs"\s+"\$\{VERIFY_ARGS\[@\]\}"\s+--swift-tests\s+"\$ROOT\/ios\/UITests"\s+\|\|\s+\{\s*TEST_STATUS=1;\s*verification_status=failed;\s*\}/.exec(activeJob);
   const finalCleanup = /if\s+!\s+clean_runtime;\s*then([\s\S]*?)^[ \t]*fi[\s\S]{0,1600}^[ \t]*trap\s+-\s+EXIT\s+INT\s+TERM/m.exec(activeJob);
   const finalExit = /exit\s+"\$TEST_STATUS"/.exec(activeJob);
-  const verifierIndex = verifier?.index ?? -1;
   const cleanupIndex = finalCleanup?.index ?? -1;
   const finalExitIndex = finalExit?.index ?? -1;
   const processGroupTerms = activeJob.match(/kill\s+-TERM\s+--\s+"-\$test_pid"/g) ?? [];
@@ -491,6 +516,10 @@ function hasExactFailSlowExecution(job) {
     && /kill\s+-KILL\s+--\s+"-\$test_pid"[\s\S]{0,260}for\s+_\s+in\s+\{1\.\.20\};\s*do\s+kill\s+-0\s+--\s+"-\$test_pid"[\s\S]{0,220}if\s+kill\s+-0\s+--\s+"-\$test_pid"[\s\S]{0,220}status=125/.test(activeJob);
 
   return resultDeclaration !== null
+    && /read\s+-r\s+-a\s+SHARD_MANIFEST\s+<<<\s+"\$MNT_IOS_SHARD_BATCH"/.test(activeJob)
+    && /\(\(\$\{#SHARD_MANIFEST\[@\]\}\s*>\s*0\)\)/.test(activeJob)
+    && /printf\s+'%s\\n'\s+"\$MNT_IOS_BATCH_NAME"\s+>\s+"\$ARTIFACTS\/batch-name\.txt"/.test(activeJob)
+    && /printf\s+'%s\\n'\s+"\$\{SHARD_MANIFEST\[@\]\}"\s+>\s+"\$ARTIFACTS\/shard-manifest\.txt"/.test(activeJob)
     && /for\s+shard_name\s+in\s+"\$\{SHARD_MANIFEST\[@\]\}";\s*do/.test(activeJob)
     && /if\s+!\s+configure_shard\s+"\$shard_name";\s*then[\s\S]{0,720}named shard manifest invalid[\s\S]{0,420}continue/.test(activeJob)
     && setupFailure('set_simulator_presentation\\s+"\\$SHARD_APPEARANCE"\\s+"\\$SHARD_CONTENT_SIZE"', "simulator presentation setup/readback failed")
@@ -500,24 +529,50 @@ function hasExactFailSlowExecution(job) {
     && /run_xcode_with_timeout\s+"\$shard_name"\s+"\$result"\s+"\$SHARD_TIMEOUT_SECONDS"\s+"\$\{SHARD_SELECTORS\[@\]\}"\s+\|\|\s+\{\s*shard_status=\$\?;\s*TEST_STATUS=1;\s*\}/.test(activeJob)
     && /xcresulttool\s+get\s+test-results\s+summary\s+--path\s+"\$result"[\s\S]{0,260}TEST_STATUS=1/.test(activeJob)
     && /xcresulttool\s+get\s+test-results\s+tests\s+--path\s+"\$result"[\s\S]{0,260}TEST_STATUS=1/.test(activeJob)
-    && /VERIFY_ARGS\+=\(\s*--summary\s+"\$summary"\s+--tests\s+"\$tests"\s*\)/.test(activeJob)
-    && verifierIndex > loopEnd
-    && cleanupIndex > verifierIndex
+    && !/\bVERIFY_ARGS\b/.test(activeJob)
+    && cleanupIndex >= loopEnd
     && /TEST_STATUS=1[\s\S]{0,160}cleanup_status=failed/.test(finalCleanup?.[1] ?? "")
     && finalExitIndex > cleanupIndex
-    && verifier !== null && /timing_start\s+structured-result-verification[\s\S]{0,760}verify-xcresult-test-results[\s\S]{0,760}timing_start\s+runtime-cleanup[\s\S]{0,760}clean_runtime[\s\S]{0,1200}exit\s+"\$TEST_STATUS"/.test(activeJob)
+    && /timing_start\s+runtime-cleanup[\s\S]{0,760}clean_runtime[\s\S]{0,1200}exit\s+"\$TEST_STATUS"/.test(activeJob)
     && /\.xcresult/.test(activeJob);
 }
 
-function hasStructuredResultVerification(job) {
-  return hasExactFailSlowExecution(job);
+function hasStructuredResultVerification(workerJob, aggregateJob) {
+  const activeAggregate = stripInertShellData(aggregateJob);
+  return /^  ios-ui-results:\s*\n    name:[^\n]+\n    needs:\s*ios-ui-tests\s*\n    if:\s*always\(\)\s*$/m.test(aggregateJob)
+    && /runs-on:\s*ubuntu-24\.04\b/.test(aggregateJob)
+    && /actions\/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0/.test(aggregateJob)
+    && /ref:\s*\$\{\{ github\.sha \}\}/.test(aggregateJob)
+    && /persist-credentials:\s*false/.test(aggregateJob)
+    && /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e/.test(aggregateJob)
+    && /node-version:\s*"24\.16\.0"/.test(aggregateJob)
+    && /actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/.test(aggregateJob)
+    && /pattern:\s*ios-ui-test-results-\*/.test(aggregateJob)
+    && !/merge-multiple:\s*true/.test(aggregateJob)
+    && /WORKER_RESULT:\s*\$\{\{ needs\.ios-ui-tests\.result \}\}/.test(aggregateJob)
+    && /test\s+"\$\(git rev-parse HEAD\)"\s*=\s*"\$GITHUB_SHA"/.test(activeAggregate)
+    && /EXPECTED_BATCHES=\(core critical messenger-dynamic audit-standard audit-adaptive\)/.test(activeAggregate)
+    && /EXPECTED_SHARDS=\(preflight login-validation accessibility-id-parity critical-path messenger camera-capture audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5\)/.test(activeAggregate)
+    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-mindepth\s+1\s+-maxdepth\s+1\s+-type\s+d\s+-name\s+'ios-ui-test-results-\*'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+5/.test(activeAggregate)
+    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-type\s+f\s+-name\s+'\*-summary\.json'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+15/.test(activeAggregate)
+    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-type\s+f\s+-name\s+'\*-tests\.json'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+15/.test(activeAggregate)
+    && /mapfile\s+-t\s+summaries[\s\S]{0,300}\(\(\$\{#summaries\[@\]\}\s*==\s*1\)\)/.test(activeAggregate)
+    && /mapfile\s+-t\s+tests[\s\S]{0,300}\(\(\$\{#tests\[@\]\}\s*==\s*1\)\)/.test(activeAggregate)
+    && /VERIFY_ARGS\+=\(\s*--summary\s+"\$\{summaries\[0\]\}"\s+--tests\s+"\$\{tests\[0\]\}"\s*\)/.test(activeAggregate)
+    && /node\s+scripts\/verify-xcresult-test-results\.mjs\s+"\$\{VERIFY_ARGS\[@\]\}"\s+--swift-tests\s+ios\/UITests/.test(activeAggregate)
+    && /if\s+\[\[\s+"\$WORKER_RESULT"\s+!=\s+success\s+\]\];\s*then[\s\S]{0,240}exit\s+1/.test(activeAggregate)
+    && /name:\s*"ios-ui-test-results-\$\{\{ matrix\.batch \}\}"/.test(workerJob)
+    && /if-no-files-found:\s*error/.test(workerJob);
 }
 
 function hasArtifactSecretScan(job) {
-  const scan = /name:\s*Scan result artifacts for raw session material[\s\S]{0,180}id:\s*artifact-scan[\s\S]{0,180}if:\s*always\(\)[\s\S]{0,2200}/.exec(job)?.[0] ?? "";
+  const scan = /name:\s*Scan result artifacts for raw session material[\s\S]{0,180}id:\s*artifact-scan[\s\S]{0,180}if:\s*always\(\)[\s\S]{0,2600}/.exec(job)?.[0] ?? "";
   return scan.length > 0
     && /RAW_RESULTS="\$D\/raw-xcresults"; ARTIFACTS="\$D\/artifacts"/.test(job)
+    && /install\s+-d\s+-m\s+700\s+"\$D"\s+"\$D\/auth"\s+"\$D\/raw-xcresults"\s+"\$D\/artifacts"/.test(job)
     && /install\s+-d\s+-m\s+700\s+"\$D"\s+"\$AUTH_DIR"\s+"\$PGDATA"\s+"\$RAW_RESULTS"\s+"\$ARTIFACTS"/.test(job)
+    && /SESSION_MINTED_MARKER="\$AUTH_DIR\/session-material-minted"/.test(job)
+    && /printf\s+'%s\\n'\s+"\$otp"\s+"\$MNT_UITEST_ACCESS_TOKEN"\s+"\$MNT_UITEST_REFRESH_TOKEN"\s+>>\s+"\$SECRETS_FILE"[\s\S]{0,180}>\s+"\$SESSION_MINTED_MARKER"/.test(job)
     && /result="\$RAW_RESULTS\/\$shard_name\.xcresult"/.test(job)
     && !/result="\$ARTIFACTS\/\$shard_name\.xcresult"/.test(job)
     && /\[\[\s+-d\s+"\$UPLOAD_DIR"\s+\]\]\s+\|\|\s+exit\s+0/.test(scan)
@@ -527,11 +582,12 @@ function hasArtifactSecretScan(job) {
     && /find\s+"\$UPLOAD_DIR"\s+-type\s+l\s+-print\s+-quit\s+\|\s+grep\s+-q\s+\./.test(scan)
     && /symlink entered upload tree/.test(scan)
     && /\[\[\s+-d\s+"\$RAW_RESULTS"\s+\]\]\s+\|\|\s+\{\s*echo\s+'missing private raw xcresult directory'/.test(scan)
-    && /if\s+find\s+"\$UPLOAD_DIR"\s+-mindepth\s+1\s+-print\s+-quit\s+\|\s+grep\s+-q\s+\.\s*;\s*then/.test(scan)
+    && /if\s+\[\[\s+-e\s+"\$SESSION_MINTED_MARKER"\s+\]\];\s*then/.test(scan)
     && /\[\[\s+-s\s+"\$SECRETS_FILE"\s+\]\]\s+\|\|\s+\{\s*echo\s+'artifacts exist without the owned raw-session scan source'/.test(scan)
     && /\[\[\s+-n\s+"\$secret_value"\s+\]\]\s+\|\|\s+continue/.test(scan)
     && /grep\s+-R\s+-a\s+-F\s+-q\s+--\s+"\$secret_value"\s+"\$UPLOAD_DIR"/.test(scan)
-    && /test artifact contains raw session material/.test(scan);
+    && /test artifact contains raw session material/.test(scan)
+    && /elif\s+\[\[\s+-s\s+"\$SECRETS_FILE"\s+\]\];\s*then[\s\S]{0,180}raw-session scan source exists without its session-minted marker/.test(scan);
 }
 
 function hasOwnedCleanup(job) {
@@ -539,7 +595,11 @@ function hasOwnedCleanup(job) {
   const upload = job.search(/name:\s*Upload test results[\s\S]{0,300}if:\s*always\(\)\s*&&\s*steps\.artifact-scan\.outcome\s*==\s*'success'[\s\S]{0,300}uses:\s*actions\/upload-artifact@/);
   const cleanup = job.search(/name:\s*Always prove cleanup of exact owned resources[\s\S]*if:\s*always\(\)/);
   return scan !== -1 && upload > scan && cleanup > upload
-    && /path:\s*"\$\{\{ runner\.temp \}\}\/ios-ui-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\/artifacts"/.test(job)
+    && /path:\s*"\$\{\{ runner\.temp \}\}\/ios-ui-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.batch \}\}\/artifacts"/.test(job)
+    && /D="\$RUNNER_TEMP\/ios-ui-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}-\$\{MNT_IOS_BATCH_NAME\}"/.test(job)
+    && /simctl\s+create\s+"Maintenance CI \$\{MNT_IOS_BATCH_NAME\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}"/.test(job)
+    && /name:\s*"ios-ui-test-results-\$\{\{ matrix\.batch \}\}"/.test(job)
+    && /if-no-files-found:\s*error/.test(job)
     && !/\$\{\{ env\.MNT_IOS_JOB_ROOT \}\}/.test(job.replace(/#.*$/gm, ""))
     && /BACKEND_COMMAND_FILE/.test(job)
     && /ps\s+-p\s+"\$BACKEND_PID"\s+-o\s+command=\s+>\s+"\$BACKEND_COMMAND_FILE"/.test(job)
@@ -1334,12 +1394,15 @@ function hasDurableCriticalPathEvidence(files) {
 export function evaluateIosUiTestFailClosedChecks(files) {
   const workflow = files[".github/workflows/ios-ui-tests.yml"] ?? "";
   const job = iosJob(workflow);
+  const aggregateJob = workflowJob(workflow, "ios-ui-results");
   const failures = [];
   const checks = [];
   if (!job) return { failures: ["ios-ui-tests workflow must define an ios-ui-tests job"], passes: [] };
 
   checks.push([hasHostedUntrustedBoundary(job), "iOS UI CI must isolate untrusted PR code on fixed GitHub-hosted macos-26, never a reusable self-hosted runner"]);
-  checks.push([hasCompleteFailSlowRuntimeBudget(job), "iOS UI CI must use measured per-named-shard budgets plus 30 minutes for setup, verification, and cleanup without exceeding 90 minutes"]);
+  checks.push([hasExactShaBatchIsolation(job), "each iOS UI matrix worker must check out the exact candidate SHA and own batch-unique job-root, PostgreSQL/backend ports, Simulator, xctestrun, raw xcresults, structured JSON, and artifact paths"]);
+  checks.push([hasCompleteFailSlowRuntimeBudget(job), "iOS UI CI must use five bounded isolated shard batches, original per-shard watchdogs, and a 45-minute ceiling derived from the 810-second maximum batch plus a 30-minute setup and cleanup reserve"]);
+  checks.push([aggregateJob.length > 0, "iOS UI CI must define an always-running fail-closed ios-ui-results aggregate job"]);
   checks.push([hasPinnedToolchain(job, workflow), "iOS UI CI must pin Xcode 26.6 build 17F113, Apple Swift 6.3.3, and iOS 26.5, bind Node 24.16.0 directly from the setup-node toolcache, and keep all Rust paths under its job root"]);
   checks.push([hasStrictSwift6LanguageMode(files), "iOS app, seeder, and UI-test targets must all compile in strict Swift 6 language mode without a Swift 5 compatibility override"]);
   checks.push([! /\bsecrets\./.test(job) && /URL="http:\/\/127\.0\.0\.1:\$BP"/.test(job) && /MNT_UITEST_BASE_URL="\$URL"/.test(job), "iOS UI CI must not depend on GitHub secrets or an external backend session"]);
@@ -1375,8 +1438,8 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasContrastStableCapsules(files), "iOS status, attachment, and read-progress capsules must use explicit primary foregrounds on contrast-stable adaptive backgrounds"]);
   checks.push([hasModernFullScreenLaunch(files), "iOS app and CI build must preserve a modern full-screen launch contract"]);
   checks.push([hasCiOnlyLocalAts(files), "iOS UI CI must confine local ATS to CI-only job-root loopback configuration while production Info.plist remains unchanged"]);
-  checks.push([hasExactFailSlowExecution(job), "iOS UI CI must execute exactly fifteen independent named shards fail-slow, preserve every xcresult extraction failure, verify after the loop, and exit with aggregate status"]);
-  checks.push([hasStructuredResultVerification(job), "iOS UI CI must aggregate repeated structured xcresulttool summaries and tests through the reusable verifier"]);
+  checks.push([hasExactFailSlowExecution(job), "each iOS UI matrix worker must execute only its declared named-shard batch fail-slow, preserve every xcresult extraction failure, keep Xcode per-test parallelization disabled, and exit with worker status"]);
+  checks.push([hasStructuredResultVerification(job, aggregateJob), "iOS UI CI must aggregate exactly one structured summary and tests JSON for all fifteen shards from five uniquely named batch artifacts and fail when any worker, artifact, or shard is missing"]);
   checks.push([hasCameraAuthorizationReactivation(files), "iOS camera capture must refresh authorization when the app becomes active after returning from Settings"]);
   checks.push([hasDurableCriticalPathEvidence(files), "iOS UI tests must prove scoped mutations, backend readback after relaunch, camera dismissal, and UUID fixtures without local-state false greens"]);
   checks.push([hasArtifactSecretScan(job), "iOS UI CI must upload only scan-clean derived diagnostics, never raw xcresult bundles containing OTP, access, or refresh session material"]);

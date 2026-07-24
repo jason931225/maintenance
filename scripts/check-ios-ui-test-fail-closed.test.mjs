@@ -60,19 +60,44 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("runs-on: macos-26", "runs-on: ${{ vars.MNT_IOS_CI_RUNNER }}") }), "untrusted PR code");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("runs-on: macos-26", "runs-on: [self-hosted, macos]") }), "untrusted PR code");
   });
-  it("rejects unmeasured shard budgets or a job ceiling that is too short or too long", () => {
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 90", "timeout-minutes: 45") }), "measured per-named-shard budgets");
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 90", "timeout-minutes: 180") }), "exceeding 90 minutes");
+  it("rejects non-exact checkout or cross-batch resource and artifact collisions", () => {
+    const isolationGate = "batch-unique job-root";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("ref: ${{ github.sha }}", "ref: main") }), isolationGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      'D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MNT_IOS_BATCH_NAME}"',
+      'D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+    ) }), isolationGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '"Maintenance CI ${MNT_IOS_BATCH_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+      '"Maintenance CI ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+    ) }), isolationGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('name: "ios-ui-test-results-${{ matrix.batch }}"', "name: ios-ui-test-results") }), isolationGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '${{ github.run_attempt }}-${{ matrix.batch }}/artifacts',
+      '${{ github.run_attempt }}/artifacts',
+    ) }), isolationGate);
+  });
+  it("rejects watchdog inflation, incomplete batches, or unbounded matrix fanout", () => {
+    const matrixGate = "five bounded isolated shard batches";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 45", "timeout-minutes: 44") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 45", "timeout-minutes: 90") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("fail-fast: false", "fail-fast: true") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("max-parallel: 5", "max-parallel: 15") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      `critical-path)
+                SHARD_TIMEOUT_SECONDS=360`,
       `critical-path)
                 SHARD_TIMEOUT_SECONDS=540`,
-      `critical-path)
-                SHARD_TIMEOUT_SECONDS=900`,
-    ) }), "measured per-named-shard budgets");
+    ) }), matrixGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      "dynamic-type-ax5); VERIFY_ARGS=(); TEST_STATUS=0",
-      "dynamic-type-ax5 dynamic-type-ax5); VERIFY_ARGS=(); TEST_STATUS=0",
-    ) }), "measured per-named-shard budgets");
+      'shards: "critical-path camera-capture"',
+      'shards: "critical-path"',
+    ) }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      'shards: "critical-path camera-capture"',
+      'shards: "critical-path camera-capture preflight"',
+    ) }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("-parallel-testing-enabled NO", "-parallel-testing-enabled YES") }), matrixGate);
   });
   it("rejects toolchain and job-root drift", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("Build version 17F113", "Build version drift") }), "pin Xcode 26.6");
@@ -388,7 +413,7 @@ class FieldUITestCase: XCTestCase {
     ) }), "preserve the Xcode-created Simulator Runner");
   });
   it("rejects xctestrun, ATS, and fail-slow xcresult regression", () => {
-    const failSlow = "exactly fifteen independent named shards fail-slow";
+    const failSlow = "each iOS UI matrix worker";
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('chmod 600 "$XCTESTRUN"', "") }), "mode-0600");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('CI_PLIST="$D/Info.ci.plist"', 'CI_PLIST="$RUNNER_TEMP/Info.plist"') }), "CI-only job-root");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('run_xcode_with_timeout "$shard_name" "$result" "$SHARD_TIMEOUT_SECONDS" "${SHARD_SELECTORS[@]}" || { shard_status=$?; TEST_STATUS=1; }', 'run_xcode_with_timeout "$shard_name" "$result" "$SHARD_TIMEOUT_SECONDS" "${SHARD_SELECTORS[@]}"') }), failSlow);
@@ -402,15 +427,47 @@ class FieldUITestCase: XCTestCase {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(`timing_finish setup-failed
               continue`, `timing_finish setup-failed
               :`) }), failSlow);
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('VERIFY_ARGS+=(--summary "$summary" --tests "$tests")', "") }), failSlow);
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('"$MNT_IOS_NODE_BIN" "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests" || { TEST_STATUS=1; verification_status=failed; }', "true") }), failSlow);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('read -r -a SHARD_MANIFEST <<< "$MNT_IOS_SHARD_BATCH"', "SHARD_MANIFEST=(preflight)") }), failSlow);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('printf \'%s\\n\' "$MNT_IOS_BATCH_NAME" > "$ARTIFACTS/batch-name.txt"', "true") }), failSlow);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('if ! clean_runtime; then', 'if clean_runtime; then') }), failSlow);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('exit "$TEST_STATUS"', 'exit 0') }), failSlow);
+  });
+  it("rejects incomplete or fail-open cross-worker result aggregation", () => {
+    const aggregateGate = "exactly one structured summary and tests JSON";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("needs: ios-ui-tests", "needs: []") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      `ios-ui-results:
+    name: iOS — aggregate structured results
+    needs: ios-ui-tests
+    if: always()`,
+      `ios-ui-results:
+    name: iOS — aggregate structured results
+    needs: ios-ui-tests`,
+    ) }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("pattern: ios-ui-test-results-*", "pattern: ios-ui-test-results-core") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('name: "ios-ui-test-results-${{ matrix.batch }}"', "name: ios-ui-test-results") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("if-no-files-found: error", "if-no-files-found: warn") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      "EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard audit-adaptive)",
+      "EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard)",
+    ) }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      "EXPECTED_SHARDS=(preflight login-validation accessibility-id-parity",
+      "EXPECTED_SHARDS=(login-validation accessibility-id-parity",
+    ) }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("((${#summaries[@]} == 1))", "true") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('node scripts/verify-xcresult-test-results.mjs "${VERIFY_ARGS[@]}" --swift-tests ios/UITests', "true") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('if [[ "$WORKER_RESULT" != success ]]; then', "if false; then") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflowAll('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "true") }), aggregateGate);
   });
   it("rejects raw artifact session material and cleanup proof regression", () => {
     const artifactGate = "scan-clean derived diagnostics";
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(`id: artifact-scan
         if: always()`, "id: artifact-scan") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('install -d -m 700 "$D" "$D/auth" "$D/raw-xcresults" "$D/artifacts"', 'install -d -m 700 "$D"') }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(': > "$SESSION_MINTED_MARKER"', "true") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('if [[ -e "$SESSION_MINTED_MARKER" ]]; then', "if true; then") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("raw-session scan source exists without its session-minted marker", "unmarked raw-session source accepted") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("[[ -s \"$SECRETS_FILE\" ]] ||", "true ||") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflowAll("test artifact contains raw session material", "ignored") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('result="$RAW_RESULTS/$shard_name.xcresult"', 'result="$ARTIFACTS/$shard_name.xcresult"') }), artifactGate);
