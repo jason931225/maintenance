@@ -21,6 +21,7 @@ import {
   type ClosePreflight,
   type EmployeeAttendanceRecord,
   type MonthCloseBoard,
+  type MonthClose,
   type MonthCloseItem,
   type Page,
   type Substitution,
@@ -382,6 +383,7 @@ function AttendanceScreenBodyInner({
     (item) => item.status === "OPEN",
   ).length;
   const closeItems = closes.s === "ready" ? closes.data.items : [];
+  const closedMonth = amendClose?.close;
   const closedCount = closeItems.filter((item) => item.closed).length;
   const allClosed = closeItems.length > 0 && closedCount === closeItems.length;
   const week52Items = week52.s === "ready" ? week52.data.items : [];
@@ -996,10 +998,10 @@ function AttendanceScreenBodyInner({
         />
       )}
 
-      {amendClose?.close && (
-        <CloseAmendmentModal close={amendClose.close} busy={busy} onClose={() => { setAmendClose(undefined); }} onSubmit={(input) =>
+      {closedMonth && (
+        <CloseAmendmentModal close={closedMonth} busy={busy} onClose={() => { setAmendClose(undefined); }} onSubmit={(input) =>
           void mutate(async (signal, fence) => {
-            await transport.addCloseAmendment(amendClose.close!.id, input, signal);
+            await transport.addCloseAmendment(closedMonth.id, input, signal);
             if (!isFenceCurrent(fence)) return;
             setAmendClose(undefined);
             await refreshCloses(fence.month, fence.generation);
@@ -2321,7 +2323,7 @@ function RaiseExceptionModal({
           id={employeeIdId}
           value={employeeId}
           required
-          onChange={(event) => setEmployeeId(event.target.value)}
+          onChange={(event) => { setEmployeeId(event.target.value); }}
         />
       </label>
       <label className="attendance__field" htmlFor={kindId}>
@@ -2329,9 +2331,9 @@ function RaiseExceptionModal({
         <select
           id={kindId}
           value={kind}
-          onChange={(event) =>
-            setKind(event.target.value as AttendanceException["kind"])
-          }
+          onChange={(event) => {
+            setKind(event.target.value as AttendanceException["kind"]);
+          }}
         >
           {Object.entries(text.exceptions.kind).map(([value, label]) => (
             <option key={value} value={value}>
@@ -2347,7 +2349,7 @@ function RaiseExceptionModal({
           type="date"
           value={workDate}
           required
-          onChange={(event) => setWorkDate(event.target.value)}
+          onChange={(event) => { setWorkDate(event.target.value); }}
         />
       </label>
       <label className="attendance__field" htmlFor={detailId}>
@@ -2357,7 +2359,7 @@ function RaiseExceptionModal({
           value={detail}
           required
           maxLength={500}
-          onChange={(event) => setDetail(event.target.value)}
+          onChange={(event) => { setDetail(event.target.value); }}
         />
       </label>
       <label className="attendance__field" htmlFor={evidenceId}>
@@ -2365,7 +2367,7 @@ function RaiseExceptionModal({
         <textarea
           id={evidenceId}
           value={evidence}
-          onChange={(event) => setEvidence(event.target.value)}
+          onChange={(event) => { setEvidence(event.target.value); }}
           aria-describedby={`${evidenceId}-hint`}
         />
         <span id={`${evidenceId}-hint`} className="attendance__hint">
@@ -2446,7 +2448,7 @@ function CancelSubstitutionModal({
           value={reason}
           required
           maxLength={500}
-          onChange={(event) => setReason(event.target.value)}
+          onChange={(event) => { setReason(event.target.value); }}
         />
       </label>
       {fieldError && (
@@ -2482,7 +2484,7 @@ function CloseAmendmentModal({
   onClose,
   onSubmit,
 }: {
-  close: import("./attendanceApi").MonthClose;
+  close: MonthClose;
   busy: boolean;
   onClose: () => void;
   onSubmit: (input: CloseAmendmentInput) => void;
@@ -2531,7 +2533,7 @@ function CloseAmendmentModal({
           id={reasonId}
           value={reason}
           required
-          onChange={(event) => setReason(event.target.value)}
+          onChange={(event) => { setReason(event.target.value); }}
         />
       </label>
       <label className="attendance__field" htmlFor={detailId}>
@@ -2541,7 +2543,7 @@ function CloseAmendmentModal({
           value={detail}
           required
           maxLength={500}
-          onChange={(event) => setDetail(event.target.value)}
+          onChange={(event) => { setDetail(event.target.value); }}
         />
       </label>
       <label className="attendance__field" htmlFor={refId}>
@@ -2549,7 +2551,7 @@ function CloseAmendmentModal({
         <input
           id={refId}
           value={ref}
-          onChange={(event) => setRef(event.target.value)}
+          onChange={(event) => { setRef(event.target.value); }}
         />
       </label>
       {fieldError && (

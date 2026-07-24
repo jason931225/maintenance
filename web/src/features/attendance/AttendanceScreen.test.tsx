@@ -1257,7 +1257,7 @@ describe("AttendanceScreen", () => {
     await userEvent.click(
       within(dialog).getByRole("button", { name: "예외 등록" }),
     );
-    await waitFor(() =>
+    await waitFor(() => {
       expect(createException).toHaveBeenCalledWith(
         {
           kind: "LATE",
@@ -1267,11 +1267,11 @@ describe("AttendanceScreen", () => {
           evidence: [{ name: "출입기록" }, { name: "근태확인서" }],
         },
         expect.any(AbortSignal),
-      ),
-    );
-    await waitFor(() =>
-      expect(card.textContent).toContain("현장 확인으로 등록"),
-    );
+      );
+    });
+    await waitFor(() => {
+      expect(card.textContent).toContain("현장 확인으로 등록");
+    });
     expect(listCloses.mock.calls.length).toBeGreaterThan(1);
     view.unmount();
 
@@ -1305,11 +1305,11 @@ describe("AttendanceScreen", () => {
       screen.getByRole("dialog", { name: "근태 예외 등록" }),
     ).toBeVisible();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() =>
+    await waitFor(() => {
       expect(
         screen.queryByRole("dialog", { name: "근태 예외 등록" }),
-      ).toBeNull(),
-    );
+      ).toBeNull();
+    });
     failed.unmount();
   });
 
@@ -1344,18 +1344,18 @@ describe("AttendanceScreen", () => {
     await userEvent.click(
       within(dialog).getByRole("button", { name: "대근 취소" }),
     );
-    await waitFor(() =>
+    await waitFor(() => {
       expect(cancelSubstitution).toHaveBeenCalledWith(
         "sub-1",
         "현장 수요 해소",
         expect.any(AbortSignal),
-      ),
-    );
-    await waitFor(() =>
+      );
+    });
+    await waitFor(() => {
       expect(
         screen.queryByRole("dialog", { name: "대근 편성 취소" }),
-      ).toBeNull(),
-    );
+      ).toBeNull();
+    });
   });
 
   it("adds a close amendment with typed payload and omits action CTAs for read-only access", async () => {
@@ -1413,13 +1413,13 @@ describe("AttendanceScreen", () => {
       "AT-0723-01",
     );
     await userEvent.click(within(dialog).getByRole("button", { name: "저장" }));
-    await waitFor(() =>
+    await waitFor(() => {
       expect(addCloseAmendment).toHaveBeenCalledWith(
         "close-1",
         { reason: "확인 완료", detail: "승인된 기록 정정", ref: "AT-0723-01" },
         expect.any(AbortSignal),
-      ),
-    );
+      );
+    });
     // Isolate the read-only tree so a permitted control from the preceding scenario cannot satisfy the query.
     amendmentView.unmount();
 
