@@ -117,6 +117,7 @@ test('review receipts fail closed unless an independent reviewer custody-binds t
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, changedPaths: () => ['code.js'] }), /mutates/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentOf: () => OTHER }), /direct child/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentCount: (sha) => sha === LEAF ? 2 : 1 }), /single-parent/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentCount: (sha) => sha === REVIEW ? 2 : 1 }), /single-parent/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, changedPaths: (sha) => sha === LEAF ? ['shared/generated.rs'] : operations.changedPaths(sha) }), /private roots/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, isAncestor: () => false }), /anchored/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => '[GNUPG:] VALIDSIG 0000000000000000000000000000000000000000\n' }), /signature/);
