@@ -458,6 +458,11 @@ pub struct AppConfig {
     /// this is API-only and never falls back to `mnt_rt` in a configured
     /// deployment.
     pub ontology_command_database_url: Option<String>,
+    /// Dedicated least-privilege connection for destructive platform tenant
+    /// removal (`PLATFORM_FORCE_COMMAND_DATABASE_URL`). This API-only pool is
+    /// required whenever the runtime database is configured; it never falls
+    /// back to `mnt_rt`.
+    pub platform_force_command_database_url: Option<String>,
     pub otlp_endpoint: Option<String>,
     pub jwt: Option<JwtVerifierConfig>,
     pub auth_rest: Option<AuthRestConfig>,
@@ -663,6 +668,8 @@ impl AppConfig {
             ));
         }
         let ontology_command_database_url = non_empty(vars.get("ONTOLOGY_COMMAND_DATABASE_URL"));
+        let platform_force_command_database_url =
+            non_empty(vars.get("PLATFORM_FORCE_COMMAND_DATABASE_URL"));
         if role == AppRole::Api && database_url.is_some() && ontology_command_database_url.is_none()
         {
             return Err(AppError::Config(
@@ -671,6 +678,11 @@ impl AppConfig {
             ));
         }
         if role == AppRole::Api {
+            if database_url.is_some() && platform_force_command_database_url.is_none() {
+                return Err(AppError::Config(
+                    "PLATFORM_FORCE_COMMAND_DATABASE_URL is required for api role when DATABASE_URL is configured".to_owned(),
+                ));
+            }
             if database_url.is_some() && leave_command_database_url == database_url {
                 return Err(AppError::Config(
                     "LEAVE_COMMAND_DATABASE_URL must be distinct from DATABASE_URL".to_owned(),
@@ -689,11 +701,22 @@ impl AppConfig {
                         .to_owned(),
                 ));
             }
+            if let Some(force_url) = platform_force_command_database_url.as_deref() {
+                if Some(force_url) == database_url.as_deref()
+                    || Some(force_url) == leave_command_database_url.as_deref()
+                    || Some(force_url) == ontology_command_database_url.as_deref()
+                {
+                    return Err(AppError::Config(
+                        "PLATFORM_FORCE_COMMAND_DATABASE_URL must be distinct from every other database URL".to_owned(),
+                    ));
+                }
+            }
 
-            if let (Some(database_url), Some(leave_url), Some(ontology_url)) = (
+            if let (Some(database_url), Some(leave_url), Some(ontology_url), Some(force_url)) = (
                 database_url.as_deref(),
                 leave_command_database_url.as_deref(),
                 ontology_command_database_url.as_deref(),
+                platform_force_command_database_url.as_deref(),
             ) {
                 let runtime_password =
                     validate_database_url_identity("DATABASE_URL", database_url, "mnt_rt")?;
@@ -707,12 +730,21 @@ impl AppConfig {
                     ontology_url,
                     "mnt_ontology_cmd",
                 )?;
+                let platform_force_password = validate_database_url_identity(
+                    "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                    force_url,
+                    "mnt_platform_force_cmd",
+                )?;
                 ensure_distinct_database_credentials([
                     ("DATABASE_URL", Some(runtime_password.as_str())),
                     ("LEAVE_COMMAND_DATABASE_URL", Some(leave_password.as_str())),
                     (
                         "ONTOLOGY_COMMAND_DATABASE_URL",
                         Some(ontology_password.as_str()),
+                    ),
+                    (
+                        "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                        Some(platform_force_password.as_str()),
                     ),
                 ])?;
             }
@@ -748,12 +780,26 @@ impl AppConfig {
                     )
                 })
                 .transpose()?;
+            let platform_force_password = platform_force_command_database_url
+                .as_deref()
+                .map(|url| {
+                    validate_database_url_identity(
+                        "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                        url,
+                        "mnt_platform_force_cmd",
+                    )
+                })
+                .transpose()?;
             ensure_distinct_database_credentials([
                 ("DATABASE_URL", database_password.as_deref()),
                 ("LEAVE_COMMAND_DATABASE_URL", leave_password.as_deref()),
                 (
                     "ONTOLOGY_COMMAND_DATABASE_URL",
                     ontology_password.as_deref(),
+                ),
+                (
+                    "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                    platform_force_password.as_deref(),
                 ),
             ])?;
         }
@@ -869,6 +915,7 @@ impl AppConfig {
             database_url,
             leave_command_database_url,
             ontology_command_database_url,
+            platform_force_command_database_url,
             otlp_endpoint,
             jwt,
             auth_rest,
@@ -1298,6 +1345,9 @@ pub struct AppState {
     leave_command_database: DatabaseDependency,
     /// Narrow command pool for ontology schema mutations and canonical seeding.
     ontology_command_database: DatabaseDependency,
+    /// Dedicated command pool for platform tenant force removal. It is never
+    /// substituted with the tenant-scoped runtime pool.
+    platform_force_command_database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
     /// JWT issuer used ONLY by the PLATFORM view-as START path to mint
     /// short-lived read-only impersonation tokens. Built from the same ES256
@@ -1401,6 +1451,7 @@ impl AppState {
             database,
             leave_command_database: DatabaseDependency::NotConfigured,
             ontology_command_database: DatabaseDependency::NotConfigured,
+            platform_force_command_database: DatabaseDependency::NotConfigured,
             jwt_verifier,
             view_as_issuer,
             policy_step_up,
@@ -1426,6 +1477,12 @@ impl AppState {
     #[must_use]
     pub fn with_leave_command_database(mut self, pool: PgPool) -> Self {
         self.leave_command_database = DatabaseDependency::Postgres(pool);
+        self
+    }
+
+    #[must_use]
+    pub fn with_platform_force_command_database(mut self, pool: PgPool) -> Self {
+        self.platform_force_command_database = DatabaseDependency::Postgres(pool);
         self
     }
 
@@ -1493,10 +1550,26 @@ impl AppState {
             ),
             _ => DatabaseDependency::NotConfigured,
         };
+        let platform_force_command_database = match (
+            config.role,
+            config.database_url.as_ref(),
+            config.platform_force_command_database_url.as_deref(),
+        ) {
+            (AppRole::Api, Some(_), Some(url)) => DatabaseDependency::Postgres(
+                connect_command_pool(
+                    url,
+                    "mnt_platform_force_cmd",
+                    "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                )
+                .await?,
+            ),
+            _ => DatabaseDependency::NotConfigured,
+        };
 
         let mut state = Self::new(config.clone(), database)?;
         state.leave_command_database = leave_command_database;
         state.ontology_command_database = ontology_command_database;
+        state.platform_force_command_database = platform_force_command_database;
         if let (DatabaseDependency::Postgres(pool), Some(storage_config)) =
             (&state.database, config.storage.as_ref())
         {
@@ -2036,11 +2109,11 @@ async fn validate_migration_database_connection(
                WHERE (
                    granted.rolname IN (
                        'mnt_app', 'mnt_rt', 'mnt_leave_definer', 'mnt_leave_cmd',
-                       'mnt_ontology_writer', 'mnt_ontology_cmd'
+                       'mnt_ontology_writer', 'mnt_ontology_cmd', 'mnt_platform_force_cmd'
                    )
                    OR member.rolname IN (
                        'mnt_app', 'mnt_rt', 'mnt_leave_definer', 'mnt_leave_cmd',
-                       'mnt_ontology_writer', 'mnt_ontology_cmd'
+                       'mnt_ontology_writer', 'mnt_ontology_cmd', 'mnt_platform_force_cmd'
                    )
                )
                AND NOT (
@@ -2464,6 +2537,7 @@ struct ReadyBody<'a> {
     database: &'a str,
     leave_command_database: &'a str,
     ontology_command_database: &'a str,
+    platform_force_command_database: &'a str,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -3166,6 +3240,10 @@ pub fn build_router(state: AppState) -> Router {
                     PlatformProvisioner::new(state.config.coldstart_otp_ttl),
                 )
                 .with_view_as_issuer(state.view_as_issuer.clone())
+                .with_force_remove_command_pool(match &state.platform_force_command_database {
+                    DatabaseDependency::Postgres(pool) => Some(pool.clone()),
+                    DatabaseDependency::NotConfigured => None,
+                })
                 .with_tenant_config_seeder(platform_tenant_config_seeder),
             );
             // Everything EXCEPT the realtime WS upgrade: base health/openapi
@@ -3251,13 +3329,20 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
         readiness_dependency_status(&state.leave_command_database, "leave_command").await;
     let ontology_command_database =
         readiness_dependency_status(&state.ontology_command_database, "ontology_command").await;
+    let platform_force_command_database = readiness_dependency_status(
+        &state.platform_force_command_database,
+        "platform_force_command",
+    )
+    .await;
 
     let ready = database.healthy()
         && (!command_databases_required
             || (leave_command_database.configured
                 && leave_command_database.ready
                 && ontology_command_database.configured
-                && ontology_command_database.ready));
+                && ontology_command_database.ready
+                && platform_force_command_database.configured
+                && platform_force_command_database.ready));
     let status = if ready {
         StatusCode::OK
     } else {
@@ -3272,6 +3357,7 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
             database: database.label,
             leave_command_database: leave_command_database.label,
             ontology_command_database: ontology_command_database.label,
+            platform_force_command_database: platform_force_command_database.label,
         }),
     )
 }
@@ -4547,10 +4633,12 @@ mod readiness_tests {
     async fn api_readiness_fails_closed_when_either_command_pool_degrades(pool: PgPool) {
         let leave = separate_pool(&pool).await;
         let ontology = separate_pool(&pool).await;
+        let platform_force = separate_pool(&pool).await;
         let mut state =
             AppState::new(api_config(), DatabaseDependency::Postgres(pool)).expect("state builds");
         state.leave_command_database = DatabaseDependency::Postgres(leave.clone());
         state.ontology_command_database = DatabaseDependency::Postgres(ontology);
+        state.platform_force_command_database = DatabaseDependency::Postgres(platform_force);
 
         let healthy = readyz(State(state.clone())).await.into_response();
         assert_eq!(healthy.status(), StatusCode::OK);
@@ -5239,6 +5327,8 @@ mod command_database_config_tests {
     const LEAVE_COMMAND_URL: &str = "postgresql://mnt_leave_cmd:leave-secret@db/maintenance";
     const ONTOLOGY_COMMAND_URL: &str =
         "postgresql://mnt_ontology_cmd:ontology-secret@db/maintenance";
+    const PLATFORM_FORCE_COMMAND_URL: &str =
+        "postgresql://mnt_platform_force_cmd:platform-force-secret@db/maintenance";
 
     fn migration_memberships() -> Vec<RoleMembership> {
         ["mnt_leave_definer", "mnt_ontology_writer"]
@@ -5298,6 +5388,10 @@ mod command_database_config_tests {
             ("DATABASE_URL", RUNTIME_URL),
             ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
             ("ONTOLOGY_COMMAND_DATABASE_URL", ONTOLOGY_COMMAND_URL),
+            (
+                "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                PLATFORM_FORCE_COMMAND_URL,
+            ),
         ])
         .unwrap();
 
@@ -5309,6 +5403,10 @@ mod command_database_config_tests {
         assert_eq!(
             config.ontology_command_database_url.as_deref(),
             Some(ONTOLOGY_COMMAND_URL)
+        );
+        assert_eq!(
+            config.platform_force_command_database_url.as_deref(),
+            Some(PLATFORM_FORCE_COMMAND_URL)
         );
     }
 
@@ -5332,12 +5430,32 @@ mod command_database_config_tests {
 
     #[cfg(not(feature = "test-postgres"))]
     #[test]
+    fn api_with_database_requires_platform_force_command_database_url() {
+        let error = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", "api"),
+            ("DATABASE_URL", RUNTIME_URL),
+            ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+            ("ONTOLOGY_COMMAND_DATABASE_URL", ONTOLOGY_COMMAND_URL),
+        ])
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("PLATFORM_FORCE_COMMAND_DATABASE_URL is required for api role")
+        );
+    }
+
+    #[test]
     fn api_rejects_command_urls_equal_to_runtime_or_each_other() {
         let leave_equals_runtime = AppConfig::from_pairs([
             ("MNT_APP_ROLE", "api"),
             ("DATABASE_URL", RUNTIME_URL),
             ("LEAVE_COMMAND_DATABASE_URL", RUNTIME_URL),
             ("ONTOLOGY_COMMAND_DATABASE_URL", ONTOLOGY_COMMAND_URL),
+            (
+                "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                PLATFORM_FORCE_COMMAND_URL,
+            ),
         ])
         .unwrap_err();
         assert!(
@@ -5351,6 +5469,10 @@ mod command_database_config_tests {
             ("DATABASE_URL", RUNTIME_URL),
             ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
             ("ONTOLOGY_COMMAND_DATABASE_URL", RUNTIME_URL),
+            (
+                "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                PLATFORM_FORCE_COMMAND_URL,
+            ),
         ])
         .unwrap_err();
         assert!(
@@ -5364,6 +5486,10 @@ mod command_database_config_tests {
             ("DATABASE_URL", RUNTIME_URL),
             ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
             ("ONTOLOGY_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+            (
+                "PLATFORM_FORCE_COMMAND_DATABASE_URL",
+                PLATFORM_FORCE_COMMAND_URL,
+            ),
         ])
         .unwrap_err();
         assert!(shared_command_url.to_string().contains(

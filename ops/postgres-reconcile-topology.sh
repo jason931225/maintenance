@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reconcile the portable six-role application topology from a distinct cluster
+# Reconcile the portable seven-role application topology from a distinct cluster
 # administrator. Safe to run on fresh or existing databases before migrations.
 set -euo pipefail
 
@@ -13,6 +13,7 @@ set -euo pipefail
 : "${MNT_RT_POSTGRES_PASSWORD:?required}"
 : "${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:?required}"
 : "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:?required}"
+: "${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:?required}"
 : "${MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION:=0}"
 export POSTGRES_ADMIN_USER POSTGRES_ADMIN_PASSWORD
 
@@ -27,6 +28,7 @@ passwords=(
   "${MNT_RT_POSTGRES_PASSWORD}"
   "${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}"
   "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"
+  "${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"
 )
 for ((i = 0; i < ${#passwords[@]}; i++)); do
   for ((j = i + 1; j < ${#passwords[@]}; j++)); do
@@ -285,6 +287,7 @@ SET LOCAL log_min_error_statement = 'panic';
 \getenv runtime_password MNT_RT_POSTGRES_PASSWORD
 \getenv leave_password MNT_LEAVE_COMMAND_POSTGRES_PASSWORD
 \getenv ontology_password MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD
+\getenv platform_force_password MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD
 \getenv legacy_reassign MNT_LEGACY_REASSIGN_FROM_ADMIN
 
 SELECT format(
@@ -323,6 +326,15 @@ SELECT format(
   :'ontology_password'
 ) \gexec
 
+SELECT format(
+  'CREATE ROLE mnt_platform_force_cmd LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+  :'platform_force_password'
+) WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnt_platform_force_cmd') \gexec
+SELECT format(
+  'ALTER ROLE mnt_platform_force_cmd LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+  :'platform_force_password'
+) \gexec
+
 -- Bound every transaction capable of writing through a serving connection.
 -- Database-specific settings outrank global role defaults, so remove only the
 -- three managed keys from every database override and preserve all unrelated
@@ -336,25 +348,28 @@ ALTER ROLE mnt_leave_cmd SET transaction_timeout = '45s';
 ALTER ROLE mnt_ontology_cmd SET statement_timeout = '30s';
 ALTER ROLE mnt_ontology_cmd SET idle_in_transaction_session_timeout = '30s';
 ALTER ROLE mnt_ontology_cmd SET transaction_timeout = '45s';
+ALTER ROLE mnt_platform_force_cmd SET statement_timeout = '30s';
+ALTER ROLE mnt_platform_force_cmd SET idle_in_transaction_session_timeout = '30s';
+ALTER ROLE mnt_platform_force_cmd SET transaction_timeout = '45s';
 SELECT format('ALTER ROLE %I IN DATABASE %I RESET statement_timeout', role.rolname, database.datname)
 FROM pg_db_role_setting settings
 JOIN pg_roles role ON role.oid = settings.setrole
 JOIN pg_database database ON database.oid = settings.setdatabase
-WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
   AND EXISTS (SELECT 1 FROM unnest(settings.setconfig) setting WHERE setting LIKE 'statement_timeout=%')
 \gexec
 SELECT format('ALTER ROLE %I IN DATABASE %I RESET idle_in_transaction_session_timeout', role.rolname, database.datname)
 FROM pg_db_role_setting settings
 JOIN pg_roles role ON role.oid = settings.setrole
 JOIN pg_database database ON database.oid = settings.setdatabase
-WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
   AND EXISTS (SELECT 1 FROM unnest(settings.setconfig) setting WHERE setting LIKE 'idle_in_transaction_session_timeout=%')
 \gexec
 SELECT format('ALTER ROLE %I IN DATABASE %I RESET transaction_timeout', role.rolname, database.datname)
 FROM pg_db_role_setting settings
 JOIN pg_roles role ON role.oid = settings.setrole
 JOIN pg_database database ON database.oid = settings.setdatabase
-WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
   AND EXISTS (SELECT 1 FROM unnest(settings.setconfig) setting WHERE setting LIKE 'transaction_timeout=%')
 \gexec
 
@@ -519,11 +534,11 @@ FROM pg_auth_members membership
 JOIN pg_roles member ON member.oid = membership.member
 JOIN pg_roles granted ON granted.oid = membership.roleid
 WHERE member.rolname IN (
-        'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+        'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
         'mnt_leave_definer', 'mnt_ontology_writer'
       )
    OR granted.rolname IN (
-        'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+        'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
         'mnt_leave_definer', 'mnt_ontology_writer'
       )
 \gexec
@@ -548,12 +563,12 @@ BEGIN
     FROM pg_roles
     WHERE (rolname = 'mnt_app' AND (NOT rolcanlogin OR rolsuper OR NOT rolbypassrls OR NOT rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication))
        OR (rolname = 'mnt_rt' AND (NOT rolcanlogin OR rolsuper OR rolbypassrls OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication))
-       OR (rolname IN ('mnt_leave_cmd', 'mnt_ontology_cmd') AND (NOT rolcanlogin OR rolsuper OR rolbypassrls OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication))
+       OR (rolname IN ('mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd') AND (NOT rolcanlogin OR rolsuper OR rolbypassrls OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication))
        OR (rolname IN ('mnt_leave_definer', 'mnt_ontology_writer') AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication));
     IF bad_roles <> 0 OR (SELECT count(*) FROM pg_roles WHERE rolname IN (
-        'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+        'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
         'mnt_leave_definer', 'mnt_ontology_writer'
-    )) <> 6 THEN
+    )) <> 7 THEN
         RAISE EXCEPTION 'topology.role_readback_failed';
     END IF;
 
@@ -563,11 +578,11 @@ BEGIN
     JOIN pg_roles granted ON granted.oid = membership.roleid
     WHERE (
         member.rolname IN (
-          'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+          'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
           'mnt_leave_definer', 'mnt_ontology_writer'
         )
         OR granted.rolname IN (
-          'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+          'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
           'mnt_leave_definer', 'mnt_ontology_writer'
         )
       )
@@ -597,7 +612,7 @@ BEGIN
 
     SELECT count(*) INTO bad_runtime_defaults
     FROM (VALUES
-      ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd')
+      ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd'), ('mnt_platform_force_cmd')
     ) expected(role_name)
     WHERE NOT EXISTS (
       SELECT 1
@@ -616,7 +631,7 @@ BEGIN
       FROM pg_db_role_setting settings
       JOIN pg_roles role ON role.oid = settings.setrole
       CROSS JOIN LATERAL unnest(settings.setconfig) setting
-      WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+      WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
         AND settings.setdatabase <> 0
         AND split_part(setting, '=', 1) IN (
           'statement_timeout', 'idle_in_transaction_session_timeout', 'transaction_timeout'
@@ -670,5 +685,6 @@ verify_serving_login() {
 verify_serving_login mnt_rt "${MNT_RT_POSTGRES_PASSWORD}"
 verify_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}"
 verify_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"
+verify_serving_login mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"
 
-echo "topology: six application roles reconciled and verified" >&2
+echo "topology: seven application roles reconciled and verified" >&2

@@ -170,6 +170,9 @@ pub type TenantConfigSeeder = std::sync::Arc<
 #[derive(Clone)]
 pub struct PlatformRestState {
     pool: PgPool,
+    /// Destructive tenant removal is executed only through this isolated
+    /// capability pool; `pool` remains the general runtime/read path.
+    force_remove_command_pool: Option<PgPool>,
     jwt_verifier: Option<JwtVerifier>,
     /// Issuer used only by platform START paths that mint short-lived tenant
     /// context tokens (read-only view-as and writable tenant management).
@@ -190,11 +193,20 @@ impl PlatformRestState {
     ) -> Self {
         Self {
             pool,
+            force_remove_command_pool: None,
             jwt_verifier,
             view_as_issuer: None,
             provisioner,
             tenant_config_seeder: None,
         }
+    }
+
+    /// Install the dedicated database identity allowed to execute the destructive
+    /// platform force-removal function. `None` makes that endpoint fail closed.
+    #[must_use]
+    pub fn with_force_remove_command_pool(mut self, pool: Option<PgPool>) -> Self {
+        self.force_remove_command_pool = pool;
+        self
     }
 
     /// Install the engine-backed governed-config catalog seeder run for each newly
@@ -943,9 +955,16 @@ async fn delete_org(
     let actor = Some(principal.user_id);
     let now = OffsetDateTime::now_utc();
     let outcome = if query.delete_data {
+        let force_pool = state.force_remove_command_pool.as_ref().ok_or_else(|| {
+            PlatformError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "platform_force_command_unavailable",
+                "platform force-remove command capability is unavailable",
+            )
+        })?;
         state
             .provisioner
-            .force_remove_tenant(&state.pool, actor, id, now)
+            .force_remove_tenant(force_pool, actor, id, now)
             .await
     } else {
         state

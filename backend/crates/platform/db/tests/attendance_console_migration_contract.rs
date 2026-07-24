@@ -825,3 +825,159 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
     assert!(replacement.is_ok(), "cancelling an assignment releases that eligibility");
     tx.rollback().await.unwrap();
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn platform_force_removal_closes_direct_org_restrict_fks_and_uses_dedicated_capability(
+    pool: PgPool,
+) {
+    let function_body: String = sqlx::query_scalar(
+        "SELECT pg_get_functiondef('platform_force_remove_organization(uuid)'::regprocedure)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        function_body.contains("platform_force_remove_direct_org_children(p_id)"),
+        "force removal must invoke the schema-derived direct-org FK closure"
+    );
+
+    let unsupported_direct_org_fk_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) \
+         FROM pg_constraint fk \
+         JOIN pg_class child ON child.oid = fk.conrelid \
+         JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace \
+         JOIN pg_class parent ON parent.oid = fk.confrelid \
+         JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace \
+         LEFT JOIN pg_attribute child_attr \
+           ON child_attr.attrelid = child.oid AND child_attr.attnum = fk.conkey[1] \
+          AND NOT child_attr.attisdropped \
+         WHERE fk.contype = 'f' AND fk.confdeltype IN ('a', 'r') \
+           AND parent_ns.nspname = 'public' AND parent.relname = 'organizations' \
+           AND child_ns.nspname = 'public' \
+           AND (cardinality(fk.conkey) <> 1 OR child_attr.attname IS DISTINCT FROM 'org_id')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        unsupported_direct_org_fk_count, 0,
+        "every direct restrictive organization FK must be handled by the closure or explicitly reviewed"
+    );
+
+    let permissions = sqlx::query(
+        "SELECT has_function_privilege('mnt_rt', 'platform_force_remove_organization(uuid)', 'EXECUTE') AS runtime_can_execute, \
+                has_function_privilege('mnt_platform_force_cmd', 'platform_force_remove_organization(uuid)', 'EXECUTE') AS command_can_execute",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        !permissions.get::<bool, _>("runtime_can_execute"),
+        "general runtime credential must not execute force removal"
+    );
+    assert!(
+        permissions.get::<bool, _>("command_can_execute"),
+        "dedicated platform command credential must execute force removal"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn platform_force_removal_runtime_is_denied_and_command_role_can_remove_archived_org(
+    pool: PgPool,
+) {
+    let org = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO organizations (id, slug, name, status) VALUES ($1, $2, 'Force command contract', 'ARCHIVED')",
+    )
+    .bind(org)
+    .bind(format!("force-command-{}", &org.to_string()[..8]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut runtime = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_rt")
+        .execute(&mut *runtime)
+        .await
+        .unwrap();
+    let denied = sqlx::query_scalar::<_, String>("SELECT platform_force_remove_organization($1)")
+        .bind(org)
+        .fetch_one(&mut *runtime)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied
+            .as_database_error()
+            .and_then(|error| error.code().as_deref()),
+        Some("42501"),
+        "mnt_rt must receive PostgreSQL insufficient_privilege, not a handler-only denial"
+    );
+    runtime.rollback().await.unwrap();
+
+    let mut command = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_platform_force_cmd")
+        .execute(&mut *command)
+        .await
+        .unwrap();
+    let removed: String = sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+        .bind(org)
+        .fetch_one(&mut *command)
+        .await
+        .unwrap();
+    assert_eq!(removed, "removed");
+    command.commit().await.unwrap();
+
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        remaining, 0,
+        "authorized command path must delete archived tenant"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn platform_force_removal_deletes_post_0188_attendance_rows_before_employee_roots(pool: PgPool) {
+    let org = Uuid::new_v4();
+    let seeded = seed_org(&pool, org, "force-remove-attendance").await;
+    sqlx::query("UPDATE organizations SET status = 'ARCHIVED' WHERE id = $1")
+        .bind(org)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO attendance_exceptions \
+         (org_id, code, kind, employee_id, branch_id, work_date, detail, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'AT-FORCE-1', 'LATE', $2, $3, DATE '2026-07-01', 'force removal contract', $4, 'force-remove-attendance-0001', $5)",
+    )
+    .bind(org)
+    .bind(seeded.employee)
+    .bind(seeded.branch)
+    .bind(seeded.user)
+    .bind(FINGERPRINT)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut command = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_platform_force_cmd")
+        .execute(&mut *command)
+        .await
+        .unwrap();
+    let removed: String = sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+        .bind(org)
+        .fetch_one(&mut *command)
+        .await
+        .unwrap();
+    assert_eq!(removed, "removed");
+    command.commit().await.unwrap();
+
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions WHERE org_id = $1")
+        .bind(org)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+}

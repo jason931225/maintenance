@@ -1,7 +1,7 @@
 # Governed command database secrets component (DARK)
 
 This unreferenced Kustomize component stages External Secrets Operator (ESO)
-projections for the two PR 473 command identities. Nothing in the default
+projections for the three PR 473 command identities. Nothing in the default
 secrets-management wiring, the live maintenance base/prod render, or an Argo CD
 Application references it. Activation requires a separate reviewed
 non-production promotion that includes the matching
@@ -10,7 +10,7 @@ non-production promotion that includes the matching
 ## Provider-neutral Secret port
 
 The application and CloudNativePG consume Kubernetes Secrets, not a cloud SDK or
-secret-store API. Both target Secrets use this contract:
+secret-store API. All target Secrets use this contract:
 
 - type: `kubernetes.io/basic-auth`;
 - label: `cnpg.io/reload=true`; and
@@ -22,6 +22,7 @@ The checked-in adapter targets the `openbao-maintenance` `ClusterSecretStore`:
 |---|---|---|
 | `maintenance/db/leave-command` | `mnt-db-leave-command` | `mnt_leave_cmd` |
 | `maintenance/db/ontology-command` | `mnt-db-ontology-command` | `mnt_ontology_cmd` |
+| `maintenance/db/platform-force-command` | `mnt-db-platform-force-command` | `mnt_platform_force_cmd` |
 
 The `uri` value uses host `mnt-db-rw.maintenance.svc`, port `5432`, and database
 `maintenance`. Generate independent 32-byte hexadecimal passwords so the URI
@@ -38,14 +39,14 @@ Before a reviewed activation change references this component, prove:
 
 1. OpenBao is unsealed and healthy; its Kubernetes auth, audit log, Raft backup,
    restore, and named-custodian recovery procedures pass.
-2. Both KV entries contain exactly the required username, password, and URI
+2. All KV entries contain exactly the required username, password, and URI
    values, with no empty field and no unexpected username.
-3. `openbao-maintenance` is Ready and ESO projects both ExternalSecrets as
+3. `openbao-maintenance` is Ready and ESO projects all ExternalSecrets as
    `SecretSynced`.
 4. Each Kubernetes Secret has the required type, reload label, and three keys.
-5. CloudNativePG reconciles both managed login passwords before the API starts.
+5. CloudNativePG reconciles all managed login passwords before the API starts.
 6. The wave-1 topology gate proves six exact roles, two exact memberships,
-   database ownership, four distinct passwords, and four direct login identities.
+   database ownership, five distinct passwords, and five direct login identities.
 
 Inspect metadata and key names only. Never print decoded Secret values into logs,
 tickets, evidence bundles, or shell history.

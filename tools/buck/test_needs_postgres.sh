@@ -34,9 +34,10 @@ app_password="$(secret)"
 runtime_password="$(secret)"
 leave_command_password="$(secret)"
 ontology_command_password="$(secret)"
+platform_force_command_password="$(secret)"
 passwords=(
   "${admin_password}" "${app_password}" "${runtime_password}"
-  "${leave_command_password}" "${ontology_command_password}"
+  "${leave_command_password}" "${ontology_command_password}" "${platform_force_command_password}"
 )
 for ((i = 0; i < ${#passwords[@]}; i++)); do
   for ((j = i + 1; j < ${#passwords[@]}; j++)); do
@@ -79,6 +80,7 @@ docker exec \
   -e MNT_RT_POSTGRES_PASSWORD="${runtime_password}" \
   -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${leave_command_password}" \
   -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${ontology_command_password}" \
+  -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="${platform_force_command_password}" \
   "${container_name}" bash /topology.sh
 
 port_mapping="$(docker port "${container_name}" 5432/tcp)"

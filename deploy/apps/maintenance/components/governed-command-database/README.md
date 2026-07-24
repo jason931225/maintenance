@@ -1,6 +1,6 @@
 # Governed command database component (DARK)
 
-This opt-in Kustomize component stages the PR 473 six-role PostgreSQL topology
+This opt-in Kustomize component stages the PR 473 seven-role PostgreSQL topology
 without changing the live `base`, `prod` overlay, or Argo CD `Application`. No
 live Application references this directory. A merge, render, or test is not
 deployment authorization and does not prove migration, readiness, rollback, or
@@ -12,7 +12,8 @@ The application-facing port is stable across substrates:
 
 - `DATABASE_URL` authenticates as `mnt_rt`;
 - `LEAVE_COMMAND_DATABASE_URL` authenticates as `mnt_leave_cmd`; and
-- `ONTOLOGY_COMMAND_DATABASE_URL` authenticates as `mnt_ontology_cmd`.
+- `ONTOLOGY_COMMAND_DATABASE_URL` authenticates as `mnt_ontology_cmd`; and
+- `PLATFORM_FORCE_COMMAND_DATABASE_URL` authenticates as `mnt_platform_force_cmd`.
 
 Each Kubernetes Secret exposes the same `username`, `password`, and `uri` keys.
 The secret-store and infrastructure adapters vary by deployment context:
@@ -26,10 +27,10 @@ Self-host is the first activation target. OCI remains first-class and uses its
 native recovery and object-storage capabilities without leaking OCI-specific
 requirements into the workload Secret contract.
 
-## Six-role contract
+## Seven-role contract
 
 CloudNativePG's inaccessible `postgres` administrator is not an application
-role. The component reconciles these six application roles:
+role. The component reconciles these seven application roles:
 
 | Role | Login | RLS | Purpose and privileges |
 |---|---:|---|---|
@@ -37,6 +38,7 @@ role. The component reconciles these six application roles:
 | `mnt_rt` | yes | enforced | general API and worker DML; owns no tenant tables |
 | `mnt_leave_cmd` | yes | enforced | API-only `EXECUTE` on intrinsically audited leave command routines; no direct table DML |
 | `mnt_ontology_cmd` | yes | enforced | API-only `EXECUTE` on intrinsically audited ontology command routines; no direct table DML |
+| `mnt_platform_force_cmd` | yes | enforced | API-only `EXECUTE` on archived-tenant force removal; no direct table DML |
 | `mnt_leave_definer` | no | enforced | owns the leave command functions; cannot authenticate |
 | `mnt_ontology_writer` | no | enforced | owns the ontology command functions; cannot authenticate |
 
@@ -73,8 +75,9 @@ The component consumes these Secrets in namespace `maintenance`:
 | `mnt-db-rt` | `username`, `password`, `uri` | CloudNativePG, API, and worker |
 | `mnt-db-leave-command` | `username`, `password`, `uri` | CloudNativePG and API only |
 | `mnt-db-ontology-command` | `username`, `password`, `uri` | CloudNativePG and API only |
+| `mnt-db-platform-force-command` | `username`, `password`, `uri` | CloudNativePG and API only |
 
-All four passwords must be non-empty and pairwise distinct. Generate URI-safe
+All five passwords must be non-empty and pairwise distinct. Generate URI-safe
 passwords, such as 32-byte hexadecimal values. If another alphabet is used,
 percent-encode the password component in each PostgreSQL URI correctly. Each
 operator-managed database Secret must use type `kubernetes.io/basic-auth` and
@@ -91,7 +94,7 @@ The component converts the live PreSync migration into an ordered Sync sequence:
 
 | Wave | Resource | Required result |
 |---:|---|---|
-| 0 | `mnt-db` CloudNativePG Cluster | all six roles and password references reconcile |
+| 0 | `mnt-db` CloudNativePG Cluster | all seven roles and password references reconcile |
 | 1 | `mnt-db-topology` Sync hook | role attributes, ownership, memberships, pairwise credential separation, exact timeout defaults, repair-scoped old-session drain, and fresh direct login identities read back exactly |
 | 2 | `mnt-migrate` Sync hook | embedded migrations finish successfully with the migration-only owner |
 | 3 | `mnt-app` Rollout and `mnt-worker` Deployment | serving workloads start only after both database gates pass |
@@ -132,12 +135,12 @@ PostgreSQL is configured for 60 connections. The code caps every general runtime
 pool at 6 connections and each API command pool at 2. During a worst-case
 blue/green API rollout and worker rolling surge:
 
-- four API pods use `4 x (6 + 2 + 2) = 40` connections;
+- four API pods use `4 x (6 + 2 + 2 + 2) = 48` connections;
 - two worker pods use `2 x 6 = 12` connections; and
-- total serving demand is 52, leaving 8 connections for migration, topology,
+- total serving demand is 60, leaving no headroom for migration, topology,
   CNPG, and operator access.
 
-Treat 6/2/2 and the rollout replica/surge settings as one reviewed budget. Do
+Treat 6/2/2/2 and the rollout replica/surge settings as one reviewed budget. Do
 not raise a pool, replica count, or surge independently.
 
 ## Promotion procedure and evidence gates
@@ -149,7 +152,7 @@ steps in a non-production environment before any production proposal:
 2. Create a recovery bundle outside the cluster before reconciling credentials.
 3. Render the complete overlay and verify that the live `base`, live `prod`, and
    current Argo CD Application remain unchanged.
-4. Reconcile all four login credentials, then prove their Kubernetes Secret type,
+4. Reconcile all five login credentials, then prove their Kubernetes Secret type,
    key set, labels, non-empty values, and pairwise distinction without logging
    secret material.
 5. Sync the complete maintenance Application. Record every wave and retain the

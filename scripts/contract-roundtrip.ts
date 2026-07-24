@@ -177,6 +177,7 @@ async function provisionDatabaseTopology(
     mnt_rt: distinctPassword(),
     mnt_leave_cmd: distinctPassword(),
     mnt_ontology_cmd: distinctPassword(),
+    mnt_platform_force_cmd: distinctPassword(),
   } as const;
 
   // ALTER ROLE has no parameterized password protocol. Suppress statement and
@@ -219,7 +220,7 @@ async function provisionDatabaseTopology(
       );
     }
 
-    for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+    for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd", "mnt_platform_force_cmd"]) {
       const defaults = await client.query<{
         statement_ddl: string;
         idle_ddl: string;
@@ -267,11 +268,11 @@ async function provisionDatabaseTopology(
         JOIN pg_roles member ON member.oid=membership.member
         JOIN pg_roles granted ON granted.oid=membership.roleid
         WHERE member.rolname IN (
-                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                 'mnt_leave_definer','mnt_ontology_writer'
               )
            OR granted.rolname IN (
-                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                 'mnt_leave_definer','mnt_ontology_writer'
               )
       LOOP
@@ -299,7 +300,7 @@ async function provisionDatabaseTopology(
          ',' ORDER BY rolname)
        FROM pg_roles
        WHERE rolname IN (
-         'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+         'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
          'mnt_leave_definer','mnt_ontology_writer'
        )) AS roles,
       (SELECT string_agg(
@@ -310,11 +311,11 @@ async function provisionDatabaseTopology(
        JOIN pg_roles member ON member.oid=membership.member
        JOIN pg_roles granted ON granted.oid=membership.roleid
        WHERE member.rolname IN (
-               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                'mnt_leave_definer','mnt_ontology_writer'
              )
           OR granted.rolname IN (
-               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                'mnt_leave_definer','mnt_ontology_writer'
              )) AS memberships,
       current_setting('server_version_num')::integer >= 170000
@@ -322,7 +323,7 @@ async function provisionDatabaseTopology(
         AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts)
         AND NOT EXISTS (
           SELECT 1
-          FROM (VALUES ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd')) expected(role_name)
+          FROM (VALUES ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd'), ('mnt_platform_force_cmd')) expected(role_name)
           WHERE NOT EXISTS (
             SELECT 1
             FROM pg_db_role_setting settings
@@ -341,7 +342,7 @@ async function provisionDatabaseTopology(
           FROM pg_db_role_setting settings
           JOIN pg_roles role ON role.oid = settings.setrole
           CROSS JOIN LATERAL unnest(settings.setconfig) setting
-          WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+          WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
             AND settings.setdatabase <> 0
             AND split_part(setting, '=', 1) IN (
               'statement_timeout', 'idle_in_transaction_session_timeout', 'transaction_timeout'
@@ -350,7 +351,7 @@ async function provisionDatabaseTopology(
   `);
     if (
       topology.rows[0].roles !==
-        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_rt:true:false:false:false" ||
+        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_platform_force_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_rt:true:false:false:false" ||
       topology.rows[0].memberships !==
         "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true" ||
       !topology.rows[0].runtime_defaults_ok
@@ -368,7 +369,7 @@ async function provisionDatabaseTopology(
   const capturedBackends = await client.query<{ pid: number }>(
     `SELECT pid
        FROM pg_stat_activity
-      WHERE usename IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+      WHERE usename IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
         AND pid <> pg_backend_pid()
       ORDER BY pid`,
   );
@@ -402,6 +403,7 @@ async function provisionDatabaseTopology(
     runtimeDatabaseUrl: roleUrl("mnt_rt"),
     leaveCommandDatabaseUrl: roleUrl("mnt_leave_cmd"),
     ontologyCommandDatabaseUrl: roleUrl("mnt_ontology_cmd"),
+    platformForceCommandDatabaseUrl: roleUrl("mnt_platform_force_cmd"),
   };
   await assertDirectDatabaseLogin(topology.ownerDatabaseUrl, "mnt_app", true);
   await assertDirectDatabaseLogin(topology.runtimeDatabaseUrl, "mnt_rt", false);
@@ -413,6 +415,11 @@ async function provisionDatabaseTopology(
   await assertDirectDatabaseLogin(
     topology.ontologyCommandDatabaseUrl,
     "mnt_ontology_cmd",
+    false,
+  );
+  await assertDirectDatabaseLogin(
+    topology.platformForceCommandDatabaseUrl,
+    "mnt_platform_force_cmd",
     false,
   );
   return topology;

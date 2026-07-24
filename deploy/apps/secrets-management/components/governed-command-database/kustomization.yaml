@@ -5,3 +5,4 @@ kind: Component
 resources:
   - externalsecret-mnt-db-leave-command.yaml
   - externalsecret-mnt-db-ontology-command.yaml
+  - externalsecret-mnt-db-platform-force-command.yaml
