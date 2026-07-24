@@ -2,7 +2,7 @@
  "schema_version": "console-capability-registry-v1",
  "last_refreshed": "2026-07-23",
  "authority": "docs/program/console-enterprise-roadmap.md",
- "source_revision": "git@6c7de9307a568741d841bef036306468b39450d7",
+ "source_revision": "origin/main@8e42b9a2ea42c4d79ed498044a9f50f623299f7f",
  "dispatch_rule": "A row may enter in_progress only with one writer, an exact isolated worktree, disjoint ownership roots, a signature story, evidence paths, and executable leaf gates.",
  "hold_rule": "Unassigned worktrees, overlapping ownership, missing backend contracts, empty Buck2 target sets, stale reference digests, or missing jurisdiction and independent-review receipts fail closed.",
  "priority_formula": {

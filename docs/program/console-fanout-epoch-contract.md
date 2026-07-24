@@ -9,8 +9,11 @@ review, and serialization of shared faces.
 
 A receipt is bound to a full 40-character Git commit. The CLI reads the
 registry and generated-face authority **from that commit**, requires its caller
-worktree to be clean, rejects a `source_revision` whose immutable SHA does not
-match the anchor, and records SHA-256 authority digests. Missing, empty, or
+worktree to be clean, requires `source_revision` to be a resolvable
+`<ref>@<40-sha>` immutable provenance commit that is an ancestor of the anchor
+(and whose locally resolvable ref is not behind it), and records SHA-256
+authority digests. This avoids self-referential candidate-commit metadata while
+still binding the actual registry and generated-face blobs to the anchor. Missing, empty, or
 schema-incompatible generated-face authority fails closed.
 
 Every declared ownership root is a repository-relative literal or a literal
