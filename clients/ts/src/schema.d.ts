@@ -27385,19 +27385,17 @@ export interface operations {
                     "application/json": components["schemas"]["EvidenceVerifyReport"];
                 };
             };
-            /** @description Not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Object storage not configured — fixity cannot be checked. */
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Fixity storage is unavailable only when ErrorBody.error.code is evidence_store_unavailable (for example, storage is not configured). Generic auth or platform service failures also use HTTP 503 but retain the generic unavailable code and must remain retryable rather than being presented as an evidence-storage condition. */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
             };
         };
     };
