@@ -196,6 +196,44 @@ pub enum EvidenceCopyKind {
     Derivative,
 }
 
+/// Immutable evidentiary meaning of a stored evidence copy.
+///
+/// A WORM-sealed original is the only copy that can carry evidentiary weight.
+/// Derivatives remain explicitly non-evidentiary even when their own storage
+/// replica is WORM verified: they are useful renderings, not a substitute for
+/// the original record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EvidenceCopyEvidentiaryStatus {
+    VerifiedOriginal,
+    OriginalUnverified,
+    NonEvidentiaryDerivative,
+}
+
+impl EvidenceCopyEvidentiaryStatus {
+    /// # Errors
+    /// Returns `KernelError::validation` for unknown persisted values.
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value.trim() {
+            "VERIFIED_ORIGINAL" => Ok(Self::VerifiedOriginal),
+            "ORIGINAL_UNVERIFIED" => Ok(Self::OriginalUnverified),
+            "NON_EVIDENTIARY_DERIVATIVE" => Ok(Self::NonEvidentiaryDerivative),
+            _ => Err(KernelError::validation(
+                "unknown evidence copy evidentiary status",
+            )),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::VerifiedOriginal => "VERIFIED_ORIGINAL",
+            Self::OriginalUnverified => "ORIGINAL_UNVERIFIED",
+            Self::NonEvidentiaryDerivative => "NON_EVIDENTIARY_DERIVATIVE",
+        }
+    }
+}
+
 impl EvidenceCopyKind {
     /// # Errors
     /// Returns `KernelError::validation` when original/derivative shape rules are violated.
@@ -309,6 +347,20 @@ impl WormStorageStatus {
     #[must_use]
     pub const fn is_verified(self) -> bool {
         matches!(self, Self::Verified)
+    }
+}
+
+impl EvidenceCopyEvidentiaryStatus {
+    /// Returns the only permitted meaning for a copy's immutable kind and its
+    /// current WORM replication state. The database stores this same relation
+    /// as a generated column; adapters verify it when decoding persisted data.
+    #[must_use]
+    pub const fn expected(copy_kind: EvidenceCopyKind, worm_status: WormStorageStatus) -> Self {
+        match copy_kind {
+            EvidenceCopyKind::Derivative => Self::NonEvidentiaryDerivative,
+            EvidenceCopyKind::Original if worm_status.is_verified() => Self::VerifiedOriginal,
+            EvidenceCopyKind::Original => Self::OriginalUnverified,
+        }
     }
 }
 
@@ -779,6 +831,40 @@ mod tests {
     fn legal_hold_active_blocks_destructive_operations() {
         assert!(LegalHoldState::Active.blocks_destructive_operations());
         assert!(!LegalHoldState::Clear.blocks_destructive_operations());
+    }
+
+    #[test]
+    fn evidence_copy_evidentiary_status_has_no_derivative_equivalence() {
+        assert_eq!(
+            EvidenceCopyEvidentiaryStatus::parse("VERIFIED_ORIGINAL").unwrap(),
+            EvidenceCopyEvidentiaryStatus::VerifiedOriginal
+        );
+        assert_eq!(
+            EvidenceCopyEvidentiaryStatus::parse("NON_EVIDENTIARY_DERIVATIVE").unwrap(),
+            EvidenceCopyEvidentiaryStatus::NonEvidentiaryDerivative
+        );
+        assert_eq!(
+            EvidenceCopyEvidentiaryStatus::expected(
+                EvidenceCopyKind::Original,
+                WormStorageStatus::Verified,
+            ),
+            EvidenceCopyEvidentiaryStatus::VerifiedOriginal
+        );
+        assert_eq!(
+            EvidenceCopyEvidentiaryStatus::expected(
+                EvidenceCopyKind::Original,
+                WormStorageStatus::Pending,
+            ),
+            EvidenceCopyEvidentiaryStatus::OriginalUnverified
+        );
+        assert_eq!(
+            EvidenceCopyEvidentiaryStatus::expected(
+                EvidenceCopyKind::Derivative,
+                WormStorageStatus::Verified,
+            ),
+            EvidenceCopyEvidentiaryStatus::NonEvidentiaryDerivative
+        );
+        assert!(EvidenceCopyEvidentiaryStatus::parse("VERIFIED_DERIVATIVE").is_err());
     }
 
     #[test]

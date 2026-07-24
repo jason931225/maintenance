@@ -1248,7 +1248,7 @@ async fn fetch_copy_tx(
 ) -> Result<Option<EvidenceCopyView>, PgDocsError> {
     let row = sqlx::query(
         r#"
-        SELECT id, evidence_object_id, copy_kind, derivative_kind, parent_copy_id,
+        SELECT id, evidence_object_id, copy_kind, evidentiary_status, derivative_kind, parent_copy_id,
                storage_provider, storage_object_id, storage_key_ref, storage_version_id,
                source_evidence_media_id, digest_sha256, content_type, size_bytes,
                worm_status, verified_at, created_by, created_at
@@ -1267,7 +1267,7 @@ async fn fetch_copies_tx(
 ) -> Result<Vec<EvidenceCopyView>, PgDocsError> {
     let rows = sqlx::query(
         r#"
-        SELECT id, evidence_object_id, copy_kind, derivative_kind, parent_copy_id,
+        SELECT id, evidence_object_id, copy_kind, evidentiary_status, derivative_kind, parent_copy_id,
                storage_provider, storage_object_id, storage_key_ref, storage_version_id,
                source_evidence_media_id, digest_sha256, content_type, size_bytes,
                worm_status, verified_at, created_by, created_at
@@ -1449,13 +1449,22 @@ fn object_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceObjectView, Pg
 }
 
 fn copy_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceCopyView, PgDocsError> {
-    let copy_kind: String = row.try_get("copy_kind")?;
+    let copy_kind = EvidenceCopyKind::parse(&row.try_get::<String, _>("copy_kind")?)?;
+    let worm_status = WormStorageStatus::parse(&row.try_get::<String, _>("worm_status")?)?;
+    let evidentiary_status =
+        EvidenceCopyEvidentiaryStatus::parse(&row.try_get::<String, _>("evidentiary_status")?)?;
+    if evidentiary_status != EvidenceCopyEvidentiaryStatus::expected(copy_kind, worm_status) {
+        return Err(KernelError::internal(
+            "EV copy evidentiary status is inconsistent with kind/WORM state",
+        )
+        .into());
+    }
     let derivative_kind: Option<String> = row.try_get("derivative_kind")?;
-    let worm_status: String = row.try_get("worm_status")?;
     Ok(EvidenceCopyView {
         id: EvidenceCopyId::from_uuid(row.try_get("id")?),
         evidence_object_id: EvidenceObjectId::from_uuid(row.try_get("evidence_object_id")?),
-        copy_kind: EvidenceCopyKind::parse(&copy_kind)?,
+        copy_kind,
+        evidentiary_status,
         derivative_kind: derivative_kind
             .as_deref()
             .map(DerivativeKind::parse)
@@ -1475,7 +1484,7 @@ fn copy_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceCopyView, PgDocs
         digest_sha256: Sha256Digest::new(row.try_get::<String, _>("digest_sha256")?)?,
         content_type: row.try_get("content_type")?,
         size_bytes: row.try_get("size_bytes")?,
-        worm_status: WormStorageStatus::parse(&worm_status)?,
+        worm_status,
         verified_at: row.try_get("verified_at")?,
         created_by: UserId::from_uuid(row.try_get("created_by")?),
         created_at: row.try_get("created_at")?,

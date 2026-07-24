@@ -21,11 +21,12 @@ use std::sync::Arc;
 use mnt_docs_adapter_postgres::PgDocsStore;
 use mnt_docs_application::{
     ApplyLegalHoldCommand, CreateEvidenceObjectCommand, DisposeEvidenceObjectCommand,
-    ListEvidenceObjectsQuery, RegisterEvidenceCopyInput, ReleaseLegalHoldCommand,
+    ListEvidenceObjectsQuery, RegisterEvidenceCopyCommand, RegisterEvidenceCopyInput,
+    ReleaseLegalHoldCommand,
 };
 use mnt_docs_domain::{
-    EvidenceClassification, EvidenceCopyKind, EvidenceSourceRef, EvidenceSourceType,
-    EvidenceStorageRef, Sha256Digest, WormStorageStatus,
+    DerivativeKind, EvidenceClassification, EvidenceCopyEvidentiaryStatus, EvidenceCopyKind,
+    EvidenceSourceRef, EvidenceSourceType, EvidenceStorageRef, Sha256Digest, WormStorageStatus,
 };
 use mnt_docs_rest::{DocsRestState, FixityStatus, HoldError, VerifyOutcome};
 use mnt_governance_adapter_postgres::PgGovernanceStore;
@@ -432,4 +433,76 @@ async fn hold_blocks_disposal_and_release_requires_a_distinct_approver(owner_poo
     })
     .await
     .expect("disposal is unblocked after the hold is released");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn verified_original_and_derivative_are_explicitly_distinct(owner_pool: PgPool) {
+    let rt = rt_pool(&owner_pool).await;
+    seed_org_rls_off(&owner_pool, ORG_A, "A").await;
+    let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
+    let st = state(rt, StubWormStore::default());
+    let org = OrgId::from_uuid(ORG_A);
+    let original_digest = "ab".repeat(32);
+
+    let id = mnt_platform_request_context::scope_org(org, async {
+        register_object(
+            st.docs_store(),
+            actor,
+            &original_digest,
+            "worm/original",
+            "Sealed original",
+        )
+        .await
+    })
+    .await;
+
+    let original = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store()
+            .get_object(id)
+            .await
+            .expect("original detail query succeeds")
+            .expect("original exists")
+            .copies
+            .into_iter()
+            .next()
+            .expect("registered original exists")
+    })
+    .await;
+    assert_eq!(
+        original.evidentiary_status,
+        EvidenceCopyEvidentiaryStatus::VerifiedOriginal,
+        "only the WORM-verified original is evidentiary"
+    );
+
+    let derivative = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store()
+            .register_copy(RegisterEvidenceCopyCommand {
+                actor,
+                evidence_object_id: id,
+                copy: RegisterEvidenceCopyInput {
+                    copy_kind: EvidenceCopyKind::Derivative,
+                    derivative_kind: Some(DerivativeKind::Redacted),
+                    parent_copy_id: Some(original.id),
+                    storage: EvidenceStorageRef::new("seaweedfs-worm", "worm/redacted", None, None)
+                        .unwrap(),
+                    source_evidence_media_id: None,
+                    digest_sha256: Sha256Digest::new("cd".repeat(32)).unwrap(),
+                    content_type: "application/pdf".to_owned(),
+                    size_bytes: 23,
+                    worm_status: WormStorageStatus::Verified,
+                    verified_at: Some(now()),
+                },
+                trace: TraceContext::generate(),
+                occurred_at: now(),
+            })
+            .await
+            .expect("sealed derivative registration succeeds")
+    })
+    .await;
+
+    assert_eq!(
+        derivative.evidentiary_status,
+        EvidenceCopyEvidentiaryStatus::NonEvidentiaryDerivative,
+        "a sealed derivative must never be presented as the evidentiary original"
+    );
 }

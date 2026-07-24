@@ -5,8 +5,9 @@
 
 use mnt_docs_domain::{
     AdmissibilityReason, AdmissibilityStatus, CustodyStage, DerivativeKind, EvidenceClassification,
-    EvidenceCode, EvidenceCopyKind, EvidenceSourceRef, EvidenceStorageRef, LegalHoldState,
-    LegalHoldStatus, Sha256Digest, TsaProofStatus, WormStorageStatus,
+    EvidenceCode, EvidenceCopyEvidentiaryStatus, EvidenceCopyKind, EvidenceSourceRef,
+    EvidenceStorageRef, LegalHoldState, LegalHoldStatus, Sha256Digest, TsaProofStatus,
+    WormStorageStatus,
 };
 use mnt_kernel_core::{
     AuditAction, AuditEvent, EvidenceCopyId, EvidenceCustodyEventId, EvidenceExportId, EvidenceId,
@@ -52,6 +53,9 @@ pub struct EvidenceCopyView {
     pub id: EvidenceCopyId,
     pub evidence_object_id: EvidenceObjectId,
     pub copy_kind: EvidenceCopyKind,
+    /// Database-derived immutable meaning. A derivative is never evidence-equivalent
+    /// to the verified original, even when its own storage replica is sealed.
+    pub evidentiary_status: EvidenceCopyEvidentiaryStatus,
     pub derivative_kind: Option<DerivativeKind>,
     pub parent_copy_id: Option<EvidenceCopyId>,
     pub storage: EvidenceStorageRef,
