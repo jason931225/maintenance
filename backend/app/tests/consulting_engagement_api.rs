@@ -351,20 +351,57 @@ async fn consulting_engagement_story_is_tenant_scoped_idempotent_and_terminal(ow
     assert_eq!(history.status, StatusCode::OK, "{:?}", history.json);
     assert_eq!(history.json.as_array().unwrap().len(), 10);
 
-    let terminal_api_write = send(
-        service,
-        "POST",
-        &format!("/api/v1/consulting/engagements/{engagement_id}/diagnostics"),
-        Some(&requester_token),
-        Some(json!({"summary": "must remain immutable"})),
-    )
-    .await;
-    assert_eq!(
-        terminal_api_write.status,
-        StatusCode::CONFLICT,
-        "{:?}",
-        terminal_api_write.json
-    );
+    let terminal_api_writes = [
+        (
+            format!("/api/v1/consulting/engagements/{engagement_id}/diagnostics"),
+            json!({"summary": "must remain immutable"}),
+        ),
+        (
+            format!("/api/v1/consulting/engagements/{engagement_id}/findings"),
+            json!({
+                "diagnosticId": diagnostic_id,
+                "statement": "must remain immutable",
+                "evidenceId": fixture.evidence,
+                "documentId": fixture.document
+            }),
+        ),
+        (
+            format!("/api/v1/consulting/engagements/{engagement_id}/initiatives"),
+            json!({
+                "findingId": finding_id,
+                "title": "must remain immutable",
+                "hypothesis": "terminal records cannot gain initiatives",
+                "kpiDefinitionId": fixture.kpi,
+                "targetDirection": "DECREASE"
+            }),
+        ),
+        (
+            format!("/api/v1/consulting/engagements/{engagement_id}/observations"),
+            json!({
+                "initiativeId": initiative_id,
+                "kpiDefinitionId": fixture.kpi,
+                "evidenceId": fixture.evidence,
+                "observedAt": "2026-07-23T13:00:00Z",
+                "note": "must remain immutable"
+            }),
+        ),
+    ];
+    for (path, body) in terminal_api_writes {
+        let response = send(
+            service.clone(),
+            "POST",
+            &path,
+            Some(&requester_token),
+            Some(body),
+        )
+        .await;
+        assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.json);
+        assert_eq!(response.json["error"]["code"], "conflict");
+        assert_eq!(
+            response.json["error"]["message"],
+            "terminal consulting engagements are immutable"
+        );
+    }
 
     assert_terminal_runtime_writes_rejected(
         &runtime_pool,

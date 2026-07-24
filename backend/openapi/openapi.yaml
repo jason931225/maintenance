@@ -13571,7 +13571,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnosticCreateRequest' } } } }
-      responses: { '201': { description: Created diagnostic, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnostic' } } } } }
+      responses: { '201': { description: Created diagnostic, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnostic' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/v1/consulting/engagements/{engagement_id}/findings:
     post:
       tags: [consulting]
@@ -13579,7 +13579,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFindingCreateRequest' } } } }
-      responses: { '201': { description: Created evidence-linked finding, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFinding' } } } } }
+      responses: { '201': { description: Created evidence-linked finding, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFinding' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/v1/consulting/engagements/{engagement_id}/initiatives:
     post:
       tags: [consulting]
@@ -13587,7 +13587,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiativeCreateRequest' } } } }
-      responses: { '201': { description: Created KPI-referenced initiative, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiative' } } } } }
+      responses: { '201': { description: Created KPI-referenced initiative, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiative' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/v1/consulting/engagements/{engagement_id}/transition:
     post:
       tags: [consulting]
@@ -13603,7 +13603,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingObservationCreateRequest' } } } }
-      responses: { '201': { description: KPI/evidence lineage reference, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingBenefitObservation' } } } } }
+      responses: { '201': { description: KPI/evidence lineage reference, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingBenefitObservation' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/v1/consulting/engagements/{engagement_id}/history:
     get:
       tags: [consulting]
