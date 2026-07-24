@@ -28,6 +28,11 @@ const protectedJobs = [
   "generated-face-authority",
 ];
 
+function triggerPathEntries(workflow, trigger) {
+  const match = workflow.match(new RegExp(`^  ${trigger}:\\n([\\s\\S]*?)(?=^  [A-Za-z0-9_-]+:|^permissions:)`, "m"));
+  return match ? [...match[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]) : [];
+}
+
 function jobBlock(workflow, job) {
   const jobs = workflow.slice(workflow.indexOf("jobs:\n") + "jobs:\n".length);
   const match = jobs.match(new RegExp(`^  ${job}:\\n([\\s\\S]*?)(?=^  [A-Za-z0-9_-]+:|(?![\\s\\S]))`, "m"));
@@ -70,6 +75,12 @@ function requireDotSlashBefore(steps, command, job, failures) {
 
 export function evaluateCiPreflight(workflow) {
   const failures = [];
+  for (const trigger of ["push", "pull_request"]) {
+    if (!triggerPathEntries(workflow, trigger).includes("toolchains/**")) {
+      failures.push(`${trigger} must include toolchains/** in CI path filters`);
+    }
+  }
+
   const preflight = jobBlock(workflow, "preflight");
   if (!preflight) {
     failures.push("CI must define a preflight job before expensive jobs");
