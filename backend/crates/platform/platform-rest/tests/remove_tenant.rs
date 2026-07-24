@@ -337,13 +337,12 @@ async fn seed_real_data(owner_pool: &PgPool, org_id: Uuid) {
     tx.commit().await.unwrap();
 }
 
-/// Seed real operational data spanning SEVERAL tables for `org_id` (a member user,
-/// region, branch, customer, site, equipment, a work order, evidence, and an
-/// audit_events row carrying actor + branch refs). This is the data a FORCE
-/// removal must erase, and that exercises the deep RESTRICT FK chains
-/// (work_orders → equipment/customer/site, evidence → work_order, audit → actor +
-/// branch). Runs as the owner with RLS off so the WITH CHECK + org-immutability +
-/// CHECK constraints accept the inserts. Returns the work_order id.
+/// Seed real operational data spanning the operational, financial, and messenger
+/// domains for `org_id`. This is the data a FORCE removal must erase, and it
+/// exercises the deep RESTRICT FK chains (work_orders → equipment/customer/site,
+/// evidence → work_order, financial purchases → evidence, audit → actor + branch).
+/// Runs as the owner with RLS off so the WITH CHECK + org-immutability + CHECK
+/// constraints accept the inserts. Returns the work_order id.
 async fn seed_force_data(owner_pool: &PgPool, org_id: Uuid) -> Uuid {
     let mut tx = owner_pool.begin().await.unwrap();
     sqlx::query("SET LOCAL row_security = off")
@@ -443,18 +442,75 @@ async fn seed_force_data(owner_pool: &PgPool, org_id: Uuid) -> Uuid {
     .fetch_one(&mut *tx)
     .await
     .unwrap();
-    sqlx::query(
+    let evidence_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO evidence_media
             (org_id, uploaded_by, work_order_id, stage, s3_key, content_type, size_bytes,
              worm_replica_status, processing_status)
         VALUES ($1, $2, $3, 'AFTER', $4, 'image/jpeg', 100, 'PENDING', 'READY')
+        RETURNING id
         "#,
     )
     .bind(org_id)
     .bind(user_id)
     .bind(work_order_id)
     .bind(format!("k/{org_id}"))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO financial_rental_quotes
+            (branch_id, equipment_id, created_by, acquisition_value_won,
+             current_residual_value_won, effective_residual_value_won,
+             cumulative_repair_cost_won, depreciation_method, useful_life_months,
+             residual_rate_bps, declining_balance_rate_bps, management_fee_rate_bps,
+             profit_rate_bps, floor_negative_quote_residual, monthly_total_won,
+             created_at, org_id)
+        VALUES ($1, $2, $3, 1000, 100, 100, 0, 'STRAIGHT_LINE', 60,
+                1000, 1000, 1000, 1000, true, 500, now(), $4)
+        "#,
+    )
+    .bind(branch_id)
+    .bind(equipment_id)
+    .bind(user_id)
+    .bind(org_id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO financial_purchase_requests
+            (branch_id, equipment_id, work_order_id, statement_evidence_id,
+             vendor_name, amount_won, memo, status, requested_by,
+             depreciation_method, useful_life_months, residual_rate_bps,
+             declining_balance_rate_bps, management_fee_rate_bps, profit_rate_bps,
+             floor_negative_quote_residual, executive_threshold_won, created_at, org_id)
+        VALUES ($1, $2, $3, $4, 'Force Vendor', 1000, 'Force purchase',
+                'STATEMENT_ATTACHED', $5, 'STRAIGHT_LINE', 60, 1000, 1000,
+                1000, 1000, true, 10000, now(), $6)
+        "#,
+    )
+    .bind(branch_id)
+    .bind(equipment_id)
+    .bind(work_order_id)
+    .bind(evidence_id)
+    .bind(user_id)
+    .bind(org_id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO messenger_threads
+            (kind, visibility, branch_id, work_order_id, created_by, org_id)
+        VALUES ('work_order', 'direct', $1, $2, $3, $4)
+        "#,
+    )
+    .bind(branch_id)
+    .bind(work_order_id)
+    .bind(user_id)
+    .bind(org_id)
     .execute(&mut *tx)
     .await
     .unwrap();
