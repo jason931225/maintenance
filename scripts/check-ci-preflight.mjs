@@ -30,7 +30,8 @@ const protectedJobs = [
 
 function triggerPathEntries(workflow, trigger) {
   const match = workflow.match(new RegExp(`^  ${trigger}:\\n([\\s\\S]*?)(?=^  [A-Za-z0-9_-]+:|^permissions:)`, "m"));
-  return match ? [...match[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]) : [];
+  const paths = match?.[1].match(/^    paths:\n((?:      - "[^"]+"\n)+)/m);
+  return paths ? [...paths[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]) : [];
 }
 
 function jobBlock(workflow, job) {
