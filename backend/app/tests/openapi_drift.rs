@@ -746,7 +746,7 @@ fn bounded_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let end = source[after_start..]
         .find(end)
         .map(|offset| after_start + offset)
-        .unwrap_or(source.len());
+        .unwrap_or_else(|| panic!("missing end {end}"));
     &source[start..end]
 }
 
@@ -868,4 +868,10 @@ fn bounded_generated_sections_reject_later_operation_or_enum_text() {
         status.contains("RECEIVED") && !status.contains("DELAYED"),
         "later enum text must not satisfy target assertions"
     );
+}
+
+#[test]
+#[should_panic(expected = "missing end absent")]
+fn bounded_generated_sections_reject_missing_end_boundary() {
+    let _ = bounded_section("target only", "target", "absent");
 }
