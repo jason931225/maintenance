@@ -7,13 +7,13 @@ use std::collections::BTreeMap;
 
 use mnt_attendance_application::{
     self as app, AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence,
-    AttendanceExceptionRead, AttendanceObjectLink, AttendancePage, CallerScope, CancelSubstitution,
-    CloseAmendmentRead, CloseCheckRead, CloseChecks, CloseMonth, ClosePreflightRead,
-    ExceptionResolutionRead, ListExceptions, ListSubstitutions, MonthCloseRead, RaiseException,
-    ResolveException, Week52AcknowledgementRead, Week52Input, Week52Read,
+    AttendanceExceptionRead, AttendanceObjectLink, AttendancePage, AttendanceSubstitutionRead,
+    CallerScope, CancelSubstitution, CloseAmendmentRead, CloseCheckRead, CloseChecks, CloseMonth,
+    ClosePreflightRead, ExceptionResolutionRead, ListExceptions, ListSubstitutions, MonthCloseRead,
+    RaiseException, ResolveException, Week52AcknowledgementRead, Week52Read,
 };
 use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, HistoricalAbsence};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext};
 use mnt_platform_db::{DbError, issue_code, with_audits, with_org_conn};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -22,6 +22,33 @@ use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
 const CANCEL_SUBSTITUTION_SQL: &str = "UPDATE attendance_substitutions SET status='CANCELLED', cancel_reason=$1 WHERE id=$2 AND status='ASSIGNED'";
+const LIST_EXCEPTIONS_SQL: &str = "\
+    SELECT e.id,e.code,e.kind,e.status,e.employee_id,employee.name AS employee_name,\
+           employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,\
+           e.detail,e.evidence,e.links,e.created_at,r.action AS resolution_action,\
+           r.reason AS resolution_reason,r.linked_work_ref,r.ot_hours,r.actor_user_id,\
+           r.created_at AS resolved_at \
+    FROM attendance_exceptions e \
+    JOIN employees employee ON employee.id=e.employee_id AND employee.org_id=e.org_id \
+    LEFT JOIN attendance_exception_resolutions r \
+           ON r.exception_id=e.id AND r.org_id=e.org_id \
+    WHERE e.work_date >= $1 AND e.work_date < $2 \
+      AND ($3::uuid IS NULL OR e.branch_id=$3) \
+      AND ($4::text IS NULL OR e.status=$4) \
+      AND ($5::uuid IS NULL OR e.employee_id=$5) \
+    ORDER BY e.work_date DESC,e.created_at DESC,e.id DESC \
+    LIMIT $6 OFFSET $7";
+const EXCEPTION_BY_ID_SQL: &str = "\
+    SELECT e.id,e.code,e.kind,e.status,e.employee_id,employee.name AS employee_name,\
+           employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,\
+           e.detail,e.evidence,e.links,e.created_at,r.action AS resolution_action,\
+           r.reason AS resolution_reason,r.linked_work_ref,r.ot_hours,r.actor_user_id,\
+           r.created_at AS resolved_at \
+    FROM attendance_exceptions e \
+    JOIN employees employee ON employee.id=e.employee_id AND employee.org_id=e.org_id \
+    LEFT JOIN attendance_exception_resolutions r \
+           ON r.exception_id=e.id AND r.org_id=e.org_id \
+    WHERE e.id=$1";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AttendanceStoreError {
@@ -77,7 +104,7 @@ impl PgAttendanceStore {
     ) -> Result<AttendancePage<AttendanceExceptionRead>, AttendanceStoreError> {
         app::ensure_scope(caller, query.branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
-        with_org_conn::<_,_,AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move { let where_clause="WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) AND ($4::text IS NULL OR e.status=$4) AND ($5::uuid IS NULL OR e.employee_id=$5) ORDER BY e.work_date DESC,e.created_at DESC,e.id DESC LIMIT $6 OFFSET $7"; let rows=sqlx::query(&exception_projection(where_clause)).bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(&query.status).bind(query.employee_id).bind(query.limit).bind(query.offset).fetch_all(tx.as_mut()).await?; let total:i64=sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions e WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) AND ($4::text IS NULL OR e.status=$4) AND ($5::uuid IS NULL OR e.employee_id=$5)").bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(&query.status).bind(query.employee_id).fetch_one(tx.as_mut()).await?; Ok(AttendancePage{items:rows.iter().map(exception_read).collect::<Result<Vec<_>,_>>()?,total,limit:query.limit,offset:query.offset})})).await
+        with_org_conn::<_,_,AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move { let rows=sqlx::query(LIST_EXCEPTIONS_SQL).bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(&query.status).bind(query.employee_id).bind(query.limit).bind(query.offset).fetch_all(tx.as_mut()).await?; let total:i64=sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions e WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) AND ($4::text IS NULL OR e.status=$4) AND ($5::uuid IS NULL OR e.employee_id=$5)").bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(&query.status).bind(query.employee_id).fetch_one(tx.as_mut()).await?; Ok(AttendancePage{items:rows.iter().map(exception_read).collect::<Result<Vec<_>,_>>()?,total,limit:query.limit,offset:query.offset})})).await
     }
 
     pub async fn raise_exception(
@@ -288,14 +315,16 @@ impl PgAttendanceStore {
         close: &CloseMonth,
     ) -> Result<ClosePreflightRead, AttendanceStoreError> {
         app::ensure_scope(caller, close.branch_scope)?;
-        let range = AttendanceDateRange::selected_month_with_buffer(&close.month)?;
+        let range = AttendanceDateRange::selected_month_with_buffer(&close.month)
+            .map_err(app::AttendanceApplicationError::from)?;
+        let branch_scope = close.branch_scope;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                let checks = close_checks(tx, range.from, close.branch_scope).await?;
+                let checks = close_checks(tx, range.from, branch_scope).await?;
                 Ok(ClosePreflightRead {
                     month: range.from,
-                    branch_id: close.branch_scope,
+                    branch_id: branch_scope,
                     checks: close_checks_read(&checks),
                     can_close: checks.ready(),
                 })
@@ -314,7 +343,9 @@ impl PgAttendanceStore {
             ));
         }
         app::ensure_scope(caller, close.branch_scope)?;
-        let month = AttendanceDateRange::selected_month_with_buffer(&close.month)?.from;
+        let month = AttendanceDateRange::selected_month_with_buffer(&close.month)
+            .map_err(app::AttendanceApplicationError::from)?
+            .from;
         let next = month_after(month);
         let last = next - Duration::days(1);
         let org = OrgId::from_uuid(caller.org_id);
@@ -642,7 +673,7 @@ fn event(
 ) -> Result<AuditEvent, AttendanceStoreError> {
     let mut e = AuditEvent::new(
         Some(mnt_kernel_core::UserId::from_uuid(caller.user_id)),
-        AuditAction::new(action).map_err(|e| {
+        AuditAction::new(action).map_err(|_| {
             AttendanceStoreError::Application(app::AttendanceApplicationError::InvalidText(
                 "audit action",
             ))
@@ -782,17 +813,14 @@ async fn close_checks(
         already_closed: closed,
     })
 }
-fn exception_projection(suffix: &str) -> String {
-    format!(
-        "SELECT e.id,e.code,e.kind,e.status,e.employee_id,employee.name AS employee_name,employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,e.detail,e.evidence,e.links,e.created_at,r.action AS resolution_action,r.reason AS resolution_reason,r.linked_work_ref,r.ot_hours,r.actor_user_id,r.created_at AS resolved_at FROM attendance_exceptions e JOIN employees employee ON employee.id=e.employee_id AND employee.org_id=e.org_id LEFT JOIN attendance_exception_resolutions r ON r.exception_id=e.id AND r.org_id=e.org_id {suffix}"
-    )
-}
 async fn exception_by_id(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
 ) -> Result<AttendanceExceptionRead, AttendanceStoreError> {
-    let query = exception_projection("WHERE e.id=$1");
-    let r = sqlx::query(&query).bind(id).fetch_one(tx.as_mut()).await?;
+    let r = sqlx::query(EXCEPTION_BY_ID_SQL)
+        .bind(id)
+        .fetch_one(tx.as_mut())
+        .await?;
     exception_read(&r)
 }
 fn exception_read(
