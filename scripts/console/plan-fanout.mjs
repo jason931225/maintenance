@@ -231,6 +231,66 @@ function validateAuthority(registry, generatedFaces) {
   return { sharedPatterns: [...new Set([...paths, ...generated])].sort(compareText), migrationRoots: paths.filter((entry) => entry.includes('/migrations/**')) };
 }
 
+function addResources(entries) {
+  return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, entries.reduce((total, entry) => total + entry.resources[key], 0)]));
+}
+
+/**
+ * Only independently validated receipts may create expensive verification work.
+ * Entries share a canonical local Buck daemon only when they name the same exact
+ * leaf SHA. A future consolidated-tip job needs separate runtime-validated
+ * authority; receipt fields alone never alter this grouping key.
+ */
+function verifiedReviewEntry(capability, lane, receipt, qualityBias) {
+  const resources = validResources(lane.resources);
+  if (!resources || !receipt) return null;
+  return {
+    capability_id: capability.id,
+    lane_id: lane.laneId,
+    lane_kind: lane.kind,
+    owner: lane.owner,
+    resources,
+    buck2_targets: [...new Set(lane.buckTargets)].sort(compareText),
+    leaf_commands: [...new Set(lane.leafCommands)].sort(compareText),
+    quality_utility: round(laneScore(capability, qualityBias)),
+    receipt_leaf_commit: receipt.leaf_commit,
+  };
+}
+
+export function groupValidatedVerificationEntries(entries) {
+  const byLeafSha = new Map();
+  for (const entry of entries) {
+    const key = entry.receipt_leaf_commit;
+    if (!FULL_SHA.test(key ?? '')) throw new Error('validated verification entry must name an exact leaf SHA');
+    if (!byLeafSha.has(key)) byLeafSha.set(key, []);
+    byLeafSha.get(key).push(entry);
+  }
+  return [...byLeafSha.entries()].map(([verificationSha, groupEntries]) => {
+    const ordered = [...groupEntries].sort((left, right) => compareText(left.lane_id, right.lane_id));
+    const resources = addResources(ordered);
+    const qualityUtility = round(ordered.reduce((total, entry) => total + entry.quality_utility, 0));
+    // The denominator is the aggregate resource claim plus one, so denser
+    // verified work wins without hiding resource contention. Ties are resolved
+    // below by total quality, exact SHA, then lane IDs.
+    const verificationDensity = round(qualityUtility / (1 + RESOURCE_KEYS.reduce((total, key) => total + resources[key], 0)));
+    return {
+      capability_ids: [...new Set(ordered.map((entry) => entry.capability_id))].sort(compareText),
+      lane_ids: ordered.map((entry) => entry.lane_id),
+      verification_sha: verificationSha,
+      cache_affinity: verificationSha,
+      execution: 'canonical_shared_daemon_combined_targets',
+      resources,
+      buck2_targets: [...new Set(ordered.flatMap((entry) => entry.buck2_targets))].sort(compareText),
+      leaf_commands: [...new Set(ordered.flatMap((entry) => entry.leaf_commands))].sort(compareText),
+      quality_utility: qualityUtility,
+      verification_density: verificationDensity,
+    };
+  }).sort((left, right) => right.verification_density - left.verification_density
+    || right.quality_utility - left.quality_utility
+    || compareText(left.verification_sha, right.verification_sha)
+    || compareText(left.lane_ids.join(','), right.lane_ids.join(',')));
+}
+
 export function buildFanoutPlan(registry, options) {
   validateInputs(registry, options);
   options = { ...options, registry };
@@ -268,8 +328,11 @@ export function buildFanoutPlan(registry, options) {
       else {
         completed.push(capability.id);
         for (const lane of lanes) {
-          const resources = validResources(lane.resources); const receipt = runtimeReceipt(options, lane);
-          if (resources && receipt) verifiedReviewLanes.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, resources, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), receipt_leaf_commit: receipt.leaf_commit });
+          const entry = verifiedReviewEntry(capability, lane, runtimeReceipt(options, lane), options.qualityBias);
+          if (entry) verifiedReviewLanes.push(entry);
+          // A validated receipt, not a mutable static state label, is what
+          // removes this leaf from future source/re-review selection.
+          completedLeafLanes.push(lane.laneId);
         }
       }
       continue;
@@ -278,11 +341,21 @@ export function buildFanoutPlan(registry, options) {
     const incomplete = [];
     for (const lane of lanes) {
       const trustedReceipt = runtimeReceipt(options, lane);
-      if (trustedReceipt && !laneReasons.get(lane.laneId).length && (!normalizedLanes || normalizedLanes.has(lane.laneId))) {
-        const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots); const resources = validResources(lane.resources);
-        if (resources) verifiedReviewLanes.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, resources, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), receipt_leaf_commit: trustedReceipt.leaf_commit });
+      if (trustedReceipt) {
+        const receiptReasons = [...laneReasons.get(lane.laneId)];
+        if (normalizedLanes && !normalizedLanes.has(lane.laneId)) receiptReasons.push('legacy_lane_not_normalized_for_epoch');
+        const entry = verifiedReviewEntry(capability, lane, trustedReceipt, options.qualityBias);
+        if (!entry) receiptReasons.push('invalid_lane_resource_requirements');
+        if (receiptReasons.length) {
+          held.push({ capability_id: capability.id, lane_id: lane.laneId, reasons: [...new Set(receiptReasons)] });
+          continue;
+        }
+        verifiedReviewLanes.push(entry);
+        // Validated admission is sufficient even while static product-state
+        // fields lag the immutable review train.
+        completedLeafLanes.push(lane.laneId);
+        continue;
       }
-      if (trustedReceipt) { completedLeafLanes.push(lane.laneId); continue; }
       if (laneSourceComplete(capability, lane.kind)) { completedLeafLanes.push(lane.laneId); if (!trustedReceipt) reviewReady.push({ capability_id: capability.id, lane_id: lane.laneId, reason: 'source_lane_complete_exact_independent_review_required' }); continue; }
       incomplete.push(lane);
       const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
@@ -321,7 +394,7 @@ export function buildFanoutPlan(registry, options) {
     selected.push(lane);
   }
   const verificationAllocated = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])); let coldRustCompileLanes = 0;
-  const verificationQueue = groupVerificationEntries(verifiedReviewLanes).map((group) => {
+  const verificationQueue = groupValidatedVerificationEntries(verifiedReviewLanes).map((group) => {
     const exceeded = RESOURCE_KEYS.filter((key) => verificationAllocated[key] + group.resources[key] > budgets[key]);
     const coldBlocked = group.buck2_targets.length && coldRustCompileLanes >= COLD_RUST_COMPILE_LANES;
     if (exceeded.length || coldBlocked) return { ...group, scheduled: false, hold_reason: coldBlocked ? 'cold_rust_compile_capacity_exhausted' : 'verification_resource_capacity_exhausted', constrained_resources: exceeded };
@@ -330,7 +403,17 @@ export function buildFanoutPlan(registry, options) {
   });
   const byId = new Map(registry.capabilities.map((capability) => [capability.id, capability]));
   const selectedCapabilities = [...new Set([...selected.map((lane) => lane.capability_id), ...verifiedReviewLanes.map((lane) => lane.capability_id)])].sort(compareText);
-  const mergeDependencyHolds = selectedCapabilities.map((id) => ({ capability_id: id, unresolved_dependencies: selected.find((lane) => lane.capability_id === id).dependencies.filter((dependency) => !byId.has(dependency) || !sourceComplete(byId.get(dependency))) })).filter((entry) => entry.unresolved_dependencies.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
+  const reviewedSourceCapability = (capability) => sourceLaneDefinitions(capability).every((lane) => runtimeReceipt(options, lane));
+  const mergeDependencyHolds = selectedCapabilities.map((id) => {
+    const capability = byId.get(id);
+    return {
+      capability_id: id,
+      unresolved_dependencies: arrays(capability?.dependencies).filter((dependency) => {
+        const dependencyCapability = byId.get(dependency);
+        return !dependencyCapability || (!sourceComplete(dependencyCapability) && !reviewedSourceCapability(dependencyCapability));
+      }),
+    };
+  }).filter((entry) => entry.unresolved_dependencies.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
   const consolidationQueue = selectedCapabilities.map((id) => {
     const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set([...selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id), ...verifiedReviewLanes.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)]); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const lanes = sourceLaneDefinitions(capability); const hasReviews = lanes.every((lane) => runtimeReceipt(options, lane)); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
     const prerequisites = [];

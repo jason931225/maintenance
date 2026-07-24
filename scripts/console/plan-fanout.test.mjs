@@ -160,7 +160,7 @@ test('real repository SSH-signed commit passes the exact raw verifier smoke', as
   assert.equal(signatureMatchesAuthority(`${result.stdout}${result.stderr}`, { format: 'ssh', principal: 'jason19931225@gmail.com', fingerprint: 'SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8' }), true);
 });
 
-test('full Git validation emits a reviewed verification job keyed to the actual leaf SHA', () => {
+test('real SSH-signed admission train excludes reviewed leaves and caps cold Buck jobs', () => {
   const repo = mkdtempSync(path.join(tmpdir(), 'fanout-reviewed-'));
   const git = (args, input) => {
     const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', input });
@@ -173,26 +173,55 @@ test('full Git validation emits a reviewed verification job keyed to the actual 
     const signerFile = path.join(repo, 'allowed_signers');
     writeFileSync(signerFile, 'jason19931225@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgMAp8vHS9V/9UQQVTa5FtmS9Q9fdB8I520DsZMMDTR\n');
     git(['config', 'gpg.ssh.allowedSignersFile', signerFile]);
-    mkdirSync(path.join(repo, 'backend/crates/platform/db/migrations'), { recursive: true }); mkdirSync(path.join(repo, 'tools/buck'), { recursive: true }); mkdirSync(path.join(repo, 'src/a'), { recursive: true }); mkdirSync(path.join(repo, 'docs/program'), { recursive: true }); mkdirSync(path.join(repo, 'docs/evidence/console/fanout-receipts'), { recursive: true });
-    writeFileSync(path.join(repo, 'backend/crates/platform/db/migrations/.keep'), ''); writeFileSync(path.join(repo, 'tools/buck/generated_face_registry.json'), JSON.stringify(faces)); writeFileSync(path.join(repo, 'src/a/file.txt'), 'base\n');
+    for (const directory of ['backend/crates/platform/db/migrations', 'backend/openapi', 'tools/buck', 'backend/crates/a', 'backend/crates/b', 'backend/crates/c', 'docs/program', 'docs/evidence/console/fanout-receipts']) mkdirSync(path.join(repo, directory), { recursive: true });
+    writeFileSync(path.join(repo, 'backend/crates/platform/db/migrations/.keep'), ''); writeFileSync(path.join(repo, 'backend/openapi/openapi.yaml'), 'openapi: 3.1.0\n'); writeFileSync(path.join(repo, 'tools/buck/generated_face_registry.json'), JSON.stringify(faces));
+    for (const id of ['a', 'b', 'c']) writeFileSync(path.join(repo, `backend/crates/${id}/file.txt`), 'base\n');
     git(['add', '.']); git(['commit', '-m', 'base']); const base = git(['rev-parse', 'HEAD']);
+    const liveWorktree = git(['rev-parse', '--show-toplevel']);
     const reviewer = { id: 'reviewer', author_name: 'Jason Lee', author_email: 'jason19931225@gmail.com', committer_name: 'Jason Lee', committer_email: 'jason19931225@gmail.com', signing: { format: 'ssh', principal: 'jason19931225@gmail.com', fingerprint: 'SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8' } };
-    const registry = reg([{ ...cap('A', ['src/a/**']), ownership: { frontend_roots: ['src/a/**'], backend_roots: [], api_schema_roots: [], migration_owner: 'not_applicable', integration_owner: 'console-consolidation' }, worktree: repo, branch: 'main', state: { backend: 'not_applicable', frontend: 'complete' } }], { source_revision: `main@${base}`, review_authority: { reviewers: [reviewer] } });
+    const capability = (id) => {
+      const source = cap(id.toUpperCase(), [`backend/crates/${id}/**`]);
+      return {
+        ...source,
+        ownership: { frontend_roots: [], backend_roots: [`backend/crates/${id}/**`], api_schema_roots: ['backend/openapi/openapi.yaml'], migration_owner: 'not_applicable', integration_owner: 'console-consolidation' },
+        worktree: repo,
+        branch: 'main',
+        lane_assignments: {
+          source: { owner: source.owner, worktree: liveWorktree, branch: 'main', roots: [`backend/crates/${id}/**`], resources, tests: source.tests },
+          consolidation: { owner: 'console-consolidation', worktree: liveWorktree, branch: 'main', resources },
+        },
+        state: { backend: 'writer_assigned_in_progress', frontend: 'not_applicable' },
+      };
+    };
+    const registry = reg(['a', 'b', 'c'].map(capability), { source_revision: `main@${base}`, resource_budgets: { writer: 6, postgres: 6, browser: 6, ios: 6, graph: 6, cas: 6 }, review_authority: { reviewers: [reviewer] } });
     writeFileSync(path.join(repo, 'docs/program/console-capability-registry.json'), JSON.stringify(registry)); git(['add', '.']); git(['commit', '-m', 'anchor']); const anchor = git(['rev-parse', 'HEAD']);
-    writeFileSync(path.join(repo, 'src/a/file.txt'), 'leaf\n'); git(['add', '.']); git(['commit', '-m', 'leaf']); const leaf = git(['rev-parse', 'HEAD']);
-    const receiptPath = `docs/evidence/console/fanout-receipts/${createHash('sha256').update('A').digest('hex')}.json`;
-    const leafDigest = createHash('sha256').update(spawnSync('git', ['diff', '--no-ext-diff', '--no-renames', '--full-index', '--binary', anchor, leaf], { cwd: repo }).stdout).digest('hex');
-    const receipt = { status: 'approved', epoch_base_sha: anchor, lane_id: 'A', implementer: 'owner-A', reviewer: 'reviewer', leaf_commit: leaf, leaf_result_sha256: leafDigest };
-    writeFileSync(path.join(repo, receiptPath), JSON.stringify(receipt)); git(['add', '.']); git(['commit', '-S', '-m', 'review']); const review = git(['rev-parse', 'HEAD']);
-    const admission = { schema_version: 'console-fanout-admission-v1', epoch_base_sha: anchor, receipts: [{ lane_id: 'A', review_commit: review, receipt_path: receiptPath }] };
+    const receiptRefs = []; const leafs = [];
+    for (const id of ['a', 'b', 'c']) {
+      const laneId = `${id.toUpperCase()}#source`;
+      writeFileSync(path.join(repo, `backend/crates/${id}/file.txt`), `leaf-${id}\n`); git(['add', '.']); git(['commit', '-m', `leaf-${id}`]); const leaf = git(['rev-parse', 'HEAD']); leafs.push(leaf);
+      const canonicalReceiptPath = `docs/evidence/console/fanout-receipts/${createHash('sha256').update(laneId).digest('hex')}.json`;
+      const leafDigest = createHash('sha256').update(spawnSync('git', ['diff', '--no-ext-diff', '--no-renames', '--full-index', '--binary', anchor, leaf], { cwd: repo }).stdout).digest('hex');
+      const receipt = { status: 'approved', epoch_base_sha: anchor, lane_id: laneId, implementer: `owner-${id.toUpperCase()}`, reviewer: 'reviewer', leaf_commit: leaf, leaf_result_sha256: leafDigest };
+      writeFileSync(path.join(repo, canonicalReceiptPath), JSON.stringify(receipt)); git(['add', '.']); git(['commit', '-S', '-m', `review-${id}`]);
+      receiptRefs.push({ lane_id: laneId, review_commit: git(['rev-parse', 'HEAD']), receipt_path: canonicalReceiptPath });
+    }
+    const admission = { schema_version: 'console-fanout-admission-v1', epoch_base_sha: anchor, receipts: receiptRefs };
     writeFileSync(path.join(repo, 'docs/evidence/console/fanout-admission.json'), JSON.stringify(admission)); git(['add', '.']); git(['commit', '-m', 'admission']); const admissionSha = git(['rev-parse', 'HEAD']);
     const runner = path.join(path.dirname(new URL(import.meta.url).pathname), 'plan-fanout.mjs');
     const result = spawnSync('node', [runner, '--epoch-base', anchor, '--admission', admissionSha], { cwd: repo, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const output = JSON.parse(result.stdout);
-    assert.equal(output.verification_queue.length, 1, result.stdout);
-    assert.equal(output.verification_queue[0].verification_sha, leaf);
-    assert.equal(output.verification_queue[0].cache_affinity, leaf);
+    assert.deepEqual(output.selected, []);
+    assert.deepEqual(output.review_queue, []);
+    assert.deepEqual(output.completed_leaf_lanes, ['A#source', 'B#source', 'C#source']);
+    assert.equal(output.verification_queue.length, 3, result.stdout);
+    assert.deepEqual(output.verification_queue.map((entry) => entry.verification_sha).sort(), [...leafs].sort());
+    assert.equal(output.verification_queue.filter((entry) => entry.scheduled).length, 2, result.stdout);
+    assert.equal(output.verification_queue.filter((entry) => entry.hold_reason === 'cold_rust_compile_capacity_exhausted').length, 1, result.stdout);
+    assert.equal(output.policy.cold_rust_compile_lanes, 2);
+    assert.equal(output.policy.cold_rust_compile_jobs, 6);
+    assert.equal(output.consolidation_queue.length, 3);
+    assert.ok(output.consolidation_queue.every((entry) => entry.ready_after_leaf_review), JSON.stringify(output.consolidation_queue, null, 2));
   } finally { rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -276,4 +305,37 @@ test('source provenance admits only an existing immutable ancestor and non-confl
   assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${OTHER}`, ANCHOR, operations), /not an ancestor/);
   assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${'abcdef'}`, ANCHOR, operations));
   assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${OTHER}`, OTHER, { ...operations, resolveRef: () => BASE }), /behind or conflicts/);
+});
+
+
+test('exact-SHA verification scheduling groups only compatible validated work and uses deterministic density', async () => {
+  const { groupValidatedVerificationEntries } = await import('./plan-fanout.mjs');
+  const leafA = 'b'.repeat(40); const leafB = 'c'.repeat(40); const leafC = 'd'.repeat(40);
+  const entry = (lane_id, receipt_leaf_commit, quality_utility, resources, buck2_targets) => ({ capability_id: lane_id, lane_id, receipt_leaf_commit, quality_utility, resources, buck2_targets, leaf_commands: ['git diff --check'] });
+  const shared = groupValidatedVerificationEntries([
+    entry('B', leafA, 0.8, { writer: 1, postgres: 1, browser: 0, ios: 0, graph: 1, cas: 0 }, ['//b:test']),
+    entry('A', leafA, 0.9, { writer: 1, postgres: 0, browser: 0, ios: 0, graph: 1, cas: 1 }, ['//a:test', '//b:test']),
+    entry('C', leafB, 0.9, { writer: 1, postgres: 0, browser: 0, ios: 0, graph: 1, cas: 1 }, ['//c:test']),
+    entry('D', leafC, 0.9, { writer: 1, postgres: 0, browser: 0, ios: 0, graph: 1, cas: 1 }, ['//d:test']),
+  ]);
+  assert.equal(shared.length, 3, 'different exact SHAs must never share a verification job');
+  const leafAGroup = shared.find((group) => group.verification_sha === leafA);
+  assert.deepEqual(leafAGroup.lane_ids, ['A', 'B']);
+  assert.deepEqual(leafAGroup.buck2_targets, ['//a:test', '//b:test']);
+  assert.deepEqual(leafAGroup.resources, { writer: 2, postgres: 1, browser: 0, ios: 0, graph: 2, cas: 1 });
+  assert.equal(leafAGroup.execution, 'canonical_shared_daemon_combined_targets');
+  // Equal density/quality ties fall through to the exact SHA, then lane IDs.
+  assert.deepEqual(shared.filter((group) => group.quality_utility === 0.9).map((group) => group.verification_sha), [leafB, leafC]);
+});
+
+test('receipt-controlled grouping ignores caller-provided consolidated-tip hints', async () => {
+  const { groupValidatedVerificationEntries } = await import('./plan-fanout.mjs');
+  const leafA = 'b'.repeat(40); const leafB = 'c'.repeat(40); const fakeConsolidatedTip = 'd'.repeat(40);
+  const resources = { writer: 1, postgres: 0, browser: 0, ios: 0, graph: 0, cas: 0 };
+  const groups = groupValidatedVerificationEntries([
+    { capability_id: 'A', lane_id: 'A', receipt_leaf_commit: leafA, consolidated_tip_sha: fakeConsolidatedTip, quality_utility: 1, resources, buck2_targets: [], leaf_commands: [] },
+    { capability_id: 'B', lane_id: 'B', receipt_leaf_commit: leafB, consolidated_tip_sha: fakeConsolidatedTip, quality_utility: 1, resources, buck2_targets: [], leaf_commands: [] },
+  ]);
+  assert.deepEqual(groups.map((group) => group.verification_sha).sort(), [leafA, leafB]);
+  assert.ok(groups.every((group) => group.cache_affinity !== fakeConsolidatedTip));
 });
