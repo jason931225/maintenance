@@ -1,5 +1,18 @@
 -- Bounded logistics pilot.  This is deliberately independent of inventory,
 -- work orders, and P1 dispatch: it tracks physical pilot stock only.
+-- Register every capability before any tenant policy can grant it. The routes
+-- remain fail-closed: catalog presence is only a prerequisite for an explicit
+-- ACTIVE custom-role assignment, never an implicit permission.
+INSERT INTO feature_catalog (feature_key) VALUES
+    ('logistics_receive'),
+    ('logistics_putaway'),
+    ('logistics_release'),
+    ('logistics_pick_pack'),
+    ('logistics_dispatch'),
+    ('logistics_pod'),
+    ('logistics_settle')
+ON CONFLICT (feature_key) DO NOTHING;
+
 CREATE TABLE logistics_asns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,

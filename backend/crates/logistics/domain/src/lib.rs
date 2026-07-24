@@ -15,6 +15,31 @@ pub enum FulfillmentState {
     Settled,
 }
 impl FulfillmentState {
+    #[must_use]
+    pub const fn as_db(self) -> &'static str {
+        match self {
+            Self::Released => "RELEASED",
+            Self::Picked => "PICKED",
+            Self::ShortPick => "SHORT_PICK",
+            Self::Packed => "PACKED",
+            Self::Dispatched => "DISPATCHED",
+            Self::Delivered => "DELIVERED",
+            Self::Settled => "SETTLED",
+        }
+    }
+
+    pub fn from_db(value: &str) -> Result<Self, KernelError> {
+        match value {
+            "RELEASED" => Ok(Self::Released),
+            "PICKED" => Ok(Self::Picked),
+            "SHORT_PICK" => Ok(Self::ShortPick),
+            "PACKED" => Ok(Self::Packed),
+            "DISPATCHED" => Ok(Self::Dispatched),
+            "DELIVERED" => Ok(Self::Delivered),
+            "SETTLED" => Ok(Self::Settled),
+            _ => Err(KernelError::conflict("unknown logistics fulfillment state")),
+        }
+    }
     pub fn can_transition_to(self, next: Self) -> Result<(), KernelError> {
         let allowed = matches!(
             (self, next),
@@ -28,6 +53,37 @@ impl FulfillmentState {
             Ok(())
         } else {
             Err(KernelError::conflict("illegal logistics state transition"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FulfillmentState;
+
+    #[test]
+    fn allows_each_legal_fulfillment_transition() {
+        for (from, to) in [
+            (FulfillmentState::Released, FulfillmentState::Picked),
+            (FulfillmentState::Released, FulfillmentState::ShortPick),
+            (FulfillmentState::Picked, FulfillmentState::Packed),
+            (FulfillmentState::ShortPick, FulfillmentState::Packed),
+            (FulfillmentState::Packed, FulfillmentState::Dispatched),
+            (FulfillmentState::Dispatched, FulfillmentState::Delivered),
+            (FulfillmentState::Delivered, FulfillmentState::Settled),
+        ] {
+            from.can_transition_to(to).expect("listed transition is legal");
+        }
+    }
+
+    #[test]
+    fn rejects_illegal_and_terminal_fulfillment_transitions() {
+        for (from, to) in [
+            (FulfillmentState::Released, FulfillmentState::Packed),
+            (FulfillmentState::Settled, FulfillmentState::Delivered),
+            (FulfillmentState::Delivered, FulfillmentState::Packed),
+        ] {
+            assert!(from.can_transition_to(to).is_err());
         }
     }
 }
