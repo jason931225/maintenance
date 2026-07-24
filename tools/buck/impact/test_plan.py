@@ -66,6 +66,45 @@ class ImpactPlannerTests(unittest.TestCase):
         self.assertEqual("incompatible_buck_toolchain_or_cell_configuration", manifest["fallback_reason"])
         self.assertEqual(["root//backend:unit"], [item["target"] for item in manifest["impacted_targets"]])
 
+    def test_distinct_worktree_paths_with_identical_cell_maps_are_compatible(self) -> None:
+        first = self.module.canonical_cell_map(
+            Path("/tmp/base-worktree"),
+            "root: /tmp/base-worktree\nprelude: /tmp/base-worktree/prelude\ntoolchains: /tmp/base-worktree/toolchains\n",
+        )
+        second = self.module.canonical_cell_map(
+            Path("/tmp/candidate-worktree"),
+            "root: /tmp/candidate-worktree\nprelude: /tmp/candidate-worktree/prelude\ntoolchains: /tmp/candidate-worktree/toolchains\n",
+        )
+        manifest = self.module.build_manifest(
+            base_sha="a" * 40,
+            candidate_sha="b" * 40,
+            changed_paths=["backend/BUCK"],
+            config_compatible=first == second,
+            universe=[{"target": "root//backend:unit", "labels": []}],
+            receipts=[],
+        )
+        self.assertEqual(first, second)
+        self.assertEqual("shadow_adapter_full_universe", manifest["fallback_reason"])
+
+    def test_changed_cell_mapping_is_incompatible(self) -> None:
+        base = self.module.canonical_cell_map(
+            Path("/tmp/base-worktree"), "root: /tmp/base-worktree\nprelude: /tmp/base-worktree/prelude\n"
+        )
+        candidate = self.module.canonical_cell_map(
+            Path("/tmp/candidate-worktree"),
+            "root: /tmp/candidate-worktree\nprelude: /tmp/candidate-worktree/alternate-prelude\n",
+        )
+        manifest = self.module.build_manifest(
+            base_sha="a" * 40,
+            candidate_sha="b" * 40,
+            changed_paths=[".buckconfig"],
+            config_compatible=base == candidate,
+            universe=[{"target": "root//backend:unit", "labels": []}],
+            receipts=[],
+        )
+        self.assertNotEqual(base, candidate)
+        self.assertEqual("incompatible_buck_toolchain_or_cell_configuration", manifest["fallback_reason"])
+
     def test_manifest_json_is_bounded_and_stably_serialized(self) -> None:
         manifest = self.module.build_manifest(
             base_sha="a" * 40,
