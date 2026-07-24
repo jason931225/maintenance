@@ -29,6 +29,7 @@ import { SalesCrmScreenBody } from "../sales";
 import { ConsultingEngagementBody } from "../consulting/ConsultingEngagementBody";
 import { LogisticsScreenBody } from "../logistics";
 import { EquipmentScreenBody } from "../equipment";
+import { InventoryScreenBody } from "../inventory/InventoryScreenBody";
 
 export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> = {
   overview: OverviewScreen,
@@ -39,6 +40,7 @@ export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> 
   laborcost: LaborCostBody,
   forecast: ForecastBody,
   finance: ModuleFinanceScreenBody,
+  inventory: InventoryScreenBody,
   asset: AssetModuleScreen,
   appr: ApprovalScreenBody,
   audit: AuditScreenBody,

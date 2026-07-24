@@ -34,7 +34,7 @@ describe("console nav deny-by-omission", () => {
   it("exposes only the ADR-0025-reviewed sales vertical slice", () => {
     const s = screens(grants([ROLES.MEMBER]));
     expect(MOUNTED_SCREEN_KEYS).toEqual(
-      expect.arrayContaining(["overview", "attendance", "mywork", "people", "sales", "mail"]),
+      expect.arrayContaining(["overview", "attendance", "mywork", "people", "sales", "inventory", "mail"]),
     );
     expect(EXPOSED_SCREEN_KEYS).toEqual(["sales"]);
     // The sole exposed screen remains deny-by-omission for a no-grant member.
@@ -154,6 +154,9 @@ describe("console nav deny-by-omission", () => {
     const declared = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.screen));
 
     expect(MOUNTED_SCREEN_KEYS.every((key) => registered.has(key))).toBe(true);
+    expect(MOUNTED_SCREEN_KEYS).toContain("inventory");
+    expect(EXPOSED_SCREEN_KEYS).not.toContain("inventory");
+    expect(isExposedScreenKey("inventory")).toBe(false);
     expect(declared.filter((key) => !exposed.has(key))).toEqual(
       expect.arrayContaining(["people", "recruit", "dispatch", "docs", "notif", "directory"]),
     );

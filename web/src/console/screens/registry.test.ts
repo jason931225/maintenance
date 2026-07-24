@@ -4,6 +4,7 @@ import { AttendanceScreenBody } from "../../features/attendance";
 import MyWorkScreen from "./mywork/MyWorkScreen";
 import { PeopleWorkforceBody } from "../people";
 import { SalesCrmScreenBody } from "../sales";
+import { InventoryScreenBody } from "../inventory/InventoryScreenBody";
 import { SCREEN_REGISTRY } from "./registry";
 
 describe("SCREEN_REGISTRY", () => {
@@ -21,5 +22,9 @@ describe("SCREEN_REGISTRY", () => {
 
   it("mounts the authenticated People workforce body in development inventory", () => {
     expect(SCREEN_REGISTRY.people).toBe(PeopleWorkforceBody);
+  });
+
+  it("mounts the authenticated inventory body in development inventory", () => {
+    expect(SCREEN_REGISTRY.inventory).toBe(InventoryScreenBody);
   });
 });

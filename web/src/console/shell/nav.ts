@@ -93,6 +93,7 @@ export const MOUNTED_SCREEN_KEYS = [
   "sales",
   "consulting",
   "finance",
+  "inventory",
   "asset",
   "appr",
   "policy",
