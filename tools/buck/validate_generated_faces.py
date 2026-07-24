@@ -61,7 +61,16 @@ def default_target_resolver(repo_root: Path, targets: list[str]) -> set[str]:
     )
     if result.returncode:
         return set()
-    return {target for target in targets if target in result.stdout}
+    # `buck2 targets` emits one unconfigured label per line. Normalize only the
+    # optional cell prefix (for example `root//pkg:name`), then compare full
+    # labels. Substring matching would incorrectly accept `:writer-other`.
+    emitted: set[str] = set()
+    for line in result.stdout.splitlines():
+        label = line.strip().split(maxsplit=1)[0] if line.strip() else ""
+        marker = label.find("//")
+        if marker >= 0:
+            emitted.add(label[marker:])
+    return set(targets).intersection(emitted)
 
 
 def _exists(repo_root: Path, declared: str) -> bool:

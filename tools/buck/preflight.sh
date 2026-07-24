@@ -68,7 +68,6 @@ for platform, entry in platforms.items():
 PY
 
 echo "buck-preflight: pinned release ${expected_release}"
-python3 "${repo_root}/tools/buck/validate_generated_faces.py"
 BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" --version
 BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" audit cell
 
@@ -91,6 +90,12 @@ trap cleanup EXIT HUP INT TERM
 # `git archive HEAD` snapshots exactly the candidate tree without touching the
 # caller's index, working files, daemon state, or any parallel worktree.
 git -C "${repo_root}" archive --format=tar HEAD | tar -x -C "${scratch}"
+# Validate the registry from the immutable candidate snapshot. This prevents a
+# dirty caller tree from supplying roots, writers, or Buck labels that do not
+# exist in the candidate we actually gate.
+BUCK_ISOLATION_DIR="${isolation_name}" python3 \
+  "${scratch}/tools/buck/validate_generated_faces.py" \
+  "${scratch}/tools/buck/generated_face_registry.json"
 # Archive snapshots deliberately exclude mutable node_modules. Link the caller's
 # dependency tree only after package.json/package-lock digest parity and locked
 # direct-package validation; no generator can resolve an ambient ancestor tree.
@@ -103,7 +108,7 @@ python3 "${repo_root}/tools/buck/provision_snapshot_node_modules.py" \
 # are never eval'd as shell commands. A non-zero writer or output diff fails
 # closed.
 python3 "${repo_root}/tools/buck/run_generated_face_gates.py" \
-  --registry "${repo_root}/tools/buck/generated_face_registry.json" \
+  --registry "${scratch}/tools/buck/generated_face_registry.json" \
   --baseline "${repo_root}" \
   --snapshot "${scratch}" \
   --tier "${generated_face_tier}"

@@ -6,6 +6,8 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).parent
 SPEC = importlib.util.spec_from_file_location("validate_generated_faces", ROOT / "validate_generated_faces.py")
@@ -66,6 +68,30 @@ class GeneratedFaceRegistryTests(unittest.TestCase):
         registry["faces"][0]["writer"]["kind"] = "shell"
         with self.assertRaisesRegex(ValueError, "allowlisted"):
             VALIDATOR.validate_registry(registry, ROOT.parent.parent, resolved)
+
+    def test_default_target_resolver_requires_an_exact_target_label(self) -> None:
+        target = "//tools/buck:generated-face-first-party"
+        with patch.object(
+            VALIDATOR.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout=target + "-other\n",
+                stderr="",
+            ),
+        ):
+            self.assertEqual(set(), VALIDATOR.default_target_resolver(ROOT.parent.parent, [target]))
+
+        with patch.object(
+            VALIDATOR.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout="root" + target + "\n",
+                stderr="",
+            ),
+        ):
+            self.assertEqual({target}, VALIDATOR.default_target_resolver(ROOT.parent.parent, [target]))
 
 
 if __name__ == "__main__":
