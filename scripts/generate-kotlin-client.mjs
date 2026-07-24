@@ -11,8 +11,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { basename, extname, relative, resolve, sep } from "node:path";
+import { basename, extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runDockerCodegenWithCopiedWorkspace } from "./lib/docker-copy-workspace.mjs";
 import { hasJava, hasRunningDocker } from "./lib/toolchain-checks.mjs";
 import {
   collectSupportedKotlinDiscriminatorUnions,
@@ -20,6 +21,9 @@ import {
 } from "./lib/kotlin-discriminator-unions.mjs";
 
 const generatorVersion = "7.23.0";
+const generatorImage =
+  `openapitools/openapi-generator-cli:v${generatorVersion}` +
+  "@sha256:5ffccd3b0d4ac57eac443e1c9b3e2f2bb7f0a21ffe6c6701f3690d7edc78bf2d";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const outputDir = resolve(root, "clients/kotlin");
 const inputSpec = resolve(root, "backend/openapi/openapi.yaml");
@@ -169,10 +173,6 @@ function patchKnownGeneratorGaps(directory) {
   ]);
 }
 
-function dockerPath(path) {
-  return `/workspace/${relative(root, path).split(sep).join("/")}`;
-}
-
 function removeBackupBestEffort(backupDir) {
   try {
     rmSync(backupDir, { recursive: true, force: true });
@@ -262,26 +262,40 @@ const generatorArgs = [
 try {
   const discriminatorUnions = await collectSupportedKotlinDiscriminatorUnions(new URL("../backend/openapi/openapi.yaml", import.meta.url));
   if (forceDocker || !javaAvailable) {
-    run("docker", [
-      "run",
-      "--rm",
-      "-v",
-      `${root}:/workspace`,
-      `openapitools/openapi-generator-cli:v${generatorVersion}`,
-      "generate",
-      "-i",
-      dockerPath(inputSpec),
-      "-g",
-      "kotlin",
-      "-o",
-      dockerPath(stagingDir),
-      "-c",
-      dockerPath(config),
-      "-t",
-      dockerPath(templateDir),
-      "--global-property",
-      "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
-    ]);
+    runDockerCodegenWithCopiedWorkspace({
+      image: generatorImage,
+      args: [
+        "generate",
+        "-i",
+        "/workspace/backend/openapi/openapi.yaml",
+        "-g",
+        "kotlin",
+        "-o",
+        "/workspace/generated",
+        "-c",
+        "/workspace/clients/kotlin-generator-config.yaml",
+        "-t",
+        "/workspace/clients/kotlin-generator-templates",
+        "--global-property",
+        "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
+      ],
+      inputs: [
+        {
+          source: inputSpec,
+          destination: "backend/openapi/openapi.yaml",
+        },
+        {
+          source: config,
+          destination: "clients/kotlin-generator-config.yaml",
+        },
+        {
+          source: templateDir,
+          destination: "clients/kotlin-generator-templates",
+        },
+      ],
+      outputDir: stagingDir,
+      stagingRoot,
+    });
   } else {
     run(process.execPath, [resolve(root, "node_modules/@openapitools/openapi-generator-cli/main.js"), ...generatorArgs]);
   }

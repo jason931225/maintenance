@@ -24,7 +24,7 @@
     },
     {
       "id": "openapi-kotlin",
-      "source_roots": ["backend/openapi", "clients/kotlin-generator-config.yaml", "clients/kotlin-generator-templates", "scripts/generate-kotlin-client.mjs", "scripts/lib/kotlin-discriminator-unions.mjs"],
+      "source_roots": ["backend/openapi", "clients/kotlin-generator-config.yaml", "clients/kotlin-generator-templates", "scripts/generate-kotlin-client.mjs", "scripts/lib/docker-copy-workspace.mjs", "scripts/lib/kotlin-discriminator-unions.mjs"],
       "output_patterns": ["clients/kotlin/.openapi-generator-ignore", "clients/kotlin/.openapi-generator/**", "clients/kotlin/README.md", "clients/kotlin/gradle/**", "clients/kotlin/src/main/**", "clients/kotlin/build.gradle", "clients/kotlin/gradle.properties", "clients/kotlin/gradlew", "clients/kotlin/gradlew.bat", "clients/kotlin/proguard-rules.pro", "clients/kotlin/settings.gradle"],
       "writer": {"kind": "repo-exec", "executable": "tools/buck/generated-face-openapi-kotlin.sh", "target": "//tools/buck:generated-face-openapi-kotlin"},
       "drift_gate": {"tier": "expensive", "kind": "writer-snapshot"}

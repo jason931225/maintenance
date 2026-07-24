@@ -32,6 +32,7 @@ class GeneratedFaceRegistryTests(unittest.TestCase):
             self.assertIn(face["drift_gate"]["tier"], {"cheap", "expensive"})
             self.assertTrue(all(not path.endswith("/") for path in face["output_patterns"]))
         kotlin = next(face for face in REGISTRY["faces"] if face["id"] == "openapi-kotlin")
+        self.assertIn("scripts/lib/docker-copy-workspace.mjs", kotlin["source_roots"])
         self.assertNotIn("clients/kotlin", kotlin["output_patterns"])
         self.assertTrue(
             {
