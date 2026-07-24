@@ -12,6 +12,7 @@ hmac.workspace = true
 mnt-kernel-core.workspace = true
 mnt-platform-auth = { path = "../../platform/auth" }
 mnt-platform-authz.workspace = true
+mnt-platform-db.workspace = true
 mnt-platform-request-context.workspace = true
 serde.workspace = true
 serde_json.workspace = true

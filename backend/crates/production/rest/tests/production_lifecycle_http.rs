@@ -1057,6 +1057,23 @@ async fn source_system_lifecycle_uses_typed_credentials_and_generation_cas(pool:
             ("DISABLED".to_owned(), Some(2), 2)
         ]
     );
+    let generic_actions: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM audit_events WHERE org_id=$1 AND target_type='production_source_system' AND target_id=$2 ORDER BY occurred_at,id",
+    )
+    .bind(*fixture.org.as_uuid())
+    .bind(principal_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        generic_actions,
+        vec![
+            "production.source_system_register".to_owned(),
+            "production.source_system_rotate".to_owned(),
+            "production.source_system_disable".to_owned(),
+        ],
+        "credential lifecycle mutations must commit their platform audit rows atomically",
+    );
     let persisted_secret_or_verifier: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1 AND (row_to_json(service_principal_audit_events)::text LIKE '%' || $2 || '%' OR row_to_json(service_principal_audit_events)::text LIKE '%verifier%' OR row_to_json(service_principal_audit_events)::text LIKE '%mac%')",
     )

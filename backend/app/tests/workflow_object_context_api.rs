@@ -288,10 +288,19 @@ async fn mutation_snapshot(pool: &PgPool) -> MutationSnapshot {
 }
 
 async fn count(pool: &PgPool, table: &str) -> i64 {
-    sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    let sql = match table {
+        "workflow_runs" => "SELECT count(*) FROM workflow_runs",
+        "workflow_waiting_tasks" => "SELECT count(*) FROM workflow_waiting_tasks",
+        "notifications" => "SELECT count(*) FROM notifications",
+        "workflow_outbox_events" => "SELECT count(*) FROM workflow_outbox_events",
+        "audit_events" => "SELECT count(*) FROM audit_events",
+        "mutation_idempotency_receipts" => "SELECT count(*) FROM mutation_idempotency_receipts",
+        "object_links" => "SELECT count(*) FROM object_links",
+        "support_tickets" => "SELECT count(*) FROM support_tickets",
+        "work_orders" => "SELECT count(*) FROM work_orders",
+        _ => panic!("test count table must be an approved literal: {table}"),
+    };
+    sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
 
 async fn seed_branch(pool: &PgPool, org: OrgId, tag: &str) -> BranchId {

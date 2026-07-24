@@ -745,7 +745,6 @@ mod tests {
     use mnt_kernel_core::{OrgId, UserId};
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn rejects_unknown_one_sided_malformed_and_overlong_queries() {
         let now = OffsetDateTime::UNIX_EPOCH;
@@ -763,7 +762,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn defaults_to_the_kst_calendar_day() {
         let now = OffsetDateTime::parse(
@@ -779,7 +777,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn one_request_instant_drives_both_kst_default_range_and_as_of_at_rollover() {
         let request_now = OffsetDateTime::parse(
@@ -809,7 +806,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn explicit_branch_must_intersect_effective_scope() {
         let allowed = BranchId::new();
@@ -819,7 +815,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[tokio::test]
     async fn workbench_errors_match_the_standard_error_body_contract() {
         for (error, status, code, message) in [

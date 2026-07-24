@@ -13,11 +13,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine as _;
-use mnt_kernel_core::{BranchId, ErrorKind, KernelError};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{
     Action, Feature, Principal, Role, ServicePrincipal, authorize, authorize_service,
 };
+use mnt_platform_db::{DbError, insert_audit_event, with_audits, with_org_conn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -351,8 +354,6 @@ async fn register_source_system(
     .map_err(RestError::kernel)?;
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
     let id = Uuid::new_v4();
     let secret = generated_secret();
     let verifier = service_auth::verifier(
@@ -363,20 +364,27 @@ async fn register_source_system(
         request.branch_id,
         1,
     );
-    sqlx::query("INSERT INTO service_principals (id,org_id,branch_id,feature,display_name,verifier,created_by) VALUES ($1,$2,$3,'production_source_ingest',$4,$5,$6)")
-        .bind(id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.source_system.trim()).bind(verifier.as_slice()).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(RestError::db)?;
-    sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,resulting_generation) VALUES ($1,$2,'REGISTERED',$3,1)").bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(RestError::db)?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(SourceSystemCredential {
-            id,
-            source_system: request.source_system.trim().to_owned(),
-            enabled: true,
-            credential_generation: 1,
-            secret: base64::engine::general_purpose::STANDARD.encode(secret),
-        }),
-    ))
+    let source_system = request.source_system.trim().to_owned();
+    let response = with_audits::<_, _, RestError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query("INSERT INTO service_principals (id,org_id,branch_id,feature,display_name,verifier,created_by) VALUES ($1,$2,$3,'production_source_ingest',$4,$5,$6)")
+                .bind(id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(&source_system).bind(verifier.as_slice()).bind(*principal.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+            sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,resulting_generation) VALUES ($1,$2,'REGISTERED',$3,1)").bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+            let audit_event = production_audit_event(
+                Some(principal.user_id), org, Some(request.branch_id),
+                "production.source_system_register", "production_source_system", id,
+                serde_json::json!({"source_system": source_system, "credential_generation": 1}),
+            )?;
+            Ok(((StatusCode::CREATED, Json(SourceSystemCredential {
+                id,
+                source_system,
+                enabled: true,
+                credential_generation: 1,
+                secret: base64::engine::general_purpose::STANDARD.encode(secret),
+            })), vec![audit_event]))
+        })
+    }).await?;
+    Ok(response)
 }
 async fn rotate_source_system(
     State(state): State<ProductionRestState>,
@@ -398,41 +406,33 @@ async fn source_system_lifecycle_context(
     state: &ProductionRestState,
     headers: &HeaderMap,
     id: Uuid,
-) -> Result<
-    (
-        sqlx::Transaction<'static, sqlx::Postgres>,
-        Principal,
-        mnt_kernel_core::OrgId,
-        Uuid,
-        i32,
-        String,
-    ),
-    RestError,
-> {
+) -> Result<(Principal, OrgId, BranchId, i32, String), RestError> {
     let principal = principal(state, headers).await?;
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let source = sqlx::query(
-        "SELECT branch_id,generation,display_name FROM service_principals WHERE id=$1 AND feature=$2 FOR UPDATE",
-    )
-    .bind(id)
-    .bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(RestError::db)?
-    .ok_or_else(|| RestError::not_found("production service principal not found"))?;
-    let branch_id: Uuid = source.try_get("branch_id").map_err(RestError::db)?;
-    let generation: i32 = source.try_get("generation").map_err(RestError::db)?;
-    let source_system: String = source.try_get("display_name").map_err(RestError::db)?;
-    authorize(
-        &principal,
-        Action::limited(Feature::RoleManage),
-        BranchId::from_uuid(branch_id),
-    )
-    .map_err(RestError::kernel)?;
-    Ok((tx, principal, org, branch_id, generation, source_system))
+    let (branch_id, generation, source_system) =
+        with_org_conn::<_, _, RestError>(&state.pool, org, move |tx| {
+            Box::pin(async move {
+                let source = sqlx::query(
+                    "SELECT branch_id,generation,display_name FROM service_principals WHERE id=$1 AND feature=$2",
+                )
+                .bind(id)
+                .bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(RestError::db)?
+                .ok_or_else(|| RestError::not_found("production service principal not found"))?;
+                Ok((
+                    BranchId::from_uuid(source.try_get("branch_id").map_err(RestError::db)?),
+                    source.try_get("generation").map_err(RestError::db)?,
+                    source.try_get("display_name").map_err(RestError::db)?,
+                ))
+            })
+        })
+        .await?;
+    authorize(&principal, Action::limited(Feature::RoleManage), branch_id)
+        .map_err(RestError::kernel)?;
+    Ok((principal, org, branch_id, generation, source_system))
 }
 
 async fn rotate_source_system_credential(
@@ -441,7 +441,7 @@ async fn rotate_source_system_credential(
     id: Uuid,
     expected_generation: i32,
 ) -> Result<Json<SourceSystemCredential>, RestError> {
-    let (mut tx, principal, org, branch_id, generation, source_system) =
+    let (principal, org, branch_id, generation, source_system) =
         source_system_lifecycle_context(state, headers, id).await?;
     if expected_generation != generation {
         return Err(RestError::conflict("service principal generation changed"));
@@ -456,25 +456,31 @@ async fn rotate_source_system_credential(
         &secret,
         org,
         mnt_kernel_core::ServicePrincipalId::from_uuid(id),
-        BranchId::from_uuid(branch_id),
+        branch_id,
         next_generation,
     );
-    let row = sqlx::query("UPDATE service_principals SET verifier=$1,generation=$2,rotated_by=$3,rotated_at=now() WHERE id=$4 AND feature=$5 AND state='ACTIVE' AND generation=$6 RETURNING generation")
-        .bind(verifier.as_slice()).bind(next_generation).bind(*principal.user_id.as_uuid()).bind(id).bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE).bind(expected_generation)
-        .fetch_optional(&mut *tx).await.map_err(RestError::db)?
-        .ok_or_else(|| RestError::conflict("service principal generation changed or source system is disabled"))?;
-    let resulting_generation: i32 = row.try_get("generation").map_err(RestError::db)?;
-    sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,expected_generation,resulting_generation) VALUES ($1,$2,'ROTATED',$3,$4,$5)")
-        .bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).bind(expected_generation).bind(resulting_generation)
-        .execute(&mut *tx).await.map_err(RestError::db)?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok(Json(SourceSystemCredential {
-        id,
-        source_system,
-        enabled: true,
-        credential_generation: resulting_generation,
-        secret: base64::engine::general_purpose::STANDARD.encode(secret),
-    }))
+    let response = with_audits::<_, _, RestError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query("UPDATE service_principals SET verifier=$1,generation=$2,rotated_by=$3,rotated_at=now() WHERE id=$4 AND feature=$5 AND state='ACTIVE' AND generation=$6 RETURNING generation")
+                .bind(verifier.as_slice()).bind(next_generation).bind(*principal.user_id.as_uuid()).bind(id).bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE).bind(expected_generation)
+                .fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
+                .ok_or_else(|| RestError::conflict("service principal generation changed or source system is disabled"))?;
+            let resulting_generation: i32 = row.try_get("generation").map_err(RestError::db)?;
+            sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,expected_generation,resulting_generation) VALUES ($1,$2,'ROTATED',$3,$4,$5)")
+                .bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).bind(expected_generation).bind(resulting_generation)
+                .execute(tx.as_mut()).await.map_err(RestError::db)?;
+            let audit_event = production_audit_event(
+                Some(principal.user_id), org, Some(branch_id), "production.source_system_rotate",
+                "production_source_system", id,
+                serde_json::json!({"expected_generation": expected_generation, "resulting_generation": resulting_generation}),
+            )?;
+            Ok((Json(SourceSystemCredential {
+                id, source_system, enabled: true, credential_generation: resulting_generation,
+                secret: base64::engine::general_purpose::STANDARD.encode(secret),
+            }), vec![audit_event]))
+        })
+    }).await?;
+    Ok(response)
 }
 
 async fn disable_source_system_credential(
@@ -483,24 +489,30 @@ async fn disable_source_system_credential(
     id: Uuid,
     expected_generation: i32,
 ) -> Result<Json<SourceSystemReceipt>, RestError> {
-    let (mut tx, principal, org, _branch_id, generation, _source_system) =
+    let (principal, org, branch_id, generation, _source_system) =
         source_system_lifecycle_context(state, headers, id).await?;
     if expected_generation != generation {
         return Err(RestError::conflict("service principal generation changed"));
     }
-    let row = sqlx::query("UPDATE service_principals SET state='DISABLED',disabled_by=$1,disabled_at=now() WHERE id=$2 AND feature=$3 AND state='ACTIVE' AND generation=$4 RETURNING generation")
-        .bind(*principal.user_id.as_uuid()).bind(id).bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE).bind(expected_generation)
-        .fetch_optional(&mut *tx).await.map_err(RestError::db)?
-        .ok_or_else(|| RestError::conflict("service principal generation changed or source system is already disabled"))?;
-    let resulting_generation: i32 = row.try_get("generation").map_err(RestError::db)?;
-    sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,expected_generation,resulting_generation) VALUES ($1,$2,'DISABLED',$3,$4,$5)")
-        .bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).bind(expected_generation).bind(resulting_generation)
-        .execute(&mut *tx).await.map_err(RestError::db)?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok(Json(disabled_source_system_receipt(
-        id,
-        resulting_generation,
-    )))
+    let response = with_audits::<_, _, RestError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query("UPDATE service_principals SET state='DISABLED',disabled_by=$1,disabled_at=now() WHERE id=$2 AND feature=$3 AND state='ACTIVE' AND generation=$4 RETURNING generation")
+                .bind(*principal.user_id.as_uuid()).bind(id).bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE).bind(expected_generation)
+                .fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
+                .ok_or_else(|| RestError::conflict("service principal generation changed or source system is already disabled"))?;
+            let resulting_generation: i32 = row.try_get("generation").map_err(RestError::db)?;
+            sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,expected_generation,resulting_generation) VALUES ($1,$2,'DISABLED',$3,$4,$5)")
+                .bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).bind(expected_generation).bind(resulting_generation)
+                .execute(tx.as_mut()).await.map_err(RestError::db)?;
+            let audit_event = production_audit_event(
+                Some(principal.user_id), org, Some(branch_id), "production.source_system_disable",
+                "production_source_system", id,
+                serde_json::json!({"expected_generation": expected_generation, "resulting_generation": resulting_generation}),
+            )?;
+            Ok((Json(disabled_source_system_receipt(id, resulting_generation)), vec![audit_event]))
+        })
+    }).await?;
+    Ok(response)
 }
 
 /// Writes source-owned planning facts through an enabled registered workload.
@@ -686,6 +698,24 @@ async fn ingest_source(
         .map_err(|_| RestError::internal("source ingress receipt could not be serialized"))?;
     sqlx::query("UPDATE service_principal_ingress_claims SET response=$1, completed_at=now() WHERE org_id=$2 AND service_principal_id=$3 AND kind=$4 AND source_id=$5 AND source_version=$6")
         .bind(&response).bind(*org.as_uuid()).bind(service_principal_id).bind(kind).bind(source_id.trim()).bind(receipt.source_version.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
+    let audit_event = production_audit_event(
+        None,
+        org,
+        Some(branch_id),
+        "production.source_ingest",
+        "production_source_ingress",
+        format!("{service_principal_id}:{kind}:{}", receipt.id),
+        serde_json::json!({
+            "service_principal_id": service_principal_id,
+            "kind": kind,
+            "source_id": source_id,
+            "source_version": receipt.source_version,
+            "receipt_id": receipt.id,
+        }),
+    )?;
+    insert_audit_event(&mut tx, &audit_event)
+        .await
+        .map_err(RestError::from)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok(Json(receipt))
 }
@@ -705,13 +735,13 @@ async fn create_plan(
     .map_err(RestError::kernel)?;
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let request_hash = hash_request(&request)?;
+    let response = with_audits::<_, _, RestError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let request_hash = hash_request(&request)?;
     sqlx::query("INSERT INTO production_idempotency_claims (org_id,operation,idempotency_key,request_hash) VALUES ($1,'CREATE_PLAN',$2,$3) ON CONFLICT DO NOTHING")
-        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).bind(&request_hash).execute(&mut *tx).await.map_err(RestError::db)?;
+        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).bind(&request_hash).execute(tx.as_mut()).await.map_err(RestError::db)?;
     let claim = sqlx::query("SELECT request_hash,response FROM production_idempotency_claims WHERE org_id=$1 AND operation='CREATE_PLAN' AND idempotency_key=$2 FOR UPDATE")
-        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).fetch_one(tx.as_mut()).await.map_err(RestError::db)?;
     let stored_hash: String = claim.try_get("request_hash").map_err(RestError::db)?;
     if stored_hash != request_hash {
         return Err(RestError::conflict(
@@ -724,13 +754,12 @@ async fn create_plan(
     {
         let plan: PlanSummary = serde_json::from_value(response)
             .map_err(|_| RestError::internal("stored idempotency response is invalid"))?;
-        tx.commit().await.map_err(RestError::db)?;
-        return Ok((StatusCode::OK, Json(plan)));
+            return Ok(((StatusCode::OK, Json(plan)), Vec::new()));
     }
     let plan_id = Uuid::new_v4();
     let operation_id = Uuid::new_v4();
     let now = OffsetDateTime::now_utc();
-    let sources = resolve_required_sources(&mut tx, &request, *org.as_uuid()).await?;
+    let sources = resolve_required_sources(tx, &request, *org.as_uuid()).await?;
     let plan_digest = hash_request(&(
         plan_id,
         request.branch_id,
@@ -743,10 +772,10 @@ async fn create_plan(
         request.ontology_type_id,
     ))?;
     sqlx::query("INSERT INTO production_plans (id, org_id, branch_id, customer_demand_id, product_code, quantity, due_at, checks, source_snapshot, idempotency_key, ontology_type_id, first_operation_id, created_by, created_at, updated_at, plan_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15,$16)")
-        .bind(plan_id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.customer_demand_id).bind(&sources.product_code).bind(request.quantity).bind(request.due_at).bind(&sources.checks).bind(&sources.snapshot).bind(request.idempotency_key.trim()).bind(request.ontology_type_id).bind(operation_id).bind(*principal.user_id.as_uuid()).bind(now).bind(&plan_digest).execute(&mut *tx).await.map_err(RestError::db)?;
-    sqlx::query("INSERT INTO production_operations (id, org_id, plan_id, sequence, status) VALUES ($1,$2,$3,1,'PENDING')").bind(operation_id).bind(*org.as_uuid()).bind(plan_id).execute(&mut *tx).await.map_err(RestError::db)?;
+        .bind(plan_id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.customer_demand_id).bind(&sources.product_code).bind(request.quantity).bind(request.due_at).bind(&sources.checks).bind(&sources.snapshot).bind(request.idempotency_key.trim()).bind(request.ontology_type_id).bind(operation_id).bind(*principal.user_id.as_uuid()).bind(now).bind(&plan_digest).execute(tx.as_mut()).await.map_err(RestError::db)?;
+    sqlx::query("INSERT INTO production_operations (id, org_id, plan_id, sequence, status) VALUES ($1,$2,$3,1,'PENDING')").bind(operation_id).bind(*org.as_uuid()).bind(plan_id).execute(tx.as_mut()).await.map_err(RestError::db)?;
     event(
-        &mut tx,
+        tx,
         *org.as_uuid(),
         plan_id,
         principal.user_id.as_uuid(),
@@ -769,9 +798,21 @@ async fn create_plan(
     };
     sqlx::query("UPDATE production_idempotency_claims SET response=$1,completed_at=now() WHERE org_id=$2 AND operation='CREATE_PLAN' AND idempotency_key=$3")
         .bind(serde_json::to_value(&plan).map_err(|_| RestError::internal("could not serialize idempotency response"))?)
-        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok((StatusCode::CREATED, Json(plan)))
+        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).execute(tx.as_mut()).await.map_err(RestError::db)?;
+            let audit_event = production_audit_event(
+                Some(principal.user_id),
+                org,
+                Some(request.branch_id),
+                "production.plan_create",
+                "production_plan",
+                plan_id,
+                serde_json::json!({"plan_id": plan_id, "quantity": plan.quantity, "due_at": plan.due_at}),
+            )?;
+            Ok(((StatusCode::CREATED, Json(plan)), vec![audit_event]))
+        })
+    })
+    .await?;
+    Ok(response)
 }
 
 async fn release_plan(
@@ -791,11 +832,11 @@ async fn release_plan(
     .map_err(RestError::kernel)?;
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
+    let response = with_audits::<_, _, RestError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
     let request_hash = hash_request(&(plan_id, &request))?;
     if let Some(response) = claim_or_replay(
-        &mut tx,
+        tx,
         *org.as_uuid(),
         "RELEASE_PLAN",
         request.idempotency_key.trim(),
@@ -805,13 +846,12 @@ async fn release_plan(
     {
         let plan: PlanSummary = serde_json::from_value(response)
             .map_err(|_| RestError::internal("stored idempotency response is invalid"))?;
-        tx.commit().await.map_err(RestError::db)?;
-        return Ok(Json(plan));
+            return Ok((Json(plan), Vec::new()));
     }
     {
         let approval_kind = format!("release:v{}:{}", request.expected_version, plan.plan_digest);
         let approval = sqlx::query("SELECT requested_by, approver_id FROM gov_approvals WHERE id=$1 AND decision='approved' AND kind=$2 AND target_ref=$3 FOR UPDATE")
-            .bind(request.approval_ref).bind(&approval_kind).bind(plan_id).fetch_optional(&mut *tx).await.map_err(RestError::db)?
+            .bind(request.approval_ref).bind(&approval_kind).bind(plan_id).fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
             .ok_or_else(|| RestError::conflict("release requires an approved plan-bound approval"))?;
         let requested_by: Uuid = approval.try_get("requested_by").map_err(RestError::db)?;
         let approver_id: Uuid = approval.try_get("approver_id").map_err(RestError::db)?;
@@ -824,18 +864,18 @@ async fn release_plan(
             ));
         }
         sqlx::query("INSERT INTO gov_approval_consumptions (org_id,approval_id,consumed_by) VALUES ($1,$2,$3)")
-            .bind(*org.as_uuid()).bind(request.approval_ref).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(|error| {
+            .bind(*org.as_uuid()).bind(request.approval_ref).bind(*principal.user_id.as_uuid()).execute(tx.as_mut()).await.map_err(|error| {
                 if error.as_database_error().and_then(|database| database.code()).is_some_and(|code| code == "23505") { RestError::conflict("production release approval was already consumed") } else { RestError::db(error) }
             })?;
-        let updated = sqlx::query("UPDATE production_plans SET status='RELEASED', version=version+1, updated_at=now(), released_at=now(), released_by=$1, approval_ref=$2 WHERE id=$3 AND status='DRAFT' AND version=$4").bind(*principal.user_id.as_uuid()).bind(request.approval_ref).bind(plan_id).bind(request.expected_version).execute(&mut *tx).await.map_err(RestError::db)?;
+        let updated = sqlx::query("UPDATE production_plans SET status='RELEASED', version=version+1, updated_at=now(), released_at=now(), released_by=$1, approval_ref=$2 WHERE id=$3 AND status='DRAFT' AND version=$4").bind(*principal.user_id.as_uuid()).bind(request.approval_ref).bind(plan_id).bind(request.expected_version).execute(tx.as_mut()).await.map_err(RestError::db)?;
         if updated.rows_affected() != 1 {
             return Err(RestError::conflict(
                 "plan release conflicts with current lifecycle or version",
             ));
         }
-        sqlx::query("UPDATE production_operations SET status='RELEASED', version=version+1 WHERE id=$1 AND status='PENDING'").bind(plan.first_operation_id).execute(&mut *tx).await.map_err(RestError::db)?;
+        sqlx::query("UPDATE production_operations SET status='RELEASED', version=version+1 WHERE id=$1 AND status='PENDING'").bind(plan.first_operation_id).execute(tx.as_mut()).await.map_err(RestError::db)?;
         event_with_key(
-            &mut tx,
+            tx,
             *org.as_uuid(),
             plan_id,
             principal.user_id.as_uuid(),
@@ -845,17 +885,30 @@ async fn release_plan(
         )
         .await?;
     }
-    let plan = plan_for_auth_tx(&mut tx, plan_id).await?;
+    let plan = plan_for_auth_tx(tx, plan_id).await?;
     store_claim_response(
-        &mut tx,
+        tx,
         *org.as_uuid(),
         "RELEASE_PLAN",
         request.idempotency_key.trim(),
         &plan_summary_from_plan(&plan),
     )
     .await?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok(Json(plan_summary_from_plan(&plan)))
+            let summary = plan_summary_from_plan(&plan);
+            let audit_event = production_audit_event(
+                Some(principal.user_id),
+                org,
+                Some(BranchId::from_uuid(plan.branch_id)),
+                "production.plan_release",
+                "production_plan",
+                plan_id,
+                serde_json::json!({"plan_id": plan_id, "version": summary.version, "approval_ref": request.approval_ref}),
+            )?;
+            Ok((Json(summary), vec![audit_event]))
+        })
+    })
+    .await?;
+    Ok(response)
 }
 
 async fn record_operation(
@@ -885,11 +938,11 @@ async fn record_operation(
     .map_err(RestError::kernel)?;
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
+    let response = with_audits::<_, _, RestError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
     let request_hash = hash_request(&(plan_id, operation_id, &request))?;
     if let Some(response) = claim_or_replay(
-        &mut tx,
+        tx,
         *org.as_uuid(),
         "RECORD_OPERATION",
         request.idempotency_key.trim(),
@@ -899,29 +952,40 @@ async fn record_operation(
     {
         let operation: OperationDetail = serde_json::from_value(response)
             .map_err(|_| RestError::internal("stored idempotency response is invalid"))?;
-        tx.commit().await.map_err(RestError::db)?;
-        return Ok(Json(operation));
+            return Ok((Json(operation), Vec::new()));
     }
     {
-        let updated = sqlx::query("UPDATE production_operations SET output_quantity=output_quantity+$1, scrap_quantity=scrap_quantity+$2, downtime_minutes=downtime_minutes+$3, quality_evidence_ref=$4, quality_passed=$5, status='RECORDED', version=version+1 WHERE id=$6 AND plan_id=$7 AND status='RELEASED' AND version=$8").bind(request.output_quantity).bind(request.scrap_quantity).bind(request.downtime_minutes).bind(request.quality_evidence_ref.trim()).bind(request.quality_passed).bind(operation_id).bind(plan_id).bind(request.expected_version).execute(&mut *tx).await.map_err(RestError::db)?;
+        let updated = sqlx::query("UPDATE production_operations SET output_quantity=output_quantity+$1, scrap_quantity=scrap_quantity+$2, downtime_minutes=downtime_minutes+$3, quality_evidence_ref=$4, quality_passed=$5, status='RECORDED', version=version+1 WHERE id=$6 AND plan_id=$7 AND status='RELEASED' AND version=$8").bind(request.output_quantity).bind(request.scrap_quantity).bind(request.downtime_minutes).bind(request.quality_evidence_ref.trim()).bind(request.quality_passed).bind(operation_id).bind(plan_id).bind(request.expected_version).execute(tx.as_mut()).await.map_err(RestError::db)?;
         if updated.rows_affected() != 1 {
             return Err(RestError::conflict(
                 "operation record conflicts with current lifecycle or version",
             ));
         }
-        event_with_key(&mut tx, *org.as_uuid(), plan_id, principal.user_id.as_uuid(), "OPERATION_RECORDED", serde_json::json!({"operation_id": operation_id, "output_quantity": request.output_quantity, "scrap_quantity": request.scrap_quantity, "downtime_minutes": request.downtime_minutes, "quality_evidence_ref": request.quality_evidence_ref, "quality_passed": request.quality_passed, "note": request.note}), request.idempotency_key.trim()).await?;
+        event_with_key(tx, *org.as_uuid(), plan_id, principal.user_id.as_uuid(), "OPERATION_RECORDED", serde_json::json!({"operation_id": operation_id, "output_quantity": request.output_quantity, "scrap_quantity": request.scrap_quantity, "downtime_minutes": request.downtime_minutes, "quality_evidence_ref": request.quality_evidence_ref, "quality_passed": request.quality_passed, "note": request.note}), request.idempotency_key.trim()).await?;
     }
-    let operation = operation_detail_tx(&mut tx, operation_id).await?;
+    let operation = operation_detail_tx(tx, operation_id).await?;
     store_claim_response(
-        &mut tx,
+        tx,
         *org.as_uuid(),
         "RECORD_OPERATION",
         request.idempotency_key.trim(),
         &operation,
     )
     .await?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok(Json(operation))
+            let audit_event = production_audit_event(
+                Some(principal.user_id),
+                org,
+                Some(BranchId::from_uuid(plan.branch_id)),
+                "production.operation_record",
+                "production_operation",
+                operation_id,
+                serde_json::json!({"plan_id": plan_id, "operation_id": operation_id, "output_quantity": request.output_quantity, "scrap_quantity": request.scrap_quantity, "downtime_minutes": request.downtime_minutes, "quality_passed": request.quality_passed}),
+            )?;
+            Ok((Json(operation), vec![audit_event]))
+        })
+    })
+    .await?;
+    Ok(response)
 }
 
 async fn get_plan(
@@ -1174,6 +1238,31 @@ fn plan_summary_from_plan(plan: &PlanRow) -> PlanSummary {
         plan_digest: plan.plan_digest.clone(),
     }
 }
+fn production_audit_event(
+    actor: Option<UserId>,
+    org: OrgId,
+    branch: Option<BranchId>,
+    action: &str,
+    target_type: &str,
+    target_id: impl Into<String>,
+    after: serde_json::Value,
+) -> Result<AuditEvent, RestError> {
+    let event = AuditEvent::new(
+        actor,
+        AuditAction::new(action).map_err(RestError::kernel)?,
+        target_type,
+        target_id,
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(None, Some(after));
+    Ok(match branch {
+        Some(branch) => event.with_branch(branch),
+        None => event,
+    })
+}
+
 async fn event(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     org: Uuid,
@@ -1456,6 +1545,12 @@ impl RestError {
         }
     }
 }
+impl From<DbError> for RestError {
+    fn from(_error: DbError) -> Self {
+        Self::internal("production persistence failed")
+    }
+}
+
 impl IntoResponse for RestError {
     fn into_response(self) -> Response {
         (self.status,Json(serde_json::json!({"error":{"code":format!("{:?}",self.kind).to_lowercase(),"message":self.message}}))).into_response()

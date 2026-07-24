@@ -138,9 +138,10 @@ fn es256_rejects_actor_home_org_on_non_delegated_tokens() {
     .unwrap();
 
     let err = issuer.verify_access_token(&forged).unwrap_err();
-    assert!(err
-        .to_string()
-        .contains("actor_home_org requires group-admin tenant context"));
+    assert!(
+        err.to_string()
+            .contains("actor_home_org requires group-admin tenant context")
+    );
 }
 
 #[test]

@@ -485,7 +485,6 @@ mod tests {
     use mnt_action_inbox_application::canonical_action_link_kind;
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn normalizes_the_legacy_workflow_run_alias() {
         assert_eq!(canonical_action_link_kind("workflow_run"), "approval_run");
@@ -494,7 +493,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn preserves_cursor_validation_and_source_failure_error_codes() {
         assert_eq!(

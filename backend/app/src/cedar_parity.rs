@@ -445,7 +445,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn report_surfaces_a_seeded_divergence_per_site() {
         let rows = vec![
@@ -482,7 +481,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn identical_divergences_dedupe_with_count() {
         let rows = vec![
@@ -497,7 +495,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn divergences_from_different_domains_remain_distinct() {
         let mut object = obs(true, &["MECHANIC"]);

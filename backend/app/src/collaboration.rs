@@ -1489,7 +1489,6 @@ mod tests {
     use super::*;
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn personal_scope_is_pinned_to_actor() -> Result<(), String> {
         let actor = Uuid::parse_str("00000000-0000-4000-8000-000000000001")
@@ -1501,7 +1500,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn poll_options_are_unique_and_object_link_is_paired() -> Result<(), String> {
         let actor = Uuid::parse_str("00000000-0000-4000-8000-000000000001")

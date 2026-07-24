@@ -334,7 +334,10 @@ async fn group_admin_issuer_seam_carries_all_three_fields(owner_pool: PgPool) {
         .unwrap();
 
     let claims = verifier.verify_access_token(&token).unwrap();
-    assert_eq!(claims.actor_home_org, Some(OrgId::from_uuid(ORG_A).to_string()));
+    assert_eq!(
+        claims.actor_home_org,
+        Some(OrgId::from_uuid(ORG_A).to_string())
+    );
     assert_eq!(
         claims.authz_policy_version, 5,
         "group-admin token must carry the real policy_version, not 0"

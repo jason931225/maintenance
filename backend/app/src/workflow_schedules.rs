@@ -353,7 +353,6 @@ mod tests {
     use time::macros::datetime;
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn garbage_cron_is_rejected() {
         for garbage in [
@@ -375,7 +374,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn valid_cron_parses() {
         for ok in ["0 9 * * *", "*/5 * * * *", "0 0 1 * *", "0 9 * * MON-FRI"] {
@@ -384,7 +382,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn unknown_timezone_is_rejected() {
         assert!(validate_timezone("Asia/Seoul").is_ok());
@@ -392,7 +389,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn next_occurrences_respects_kst() {
         // 09:00 KST daily = 00:00 UTC. From 2026-07-08T01:00:00Z (= 10:00 KST,
@@ -410,7 +406,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn next_occurrence_is_strictly_after() {
         // From exactly a fire instant, the NEXT fire is returned (exclusive).
@@ -420,7 +415,6 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-postgres"))]
-
     #[test]
     fn weekly_pattern_lands_on_monday_kst() {
         // Monday 09:00 KST. 2026-07-08 is a Wednesday; next Monday is July 13.

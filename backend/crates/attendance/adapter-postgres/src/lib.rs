@@ -993,12 +993,11 @@ async fn substitution_eligibility_lock(
 /// The migration-owned guard is a normal optimistic-race outcome. Other
 /// database failures retain their original error surface for observability.
 fn eligibility_guard_conflict(error: sqlx::Error) -> AttendanceStoreError {
-    if let sqlx::Error::Database(database) = &error {
-        if database.code().as_deref() == Some("23514")
-            && database.message() == "attendance_substitutions_worker_eligibility_guard"
-        {
-            return AttendanceStoreError::Conflict;
-        }
+    if let sqlx::Error::Database(database) = &error
+        && database.code().as_deref() == Some("23514")
+        && database.message() == "attendance_substitutions_worker_eligibility_guard"
+    {
+        return AttendanceStoreError::Conflict;
     }
     AttendanceStoreError::Sql(error)
 }
