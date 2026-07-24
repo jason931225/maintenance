@@ -18,6 +18,7 @@ members = [
   "crates/identity/*",
   "crates/inspection/*",
   "crates/inventory/*",
+  "crates/logistics/*",
   "crates/ontology/*",
   "crates/registry/*",
   "crates/reporting/*",
@@ -206,6 +207,10 @@ mnt-inspection-rest = { path = "crates/inspection/rest" }
 mnt-inventory-domain = { path = "crates/inventory/domain" }
 mnt-inventory-application = { path = "crates/inventory/application" }
 mnt-inventory-adapter-postgres = { path = "crates/inventory/adapter-postgres" }
+mnt-logistics-domain = { path = "crates/logistics/domain" }
+mnt-logistics-application = { path = "crates/logistics/application" }
+mnt-logistics-adapter-postgres = { path = "crates/logistics/adapter-postgres" }
+mnt-logistics-rest = { path = "crates/logistics/rest" }
 mnt-support-domain = { path = "crates/support/domain" }
 mnt-support-application = { path = "crates/support/application" }
 mnt-support-adapter-postgres = { path = "crates/support/adapter-postgres" }
