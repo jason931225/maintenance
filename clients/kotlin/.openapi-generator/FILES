@@ -309,11 +309,17 @@ src/main/kotlin/com/maintenance/api/client/model/CustodyStage.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryView.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerIntakeRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CycleCount.kt
+src/main/kotlin/com/maintenance/api/client/model/CycleCountDetail.kt
+src/main/kotlin/com/maintenance/api/client/model/CycleCountLine.kt
+src/main/kotlin/com/maintenance/api/client/model/CycleCountPage.kt
+src/main/kotlin/com/maintenance/api/client/model/CycleCountVersionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanItemSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanListPage.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DebitCredit.kt
+src/main/kotlin/com/maintenance/api/client/model/DecideCycleCountRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideEquipment3rApprovalRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideLeaveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideOwnershipTransferRequest.kt
@@ -483,6 +489,14 @@ src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionSourceOneOf
 src/main/kotlin/com/maintenance/api/client/model/InventoryConsumptionSourceOneOf1.kt
 src/main/kotlin/com/maintenance/api/client/model/InventoryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/InventoryItemPage.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMovement.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMovementSource.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMovementSourceCycleCount.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMovementSourceExternalRef.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMovementSourceP1Dispatch.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMovementSourceWorkOrder.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryMrpLine.kt
+src/main/kotlin/com/maintenance/api/client/model/InventoryReceiptResult.kt
 src/main/kotlin/com/maintenance/api/client/model/InventoryStockLocationSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
@@ -627,6 +641,7 @@ src/main/kotlin/com/maintenance/api/client/model/OfficeCallbackRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/OntologyActionCommandReceipt.kt
 src/main/kotlin/com/maintenance/api/client/model/OntologyActionExecuteOutcome.kt
 src/main/kotlin/com/maintenance/api/client/model/OntologyActionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/OpenCycleCountRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsFunnel.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsMechanicLoad.kt
@@ -757,6 +772,7 @@ src/main/kotlin/com/maintenance/api/client/model/QuoteLine.kt
 src/main/kotlin/com/maintenance/api/client/model/RaiseAttendanceExceptionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RaiseAttendanceExceptionRequestEvidenceInner.kt
 src/main/kotlin/com/maintenance/api/client/model/ReceiveLogisticsAsnRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/RecordInventoryReceiptRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RecordProductionOperation.kt
 src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RegionSummary.kt
@@ -886,6 +902,7 @@ src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderIntakeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkflowDefinitionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkflowScheduleRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpsertCycleCountLineRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UserPage.kt
 src/main/kotlin/com/maintenance/api/client/model/UserSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/VerifyLogisticsPodRequest.kt

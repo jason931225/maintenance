@@ -127,15 +127,22 @@ describe("inventoryApi", () => {
   });
 
   it("uses the signed inventory operational routes and fails closed on their object responses", async () => {
-    const count = { id: "cc-1", cc_code: "CC-1", branch_id: "branch-1", stock_location: { id: "loc", label: "A-01" }, status: "DRAFT", version: 1, opened_by: "user-1", submitted_by: null, decided_by: null, decision_memo: null, line_count: 0, variance_line_count: 0, created_at: "2026-07-24T00:00:00Z", updated_at: "2026-07-24T00:00:00Z" };
-    const detail = { count, lines: [], applied_movement_ids: [] };
-    const GET = vi.fn((path: string) => response(path === "/api/v1/inventory/mrp" ? [{ item_id: item.id, iv_code: item.iv_code, display_name: item.display_name, unit_code: item.unit_code, quantity_on_hand_milli: 1, safety_stock_milli: 2, inbound_expected_milli: 0, reserved_outbound_milli: 0, monthly_usage_milli: 1, cover_months_centi: 100, short: true, proposed_order_milli: 2 }] : [{ id: "move-1", item_id: item.id, iv_code: item.iv_code, kind: "RECEIPT", quantity_delta_milli: 1, quantity_before_milli: 0, quantity_after_milli: 1, source: { kind: "external_ref", source_ref: "PO-1" }, actor: "user-1", occurred_at: "2026-07-24T00:00:00Z", memo: null }]));
+    const count = { id: "cc-1", ccCode: "CC-1", branchId: "branch-1", stockLocation: { id: "loc", label: "A-01" }, status: "DRAFT", version: 1, openedBy: "user-1", submittedBy: null, decidedBy: null, decisionMemo: null, lineCount: 0, varianceLineCount: 0, createdAt: "2026-07-24T00:00:00Z", updatedAt: "2026-07-24T00:00:00Z" };
+    const detail = { count, lines: [], appliedMovementIds: [] };
+    const GET = vi.fn((path: string) => response(path === "/api/v1/inventory/mrp" ? [{ itemId: item.id, ivCode: item.iv_code, displayName: item.display_name, unitCode: item.unit_code, quantityOnHandMilli: 1, safetyStockMilli: 2, inboundExpectedMilli: 0, reservedOutboundMilli: 0, monthlyUsageMilli: 1, coverMonthsCenti: 100, short: true, proposedOrderMilli: 2 }] : [{ id: "move-1", itemId: item.id, ivCode: item.iv_code, kind: "RECEIPT", quantityDeltaMilli: 1, quantityBeforeMilli: 0, quantityAfterMilli: 1, source: { kind: "external_ref", sourceRef: "PO-1" }, actor: "user-1", occurredAt: "2026-07-24T00:00:00Z", memo: null }]));
     const POST = vi.fn(() => response(detail));
-    await expect(listInventoryMovements({ GET } as never, item.id)).resolves.toHaveLength(1);
-    await expect(getInventoryMrp({ GET } as never, item.branch_id)).resolves.toHaveLength(1);
+    await expect(listInventoryMovements({ GET } as never, item.id)).resolves.toMatchObject([{ item_id: item.id, source: { source_ref: "PO-1" } }]);
+    await expect(getInventoryMrp({ GET } as never, item.branch_id)).resolves.toMatchObject([{ item_id: item.id, proposed_order_milli: 2 }]);
     await expect(openCycleCount({ POST } as never, item.branch_id, "loc")).resolves.toMatchObject({ count: { id: "cc-1" } });
     await expect(submitCycleCount({ POST } as never, "cc-1", 1)).resolves.toMatchObject({ count: { version: 1 } });
-    expect(GET).toHaveBeenCalledWith("/api/v1/inventory/mrp", expect.objectContaining({ params: { query: { branch_id: item.branch_id } } }));
+    expect(GET).toHaveBeenCalledWith("/api/v1/inventory/mrp", expect.objectContaining({ params: { query: { branchId: item.branch_id } } }));
+    expect(POST).toHaveBeenCalledWith(
+      "/api/v1/inventory/cycle-counts/{count_id}/submit",
+      expect.objectContaining({
+        params: { path: { count_id: "cc-1" } },
+        body: { expectedVersion: 1 },
+      }),
+    );
   });
 
   it("rejects malformed 2xx inventory, work-order, trace, and consumption bodies", async () => {

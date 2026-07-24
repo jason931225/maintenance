@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -577,7 +576,11 @@ function InventoryDetail({
           }}
         />
       ) : null}
-      <InventoryOperations api={api} item={item} />
+      <InventoryOperations
+        key={`${item.branch_id}:${item.id}`}
+        api={api}
+        item={item}
+      />
       <div style={{ padding: "var(--sp-4)" }}>
         <h3 style={{ margin: "0 0 var(--sp-3)", fontSize: "var(--text-base)" }}>
           {T.traceTitle}
@@ -619,52 +622,573 @@ function InventoryDetail({
   );
 }
 
-function InventoryOperations({ api, item }: { api: ConsoleApiClient; item: InventoryItem }) {
+function InventoryOperations({
+  api,
+  item,
+}: {
+  api: ConsoleApiClient;
+  item: InventoryItem;
+}) {
   const [movements, setMovements] = useState<InventoryMovement[] | null>(null);
-  const [mrp, setMrp] = useState<Awaited<ReturnType<typeof getInventoryMrp>> | null>(null);
+  const [mrp, setMrp] = useState<
+    Awaited<ReturnType<typeof getInventoryMrp>> | null
+  >(null);
   const [counts, setCounts] = useState<CycleCountDetail["count"][]>([]);
   const [count, setCount] = useState<CycleCountDetail | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [sourceRef, setSourceRef] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [counted, setCounted] = useState("");
+  const [reason, setReason] = useState("");
+  const [memo, setMemo] = useState("");
   const loadEpoch = useRef(0);
   const mutationEpoch = useRef(0);
+  const readController = useRef<AbortController | null>(null);
   const receiptAttempt = useRef<{ payload: string; key: string } | null>(null);
-  const [amount, setAmount] = useState(""); const [sourceRef, setSourceRef] = useState(""); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  const [counted, setCounted] = useState(""); const [reason, setReason] = useState(""); const [memo, setMemo] = useState("");
-  useLayoutEffect(() => {
-    mutationEpoch.current += 1;
-    setCount(null);
-    setBusy(false);
-    setMessage(null);
-    setShowReceipt(false);
-    setAmount("");
-    setSourceRef("");
-    setCounted("");
-    setReason("");
-    setMemo("");
-    receiptAttempt.current = null;
-  }, [item.branch_id, item.id]);
-  const load = async () => {
+
+  async function load() {
+    readController.current?.abort();
     const controller = new AbortController();
+    readController.current = controller;
     const epoch = ++loadEpoch.current;
     setMessage(null);
-    try { const [nextMovements, nextMrp, nextCounts] = await Promise.all([listInventoryMovements(api, item.id, controller.signal), getInventoryMrp(api, item.branch_id, controller.signal), listCycleCounts(api, item.branch_id, controller.signal)]); if (!controller.signal.aborted && epoch === loadEpoch.current) { setMovements(nextMovements); setMrp(nextMrp); setCounts(nextCounts); } }
-    catch (error) { if (!controller.signal.aborted && epoch === loadEpoch.current) setMessage(isAccessDenied(error) ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다." : "재고 운영 정보를 안전하게 확인하지 못했습니다."); }
-    return controller;
-  };
-  useEffect(() => { const controller = new AbortController(); const epoch = ++loadEpoch.current; void Promise.all([listInventoryMovements(api, item.id, controller.signal), getInventoryMrp(api, item.branch_id, controller.signal), listCycleCounts(api, item.branch_id, controller.signal)]).then(([nextMovements, nextMrp, nextCounts]) => { if (!controller.signal.aborted && epoch === loadEpoch.current) { setMovements(nextMovements); setMrp(nextMrp); setCounts(nextCounts); } }).catch((error: unknown) => { if (!controller.signal.aborted && epoch === loadEpoch.current) setMessage(isAccessDenied(error) ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다." : "재고 운영 정보를 안전하게 확인하지 못했습니다."); }); return () => controller.abort(); }, [api, item.id, item.branch_id]);
-  async function receipt() { const milli = milliUnits(amount); if (milli == null) { setMessage("입고 수량은 0보다 큰 셋째 자리 단위여야 합니다."); return; } const generation = mutationEpoch.current; const payload = JSON.stringify([item.id, milli, sourceRef.trim()]); if (receiptAttempt.current?.payload !== payload) receiptAttempt.current = { payload, key: crypto.randomUUID() }; setBusy(true); try { await receiveInventoryItem(api, item.id, { quantity_received_milli: milli, source_ref: sourceRef.trim() || undefined, idempotency_key: receiptAttempt.current.key }); if (generation !== mutationEpoch.current) return; receiptAttempt.current = null; setShowReceipt(false); setAmount(""); setSourceRef(""); await load(); } catch (error) { if (generation === mutationEpoch.current) setMessage(isAccessDenied(error) ? "입고 권한이 없습니다." : "입고가 저장되지 않았습니다. 같은 내용으로 다시 제출하면 중복을 방지합니다."); } finally { if (generation === mutationEpoch.current) setBusy(false); } }
-  async function openCount() { const generation = mutationEpoch.current; setBusy(true); try { const next = await openCycleCount(api, item.branch_id, item.stock_location.id); if (generation !== mutationEpoch.current) return; setCount(next); await load(); } catch (error) { if (generation === mutationEpoch.current) setMessage(isAccessDenied(error) ? "실사 개설 권한이 없습니다." : "실사 개설에 실패했습니다."); } finally { if (generation === mutationEpoch.current) setBusy(false); } }
-  async function line() { if (!count) return; const milli = nonNegativeMilliUnits(counted); if (milli == null) { setMessage("실사 수량은 0 이상 정수/소수 셋째 자리로 입력하세요."); return; } const snapshot = count.lines.find((entry) => entry.item_id === item.id); if (snapshot && milli !== snapshot.system_quantity_milli && !reason) { setMessage("시스템 수량과 다른 실사는 차이 사유가 필요합니다."); return; } const generation = mutationEpoch.current; setBusy(true); try { const next = await upsertCycleLine(api, count.count.id, { item_id: item.id, counted_quantity_milli: milli, reason: reason || undefined, note: memo.trim() || undefined }); if (generation !== mutationEpoch.current) return; setCount(next); } catch (error) { if (generation === mutationEpoch.current) setMessage(isAccessDenied(error) ? "실사 라인을 변경할 권한이 없습니다." : "실사 라인이 저장되지 않았습니다. 최신 상태를 다시 확인하세요."); } finally { if (generation === mutationEpoch.current) setBusy(false); } }
-  async function transition(action: "submit" | "approve" | "reject" | "cancel") { if (!count) return; const generation = mutationEpoch.current; setBusy(true); try { const next = action === "submit" ? await submitCycleCount(api, count.count.id, count.count.version) : action === "cancel" ? await cancelCycleCount(api, count.count.id) : await decideCycleCount(api, count.count.id, { expected_version: count.count.version, decision: action === "approve" ? "APPROVE" : "REJECT", memo: memo.trim() || undefined, idempotency_key: action === "approve" ? crypto.randomUUID() : undefined }); if (generation !== mutationEpoch.current) return; setCount(next); await load(); } catch (error) { if (generation === mutationEpoch.current) setMessage(isAccessDenied(error) ? "이 전환을 수행할 권한이 없습니다." : "동시 변경 또는 정책 검증으로 전환이 거부되었습니다. 최신 실사를 다시 확인하세요."); } finally { if (generation === mutationEpoch.current) setBusy(false); } }
-  return <section style={{ padding: "var(--sp-4)", borderBottom: "1px solid var(--border-soft)", display: "grid", gap: "var(--sp-3)" }} aria-label="재고 운영">
-    <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-2)", flexWrap: "wrap" }}><h3 style={{ margin: 0, fontSize: "var(--text-base)" }}>입고 · 이동 · 실사 · MRP</h3><button type="button" style={buttonStyle} onClick={() => void load()}>운영 정보 새로고침</button></div>
-    {message ? <div role="alert" style={errorStyle}>{message}</div> : null}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}><button type="button" style={primaryButtonStyle} onClick={() => setShowReceipt((value) => !value)}>{showReceipt ? "입고 닫기" : "입고 기록"}</button><button type="button" style={buttonStyle} onClick={() => void openCount()} disabled={busy}>이 위치 실사 개설</button>{counts.map((entry) => <button key={entry.id} type="button" onClick={() => { const generation = mutationEpoch.current; void getCycleCount(api, entry.id).then((detail) => { if (generation === mutationEpoch.current) setCount(detail); }).catch(() => { if (generation === mutationEpoch.current) setMessage("실사 상세를 불러오지 못했습니다."); }); }} style={buttonStyle}>{entry.cc_code} · {entry.status}</button>)}</div>
-    {showReceipt ? <form onSubmit={(event) => { event.preventDefault(); void receipt(); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(12rem,1fr))", gap: "var(--sp-2)" }} aria-label="재고 입고 기록"><label>입고 수량 ({item.unit_code})<input required value={amount} onChange={(event) => setAmount(event.target.value)} style={inputStyle} inputMode="decimal" /></label><label>원천 문서 (선택)<input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} style={inputStyle} placeholder="PO-118" /></label><button type="submit" style={primaryButtonStyle} disabled={busy}>{busy ? "저장 중" : "입고 저장"}</button></form> : null}
-    {count ? <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: "var(--sp-3)", display: "grid", gap: "var(--sp-2)" }}><strong>{count.count.cc_code} · {count.count.status} · 버전 {count.count.version}</strong><p style={{ margin: 0, color: "var(--steel)" }}>개설자 {count.count.opened_by}. 제출자와 결정자는 분리되어야 하며, 승인 시 조정 원장이 생성됩니다.</p>{count.count.status === "DRAFT" ? <><label>실사 수량 ({item.unit_code})<input value={counted} onChange={(event) => setCounted(event.target.value)} style={inputStyle} inputMode="decimal" /></label><label>차이 사유 (차이가 있을 때 필수)<select value={reason} onChange={(event) => setReason(event.target.value)} style={inputStyle}><option value="">선택</option>{["DAMAGE","LOSS","MISCOUNT","FOUND","OTHER"].map((value) => <option key={value}>{value}</option>)}</select></label><button type="button" style={buttonStyle} onClick={() => void line()} disabled={busy}>실사 라인 저장</button><button type="button" style={primaryButtonStyle} onClick={() => void transition("submit")} disabled={busy || count.lines.length === 0}>실사 제출</button></> : null}<label>결정 메모{count.count.status === "SUBMITTED" ? <input value={memo} onChange={(event) => setMemo(event.target.value)} style={inputStyle} /> : null}</label>{count.count.status === "SUBMITTED" ? <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}><button type="button" style={primaryButtonStyle} onClick={() => void transition("approve")} disabled={busy}>별도 검토자 승인</button><button type="button" style={buttonStyle} onClick={() => void transition("reject")} disabled={busy}>반려</button></div> : null}{["DRAFT", "SUBMITTED"].includes(count.count.status) ? <button type="button" style={buttonStyle} onClick={() => void transition("cancel")} disabled={busy}>실사 취소</button> : null}</div> : null}
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>통합 이동 원장</caption><thead><tr><th style={thStyle}>시각</th><th style={thStyle}>유형</th><th style={thStyle}>증감</th><th style={thStyle}>변경 후</th></tr></thead><tbody>{movements?.map((movement) => <tr key={movement.id}><td style={tdStyle}>{formatTime(movement.occurred_at)}</td><td style={tdStyle}>{movement.kind}</td><td style={tdStyle}>{quantity(movement.quantity_delta_milli, item.unit_code)}</td><td style={tdStyle}>{quantity(movement.quantity_after_milli, item.unit_code)}</td></tr>)}</tbody></table></div>
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>결정론적 MRP 권고</caption><thead><tr><th style={thStyle}>품목</th><th style={thStyle}>월 사용량</th><th style={thStyle}>입고 예정 / 예약</th><th style={thStyle}>권고</th></tr></thead><tbody>{mrp?.map((line) => <tr key={line.item_id}><td style={tdStyle}>{line.iv_code} · {line.display_name}</td><td style={tdStyle}>{quantity(line.monthly_usage_milli, line.unit_code)}</td><td style={tdStyle}>{quantity(line.inbound_expected_milli, line.unit_code)} / {quantity(line.reserved_outbound_milli, line.unit_code)}</td><td style={tdStyle}>{line.short ? quantity(line.proposed_order_milli, line.unit_code) : "발주 불필요"}</td></tr>)}</tbody></table></div>
-  </section>;
+    try {
+      const [nextMovements, nextMrp, nextCounts] = await Promise.all([
+        listInventoryMovements(api, item.id, controller.signal),
+        getInventoryMrp(api, item.branch_id, controller.signal),
+        listCycleCounts(api, item.branch_id, controller.signal),
+      ]);
+      if (!controller.signal.aborted && epoch === loadEpoch.current) {
+        setMovements(nextMovements);
+        setMrp(nextMrp);
+        setCounts(nextCounts);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && epoch === loadEpoch.current) {
+        setMessage(
+          isAccessDenied(error)
+            ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다."
+            : "재고 운영 정보를 안전하게 확인하지 못했습니다.",
+        );
+      }
+    } finally {
+      if (readController.current === controller) {
+        readController.current = null;
+      }
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    readController.current = controller;
+    const epoch = ++loadEpoch.current;
+    void Promise.all([
+      listInventoryMovements(api, item.id, controller.signal),
+      getInventoryMrp(api, item.branch_id, controller.signal),
+      listCycleCounts(api, item.branch_id, controller.signal),
+    ])
+      .then(([nextMovements, nextMrp, nextCounts]) => {
+        if (!controller.signal.aborted && epoch === loadEpoch.current) {
+          setMovements(nextMovements);
+          setMrp(nextMrp);
+          setCounts(nextCounts);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && epoch === loadEpoch.current) {
+          setMessage(
+            isAccessDenied(error)
+              ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다."
+              : "재고 운영 정보를 안전하게 확인하지 못했습니다.",
+          );
+        }
+      });
+    return () => {
+      controller.abort();
+      loadEpoch.current += 1;
+      mutationEpoch.current += 1;
+      if (readController.current === controller) {
+        readController.current = null;
+      }
+    };
+  }, [api, item.branch_id, item.id]);
+
+  async function receipt() {
+    const milli = milliUnits(amount);
+    if (milli == null) {
+      setMessage("입고 수량은 0보다 큰 셋째 자리 단위여야 합니다.");
+      return;
+    }
+    const generation = mutationEpoch.current;
+    const payload = JSON.stringify([item.id, milli, sourceRef.trim()]);
+    if (receiptAttempt.current?.payload !== payload) {
+      receiptAttempt.current = { payload, key: crypto.randomUUID() };
+    }
+    setBusy(true);
+    try {
+      await receiveInventoryItem(api, item.id, {
+        quantity_received_milli: milli,
+        source_ref: sourceRef.trim() || undefined,
+        idempotency_key: receiptAttempt.current.key,
+      });
+      if (generation !== mutationEpoch.current) return;
+      receiptAttempt.current = null;
+      setShowReceipt(false);
+      setAmount("");
+      setSourceRef("");
+      await load();
+    } catch (error) {
+      if (generation === mutationEpoch.current) {
+        setMessage(
+          isAccessDenied(error)
+            ? "입고 권한이 없습니다."
+            : "입고가 저장되지 않았습니다. 같은 내용으로 다시 제출하면 중복을 방지합니다.",
+        );
+      }
+    } finally {
+      if (generation === mutationEpoch.current) setBusy(false);
+    }
+  }
+
+  async function openCount() {
+    const generation = mutationEpoch.current;
+    setBusy(true);
+    try {
+      const next = await openCycleCount(
+        api,
+        item.branch_id,
+        item.stock_location.id,
+      );
+      if (generation !== mutationEpoch.current) return;
+      setCount(next);
+      await load();
+    } catch (error) {
+      if (generation === mutationEpoch.current) {
+        setMessage(
+          isAccessDenied(error)
+            ? "실사 개설 권한이 없습니다."
+            : "실사 개설에 실패했습니다.",
+        );
+      }
+    } finally {
+      if (generation === mutationEpoch.current) setBusy(false);
+    }
+  }
+
+  async function saveLine() {
+    if (!count) return;
+    const milli = nonNegativeMilliUnits(counted);
+    if (milli == null) {
+      setMessage("실사 수량은 0 이상 정수/소수 셋째 자리로 입력하세요.");
+      return;
+    }
+    const snapshot = count.lines.find((entry) => entry.item_id === item.id);
+    if (
+      snapshot &&
+      milli !== snapshot.system_quantity_milli &&
+      reason.length === 0
+    ) {
+      setMessage("시스템 수량과 다른 실사는 차이 사유가 필요합니다.");
+      return;
+    }
+    const generation = mutationEpoch.current;
+    setBusy(true);
+    try {
+      const next = await upsertCycleLine(api, count.count.id, {
+        expected_version: count.count.version,
+        item_id: item.id,
+        counted_quantity_milli: milli,
+        reason: reason || undefined,
+        note: memo.trim() || undefined,
+      });
+      if (generation !== mutationEpoch.current) return;
+      setCount(next);
+    } catch (error) {
+      if (generation === mutationEpoch.current) {
+        setMessage(
+          isAccessDenied(error)
+            ? "실사 라인을 변경할 권한이 없습니다."
+            : "실사 라인이 저장되지 않았습니다. 최신 상태를 다시 확인하세요.",
+        );
+      }
+    } finally {
+      if (generation === mutationEpoch.current) setBusy(false);
+    }
+  }
+
+  async function transition(
+    action: "submit" | "approve" | "reject" | "cancel",
+  ) {
+    if (!count) return;
+    const generation = mutationEpoch.current;
+    setBusy(true);
+    try {
+      const next =
+        action === "submit"
+          ? await submitCycleCount(
+              api,
+              count.count.id,
+              count.count.version,
+            )
+          : action === "cancel"
+            ? await cancelCycleCount(
+                api,
+                count.count.id,
+                count.count.version,
+              )
+            : await decideCycleCount(api, count.count.id, {
+                expected_version: count.count.version,
+                decision: action === "approve" ? "APPROVE" : "REJECT",
+                memo: memo.trim() || undefined,
+                idempotency_key:
+                  action === "approve" ? crypto.randomUUID() : undefined,
+              });
+      if (generation !== mutationEpoch.current) return;
+      setCount(next);
+      await load();
+    } catch (error) {
+      if (generation === mutationEpoch.current) {
+        setMessage(
+          isAccessDenied(error)
+            ? "이 전환을 수행할 권한이 없습니다."
+            : "동시 변경 또는 정책 검증으로 전환이 거부되었습니다. 최신 실사를 다시 확인하세요.",
+        );
+      }
+    } finally {
+      if (generation === mutationEpoch.current) setBusy(false);
+    }
+  }
+
+  async function selectCount(countId: string) {
+    const generation = mutationEpoch.current;
+    try {
+      const detail = await getCycleCount(api, countId);
+      if (generation === mutationEpoch.current) {
+        setCount(detail);
+      }
+    } catch {
+      if (generation === mutationEpoch.current) {
+        setMessage("실사 상세를 불러오지 못했습니다.");
+      }
+    }
+  }
+
+  return (
+    <section
+      style={{
+        padding: "var(--sp-4)",
+        borderBottom: "1px solid var(--border-soft)",
+        display: "grid",
+        gap: "var(--sp-3)",
+      }}
+      aria-label="재고 운영"
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "var(--sp-2)",
+          flexWrap: "wrap",
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: "var(--text-base)" }}>
+          입고 · 이동 · 실사 · MRP
+        </h3>
+        <button
+          type="button"
+          style={buttonStyle}
+          onClick={() => {
+            void load();
+          }}
+        >
+          운영 정보 새로고침
+        </button>
+      </div>
+      {message ? (
+        <div role="alert" style={errorStyle}>
+          {message}
+        </div>
+      ) : null}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "var(--sp-2)",
+        }}
+      >
+        <button
+          type="button"
+          style={primaryButtonStyle}
+          onClick={() => {
+            setShowReceipt((value) => !value);
+          }}
+        >
+          {showReceipt ? "입고 닫기" : "입고 기록"}
+        </button>
+        <button
+          type="button"
+          style={buttonStyle}
+          onClick={() => {
+            void openCount();
+          }}
+          disabled={busy}
+        >
+          이 위치 실사 개설
+        </button>
+        {counts.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            onClick={() => {
+              void selectCount(entry.id);
+            }}
+            style={buttonStyle}
+          >
+            {entry.cc_code} · {entry.status}
+          </button>
+        ))}
+      </div>
+      {showReceipt ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void receipt();
+          }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit,minmax(12rem,1fr))",
+            gap: "var(--sp-2)",
+          }}
+          aria-label="재고 입고 기록"
+        >
+          <label>
+            입고 수량 ({item.unit_code})
+            <input
+              required
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+              }}
+              style={inputStyle}
+              inputMode="decimal"
+            />
+          </label>
+          <label>
+            원천 문서 (선택)
+            <input
+              value={sourceRef}
+              onChange={(event) => {
+                setSourceRef(event.target.value);
+              }}
+              style={inputStyle}
+              placeholder="PO-118"
+            />
+          </label>
+          <button type="submit" style={primaryButtonStyle} disabled={busy}>
+            {busy ? "저장 중" : "입고 저장"}
+          </button>
+        </form>
+      ) : null}
+      {count ? (
+        <div
+          style={{
+            borderTop: "1px solid var(--border-soft)",
+            paddingTop: "var(--sp-3)",
+            display: "grid",
+            gap: "var(--sp-2)",
+          }}
+        >
+          <strong>
+            {count.count.cc_code} · {count.count.status} · 버전{" "}
+            {count.count.version}
+          </strong>
+          <p style={{ margin: 0, color: "var(--steel)" }}>
+            개설자 {count.count.opened_by}. 제출자와 결정자는 분리되어야 하며,
+            승인 시 조정 원장이 생성됩니다.
+          </p>
+          {count.count.status === "DRAFT" ? (
+            <>
+              <label>
+                실사 수량 ({item.unit_code})
+                <input
+                  value={counted}
+                  onChange={(event) => {
+                    setCounted(event.target.value);
+                  }}
+                  style={inputStyle}
+                  inputMode="decimal"
+                />
+              </label>
+              <label>
+                차이 사유 (차이가 있을 때 필수)
+                <select
+                  value={reason}
+                  onChange={(event) => {
+                    setReason(event.target.value);
+                  }}
+                  style={inputStyle}
+                >
+                  <option value="">선택</option>
+                  {["DAMAGE", "LOSS", "MISCOUNT", "FOUND", "OTHER"].map(
+                    (value) => (
+                      <option key={value}>{value}</option>
+                    ),
+                  )}
+                </select>
+              </label>
+              <button
+                type="button"
+                style={buttonStyle}
+                onClick={() => {
+                  void saveLine();
+                }}
+                disabled={busy}
+              >
+                실사 라인 저장
+              </button>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={() => {
+                  void transition("submit");
+                }}
+                disabled={busy || count.lines.length === 0}
+              >
+                실사 제출
+              </button>
+            </>
+          ) : null}
+          {count.count.status === "SUBMITTED" ? (
+            <>
+              <label>
+                결정 메모
+                <input
+                  value={memo}
+                  onChange={(event) => {
+                    setMemo(event.target.value);
+                  }}
+                  style={inputStyle}
+                />
+              </label>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--sp-2)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={() => {
+                    void transition("approve");
+                  }}
+                  disabled={busy}
+                >
+                  별도 검토자 승인
+                </button>
+                <button
+                  type="button"
+                  style={buttonStyle}
+                  onClick={() => {
+                    void transition("reject");
+                  }}
+                  disabled={busy}
+                >
+                  반려
+                </button>
+              </div>
+            </>
+          ) : null}
+          {["DRAFT", "SUBMITTED"].includes(count.count.status) ? (
+            <button
+              type="button"
+              style={buttonStyle}
+              onClick={() => {
+                void transition("cancel");
+              }}
+              disabled={busy}
+            >
+              실사 취소
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>
+            통합 이동 원장
+          </caption>
+          <thead>
+            <tr>
+              <th style={thStyle}>시각</th>
+              <th style={thStyle}>유형</th>
+              <th style={thStyle}>증감</th>
+              <th style={thStyle}>변경 후</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movements?.map((movement) => (
+              <tr key={movement.id}>
+                <td style={tdStyle}>{formatTime(movement.occurred_at)}</td>
+                <td style={tdStyle}>{movement.kind}</td>
+                <td style={tdStyle}>
+                  {quantity(
+                    movement.quantity_delta_milli,
+                    item.unit_code,
+                  )}
+                </td>
+                <td style={tdStyle}>
+                  {quantity(
+                    movement.quantity_after_milli,
+                    item.unit_code,
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>
+            결정론적 MRP 권고
+          </caption>
+          <thead>
+            <tr>
+              <th style={thStyle}>품목</th>
+              <th style={thStyle}>월 사용량</th>
+              <th style={thStyle}>입고 예정 / 예약</th>
+              <th style={thStyle}>권고</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mrp?.map((line) => (
+              <tr key={line.item_id}>
+                <td style={tdStyle}>
+                  {line.iv_code} · {line.display_name}
+                </td>
+                <td style={tdStyle}>
+                  {quantity(line.monthly_usage_milli, line.unit_code)}
+                </td>
+                <td style={tdStyle}>
+                  {quantity(line.inbound_expected_milli, line.unit_code)} /{" "}
+                  {quantity(line.reserved_outbound_milli, line.unit_code)}
+                </td>
+                <td style={tdStyle}>
+                  {line.short
+                    ? quantity(line.proposed_order_milli, line.unit_code)
+                    : "발주 불필요"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 function DetailMetric({ label, value }: { label: string; value: string }) {

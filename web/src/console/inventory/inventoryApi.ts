@@ -15,6 +15,25 @@ export type InventoryConsumptionResult =
   components["schemas"]["InventoryConsumptionResult"];
 export type WorkOrderSummary = components["schemas"]["WorkOrderListItem"];
 type ErrorBody = components["schemas"]["ErrorBody"];
+type InventoryMovementDto = components["schemas"]["InventoryMovement"];
+type InventoryMovementSourceDto =
+  components["schemas"]["InventoryMovementSource"];
+type InventoryMrpLineDto = components["schemas"]["InventoryMrpLine"];
+type InventoryReceiptResultDto =
+  components["schemas"]["InventoryReceiptResult"];
+type CycleCountDto = components["schemas"]["CycleCount"];
+type CycleCountDetailDto = components["schemas"]["CycleCountDetail"];
+type CycleCountLineDto = components["schemas"]["CycleCountLine"];
+type CycleCountPageDto = components["schemas"]["CycleCountPage"];
+type RecordInventoryReceiptRequest =
+  components["schemas"]["RecordInventoryReceiptRequest"];
+type OpenCycleCountRequest = components["schemas"]["OpenCycleCountRequest"];
+type UpsertCycleCountLineRequest =
+  components["schemas"]["UpsertCycleCountLineRequest"];
+type CycleCountVersionRequest =
+  components["schemas"]["CycleCountVersionRequest"];
+type DecideCycleCountRequest =
+  components["schemas"]["DecideCycleCountRequest"];
 
 export interface InventoryListFilters {
   q?: string;
@@ -30,7 +49,6 @@ export type InventoryMovement = {
 export type InventoryMrpLine = { item_id: string; iv_code: string; display_name: string; unit_code: string; quantity_on_hand_milli: number; safety_stock_milli: number; inbound_expected_milli: number; reserved_outbound_milli: number; monthly_usage_milli: number; cover_months_centi: number | null; short: boolean; proposed_order_milli: number };
 export type CycleCountStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CANCELLED";
 export type CycleCountDetail = { count: { id: string; cc_code: string; branch_id: string; stock_location: { id: string; label: string }; status: CycleCountStatus; version: number; opened_by: string; submitted_by: string | null; decided_by: string | null; decision_memo: string | null; line_count: number; variance_line_count: number; created_at: string; updated_at: string }; lines: Array<{ id: string; item_id: string; iv_code: string; display_name: string; unit_code: string; system_quantity_milli: number; counted_quantity_milli: number; variance_milli: number; reason: "DAMAGE" | "LOSS" | "MISCOUNT" | "FOUND" | "OTHER" | null; note: string | null; recorded_by: string; recorded_at: string }>; applied_movement_ids: string[] };
-type UntypedApi = { GET: (path: string, options?: unknown) => Promise<{ data?: unknown; error?: unknown; response: Response }>; POST: (path: string, options?: unknown) => Promise<{ data?: unknown; error?: unknown; response: Response }> };
 
 /** A 2xx response that does not satisfy the generated contract at runtime. */
 export class InventoryApiContractError extends Error {
@@ -60,16 +78,138 @@ function isOptionalNumber(value: unknown): boolean {
   return value == null || isNumber(value);
 }
 
-function isMovement(value: unknown): value is InventoryMovement {
-  return isRecord(value) && isString(value.id) && isString(value.item_id) && isString(value.iv_code) && ["ISSUE", "RECEIPT", "ADJUSTMENT"].includes(String(value.kind)) && isNumber(value.quantity_delta_milli) && isNumber(value.quantity_before_milli) && isNumber(value.quantity_after_milli) && isRecord(value.source) && isString(value.source.kind) && isString(value.actor) && isString(value.occurred_at) && isOptionalString(value.memo);
+function isMovementSourceDto(value: unknown): value is InventoryMovementSourceDto {
+  if (!isRecord(value) || !isString(value.kind)) return false;
+  switch (value.kind) {
+    case "work_order":
+      return isString(value.workOrderId);
+    case "p1_dispatch":
+      return isString(value.dispatchId) && isString(value.workOrderId);
+    case "cycle_count":
+      return isString(value.cycleCountId) && isString(value.ccCode);
+    case "external_ref":
+      return isOptionalString(value.sourceRef);
+    default:
+      return false;
+  }
 }
-function isMrpLine(value: unknown): value is InventoryMrpLine {
-  return isRecord(value) && isString(value.item_id) && isString(value.iv_code) && isString(value.display_name) && isString(value.unit_code) && ["quantity_on_hand_milli", "safety_stock_milli", "inbound_expected_milli", "reserved_outbound_milli", "monthly_usage_milli", "proposed_order_milli"].every((key) => isNumber(value[key])) && isOptionalNumber(value.cover_months_centi) && typeof value.short === "boolean";
+
+function isMovementDto(value: unknown): value is InventoryMovementDto {
+  return isRecord(value) && isString(value.id) && isString(value.itemId) && isString(value.ivCode) && ["ISSUE", "RECEIPT", "ADJUSTMENT"].includes(String(value.kind)) && isNumber(value.quantityDeltaMilli) && isNumber(value.quantityBeforeMilli) && isNumber(value.quantityAfterMilli) && isMovementSourceDto(value.source) && isString(value.actor) && isString(value.occurredAt) && isOptionalString(value.memo);
 }
-function isCycleDetail(value: unknown): value is CycleCountDetail {
-  if (!isRecord(value) || !isRecord(value.count) || !Array.isArray(value.lines) || !Array.isArray(value.applied_movement_ids)) return false;
-  const count = value.count;
-  return isString(count.id) && isString(count.cc_code) && isString(count.branch_id) && isRecord(count.stock_location) && isString(count.stock_location.id) && isString(count.stock_location.label) && ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"].includes(String(count.status)) && isNumber(count.version) && value.lines.every((line) => isRecord(line) && isString(line.id) && isString(line.item_id) && isString(line.iv_code) && isString(line.display_name) && isString(line.unit_code) && isNumber(line.system_quantity_milli) && isNumber(line.counted_quantity_milli) && isNumber(line.variance_milli)) && value.applied_movement_ids.every(isString);
+
+function isMrpLineDto(value: unknown): value is InventoryMrpLineDto {
+  return isRecord(value) && isString(value.itemId) && isString(value.ivCode) && isString(value.displayName) && isString(value.unitCode) && ["quantityOnHandMilli", "safetyStockMilli", "inboundExpectedMilli", "reservedOutboundMilli", "monthlyUsageMilli", "proposedOrderMilli"].every((key) => isNumber(value[key])) && isOptionalNumber(value.coverMonthsCenti) && typeof value.short === "boolean";
+}
+
+function isCycleCountDto(value: unknown): value is CycleCountDto {
+  return isRecord(value) && isString(value.id) && isString(value.ccCode) && isString(value.branchId) && isRecord(value.stockLocation) && isString(value.stockLocation.id) && isString(value.stockLocation.label) && ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"].includes(String(value.status)) && isNumber(value.version) && isString(value.openedBy) && isOptionalString(value.submittedBy) && isOptionalString(value.decidedBy) && isOptionalString(value.decisionMemo) && isNumber(value.lineCount) && isNumber(value.varianceLineCount) && isString(value.createdAt) && isString(value.updatedAt);
+}
+
+function isCycleCountLineDto(value: unknown): value is CycleCountLineDto {
+  return isRecord(value) && isString(value.id) && isString(value.itemId) && isString(value.ivCode) && isString(value.displayName) && isString(value.unitCode) && isNumber(value.systemQuantityMilli) && isNumber(value.countedQuantityMilli) && isNumber(value.varianceMilli) && isOptionalString(value.reason) && isOptionalString(value.note) && isString(value.recordedBy) && isString(value.recordedAt);
+}
+
+function isCycleDetailDto(value: unknown): value is CycleCountDetailDto {
+  return isRecord(value) && isCycleCountDto(value.count) && Array.isArray(value.lines) && value.lines.every(isCycleCountLineDto) && Array.isArray(value.appliedMovementIds) && value.appliedMovementIds.every(isString);
+}
+
+function isCycleCountPageDto(value: unknown): value is CycleCountPageDto {
+  return isRecord(value) && Array.isArray(value.items) && value.items.every(isCycleCountDto) && isNumber(value.limit) && isNumber(value.offset) && isNumber(value.total);
+}
+
+function movementSourceView(source: InventoryMovementSourceDto): InventoryMovement["source"] {
+  switch (source.kind) {
+    case "work_order":
+      return { kind: source.kind, work_order_id: source.workOrderId };
+    case "p1_dispatch":
+      return {
+        kind: source.kind,
+        dispatch_id: source.dispatchId,
+        work_order_id: source.workOrderId,
+      };
+    case "cycle_count":
+      return {
+        kind: source.kind,
+        cycle_count_id: source.cycleCountId,
+        cc_code: source.ccCode,
+      };
+    case "external_ref":
+      return { kind: source.kind, source_ref: source.sourceRef };
+  }
+}
+
+function movementView(movement: InventoryMovementDto): InventoryMovement {
+  return {
+    id: movement.id,
+    item_id: movement.itemId,
+    iv_code: movement.ivCode,
+    kind: movement.kind,
+    quantity_delta_milli: movement.quantityDeltaMilli,
+    quantity_before_milli: movement.quantityBeforeMilli,
+    quantity_after_milli: movement.quantityAfterMilli,
+    source: movementSourceView(movement.source),
+    actor: movement.actor,
+    occurred_at: movement.occurredAt,
+    memo: movement.memo ?? null,
+  };
+}
+
+function mrpLineView(line: InventoryMrpLineDto): InventoryMrpLine {
+  return {
+    item_id: line.itemId,
+    iv_code: line.ivCode,
+    display_name: line.displayName,
+    unit_code: line.unitCode,
+    quantity_on_hand_milli: line.quantityOnHandMilli,
+    safety_stock_milli: line.safetyStockMilli,
+    inbound_expected_milli: line.inboundExpectedMilli,
+    reserved_outbound_milli: line.reservedOutboundMilli,
+    monthly_usage_milli: line.monthlyUsageMilli,
+    cover_months_centi: line.coverMonthsCenti ?? null,
+    short: line.short,
+    proposed_order_milli: line.proposedOrderMilli,
+  };
+}
+
+function cycleCountView(count: CycleCountDto): CycleCountDetail["count"] {
+  return {
+    id: count.id,
+    cc_code: count.ccCode,
+    branch_id: count.branchId,
+    stock_location: count.stockLocation,
+    status: count.status,
+    version: count.version,
+    opened_by: count.openedBy,
+    submitted_by: count.submittedBy ?? null,
+    decided_by: count.decidedBy ?? null,
+    decision_memo: count.decisionMemo ?? null,
+    line_count: count.lineCount,
+    variance_line_count: count.varianceLineCount,
+    created_at: count.createdAt,
+    updated_at: count.updatedAt,
+  };
+}
+
+function cycleDetailView(detail: CycleCountDetailDto): CycleCountDetail {
+  return {
+    count: cycleCountView(detail.count),
+    lines: detail.lines.map((line) => ({
+      id: line.id,
+      item_id: line.itemId,
+      iv_code: line.ivCode,
+      display_name: line.displayName,
+      unit_code: line.unitCode,
+      system_quantity_milli: line.systemQuantityMilli,
+      counted_quantity_milli: line.countedQuantityMilli,
+      variance_milli: line.varianceMilli,
+      reason: line.reason ?? null,
+      note: line.note ?? null,
+      recorded_by: line.recordedBy,
+      recorded_at: line.recordedAt,
+    })),
+    applied_movement_ids: detail.appliedMovementIds,
+  };
 }
 
 function isInventoryItem(value: unknown): value is InventoryItem {
@@ -264,27 +404,130 @@ export async function consumeInventoryItem(
   );
 }
 
-// These signed routes are intentionally isolated behind a local port until the
-// reviewed OpenAPI/client generation catches up. Every response is still checked.
-function inventoryPort(api: ConsoleApiClient): UntypedApi { return api as unknown as UntypedApi; }
 export async function listInventoryMovements(api: ConsoleApiClient, itemId: string, signal?: AbortSignal): Promise<InventoryMovement[]> {
-  return requireData("inventory movement ledger", await inventoryPort(api).GET(`/api/v1/inventory/items/${itemId}/movements`, { signal }), (value): value is InventoryMovement[] => Array.isArray(value) && value.every(isMovement));
+  return requireData(
+    "inventory movement ledger",
+    await api.GET("/api/v1/inventory/items/{item_id}/movements", {
+      params: { path: { item_id: itemId }, query: { limit: 100, offset: 0 } },
+      signal,
+    }),
+    (value): value is InventoryMovementDto[] =>
+      Array.isArray(value) && value.every(isMovementDto),
+  ).map(movementView);
 }
 export async function receiveInventoryItem(api: ConsoleApiClient, itemId: string, request: { quantity_received_milli: number; source_ref?: string; memo?: string; idempotency_key: string }): Promise<{ item: InventoryItem; movement: InventoryMovement }> {
-  return requireData("inventory receipt", await inventoryPort(api).POST(`/api/v1/inventory/items/${itemId}/receipts`, { body: request }), (value): value is { item: InventoryItem; movement: InventoryMovement } => isRecord(value) && isInventoryItem(value.item) && isMovement(value.movement));
+  const body: RecordInventoryReceiptRequest = {
+    quantityReceivedMilli: request.quantity_received_milli,
+    sourceRef: request.source_ref,
+    memo: request.memo,
+    idempotencyKey: request.idempotency_key,
+  };
+  const result = requireData(
+    "inventory receipt",
+    await api.POST("/api/v1/inventory/items/{item_id}/receipts", {
+      params: { path: { item_id: itemId } },
+      body,
+    }),
+    (value): value is InventoryReceiptResultDto =>
+      isRecord(value) &&
+      isInventoryItem(value.item) &&
+      isMovementDto(value.movement),
+  );
+  return { item: result.item, movement: movementView(result.movement) };
 }
 export async function getInventoryMrp(api: ConsoleApiClient, branchId: string, signal?: AbortSignal): Promise<InventoryMrpLine[]> {
-  return requireData("inventory MRP", await inventoryPort(api).GET("/api/v1/inventory/mrp", { params: { query: { branch_id: branchId } }, signal }), (value): value is InventoryMrpLine[] => Array.isArray(value) && value.every(isMrpLine));
+  return requireData(
+    "inventory MRP",
+    await api.GET("/api/v1/inventory/mrp", {
+      params: { query: { branchId } },
+      signal,
+    }),
+    (value): value is InventoryMrpLineDto[] =>
+      Array.isArray(value) && value.every(isMrpLineDto),
+  ).map(mrpLineView);
 }
 export async function listCycleCounts(api: ConsoleApiClient, branchId: string, signal?: AbortSignal): Promise<CycleCountDetail["count"][]> {
-  return requireData("cycle count list", await inventoryPort(api).GET("/api/v1/inventory/cycle-counts", { params: { query: { branch_id: branchId, limit: 50, offset: 0 } }, signal }), (value): value is { items: CycleCountDetail["count"][] } => isRecord(value) && Array.isArray(value.items) && value.items.every((count) => isCycleDetail({ count, lines: [], applied_movement_ids: [] }))).items;
+  return requireData(
+    "cycle count list",
+    await api.GET("/api/v1/inventory/cycle-counts", {
+      params: { query: { branchId, limit: 50, offset: 0 } },
+      signal,
+    }),
+    isCycleCountPageDto,
+  ).items.map(cycleCountView);
 }
-export async function openCycleCount(api: ConsoleApiClient, branchId: string, stockLocationId: string): Promise<CycleCountDetail> { return requireData("open cycle count", await inventoryPort(api).POST("/api/v1/inventory/cycle-counts", { body: { branch_id: branchId, stock_location_id: stockLocationId } }), isCycleDetail); }
-export async function getCycleCount(api: ConsoleApiClient, id: string): Promise<CycleCountDetail> { return requireData("cycle count", await inventoryPort(api).GET(`/api/v1/inventory/cycle-counts/${id}`), isCycleDetail); }
-export async function upsertCycleLine(api: ConsoleApiClient, id: string, body: { item_id: string; counted_quantity_milli: number; reason?: string; note?: string }): Promise<CycleCountDetail> { return requireData("cycle count line", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/lines`, { body }), isCycleDetail); }
-export async function submitCycleCount(api: ConsoleApiClient, id: string, expected_version: number): Promise<CycleCountDetail> { return requireData("cycle count submit", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/submit`, { body: { expected_version } }), isCycleDetail); }
-export async function decideCycleCount(api: ConsoleApiClient, id: string, body: { expected_version: number; decision: "APPROVE" | "REJECT"; memo?: string; idempotency_key?: string }): Promise<CycleCountDetail> { return requireData("cycle count decision", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/decision`, { body }), isCycleDetail); }
-export async function cancelCycleCount(api: ConsoleApiClient, id: string): Promise<CycleCountDetail> { return requireData("cycle count cancel", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/cancel`), isCycleDetail); }
+export async function openCycleCount(api: ConsoleApiClient, branchId: string, stockLocationId: string): Promise<CycleCountDetail> {
+  const body: OpenCycleCountRequest = { branchId, stockLocationId };
+  return cycleDetailView(requireData(
+    "open cycle count",
+    await api.POST("/api/v1/inventory/cycle-counts", { body }),
+    isCycleDetailDto,
+  ));
+}
+export async function getCycleCount(api: ConsoleApiClient, id: string): Promise<CycleCountDetail> {
+  return cycleDetailView(requireData(
+    "cycle count",
+    await api.GET("/api/v1/inventory/cycle-counts/{count_id}", {
+      params: { path: { count_id: id } },
+    }),
+    isCycleDetailDto,
+  ));
+}
+export async function upsertCycleLine(api: ConsoleApiClient, id: string, request: { expected_version: number; item_id: string; counted_quantity_milli: number; reason?: CycleCountDetail["lines"][number]["reason"]; note?: string }): Promise<CycleCountDetail> {
+  const body: UpsertCycleCountLineRequest = {
+    expectedVersion: request.expected_version,
+    itemId: request.item_id,
+    countedQuantityMilli: request.counted_quantity_milli,
+    reason: request.reason,
+    note: request.note,
+  };
+  return cycleDetailView(requireData(
+    "cycle count line",
+    await api.POST("/api/v1/inventory/cycle-counts/{count_id}/lines", {
+      params: { path: { count_id: id } },
+      body,
+    }),
+    isCycleDetailDto,
+  ));
+}
+export async function submitCycleCount(api: ConsoleApiClient, id: string, expected_version: number): Promise<CycleCountDetail> {
+  const body: CycleCountVersionRequest = { expectedVersion: expected_version };
+  return cycleDetailView(requireData(
+    "cycle count submit",
+    await api.POST("/api/v1/inventory/cycle-counts/{count_id}/submit", {
+      params: { path: { count_id: id } },
+      body,
+    }),
+    isCycleDetailDto,
+  ));
+}
+export async function decideCycleCount(api: ConsoleApiClient, id: string, request: { expected_version: number; decision: "APPROVE" | "REJECT"; memo?: string; idempotency_key?: string }): Promise<CycleCountDetail> {
+  const body: DecideCycleCountRequest = {
+    expectedVersion: request.expected_version,
+    decision: request.decision,
+    memo: request.memo,
+    idempotencyKey: request.idempotency_key,
+  };
+  return cycleDetailView(requireData(
+    "cycle count decision",
+    await api.POST("/api/v1/inventory/cycle-counts/{count_id}/decision", {
+      params: { path: { count_id: id } },
+      body,
+    }),
+    isCycleDetailDto,
+  ));
+}
+export async function cancelCycleCount(api: ConsoleApiClient, id: string, expected_version: number): Promise<CycleCountDetail> {
+  const body: CycleCountVersionRequest = { expectedVersion: expected_version };
+  return cycleDetailView(requireData(
+    "cycle count cancel",
+    await api.POST("/api/v1/inventory/cycle-counts/{count_id}/cancel", {
+      params: { path: { count_id: id } },
+      body,
+    }),
+    isCycleDetailDto,
+  ));
+}
 
 export function isAccessDenied(error: unknown): boolean {
   return error instanceof ApiCallError && error.status === 403;

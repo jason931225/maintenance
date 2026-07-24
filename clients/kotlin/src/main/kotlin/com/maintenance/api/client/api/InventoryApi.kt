@@ -28,11 +28,21 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.ConsumeInventoryItemRequest
+import com.maintenance.api.client.model.CycleCountDetail
+import com.maintenance.api.client.model.CycleCountPage
+import com.maintenance.api.client.model.CycleCountVersionRequest
+import com.maintenance.api.client.model.DecideCycleCountRequest
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.InventoryConsumptionEvent
 import com.maintenance.api.client.model.InventoryConsumptionResult
 import com.maintenance.api.client.model.InventoryItem
 import com.maintenance.api.client.model.InventoryItemPage
+import com.maintenance.api.client.model.InventoryMovement
+import com.maintenance.api.client.model.InventoryMrpLine
+import com.maintenance.api.client.model.InventoryReceiptResult
+import com.maintenance.api.client.model.OpenCycleCountRequest
+import com.maintenance.api.client.model.RecordInventoryReceiptRequest
+import com.maintenance.api.client.model.UpsertCycleCountLineRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -60,6 +70,83 @@ open class InventoryApi(basePath: kotlin.String = defaultBasePath, client: Call.
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/cancel
+     * Cancel a DRAFT or SUBMITTED count without mutating ledger history
+     *
+     * @param countId
+     * @param cycleCountVersionRequest
+     * @return CycleCountDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun cancelInventoryCycleCount(countId: java.util.UUID, cycleCountVersionRequest: CycleCountVersionRequest) : CycleCountDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = cancelInventoryCycleCountWithHttpInfo(countId = countId, cycleCountVersionRequest = cycleCountVersionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/cancel
+     * Cancel a DRAFT or SUBMITTED count without mutating ledger history
+     *
+     * @param countId
+     * @param cycleCountVersionRequest
+     * @return ApiResponse<CycleCountDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun cancelInventoryCycleCountWithHttpInfo(countId: java.util.UUID, cycleCountVersionRequest: CycleCountVersionRequest) : ApiResponse<CycleCountDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = cancelInventoryCycleCountRequestConfig(countId = countId, cycleCountVersionRequest = cycleCountVersionRequest)
+
+        return@withContext request<CycleCountVersionRequest, CycleCountDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation cancelInventoryCycleCount
+     *
+     * @param countId
+     * @param cycleCountVersionRequest
+     * @return RequestConfig
+     */
+    fun cancelInventoryCycleCountRequestConfig(countId: java.util.UUID, cycleCountVersionRequest: CycleCountVersionRequest) : RequestConfig<CycleCountVersionRequest> {
+        val localVariableBody = cycleCountVersionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inventory/cycle-counts/{count_id}/cancel".replace("{"+"count_id"+"}", encodeURIComponent(countId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**
@@ -140,6 +227,156 @@ open class InventoryApi(basePath: kotlin.String = defaultBasePath, client: Call.
     }
 
     /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/decision
+     * Distinct checker approves idempotent adjustments or rejects with a memo
+     *
+     * @param countId
+     * @param decideCycleCountRequest
+     * @return CycleCountDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun decideInventoryCycleCount(countId: java.util.UUID, decideCycleCountRequest: DecideCycleCountRequest) : CycleCountDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = decideInventoryCycleCountWithHttpInfo(countId = countId, decideCycleCountRequest = decideCycleCountRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/decision
+     * Distinct checker approves idempotent adjustments or rejects with a memo
+     *
+     * @param countId
+     * @param decideCycleCountRequest
+     * @return ApiResponse<CycleCountDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun decideInventoryCycleCountWithHttpInfo(countId: java.util.UUID, decideCycleCountRequest: DecideCycleCountRequest) : ApiResponse<CycleCountDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = decideInventoryCycleCountRequestConfig(countId = countId, decideCycleCountRequest = decideCycleCountRequest)
+
+        return@withContext request<DecideCycleCountRequest, CycleCountDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation decideInventoryCycleCount
+     *
+     * @param countId
+     * @param decideCycleCountRequest
+     * @return RequestConfig
+     */
+    fun decideInventoryCycleCountRequestConfig(countId: java.util.UUID, decideCycleCountRequest: DecideCycleCountRequest) : RequestConfig<DecideCycleCountRequest> {
+        val localVariableBody = decideCycleCountRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inventory/cycle-counts/{count_id}/decision".replace("{"+"count_id"+"}", encodeURIComponent(countId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/inventory/cycle-counts/{count_id}
+     * Read one authorized cycle count with count lines and applied adjustment movement ids
+     *
+     * @param countId
+     * @return CycleCountDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getInventoryCycleCount(countId: java.util.UUID) : CycleCountDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = getInventoryCycleCountWithHttpInfo(countId = countId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/inventory/cycle-counts/{count_id}
+     * Read one authorized cycle count with count lines and applied adjustment movement ids
+     *
+     * @param countId
+     * @return ApiResponse<CycleCountDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getInventoryCycleCountWithHttpInfo(countId: java.util.UUID) : ApiResponse<CycleCountDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getInventoryCycleCountRequestConfig(countId = countId)
+
+        return@withContext request<Unit, CycleCountDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getInventoryCycleCount
+     *
+     * @param countId
+     * @return RequestConfig
+     */
+    fun getInventoryCycleCountRequestConfig(countId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/inventory/cycle-counts/{count_id}".replace("{"+"count_id"+"}", encodeURIComponent(countId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/inventory/items/{item_id}
      * Get one tenant-authorized inventory item
      *
@@ -205,6 +442,82 @@ open class InventoryApi(basePath: kotlin.String = defaultBasePath, client: Call.
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/inventory/items/{item_id}".replace("{"+"item_id"+"}", encodeURIComponent(itemId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/inventory/mrp
+     * Deterministic movement-derived MRP with explicit zero inbound and reservation values until those modules exist
+     *
+     * @param branchId
+     * @return kotlin.collections.List<InventoryMrpLine>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getInventoryMrp(branchId: java.util.UUID) : kotlin.collections.List<InventoryMrpLine> = withContext(Dispatchers.IO) {
+        val localVarResponse = getInventoryMrpWithHttpInfo(branchId = branchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<InventoryMrpLine>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/inventory/mrp
+     * Deterministic movement-derived MRP with explicit zero inbound and reservation values until those modules exist
+     *
+     * @param branchId
+     * @return ApiResponse<kotlin.collections.List<InventoryMrpLine>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getInventoryMrpWithHttpInfo(branchId: java.util.UUID) : ApiResponse<kotlin.collections.List<InventoryMrpLine>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getInventoryMrpRequestConfig(branchId = branchId)
+
+        return@withContext request<Unit, kotlin.collections.List<InventoryMrpLine>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getInventoryMrp
+     *
+     * @param branchId
+     * @return RequestConfig
+     */
+    fun getInventoryMrpRequestConfig(branchId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branchId", listOf(branchId.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/inventory/mrp",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -310,6 +623,120 @@ open class InventoryApi(basePath: kotlin.String = defaultBasePath, client: Call.
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/inventory/items/{item_id}/consumptions".replace("{"+"item_id"+"}", encodeURIComponent(itemId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter status
+     */
+     enum class StatusListInventoryCycleCounts(val value: kotlin.String) {
+         @SerialName(value = "DRAFT") DRAFT("DRAFT"),
+         @SerialName(value = "SUBMITTED") SUBMITTED("SUBMITTED"),
+         @SerialName(value = "APPROVED") APPROVED("APPROVED"),
+         @SerialName(value = "REJECTED") REJECTED("REJECTED"),
+         @SerialName(value = "CANCELLED") CANCELLED("CANCELLED");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v1/inventory/cycle-counts
+     * List tenant- and branch-scoped cycle counts
+     *
+     * @param branchId
+     * @param status  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return CycleCountPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listInventoryCycleCounts(branchId: java.util.UUID, status: StatusListInventoryCycleCounts? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : CycleCountPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listInventoryCycleCountsWithHttpInfo(branchId = branchId, status = status, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/inventory/cycle-counts
+     * List tenant- and branch-scoped cycle counts
+     *
+     * @param branchId
+     * @param status  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return ApiResponse<CycleCountPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listInventoryCycleCountsWithHttpInfo(branchId: java.util.UUID, status: StatusListInventoryCycleCounts?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<CycleCountPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listInventoryCycleCountsRequestConfig(branchId = branchId, status = status, limit = limit, offset = offset)
+
+        return@withContext request<Unit, CycleCountPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listInventoryCycleCounts
+     *
+     * @param branchId
+     * @param status  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return RequestConfig
+     */
+    fun listInventoryCycleCountsRequestConfig(branchId: java.util.UUID, status: StatusListInventoryCycleCounts?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branchId", listOf(branchId.toString()))
+                if (status != null) {
+                    put("status", listOf(status.value))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/inventory/cycle-counts",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -430,6 +857,398 @@ open class InventoryApi(basePath: kotlin.String = defaultBasePath, client: Call.
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/inventory/items",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/inventory/items/{item_id}/movements
+     * Read the tenant- and branch-scoped unified ISSUE, RECEIPT, and ADJUSTMENT ledger
+     *
+     * @param itemId
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return kotlin.collections.List<InventoryMovement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listInventoryMovements(itemId: java.util.UUID, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : kotlin.collections.List<InventoryMovement> = withContext(Dispatchers.IO) {
+        val localVarResponse = listInventoryMovementsWithHttpInfo(itemId = itemId, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<InventoryMovement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/inventory/items/{item_id}/movements
+     * Read the tenant- and branch-scoped unified ISSUE, RECEIPT, and ADJUSTMENT ledger
+     *
+     * @param itemId
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return ApiResponse<kotlin.collections.List<InventoryMovement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listInventoryMovementsWithHttpInfo(itemId: java.util.UUID, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<kotlin.collections.List<InventoryMovement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listInventoryMovementsRequestConfig(itemId = itemId, limit = limit, offset = offset)
+
+        return@withContext request<Unit, kotlin.collections.List<InventoryMovement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listInventoryMovements
+     *
+     * @param itemId
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return RequestConfig
+     */
+    fun listInventoryMovementsRequestConfig(itemId: java.util.UUID, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/inventory/items/{item_id}/movements".replace("{"+"item_id"+"}", encodeURIComponent(itemId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts
+     * Open a cycle count in an authorized branch and stock location
+     *
+     * @param openCycleCountRequest
+     * @return CycleCountDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun openInventoryCycleCount(openCycleCountRequest: OpenCycleCountRequest) : CycleCountDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = openInventoryCycleCountWithHttpInfo(openCycleCountRequest = openCycleCountRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts
+     * Open a cycle count in an authorized branch and stock location
+     *
+     * @param openCycleCountRequest
+     * @return ApiResponse<CycleCountDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun openInventoryCycleCountWithHttpInfo(openCycleCountRequest: OpenCycleCountRequest) : ApiResponse<CycleCountDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = openInventoryCycleCountRequestConfig(openCycleCountRequest = openCycleCountRequest)
+
+        return@withContext request<OpenCycleCountRequest, CycleCountDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation openInventoryCycleCount
+     *
+     * @param openCycleCountRequest
+     * @return RequestConfig
+     */
+    fun openInventoryCycleCountRequestConfig(openCycleCountRequest: OpenCycleCountRequest) : RequestConfig<OpenCycleCountRequest> {
+        val localVariableBody = openCycleCountRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inventory/cycle-counts",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/inventory/items/{item_id}/receipts
+     * Idempotently record a positive receipt and its before delta after ledger row
+     *
+     * @param itemId
+     * @param recordInventoryReceiptRequest
+     * @return InventoryReceiptResult
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun receiveInventoryItem(itemId: java.util.UUID, recordInventoryReceiptRequest: RecordInventoryReceiptRequest) : InventoryReceiptResult = withContext(Dispatchers.IO) {
+        val localVarResponse = receiveInventoryItemWithHttpInfo(itemId = itemId, recordInventoryReceiptRequest = recordInventoryReceiptRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InventoryReceiptResult
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inventory/items/{item_id}/receipts
+     * Idempotently record a positive receipt and its before delta after ledger row
+     *
+     * @param itemId
+     * @param recordInventoryReceiptRequest
+     * @return ApiResponse<InventoryReceiptResult?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun receiveInventoryItemWithHttpInfo(itemId: java.util.UUID, recordInventoryReceiptRequest: RecordInventoryReceiptRequest) : ApiResponse<InventoryReceiptResult?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = receiveInventoryItemRequestConfig(itemId = itemId, recordInventoryReceiptRequest = recordInventoryReceiptRequest)
+
+        return@withContext request<RecordInventoryReceiptRequest, InventoryReceiptResult>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation receiveInventoryItem
+     *
+     * @param itemId
+     * @param recordInventoryReceiptRequest
+     * @return RequestConfig
+     */
+    fun receiveInventoryItemRequestConfig(itemId: java.util.UUID, recordInventoryReceiptRequest: RecordInventoryReceiptRequest) : RequestConfig<RecordInventoryReceiptRequest> {
+        val localVariableBody = recordInventoryReceiptRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inventory/items/{item_id}/receipts".replace("{"+"item_id"+"}", encodeURIComponent(itemId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/submit
+     * Submit a nonempty DRAFT cycle count using optimistic version control
+     *
+     * @param countId
+     * @param cycleCountVersionRequest
+     * @return CycleCountDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun submitInventoryCycleCount(countId: java.util.UUID, cycleCountVersionRequest: CycleCountVersionRequest) : CycleCountDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = submitInventoryCycleCountWithHttpInfo(countId = countId, cycleCountVersionRequest = cycleCountVersionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/submit
+     * Submit a nonempty DRAFT cycle count using optimistic version control
+     *
+     * @param countId
+     * @param cycleCountVersionRequest
+     * @return ApiResponse<CycleCountDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun submitInventoryCycleCountWithHttpInfo(countId: java.util.UUID, cycleCountVersionRequest: CycleCountVersionRequest) : ApiResponse<CycleCountDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = submitInventoryCycleCountRequestConfig(countId = countId, cycleCountVersionRequest = cycleCountVersionRequest)
+
+        return@withContext request<CycleCountVersionRequest, CycleCountDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation submitInventoryCycleCount
+     *
+     * @param countId
+     * @param cycleCountVersionRequest
+     * @return RequestConfig
+     */
+    fun submitInventoryCycleCountRequestConfig(countId: java.util.UUID, cycleCountVersionRequest: CycleCountVersionRequest) : RequestConfig<CycleCountVersionRequest> {
+        val localVariableBody = cycleCountVersionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inventory/cycle-counts/{count_id}/submit".replace("{"+"count_id"+"}", encodeURIComponent(countId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/lines
+     * Upsert a DRAFT count line; a nonzero variance requires a typed reason
+     *
+     * @param countId
+     * @param upsertCycleCountLineRequest
+     * @return CycleCountDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun upsertInventoryCycleCountLine(countId: java.util.UUID, upsertCycleCountLineRequest: UpsertCycleCountLineRequest) : CycleCountDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = upsertInventoryCycleCountLineWithHttpInfo(countId = countId, upsertCycleCountLineRequest = upsertCycleCountLineRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CycleCountDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inventory/cycle-counts/{count_id}/lines
+     * Upsert a DRAFT count line; a nonzero variance requires a typed reason
+     *
+     * @param countId
+     * @param upsertCycleCountLineRequest
+     * @return ApiResponse<CycleCountDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun upsertInventoryCycleCountLineWithHttpInfo(countId: java.util.UUID, upsertCycleCountLineRequest: UpsertCycleCountLineRequest) : ApiResponse<CycleCountDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = upsertInventoryCycleCountLineRequestConfig(countId = countId, upsertCycleCountLineRequest = upsertCycleCountLineRequest)
+
+        return@withContext request<UpsertCycleCountLineRequest, CycleCountDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation upsertInventoryCycleCountLine
+     *
+     * @param countId
+     * @param upsertCycleCountLineRequest
+     * @return RequestConfig
+     */
+    fun upsertInventoryCycleCountLineRequestConfig(countId: java.util.UUID, upsertCycleCountLineRequest: UpsertCycleCountLineRequest) : RequestConfig<UpsertCycleCountLineRequest> {
+        val localVariableBody = upsertCycleCountLineRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inventory/cycle-counts/{count_id}/lines".replace("{"+"count_id"+"}", encodeURIComponent(countId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

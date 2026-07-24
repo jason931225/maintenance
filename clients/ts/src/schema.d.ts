@@ -8355,6 +8355,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inventory/items/{item_id}/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the tenant- and branch-scoped unified ISSUE, RECEIPT, and ADJUSTMENT ledger */
+        get: operations["listInventoryMovements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/items/{item_id}/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently record a positive receipt and its before delta after ledger row */
+        post: operations["receiveInventoryItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/mrp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Deterministic movement-derived MRP with explicit zero inbound and reservation values until those modules exist */
+        get: operations["getInventoryMrp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/cycle-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List tenant- and branch-scoped cycle counts */
+        get: operations["listInventoryCycleCounts"];
+        put?: never;
+        /** Open a cycle count in an authorized branch and stock location */
+        post: operations["openInventoryCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/cycle-counts/{count_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one authorized cycle count with count lines and applied adjustment movement ids */
+        get: operations["getInventoryCycleCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/cycle-counts/{count_id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upsert a DRAFT count line; a nonzero variance requires a typed reason */
+        post: operations["upsertInventoryCycleCountLine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/cycle-counts/{count_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a nonempty DRAFT cycle count using optimistic version control */
+        post: operations["submitInventoryCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/cycle-counts/{count_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Distinct checker approves idempotent adjustments or rejects with a memo */
+        post: operations["decideInventoryCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/cycle-counts/{count_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a DRAFT or SUBMITTED count without mutating ledger history */
+        post: operations["cancelInventoryCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -15651,6 +15805,172 @@ export interface components {
             occurred_at?: string | null;
             memo?: string | null;
             idempotency_key: string;
+        };
+        RecordInventoryReceiptRequest: {
+            /** Format: int64 */
+            quantityReceivedMilli: number;
+            sourceRef?: string | null;
+            memo?: string | null;
+            idempotencyKey: string;
+        };
+        InventoryMovementSourceWorkOrder: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "work_order";
+            workOrderId: components["schemas"]["Uuid"];
+        };
+        InventoryMovementSourceP1Dispatch: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "p1_dispatch";
+            dispatchId: components["schemas"]["Uuid"];
+            workOrderId: components["schemas"]["Uuid"];
+        };
+        InventoryMovementSourceCycleCount: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cycle_count";
+            cycleCountId: components["schemas"]["Uuid"];
+            ccCode: string;
+        };
+        InventoryMovementSourceExternalRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "external_ref";
+            sourceRef: string | null;
+        };
+        InventoryMovementSource: components["schemas"]["InventoryMovementSourceWorkOrder"] | components["schemas"]["InventoryMovementSourceP1Dispatch"] | components["schemas"]["InventoryMovementSourceCycleCount"] | components["schemas"]["InventoryMovementSourceExternalRef"];
+        InventoryMovement: {
+            id: components["schemas"]["Uuid"];
+            itemId: components["schemas"]["Uuid"];
+            ivCode: string;
+            /** @enum {string} */
+            kind: "ISSUE" | "RECEIPT" | "ADJUSTMENT";
+            /** Format: int64 */
+            quantityDeltaMilli: number;
+            /** Format: int64 */
+            quantityBeforeMilli: number;
+            /** Format: int64 */
+            quantityAfterMilli: number;
+            source: components["schemas"]["InventoryMovementSource"];
+            actor: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            occurredAt: string;
+            memo?: string | null;
+        };
+        InventoryReceiptResult: {
+            movement: components["schemas"]["InventoryMovement"];
+            item: components["schemas"]["InventoryItem"];
+        };
+        InventoryMrpLine: {
+            itemId: components["schemas"]["Uuid"];
+            ivCode: string;
+            displayName: string;
+            unitCode: string;
+            /** Format: int64 */
+            quantityOnHandMilli: number;
+            /** Format: int64 */
+            safetyStockMilli: number;
+            /** Format: int64 */
+            inboundExpectedMilli: number;
+            /** Format: int64 */
+            reservedOutboundMilli: number;
+            /** Format: int64 */
+            monthlyUsageMilli: number;
+            /** Format: int64 */
+            coverMonthsCenti?: number | null;
+            short: boolean;
+            /** Format: int64 */
+            proposedOrderMilli: number;
+        };
+        CycleCount: {
+            id: components["schemas"]["Uuid"];
+            ccCode: string;
+            branchId: components["schemas"]["Uuid"];
+            stockLocation: components["schemas"]["InventoryStockLocationSummary"];
+            /** @enum {string} */
+            status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CANCELLED";
+            version: number;
+            openedBy: components["schemas"]["Uuid"];
+            submittedBy?: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            submittedAt?: string | null;
+            decidedBy?: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            decidedAt?: string | null;
+            decisionMemo?: string | null;
+            /** Format: int64 */
+            lineCount: number;
+            /** Format: int64 */
+            varianceLineCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CycleCountLine: {
+            id: components["schemas"]["Uuid"];
+            itemId: components["schemas"]["Uuid"];
+            ivCode: string;
+            displayName: string;
+            unitCode: string;
+            /** Format: int64 */
+            systemQuantityMilli: number;
+            /** Format: int64 */
+            countedQuantityMilli: number;
+            /** Format: int64 */
+            varianceMilli: number;
+            /** @enum {string|null} */
+            reason?: "DAMAGE" | "LOSS" | "MISCOUNT" | "FOUND" | "OTHER" | null;
+            note?: string | null;
+            recordedBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            recordedAt: string;
+        };
+        CycleCountDetail: {
+            count: components["schemas"]["CycleCount"];
+            lines: components["schemas"]["CycleCountLine"][];
+            appliedMovementIds: components["schemas"]["Uuid"][];
+        };
+        CycleCountPage: {
+            items: components["schemas"]["CycleCount"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        OpenCycleCountRequest: {
+            branchId: components["schemas"]["Uuid"];
+            stockLocationId: components["schemas"]["Uuid"];
+        };
+        UpsertCycleCountLineRequest: {
+            expectedVersion: number;
+            itemId: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            countedQuantityMilli: number;
+            /** @enum {string|null} */
+            reason?: "DAMAGE" | "LOSS" | "MISCOUNT" | "FOUND" | "OTHER" | null;
+            note?: string | null;
+        };
+        CycleCountVersionRequest: {
+            expectedVersion: number;
+        };
+        DecideCycleCountRequest: {
+            expectedVersion: number;
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+            memo?: string | null;
+            idempotencyKey?: string | null;
         };
     };
     responses: {
@@ -30661,6 +30981,286 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listInventoryMovements: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                item_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unified movement ledger */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryMovement"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    receiveInventoryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordInventoryReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description Receipt result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryReceiptResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getInventoryMrp: {
+        parameters: {
+            query: {
+                branchId: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MRP lines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryMrpLine"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listInventoryCycleCounts: {
+        parameters: {
+            query: {
+                branchId: components["schemas"]["Uuid"];
+                status?: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CANCELLED";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cycle count page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    openInventoryCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenCycleCountRequest"];
+            };
+        };
+        responses: {
+            /** @description Cycle count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getInventoryCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                count_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cycle count detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    upsertInventoryCycleCountLine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                count_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertCycleCountLineRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated cycle count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    submitInventoryCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                count_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CycleCountVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Submitted cycle count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    decideInventoryCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                count_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideCycleCountRequest"];
+            };
+        };
+        responses: {
+            /** @description Decided cycle count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    cancelInventoryCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                count_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CycleCountVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Cancelled cycle count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleCountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
 }
