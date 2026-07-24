@@ -186,29 +186,18 @@ async fn linked_member_reads_only_own_attendance_console_data(pool: PgPool) {
     )
     .await;
     assert_eq!(own_week.status, StatusCode::OK, "{:?}", own_week.json);
-    assert_eq!(own_week.json["status"], "available");
-    let projection = own_week.json["projection"]
-        .as_object()
-        .expect("linked principal must receive a Week52 projection");
-    assert_eq!(projection.get("week_start"), Some(&json!("2026-07-20")));
-    assert_eq!(projection.get("current_hours"), Some(&json!(0.0)));
-    assert_eq!(projection.get("projected_hours"), Some(&json!(0.0)));
-    for forbidden in [
-        "employee_id",
-        "employee_name",
-        "branch_id",
-        "links",
-        "linkage",
-    ] {
-        assert!(
-            own_week.json.get(forbidden).is_none(),
-            "self Week52 response leaked {forbidden}"
-        );
-        assert!(
-            projection.get(forbidden).is_none(),
-            "self Week52 projection leaked {forbidden}"
-        );
-    }
+    assert_eq!(
+        own_week.json,
+        json!({
+            "status": "available",
+            "projection": {
+                "week_start": "2026-07-20",
+                "current_hours": 0.0,
+                "projected_hours": 0.0,
+                "tone": "OK"
+            }
+        })
+    );
 
     for selector in ["employee_id", "branch_id"] {
         let rejected = get(
