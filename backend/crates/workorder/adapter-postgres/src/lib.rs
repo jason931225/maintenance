@@ -1978,65 +1978,13 @@ async fn append_equipment_maintenance_history(
     completed_at: mnt_kernel_core::Timestamp,
     org_uuid: uuid::Uuid,
 ) -> Result<(), PgWorkOrderError> {
-    let history_id: uuid::Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO equipment_maintenance_history (
-            org_id, equipment_id, work_order_id, completed_at
-        )
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (org_id, work_order_id) DO NOTHING
-        RETURNING id
-        "#,
-    )
-    .bind(org_uuid)
-    .bind(*equipment_id.as_uuid())
-    .bind(*work_order_id.as_uuid())
-    .bind(completed_at)
-    .fetch_optional(tx.as_mut())
-    .await?
-    .ok_or_else(|| {
-        KernelError::conflict("maintenance history already exists for this completed work order")
-    })?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO equipment_maintenance_history_evidence (
-            history_id, org_id, evidence_media_id
-        )
-        SELECT $1, $2, e.id
-        FROM evidence_media e
-        WHERE e.work_order_id = $3
-          AND e.org_id = $2
-          AND e.stage IN ('AFTER', 'REPORT')
-          AND e.worm_replica_status = 'VERIFIED'
-        ORDER BY e.id
-        "#,
-    )
-    .bind(history_id)
-    .bind(org_uuid)
-    .bind(*work_order_id.as_uuid())
-    .execute(tx.as_mut())
-    .await?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO equipment_maintenance_history_costs (
-            history_id, org_id, equipment_cost_ledger_id
-        )
-        SELECT $1, $2, l.id
-        FROM equipment_cost_ledger l
-        WHERE l.work_order_id = $3
-          AND l.equipment_id = $4
-          AND l.org_id = $2
-        ORDER BY l.id
-        "#,
-    )
-    .bind(history_id)
-    .bind(org_uuid)
-    .bind(*work_order_id.as_uuid())
-    .bind(*equipment_id.as_uuid())
-    .execute(tx.as_mut())
-    .await?;
+    sqlx::query_scalar("SELECT append_equipment_maintenance_history($1, $2, $3, $4)")
+        .bind(org_uuid)
+        .bind(*equipment_id.as_uuid())
+        .bind(*work_order_id.as_uuid())
+        .bind(completed_at)
+        .fetch_one(tx.as_mut())
+        .await?;
 
     Ok(())
 }
