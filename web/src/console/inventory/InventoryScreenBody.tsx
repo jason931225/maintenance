@@ -39,6 +39,24 @@ import type { ConsoleApiClient } from "../../api/client";
 
 type LoadState = "loading" | "ready" | "error" | "denied";
 type DetailState = "idle" | "loading" | "ready" | "error" | "denied";
+type CycleCountReason = Exclude<
+  CycleCountDetail["lines"][number]["reason"],
+  null
+>;
+
+const cycleCountReasons = [
+  "DAMAGE",
+  "LOSS",
+  "MISCOUNT",
+  "FOUND",
+  "OTHER",
+] as const satisfies readonly CycleCountReason[];
+
+function cycleCountReason(value: string): CycleCountReason | "" {
+  return cycleCountReasons.includes(value as CycleCountReason)
+    ? (value as CycleCountReason)
+    : "";
+}
 
 const rootStyle: CSSProperties = {
   display: "grid",
@@ -641,7 +659,7 @@ function InventoryOperations({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [counted, setCounted] = useState("");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState<CycleCountReason | "">("");
   const [memo, setMemo] = useState("");
   const loadEpoch = useRef(0);
   const mutationEpoch = useRef(0);
@@ -672,9 +690,7 @@ function InventoryOperations({
     } catch (error) {
       if (!controller.signal.aborted && epoch === loadEpoch.current) {
         setMessage(
-          isAccessDenied(error)
-            ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다."
-            : "재고 운영 정보를 안전하게 확인하지 못했습니다.",
+          isAccessDenied(error) ? T.operationsDenied : T.operationsFailed,
         );
       }
     } finally {
@@ -703,9 +719,7 @@ function InventoryOperations({
       .catch((error: unknown) => {
         if (!controller.signal.aborted && epoch === loadEpoch.current) {
           setMessage(
-            isAccessDenied(error)
-              ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다."
-              : "재고 운영 정보를 안전하게 확인하지 못했습니다.",
+            isAccessDenied(error) ? T.operationsDenied : T.operationsFailed,
           );
         }
       });
@@ -723,7 +737,7 @@ function InventoryOperations({
   async function receipt() {
     const milli = milliUnits(amount);
     if (milli == null) {
-      setMessage("입고 수량은 0보다 큰 셋째 자리 단위여야 합니다.");
+      setMessage(T.receiptQuantityInvalid);
       return;
     }
     const generation = mutationEpoch.current;
@@ -747,9 +761,7 @@ function InventoryOperations({
     } catch (error) {
       if (generation === mutationEpoch.current) {
         setMessage(
-          isAccessDenied(error)
-            ? "입고 권한이 없습니다."
-            : "입고가 저장되지 않았습니다. 같은 내용으로 다시 제출하면 중복을 방지합니다.",
+          isAccessDenied(error) ? T.receiptDenied : T.receiptFailed,
         );
       }
     } finally {
@@ -780,9 +792,7 @@ function InventoryOperations({
         countGeneration === countSelectionEpoch.current
       ) {
         setMessage(
-          isAccessDenied(error)
-            ? "실사 개설 권한이 없습니다."
-            : "실사 개설에 실패했습니다.",
+          isAccessDenied(error) ? T.cycleCountOpenDenied : T.cycleCountOpenFailed,
         );
       }
     } finally {
@@ -794,7 +804,7 @@ function InventoryOperations({
     if (!count) return;
     const milli = nonNegativeMilliUnits(counted);
     if (milli == null) {
-      setMessage("실사 수량은 0 이상 정수/소수 셋째 자리로 입력하세요.");
+      setMessage(T.cycleCountQuantityInvalid);
       return;
     }
     const snapshot = count.lines.find((entry) => entry.item_id === item.id);
@@ -804,7 +814,7 @@ function InventoryOperations({
       milli !== systemQuantity &&
       reason.length === 0
     ) {
-      setMessage("시스템 수량과 다른 실사는 차이 사유가 필요합니다.");
+      setMessage(T.cycleCountReasonRequired);
       return;
     }
     const generation = mutationEpoch.current;
@@ -830,9 +840,7 @@ function InventoryOperations({
         countGeneration === countSelectionEpoch.current
       ) {
         setMessage(
-          isAccessDenied(error)
-            ? "실사 라인을 변경할 권한이 없습니다."
-            : "실사 라인이 저장되지 않았습니다. 최신 상태를 다시 확인하세요.",
+          isAccessDenied(error) ? T.cycleCountLineDenied : T.cycleCountLineFailed,
         );
       }
     } finally {
@@ -908,8 +916,8 @@ function InventoryOperations({
       ) {
         setMessage(
           isAccessDenied(error)
-            ? "이 전환을 수행할 권한이 없습니다."
-            : "동시 변경 또는 정책 검증으로 전환이 거부되었습니다. 최신 실사를 다시 확인하세요.",
+            ? T.cycleCountTransitionDenied
+            : T.cycleCountTransitionFailed,
         );
       }
     } finally {
@@ -933,7 +941,7 @@ function InventoryOperations({
         generation === mutationEpoch.current &&
         selection === countSelectionEpoch.current
       ) {
-        setMessage("실사 상세를 불러오지 못했습니다.");
+        setMessage(T.cycleCountDetailFailed);
       }
     }
   }
@@ -946,7 +954,7 @@ function InventoryOperations({
         display: "grid",
         gap: "var(--sp-3)",
       }}
-      aria-label="재고 운영"
+      aria-label={T.operationsAria}
     >
       <div
         style={{
@@ -957,7 +965,7 @@ function InventoryOperations({
         }}
       >
         <h3 style={{ margin: 0, fontSize: "var(--text-base)" }}>
-          입고 · 이동 · 실사 · MRP
+          {T.operationsTitle}
         </h3>
         <button
           type="button"
@@ -966,7 +974,7 @@ function InventoryOperations({
             void load();
           }}
         >
-          운영 정보 새로고침
+          {T.refreshOperations}
         </button>
       </div>
       {message ? (
@@ -988,7 +996,7 @@ function InventoryOperations({
             setShowReceipt((value) => !value);
           }}
         >
-          {showReceipt ? "입고 닫기" : "입고 기록"}
+          {showReceipt ? T.closeReceipt : T.openReceipt}
         </button>
         <button
           type="button"
@@ -998,7 +1006,7 @@ function InventoryOperations({
           }}
           disabled={busy}
         >
-          이 위치 실사 개설
+          {T.openLocationCycleCount}
         </button>
         {counts.map((entry) => (
           <button
@@ -1024,10 +1032,10 @@ function InventoryOperations({
             gridTemplateColumns: "repeat(auto-fit,minmax(12rem,1fr))",
             gap: "var(--sp-2)",
           }}
-          aria-label="재고 입고 기록"
+          aria-label={T.receiptAria}
         >
           <label>
-            입고 수량 ({item.unit_code})
+            {T.receiptQuantity(item.unit_code)}
             <input
               required
               value={amount}
@@ -1039,7 +1047,7 @@ function InventoryOperations({
             />
           </label>
           <label>
-            원천 문서 (선택)
+            {T.sourceDocumentOptional}
             <input
               value={sourceRef}
               onChange={(event) => {
@@ -1050,7 +1058,7 @@ function InventoryOperations({
             />
           </label>
           <button type="submit" style={primaryButtonStyle} disabled={busy}>
-            {busy ? "저장 중" : "입고 저장"}
+            {busy ? T.savingReceipt : T.saveReceipt}
           </button>
         </form>
       ) : null}
@@ -1064,17 +1072,19 @@ function InventoryOperations({
           }}
         >
           <strong>
-            {count.count.cc_code} · {count.count.status} · 버전{" "}
-            {count.count.version}
+            {T.cycleCountSummary(
+              count.count.cc_code,
+              count.count.status,
+              count.count.version,
+            )}
           </strong>
           <p style={{ margin: 0, color: "var(--steel)" }}>
-            개설자 {count.count.opened_by}. 제출자와 결정자는 분리되어야 하며,
-            승인 시 조정 원장이 생성됩니다.
+            {T.cycleCountGovernance(count.count.opened_by)}
           </p>
           {count.count.status === "DRAFT" ? (
             <>
               <label>
-                실사 수량 ({item.unit_code})
+                {T.cycleCountQuantity(item.unit_code)}
                 <input
                   value={counted}
                   onChange={(event) => {
@@ -1085,20 +1095,18 @@ function InventoryOperations({
                 />
               </label>
               <label>
-                차이 사유 (차이가 있을 때 필수)
+                {T.cycleCountReason}
                 <select
                   value={reason}
                   onChange={(event) => {
-                    setReason(event.target.value);
+                    setReason(cycleCountReason(event.target.value));
                   }}
                   style={inputStyle}
                 >
-                  <option value="">선택</option>
-                  {["DAMAGE", "LOSS", "MISCOUNT", "FOUND", "OTHER"].map(
-                    (value) => (
-                      <option key={value}>{value}</option>
-                    ),
-                  )}
+                  <option value="">{T.select}</option>
+                  {cycleCountReasons.map((value) => (
+                    <option key={value}>{value}</option>
+                  ))}
                 </select>
               </label>
               <button
@@ -1109,7 +1117,7 @@ function InventoryOperations({
                 }}
                 disabled={busy}
               >
-                실사 라인 저장
+                {T.saveCycleCountLine}
               </button>
               <button
                 type="button"
@@ -1119,14 +1127,14 @@ function InventoryOperations({
                 }}
                 disabled={busy || count.lines.length === 0}
               >
-                실사 제출
+                {T.submitCycleCount}
               </button>
             </>
           ) : null}
           {count.count.status === "SUBMITTED" ? (
             <>
               <label>
-                결정 메모
+                {T.decisionMemo}
                 <input
                   value={memo}
                   onChange={(event) => {
@@ -1150,7 +1158,7 @@ function InventoryOperations({
                   }}
                   disabled={busy}
                 >
-                  별도 검토자 승인
+                  {T.approveBySeparateReviewer}
                 </button>
                 <button
                   type="button"
@@ -1160,7 +1168,7 @@ function InventoryOperations({
                   }}
                   disabled={busy}
                 >
-                  반려
+                  {T.rejectCycleCount}
                 </button>
               </div>
             </>
@@ -1174,7 +1182,7 @@ function InventoryOperations({
               }}
               disabled={busy}
             >
-              실사 취소
+              {T.cancelCycleCount}
             </button>
           ) : null}
         </div>
@@ -1182,14 +1190,14 @@ function InventoryOperations({
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>
-            통합 이동 원장
+            {T.movementLedger}
           </caption>
           <thead>
             <tr>
-              <th style={thStyle}>시각</th>
-              <th style={thStyle}>유형</th>
-              <th style={thStyle}>증감</th>
-              <th style={thStyle}>변경 후</th>
+              <th style={thStyle}>{T.movementColumnTime}</th>
+              <th style={thStyle}>{T.movementColumnKind}</th>
+              <th style={thStyle}>{T.movementColumnDelta}</th>
+              <th style={thStyle}>{T.movementColumnAfter}</th>
             </tr>
           </thead>
           <tbody>
@@ -1217,14 +1225,14 @@ function InventoryOperations({
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>
-            결정론적 MRP 권고
+            {T.mrpRecommendation}
           </caption>
           <thead>
             <tr>
-              <th style={thStyle}>품목</th>
-              <th style={thStyle}>월 사용량</th>
-              <th style={thStyle}>입고 예정 / 예약</th>
-              <th style={thStyle}>권고</th>
+              <th style={thStyle}>{T.mrpColumnItem}</th>
+              <th style={thStyle}>{T.mrpColumnMonthlyUsage}</th>
+              <th style={thStyle}>{T.mrpColumnInboundReserved}</th>
+              <th style={thStyle}>{T.mrpColumnRecommendation}</th>
             </tr>
           </thead>
           <tbody>
@@ -1243,7 +1251,7 @@ function InventoryOperations({
                 <td style={tdStyle}>
                   {line.short
                     ? quantity(line.proposed_order_milli, line.unit_code)
-                    : "발주 불필요"}
+                    : T.noOrderNecessary}
                 </td>
               </tr>
             ))}
