@@ -253,6 +253,8 @@ async fn handler_mints_token_with_real_subject_freshness(owner_pool: PgPool) {
         .unwrap();
     // The minted token is the group-admin tenant-context token pinned to the target.
     assert_eq!(claims.org, target.to_string());
+    assert_eq!(claims.actor_home_org, Some(parent.to_string()));
+    assert_ne!(claims.actor_home_org.as_deref(), Some(claims.org.as_str()));
     // The load-bearing assertion: the handler sourced the target org's REAL
     // policy_version — a regression to a 0 stamp, or a field transposition, fails.
     assert_eq!(
