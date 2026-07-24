@@ -5,7 +5,7 @@
 .attendanceSelf__row { min-height: 44px; }
 .attendanceSelf__row:focus-visible,
 .attendanceSelf button:focus-visible,
-.attendanceSelf a:focus-visible { outline: 2px solid var(--info-solid); outline-offset: 2px; }
+.attendanceSelf a:focus-visible { outline: 2px solid var(--ok-solid); outline-offset: 2px; }
 .attendanceSelf .attendance__ghostbtn,
 .attendanceSelf .attendance__segbtn,
 .attendanceSelf .attendance__monthnav button { min-height: 44px; }
@@ -23,4 +23,6 @@
 .attendanceSelf__footer h2 { font-size: var(--text-card-title); }
 .attendanceSelf__footer p { color: var(--steel); font-size: 11px; line-height: 1.5; }
 .attendanceSelf .attendance__alert { min-height: 44px; }
+.attendance__modal .attendance__actionbtn { min-height: 44px; }
+.attendance__modal .attendance__actionbtn:focus-visible { outline: 2px solid var(--ok-solid); outline-offset: 2px; }
 @media (max-width: 760px) { .attendanceSelf__body { grid-template-columns: minmax(0, 1fr); } .attendanceSelf__week { border-top: 1px solid var(--border-soft); border-left: 0; } }
