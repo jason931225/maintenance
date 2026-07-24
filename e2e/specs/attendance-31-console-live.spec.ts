@@ -364,12 +364,15 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
 }) => {
   const consoleGuard = attachConsoleGuard(page);
   await loginAs(page, "관리자");
-  await page.goto("/console/attendance");
-  await expect(page).toHaveURL(/\/console\/attendance(?:$|[?#])/, {
+  await page.goto("/attendance");
+  await expect(page).toHaveURL(/\/attendance(?:$|[?#])/, {
     timeout: 15_000,
   });
   await expect(
-    page.getByRole("heading", { name: "근태", level: 1 }),
+    page.getByRole("heading", { name: "내 근태 기록", level: 1 }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole("heading", { name: "근태 운영", level: 2 }),
   ).toBeVisible({ timeout: 15_000 });
 
   // Every candidate comes from the real server-derived picker. The seed has
