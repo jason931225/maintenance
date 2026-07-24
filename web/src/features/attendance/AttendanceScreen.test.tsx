@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -163,9 +163,11 @@ function transport(overrides: TransportOverrides = {}): AttendanceTransport {
     ],
   };
   return {
-    listExceptions: vi.fn(async () => page(exceptions)),
-    resolveException: vi.fn(async (id, input) =>
-      exception({
+    listExceptions: vi.fn<AttendanceTransport["listExceptions"]>(() =>
+      Promise.resolve(page(exceptions)),
+    ),
+    resolveException: vi.fn<AttendanceTransport["resolveException"]>((id, input) =>
+      Promise.resolve(exception({
         id,
         status: "RESOLVED",
         resolution: {
@@ -174,19 +176,27 @@ function transport(overrides: TransportOverrides = {}): AttendanceTransport {
           actor: "actor-1",
           resolved_at: "2026-07-23T11:00:00+09:00",
         },
-      }),
+      })),
     ),
-    listSubstitutions: vi.fn(async () => page<Substitution>([])),
-    createSubstitution: vi.fn(async (input) => substitution(input)),
-    cancelSubstitution: vi.fn(async () => substitution({ status: "CANCELLED" })),
-    listCloses: vi.fn(async () => closes),
-    preflightClose: vi.fn(async (month, branchScope) => ({
+    listSubstitutions: vi.fn<AttendanceTransport["listSubstitutions"]>(() =>
+      Promise.resolve(page<Substitution>([])),
+    ),
+    createSubstitution: vi.fn<AttendanceTransport["createSubstitution"]>((input) =>
+      Promise.resolve(substitution(input)),
+    ),
+    cancelSubstitution: vi.fn<AttendanceTransport["cancelSubstitution"]>(() =>
+      Promise.resolve(substitution({ status: "CANCELLED" })),
+    ),
+    listCloses: vi.fn<AttendanceTransport["listCloses"]>(() =>
+      Promise.resolve(closes),
+    ),
+    preflightClose: vi.fn<AttendanceTransport["preflightClose"]>((month, branchScope) => Promise.resolve({
       month,
       branch_scope: branchScope,
       checks: [],
       can_close: true,
     })),
-    confirmClose: vi.fn(async (month, branchScope) => ({
+    confirmClose: vi.fn<AttendanceTransport["confirmClose"]>((month, branchScope) => Promise.resolve({
       id: "close-1",
       month,
       branch_scope: branchScope,
@@ -196,10 +206,18 @@ function transport(overrides: TransportOverrides = {}): AttendanceTransport {
       closed_at: "2026-07-23T11:00:00+09:00",
       amendments: [],
     })),
-    listWeek52: vi.fn(async () => week52),
-    ackWeek52: vi.fn(async () => ({ ...week52.items[0], acked: true })),
-    listAttendanceRecords: vi.fn(async () => records),
-    listAttendanceSummary: vi.fn(async () => pool),
+    listWeek52: vi.fn<AttendanceTransport["listWeek52"]>(() =>
+      Promise.resolve(week52),
+    ),
+    ackWeek52: vi.fn<AttendanceTransport["ackWeek52"]>(() =>
+      Promise.resolve({ ...week52.items[0], acked: true }),
+    ),
+    listAttendanceRecords: vi.fn<AttendanceTransport["listAttendanceRecords"]>(() =>
+      Promise.resolve(records),
+    ),
+    listAttendanceSummary: vi.fn<AttendanceTransport["listAttendanceSummary"]>(() =>
+      Promise.resolve(pool),
+    ),
     ...overrides,
   };
 }
@@ -263,15 +281,15 @@ async function assertDialogKeyboardContract(
   expect(last).toHaveFocus();
 
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name })).toBeNull());
+  await waitFor(() => { expect(screen.queryByRole("dialog", { name })).toBeNull(); });
   expect(opener).toHaveFocus();
 
   await userEvent.click(opener);
   const reopened = await screen.findByRole("dialog", { name });
   const backdrop = reopened.parentElement;
   if (!backdrop) throw new Error("attendance dialog must render a backdrop");
-  await userEvent.click(backdrop);
-  await waitFor(() => expect(screen.queryByRole("dialog", { name })).toBeNull());
+  fireEvent.mouseDown(backdrop);
+  await waitFor(() => { expect(screen.queryByRole("dialog", { name })).toBeNull(); });
   expect(opener).toHaveFocus();
 }
 
@@ -285,17 +303,29 @@ beforeEach(() => {
 
 describe("AttendanceScreen", () => {
   it("requires a typed transport and denies before fetching when authority is absent", () => {
-    const api = transport();
+    const listExceptions = vi.fn<AttendanceTransport["listExceptions"]>(() =>
+      Promise.resolve(page(exceptions)),
+    );
+    const api = transport({ listExceptions });
     renderScreen(api, denied);
     expect(screen.getByText(text.denied)).toBeVisible();
-    expect(api.listExceptions).not.toHaveBeenCalled();
+    expect(listExceptions).not.toHaveBeenCalled();
   });
 
   it("loads the selected month and exactly seven following dates for substitutions", async () => {
     window.sessionStorage.setItem("attendance:month", "2026-06");
+    const listSubstitutions = vi.fn<AttendanceTransport["listSubstitutions"]>(() =>
+      Promise.resolve(page([
+        substitution({
+          cover_date: "2026-06-03",
+          covered_employee_id: "emp-historic",
+          exception_id: "ex-historic",
+        }),
+      ])),
+    );
     const api = transport({
-      listExceptions: vi.fn(async () =>
-        page([
+      listExceptions: vi.fn<AttendanceTransport["listExceptions"]>(() =>
+        Promise.resolve(page([
           exception({
             id: "ex-historic",
             kind: "NO_SHOW",
@@ -303,21 +333,13 @@ describe("AttendanceScreen", () => {
             employee_name: "과거 결근자",
             work_date: "2026-06-03",
           }),
-        ]),
+        ])),
       ),
-      listSubstitutions: vi.fn(async () =>
-        page([
-          substitution({
-            cover_date: "2026-06-03",
-            covered_employee_id: "emp-historic",
-            exception_id: "ex-historic",
-          }),
-        ]),
-      ),
+      listSubstitutions,
     });
     renderScreen(api);
     await waitFor(() => {
-      expect(api.listSubstitutions).toHaveBeenCalledWith(
+      expect(listSubstitutions).toHaveBeenCalledWith(
         { from_date: "2026-06-01", to_date: "2026-07-07" },
         expect.any(AbortSignal),
       );
@@ -331,9 +353,9 @@ describe("AttendanceScreen", () => {
 
   it("renders a transport authorization failure as a panel denial rather than fabricated data", async () => {
     const api = transport({
-      listWeek52: vi.fn(async () => {
-        throw new AttendanceTransportError("forbidden", 403);
-      }),
+      listWeek52: vi.fn<AttendanceTransport["listWeek52"]>(() =>
+        Promise.reject(new AttendanceTransportError("forbidden", 403)),
+      ),
     });
     renderScreen(api);
     const card = await screen.findByRole("region", { name: text.w52.title });
@@ -342,26 +364,27 @@ describe("AttendanceScreen", () => {
   });
   it("shows loading and retries a non-403 typed transport error", async () => {
     let attempts = 0;
-    const api = transport({
-      listExceptions: vi.fn(async () => {
+    const listExceptions = vi.fn<AttendanceTransport["listExceptions"]>(() => {
         attempts += 1;
         if (attempts === 1) {
-          throw new AttendanceTransportError("attendance unavailable", 503);
+          return Promise.reject(
+            new AttendanceTransportError("attendance unavailable", 503),
+          );
         }
-        return page(exceptions);
-      }),
+        return Promise.resolve(page(exceptions));
     });
+    const api = transport({ listExceptions });
     renderScreen(api);
     const card = await screen.findByRole("region", { name: text.exceptions.title });
     expect(await within(card).findByText("attendance unavailable")).toBeVisible();
     const retry = within(card).getByRole("button", { name: text.retry });
     await userEvent.click(retry);
     expect(await within(card).findByText("김성호")).toBeVisible();
-    expect(api.listExceptions).toHaveBeenCalledWith(
+    expect(listExceptions).toHaveBeenCalledWith(
       { month: "2026-07", limit: 200 },
       expect.any(AbortSignal),
     );
-    expect(api.listExceptions).toHaveBeenCalledTimes(2);
+    expect(listExceptions).toHaveBeenCalledTimes(2);
   });
 
   it("renders loading while typed attendance reads are still pending", async () => {
@@ -379,8 +402,8 @@ describe("AttendanceScreen", () => {
   });
 
   it("resolves an exception through the typed port and exposes mutation failure recovery", async () => {
-    const resolveException = vi.fn(async (id: string, input: { reason: string }) =>
-      exception({
+    const resolveException = vi.fn<AttendanceTransport["resolveException"]>((id, input) =>
+      Promise.resolve(exception({
         id,
         status: "RESOLVED",
         resolution: {
@@ -389,7 +412,7 @@ describe("AttendanceScreen", () => {
           actor: "actor-1",
           resolved_at: "2026-07-23T11:00:00+09:00",
         },
-      }),
+      })),
     );
     const api = transport({ resolveException });
     const successView = renderScreen(api);
@@ -398,18 +421,18 @@ describe("AttendanceScreen", () => {
     const dialog = await screen.findByRole("dialog", { name: text.exceptions.detailTitle });
     await userEvent.type(within(dialog).getByLabelText(text.exceptions.reasonLabel), "출입 기록 확인");
     await userEvent.click(within(dialog).getByRole("button", { name: text.exceptions.resolveConfirm }));
-    await waitFor(() => expect(resolveException).toHaveBeenCalledWith(
+    await waitFor(() => { expect(resolveException).toHaveBeenCalledWith(
       "ex-1",
       { reason: "출입 기록 확인" },
       expect.any(AbortSignal),
-    ));
+    ); });
     expect(await within(card).findByText(text.exceptions.resolved)).toBeVisible();
     successView.unmount();
 
     const failed = transport({
-      resolveException: vi.fn(async () => {
-        throw new AttendanceTransportError("resolve failed", 422);
-      }),
+      resolveException: vi.fn<AttendanceTransport["resolveException"]>(() =>
+        Promise.reject(new AttendanceTransportError("resolve failed", 422)),
+      ),
     });
     const view = renderScreen(failed);
     const failedCard = await screen.findAllByRole("region", { name: text.exceptions.title });
@@ -425,8 +448,8 @@ describe("AttendanceScreen", () => {
   });
 
   it("creates a substitute through the typed port and keeps mutation failures visible", async () => {
-    const createSubstitution = vi.fn(async (input: Parameters<AttendanceTransport["createSubstitution"]>[0]) =>
-      substitution(input),
+    const createSubstitution = vi.fn<AttendanceTransport["createSubstitution"]>((input) =>
+      Promise.resolve(substitution(input)),
     );
     const api = transport({ createSubstitution });
     const successView = renderScreen(api);
@@ -439,7 +462,7 @@ describe("AttendanceScreen", () => {
     await userEvent.click(
       within(dialog).getByRole("button", { name: text.sub.assign }),
     );
-    await waitFor(() => expect(createSubstitution).toHaveBeenCalledWith(
+    await waitFor(() => { expect(createSubstitution).toHaveBeenCalledWith(
       expect.objectContaining({
         cover_date: TODAY,
         covered_employee_id: "emp-2",
@@ -450,14 +473,14 @@ describe("AttendanceScreen", () => {
         worker_name: "박대근",
       }),
       expect.any(AbortSignal),
-    ));
+    ); });
     expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
     successView.unmount();
 
     const failingCreate = transport({
-      createSubstitution: vi.fn(async () => {
-        throw new AttendanceTransportError("substitute failed", 409);
-      }),
+      createSubstitution: vi.fn<AttendanceTransport["createSubstitution"]>(() =>
+        Promise.reject(new AttendanceTransportError("substitute failed", 409)),
+      ),
     });
     const view = renderScreen(failingCreate);
     const boards = await screen.findAllByRole("region", { name: text.board.title });
@@ -519,7 +542,7 @@ describe("AttendanceScreen", () => {
     await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
     await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
     await userEvent.click(within(dialog).getByRole("button", { name: text.sub.assign }));
-    await waitFor(() => expect(createSubstitution).toHaveBeenCalledTimes(1));
+    await waitFor(() => { expect(createSubstitution).toHaveBeenCalledTimes(1); });
 
     await userEvent.click(
       within(dialog).getByRole("button", { name: text.sub.cancel }),
@@ -528,8 +551,8 @@ describe("AttendanceScreen", () => {
 
     refreshAfterCreate = true;
     pendingCreate.resolve(substitution({ id: "old-month-substitution" }));
-    await waitFor(() => expect(listSubstitutions).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(listExceptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => { expect(listSubstitutions).toHaveBeenCalledTimes(2); });
+    await waitFor(() => { expect(listExceptions).toHaveBeenCalledTimes(2); });
 
     await userEvent.click(
       within(board).getByRole("button", { name: text.board.month }),
@@ -574,15 +597,15 @@ describe("AttendanceScreen", () => {
         ? [{ ...closes.items[0], closed: true, open_exceptions: 0 }]
         : [{ ...closes.items[0], open_exceptions: 0 }],
     });
-    const preflightClose = vi.fn(async (month: string, branchScope: string) => ({
+    const preflightClose = vi.fn<AttendanceTransport["preflightClose"]>((month, branchScope) => Promise.resolve({
       month,
       branch_scope: branchScope,
       checks: [{ key: "예외", ok: true }],
       can_close: true,
     }));
-    const confirmClose = vi.fn(async (month: string, branchScope: string) => {
+    const confirmClose = vi.fn<AttendanceTransport["confirmClose"]>((month, branchScope) => {
       closed = true;
-      return {
+      return Promise.resolve({
         id: "close-1",
         month,
         branch_scope: branchScope,
@@ -591,11 +614,13 @@ describe("AttendanceScreen", () => {
         attested_at: "2026-07-23T11:00:00+09:00",
         closed_at: "2026-07-23T11:00:00+09:00",
         amendments: [],
-      };
+      });
     });
     const api = transport({
-      listExceptions: vi.fn(async () => page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const })))),
-      listCloses: vi.fn(async () => closeBoard()),
+      listExceptions: vi.fn<AttendanceTransport["listExceptions"]>(() =>
+        Promise.resolve(page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const })))),
+      ),
+      listCloses: vi.fn<AttendanceTransport["listCloses"]>(() => Promise.resolve(closeBoard())),
       preflightClose,
       confirmClose,
     });
@@ -605,18 +630,20 @@ describe("AttendanceScreen", () => {
     const dialog = await screen.findByRole("dialog", { name: text.closePanel.preflightTitle });
     await userEvent.click(within(dialog).getByLabelText(text.closePanel.attest));
     await userEvent.click(within(dialog).getByRole("button", { name: `코스 ${text.closePanel.confirmCta}` }));
-    await waitFor(() => expect(preflightClose).toHaveBeenCalledWith("2026-07", "코스", expect.any(AbortSignal)));
-    await waitFor(() => expect(confirmClose).toHaveBeenCalledWith("2026-07", "코스", expect.any(AbortSignal)));
+    await waitFor(() => { expect(preflightClose).toHaveBeenCalledWith("2026-07", "코스", expect.any(AbortSignal)); });
+    await waitFor(() => { expect(confirmClose).toHaveBeenCalledWith("2026-07", "코스", expect.any(AbortSignal)); });
     expect(await within(card).findByText(text.closePanel.doneBanner)).toBeVisible();
     successView.unmount();
     closed = false;
 
     const failing = transport({
-      listExceptions: vi.fn(async () => page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const })))),
-      listCloses: vi.fn(async () => closeBoard()),
-      preflightClose: vi.fn(async () => {
-        throw new AttendanceTransportError("preflight failed", 409);
-      }),
+      listExceptions: vi.fn<AttendanceTransport["listExceptions"]>(() =>
+        Promise.resolve(page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const })))),
+      ),
+      listCloses: vi.fn<AttendanceTransport["listCloses"]>(() => Promise.resolve(closeBoard())),
+      preflightClose: vi.fn<AttendanceTransport["preflightClose"]>(() =>
+        Promise.reject(new AttendanceTransportError("preflight failed", 409)),
+      ),
     });
     const view = renderScreen(failing);
     const cards = await screen.findAllByRole("region", { name: text.closePanel.title });
@@ -667,11 +694,11 @@ describe("AttendanceScreen", () => {
       }),
     );
     await waitFor(() =>
-      expect(preflightClose).toHaveBeenCalledWith(
+      { expect(preflightClose).toHaveBeenCalledWith(
         "2026-07",
         "코스",
         expect.any(AbortSignal),
-      ),
+      ); },
     );
 
     const board = screen.getByRole("region", { name: text.board.title });
@@ -691,9 +718,9 @@ describe("AttendanceScreen", () => {
     });
 
     await waitFor(() =>
-      expect(
+      { expect(
         screen.queryByRole("dialog", { name: text.closePanel.preflightTitle }),
-      ).toBeNull(),
+      ).toBeNull(); },
     );
     expect(confirmClose).not.toHaveBeenCalled();
   });
@@ -757,19 +784,21 @@ describe("AttendanceScreen", () => {
   });
 
   it("acknowledges 52-hour risk through the typed port and surfaces failures", async () => {
-    const ackWeek52 = vi.fn(async () => ({ ...week52.items[0], acked: true }));
+    const ackWeek52 = vi.fn<AttendanceTransport["ackWeek52"]>(() =>
+      Promise.resolve({ ...week52.items[0], acked: true }),
+    );
     const api = transport({ ackWeek52 });
     const successView = renderScreen(api);
     const card = await screen.findByRole("region", { name: text.w52.title });
     await userEvent.click(await within(card).findByRole("button", { name: text.w52.adjust }));
-    await waitFor(() => expect(ackWeek52).toHaveBeenCalledWith("emp-1", "2026-07-20", expect.any(AbortSignal)));
+    await waitFor(() => { expect(ackWeek52).toHaveBeenCalledWith("emp-1", "2026-07-20", expect.any(AbortSignal)); });
     expect(await within(card).findByText(text.w52.requested)).toBeVisible();
     successView.unmount();
 
     const failing = transport({
-      ackWeek52: vi.fn(async () => {
-        throw new AttendanceTransportError("ack failed", 409);
-      }),
+      ackWeek52: vi.fn<AttendanceTransport["ackWeek52"]>(() =>
+        Promise.reject(new AttendanceTransportError("ack failed", 409)),
+      ),
     });
     const view = renderScreen(failing);
     const cards = await screen.findAllByRole("region", { name: text.w52.title });
@@ -815,8 +844,10 @@ describe("AttendanceScreen", () => {
 
     const preflightView = renderScreen(
       transport({
-        listExceptions: vi.fn(async () => page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const })))),
-        listCloses: vi.fn(async () => ({
+        listExceptions: vi.fn<AttendanceTransport["listExceptions"]>(() =>
+          Promise.resolve(page(exceptions.map((item) => ({ ...item, status: "RESOLVED" as const })))),
+        ),
+        listCloses: vi.fn<AttendanceTransport["listCloses"]>(() => Promise.resolve({
           month: "2026-07",
           items: [{ ...closes.items[0], open_exceptions: 0 }],
         })),

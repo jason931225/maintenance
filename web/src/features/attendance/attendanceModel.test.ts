@@ -232,9 +232,118 @@ describe("monthSheetRows", () => {
     );
     expect(rows[0].cells[2].kind).toBe("covered");
   });
+
+  it("does not let an assigned cover for another exception cover the same employee and date", () => {
+    const rows = monthSheetRows(
+      [
+        exception({
+          id: "ex-uncovered",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          work_date: "2026-07-03",
+        }),
+        exception({
+          id: "ex-covered",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          work_date: "2026-07-03",
+        }),
+      ],
+      [
+        substitution({
+          exception_id: "ex-covered",
+          covered_employee_id: "emp-9",
+          cover_date: "2026-07-03",
+        }),
+      ],
+      "2026-07",
+      TODAY,
+    );
+
+    expect(rows[0].cells[2].kind).toBe("absent");
+  });
+
+  it("uses employee and date only for legacy substitutions without an exception ID", () => {
+    const rows = monthSheetRows(
+      [
+        exception({
+          id: "ex-legacy",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          work_date: "2026-07-03",
+        }),
+      ],
+      [
+        substitution({
+          exception_id: undefined,
+          covered_employee_id: "emp-9",
+          cover_date: "2026-07-03",
+        }),
+      ],
+      "2026-07",
+      TODAY,
+    );
+
+    expect(rows[0].cells[2].kind).toBe("covered");
+  });
 });
 
 describe("coverPlanRows", () => {
+  it("does not cover a second no-show for the same employee and date when the substitution names another exception", () => {
+    const rows = coverPlanRows(
+      [
+        exception({
+          id: "ex-covered",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          employee_name: "이영희",
+          work_date: "2026-07-10",
+        }),
+        exception({
+          id: "ex-uncovered",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          employee_name: "이영희",
+          work_date: "2026-07-10",
+        }),
+      ],
+      [
+        substitution({
+          exception_id: "ex-covered",
+          covered_employee_id: "emp-9",
+          cover_date: "2026-07-10",
+        }),
+      ],
+    );
+
+    expect(rows.filter((row) => !row.assigned).map((row) => row.key)).toEqual([
+      "gap-ex-uncovered",
+    ]);
+  });
+
+  it("uses employee and date only for legacy substitutions without an exception ID", () => {
+    const rows = coverPlanRows(
+      [
+        exception({
+          id: "ex-legacy",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          employee_name: "이영희",
+          work_date: "2026-07-10",
+        }),
+      ],
+      [
+        substitution({
+          exception_id: undefined,
+          covered_employee_id: "emp-9",
+          cover_date: "2026-07-10",
+        }),
+      ],
+    );
+
+    expect(rows.filter((row) => !row.assigned)).toHaveLength(0);
+  });
+
   it("does not cover a second no-show for the same employee on another date", () => {
     const rows = coverPlanRows(
       [

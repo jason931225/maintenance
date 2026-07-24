@@ -113,23 +113,39 @@ export function daySegments(
   return segments;
 }
 
-function coverFor(
-  exceptionOrEmployee: {
-    exceptionId?: string;
-    employeeId: string;
-    workDate: string;
-  },
+function substitutionCoversException(
+  substitution: Substitution,
+  exception: AttendanceException,
+): boolean {
+  if (substitution.status !== "ASSIGNED") return false;
+  if (substitution.exception_id) {
+    return substitution.exception_id === exception.id;
+  }
+  return (
+    substitution.covered_employee_id === exception.employee_id &&
+    substitution.cover_date === exception.work_date
+  );
+}
+
+function coverForException(
+  exception: AttendanceException,
+  substitutions: Substitution[],
+): Substitution | undefined {
+  return substitutions.find((substitution) =>
+    substitutionCoversException(substitution, exception),
+  );
+}
+
+function coverForEmployee(
+  employeeId: string,
+  workDate: string,
   substitutions: Substitution[],
 ): Substitution | undefined {
   return substitutions.find(
-    (sub) =>
-      sub.status === "ASSIGNED" &&
-      ((exceptionOrEmployee.exceptionId &&
-        sub.exception_id === exceptionOrEmployee.exceptionId) ||
-        (sub.covered_employee_id !== null &&
-          sub.covered_employee_id !== undefined &&
-          sub.covered_employee_id === exceptionOrEmployee.employeeId &&
-          sub.cover_date === exceptionOrEmployee.workDate)),
+    (substitution) =>
+      substitution.status === "ASSIGNED" &&
+      substitution.covered_employee_id === employeeId &&
+      substitution.cover_date === workDate,
   );
 }
 
@@ -176,7 +192,7 @@ export function dayBoardRows(
       exceptions: todayExceptions.filter(
         (exception) => exception.employee_id === employeeId,
       ),
-      cover: coverFor({ employeeId, workDate }, todaySubs),
+      cover: coverForEmployee(employeeId, workDate, todaySubs),
     }),
   );
   employeeRows.sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -191,14 +207,7 @@ export function dayBoardRows(
       (exception) =>
         exception.kind === "NO_SHOW" &&
         exception.status === "OPEN" &&
-        !coverFor(
-          {
-            exceptionId: exception.id,
-            employeeId: exception.employee_id,
-            workDate: exception.work_date,
-          },
-          todaySubs,
-        ),
+        !coverForException(exception, todaySubs),
     )
     .map((exception) => ({ type: "gap", exception }));
 
@@ -290,12 +299,7 @@ export function monthSheetRows(
         );
         const covered =
           noShow !== undefined &&
-          monthSubs.some(
-            (sub) =>
-              sub.exception_id === noShow.id ||
-              (sub.covered_employee_id === employeeId &&
-                sub.cover_date === date),
-          );
+          monthSubs.some((sub) => substitutionCoversException(sub, noShow));
         let kind: MonthCellKind = "none";
         if (noShow) kind = covered ? "covered" : "absent";
         else if (late) kind = "late";
@@ -346,14 +350,7 @@ export function coverPlanRows(
       (exception) =>
         exception.kind === "NO_SHOW" &&
         exception.status === "OPEN" &&
-        !coverFor(
-          {
-            exceptionId: exception.id,
-            employeeId: exception.employee_id,
-            workDate: exception.work_date,
-          },
-          assigned,
-        ),
+        !coverForException(exception, assigned),
     )
     .map((exception) => ({
       key: `gap-${exception.id}`,
