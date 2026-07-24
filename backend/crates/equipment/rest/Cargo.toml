@@ -19,5 +19,11 @@ serde_json = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+mnt-platform-test-support.workspace = true
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+tokio.workspace = true
+tower = { workspace = true, features = ["util"] }
+
 [lints]
 workspace = true
