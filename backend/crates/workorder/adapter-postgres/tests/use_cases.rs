@@ -880,6 +880,21 @@ async fn final_completion_appends_one_immutable_equipment_history_snapshot(pool:
             "INSERT INTO equipment_maintenance_history_costs (history_id, org_id, equipment_cost_ledger_id) VALUES ($1,$2,$3)",
         ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&pool).await;
         assert!(partial_cost.is_err(), "runtime role cannot append partial cost material");
+        let foreign_org = uuid::Uuid::new_v4();
+        sqlx::query("SELECT set_config('app.current_org', $1, false)")
+            .bind(foreign_org.to_string()).execute(&pool).await.unwrap();
+        let cross_org_read: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1")
+            .bind(history_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(cross_org_read, 0, "RLS hides another tenant's parent history");
+        let cross_parent = sqlx::query("INSERT INTO equipment_maintenance_history (org_id,equipment_id,work_order_id,completed_at) VALUES ($1,$2,$3,now())")
+            .bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&pool).await;
+        assert!(cross_parent.is_err(), "RLS/direct grant denies cross-org parent write");
+        let cross_evidence = sqlx::query("INSERT INTO equipment_maintenance_history_evidence (history_id,org_id,evidence_media_id) VALUES ($1,$2,$3)")
+            .bind(history_id).bind(*OrgId::knl().as_uuid()).bind(evidence_id).execute(&pool).await;
+        assert!(cross_evidence.is_err(), "RLS/direct grant denies cross-org evidence write");
+        let cross_cost = sqlx::query("INSERT INTO equipment_maintenance_history_costs (history_id,org_id,equipment_cost_ledger_id) VALUES ($1,$2,$3)")
+            .bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&pool).await;
+        assert!(cross_cost.is_err(), "RLS/direct grant denies cross-org cost write");
         sqlx::query("RESET ROLE").execute(&pool).await.unwrap();
     })
     .await;
