@@ -331,6 +331,22 @@ fn openapi_yaml_covers_configured_route_inventory() {
 }
 
 #[test]
+fn openapi_documents_closed_month_as_year_month_not_calendar_date() {
+    let start = OPENAPI_YAML
+        .find("    AttendanceMonthClose:\n")
+        .expect("OpenAPI YAML must define AttendanceMonthClose");
+    let end = OPENAPI_YAML[start..]
+        .find("    AttendanceCloseBoard:\n")
+        .map(|offset| start + offset)
+        .expect("AttendanceMonthClose must precede AttendanceCloseBoard");
+    let schema = &OPENAPI_YAML[start..end];
+    assert!(
+        schema.contains("month: { type: string, pattern: '^\\\\d{4}-\\\\d{2}$' }"),
+        "closed-month response must match the server's YYYY-MM wire value, not an OpenAPI calendar date"
+    );
+}
+
+#[test]
 fn openapi_documents_hr_attendance_branch_scope_query() {
     for (path, next_path) in [
         (
