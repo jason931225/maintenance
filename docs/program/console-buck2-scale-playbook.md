@@ -51,10 +51,12 @@ candidate and executes only registered `cheap` faces through the allowlisted
 writer dispatcher. It prints a `DEFERRED` receipt for every registered
 `expensive` face, so a face is never silently omitted. The separately callable
 full closure, `tools/buck/preflight.sh --full-generated-faces`, executes
-**every** registered face and is the required generated-face CI status before
-merge. `cheap` and `expensive` are scheduling metadata, never permission to
-skip authority checks. Archive snapshots exclude mutable `node_modules`; before
-any OpenAPI gate runs, the preflight requires byte-identical `package.json` and
+**every** registered face and is the generated-face status required by policy.
+It is not merge-enforced until the live GitHub ruleset admits that exact status;
+until then the job proves closure but not admission. `cheap` and `expensive` are
+scheduling metadata, never permission to skip authority checks. Archive snapshots
+exclude mutable `node_modules`; before any OpenAPI gate runs, the preflight
+requires byte-identical `package.json` and
 `package-lock.json`, validates every lockfile package/link against the caller's
 installed tree, then creates a snapshot-local symlink to that verified tree.
 Missing or inconsistent provenance fails closed—there is no ancestor-directory

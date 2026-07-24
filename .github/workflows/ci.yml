@@ -31,6 +31,7 @@ on:
       - "scripts/**"
       - "tools/buck/**"
       - "tools/buck2"
+      - "toolchains/**"
       - "third-party/rust/**"
       - "BUCK"
       - ".buckconfig"
@@ -66,6 +67,7 @@ on:
       - "scripts/**"
       - "tools/buck/**"
       - "tools/buck2"
+      - "toolchains/**"
       - "third-party/rust/**"
       - "BUCK"
       - ".buckconfig"
@@ -135,9 +137,9 @@ jobs:
         run: npm run check:package-lock
 
   generated-face-authority:
-    # This status is the complete generated-face closure required before merge;
-    # the cheap admission in `preflight` intentionally reports expensive faces
-    # as deferred rather than executing them on the critical path.
+    # This status is the complete generated-face closure required by policy.
+    # It becomes merge-enforced only after the live GitHub ruleset admits this
+    # exact status; cheap `preflight` intentionally defers expensive faces.
     name: Generated faces — full required drift authority
     runs-on: macos-latest
     needs: preflight
