@@ -63,6 +63,15 @@ const emptyOpsSummary = {
   open_support_tickets: 0,
 };
 
+// The operational Dispatch console owns a separate bounded queue from the
+// legacy work-order list. Keep its cold-start response explicit so this suite
+// proves that both real read paths are empty rather than silently letting an
+// unhandled request bleed into another test.
+const emptyDispatchQueue = {
+  items: [],
+  stats: { unassigned_count: 0, sla_due_count: 0 },
+};
+
 const emptyConsentStatus = {
   consent_id: "00000000-0000-4000-8000-000000000011",
   user_id: USER_ID,
@@ -173,6 +182,10 @@ const server = setupServer(
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(emptyOpsSummary)),
+  http.get("*/api/v1/console/dispatch/queue", () => {
+    dispatchQueueReads += 1;
+    return HttpResponse.json(emptyDispatchQueue);
+  }),
   // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
   // /overview and /attendance. Empty backend => empty layout object.
   http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
@@ -287,6 +300,7 @@ let ownAttendanceReads = 0;
 let managerAttendanceReads = 0;
 let attendanceAuthzReads = 0;
 let payrollRunReads = 0;
+let dispatchQueueReads = 0;
 
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
@@ -327,6 +341,8 @@ afterEach(() => {
   managerAttendanceReads = 0;
   attendanceAuthzReads = 0;
   payrollRunReads = 0;
+  dispatchQueueReads = 0;
+  inFlightHttpRequests.clear();
   server.resetHandlers();
 });
 afterAll(() => {
@@ -414,6 +430,9 @@ describe("every page renders cleanly against an empty backend", () => {
         expect.anything(),
         expect.anything(),
       );
+      if (page.path === "/dispatch") {
+        expect(dispatchQueueReads).toBe(1);
+      }
     });
   }
 
