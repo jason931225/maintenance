@@ -95,6 +95,39 @@ describe("DispatchConsole", () => {
     expect(screen.getByRole("button", { name: "Force assign selected candidate" })).toBeDisabled();
   });
 
+  it("invalidates stale detail when a retained work order changes P1 dispatch authority", async () => {
+    let queueCalls = 0;
+    let firstSummaryResolve: ((value: ReturnType<typeof result>) => void) | undefined;
+    let summaryCalls = 0;
+    const firstSummary = new Promise<ReturnType<typeof result>>((resolve) => { firstSummaryResolve = resolve; });
+    const nextSummary = { ...summary, id: "dispatch-2", status: "BROADCASTING" };
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/console/dispatch/queue") {
+        queueCalls += 1;
+        return Promise.resolve(result(queueCalls === 1 ? queue : {
+          ...queue,
+          items: [{ ...queue.items[0], dispatch: { ...queue.items[0].dispatch, id: "dispatch-2", status: "BROADCASTING" } }],
+        }));
+      }
+      if (path === "/api/v1/p1-dispatches/{dispatchId}") {
+        summaryCalls += 1;
+        return summaryCalls === 1 ? firstSummary : Promise.resolve(result(nextSummary));
+      }
+      if (path.endsWith("/candidates")) return Promise.resolve(result(candidatePage));
+      if (path.endsWith("/responses")) return Promise.resolve(result(responsePage));
+      throw new Error(`unexpected ${path}`);
+    });
+    render(<DispatchConsole api={client(GET)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    await waitFor(() => { expect(GET).toHaveBeenCalledWith("/api/v1/p1-dispatches/{dispatchId}", expect.anything()); });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => { expect(GET.mock.calls.filter(([path]) => path === "/api/v1/p1-dispatches/{dispatchId}").length).toBeGreaterThan(1); });
+    firstSummaryResolve?.(result(summary));
+    expect((await screen.findAllByText("BROADCASTING")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("MANAGER_FORCE_PENDING")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Force assign selected candidate" })).not.toBeInTheDocument();
+  });
+
   it("clears selected detail when a refreshed queue no longer contains its work order", async () => {
     let queueCalls = 0;
     const GET = vi.fn((path: string) => {

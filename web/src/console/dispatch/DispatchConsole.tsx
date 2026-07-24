@@ -183,6 +183,7 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
   const [mutationFailure, setMutationFailure] = useState<MutationFailure | null>(null);
   const queueEpoch = useRef(0);
   const selectionId = useRef<string | undefined>(undefined);
+  const selectedQueueItem = useRef<DispatchQueueItem | null>(null);
   const selectionEpoch = useRef(0);
   const detailEpoch = useRef(0);
 
@@ -195,22 +196,29 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
       setNextAfter(page.next_after);
       setStats(page.stats);
       setQueueState("ready");
+      const previous = selectedQueueItem.current;
       const retained = selectionId.current
         ? page.items.find((item) => item.work_order_id === selectionId.current) ?? null
         : null;
-      if (!retained && selectionId.current !== undefined) {
-        selectionId.current = undefined;
+      const dispatchAuthorityChanged = previous !== null
+        && retained !== null
+        && (previous.dispatch?.id !== retained.dispatch?.id
+          || previous.dispatch?.status !== retained.dispatch?.status);
+      if ((!retained && selectionId.current !== undefined) || dispatchAuthorityChanged) {
         selectionEpoch.current += 1;
         detailEpoch.current += 1;
         setDetail(null);
-        setDetailState("ready");
+        setDetailState(retained?.dispatch ? "loading" : "ready");
       }
+      selectionId.current = retained?.work_order_id;
+      selectedQueueItem.current = retained;
       setSelected(retained);
     }).catch((error: unknown) => {
       if (controller.signal.aborted || epoch !== queueEpoch.current) return;
       setItems([]);
       setNextAfter(undefined);
       selectionId.current = undefined;
+      selectedQueueItem.current = null;
       selectionEpoch.current += 1;
       detailEpoch.current += 1;
       setSelected(null);
@@ -261,6 +269,7 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
   function select(item: DispatchQueueItem) {
     selectionEpoch.current += 1;
     selectionId.current = item.work_order_id;
+    selectedQueueItem.current = item;
     setMutationFailure(null);
     setDetail(null);
     setDetailState(item.dispatch ? "loading" : "ready");

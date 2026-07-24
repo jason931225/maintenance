@@ -64,3 +64,10 @@ A queue refresh that removes the selected work order invalidates the selection
 and its detail request before rendering the empty queue state. Force-assignment
 401/403, 409/server, and network failures remain in the module as explicit
 fail-closed alerts rather than rejected event handlers.
+
+A retained work order is not treated as authority-stable merely because its
+work-order ID is unchanged. On every queue refresh, a changed P1 dispatch ID or
+status invalidates the selection/detail epochs, clears the previously rendered
+detail and action state, and starts a fresh detail request. The focused
+regression keeps the old detail request deferred until after refresh and proves
+it cannot restore the previous force-assignment state.
