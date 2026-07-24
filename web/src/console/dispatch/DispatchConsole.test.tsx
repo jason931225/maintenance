@@ -197,7 +197,9 @@ describe("DispatchConsole", () => {
       params: { path: { workOrderId: "work-order-1" } }, body: { include_region: false }, signal: expect.any(AbortSignal),
     });
     await waitFor(() => { expect(GET.mock.calls.filter(([path]) => path === "/api/v1/console/dispatch/queue").length).toBeGreaterThan(1); });
-    expect(screen.queryByRole("button", { name: "Start P1 broadcast" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("button", { name: "Start P1 broadcast" })).toBeVisible();
+    expect(screen.getByText("This work order has no active P1 dispatch.")).toBeVisible();
   });
 
   it("does not expose start controls for non-P1 or already-dispatched rows", async () => {

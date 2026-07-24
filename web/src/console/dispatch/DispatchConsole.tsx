@@ -193,7 +193,6 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
   const detailEpoch = useRef(0);
   const startEpoch = useRef(0);
   const startAbort = useRef<AbortController | null>(null);
-  const startedDispatches = useRef(new Map<string, P1DispatchSummary>());
   const [startItem, setStartItem] = useState<DispatchQueueItem | null>(null);
 
   useEffect(() => {
@@ -201,25 +200,7 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
     const epoch = ++queueEpoch.current;
     void listDispatchQueue(api, { status: statuses }, controller.signal).then((page) => {
       if (controller.signal.aborted || epoch !== queueEpoch.current) return;
-      const queueItems = page.items.map((item) => {
-        const started = startedDispatches.current.get(item.work_order_id);
-        if (!started || item.dispatch) {
-          if (item.dispatch) startedDispatches.current.delete(item.work_order_id);
-          return item;
-        }
-        return {
-          ...item,
-          dispatch: {
-            id: started.id,
-            status: started.status,
-            accept_window_ends_at: started.accept_window_ends_at,
-            target_count: started.target_count,
-            accepted_count: started.accepted_count,
-            declined_count: started.declined_count,
-            manual_call_required: started.manual_call_required,
-          },
-        };
-      });
+      const queueItems = page.items;
       setItems(queueItems);
       setNextAfter(page.next_after);
       setStats(page.stats);
@@ -352,7 +333,6 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
         manual_call_required: summary.manual_call_required,
       };
       const updated = { ...item, dispatch };
-      startedDispatches.current.set(item.work_order_id, summary);
       selectedQueueItem.current = updated;
       setItems((current) => current.map((queued) => queued.work_order_id === item.work_order_id ? { ...queued, dispatch } : queued));
       if (selectionId.current === item.work_order_id) {
