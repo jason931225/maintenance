@@ -148,6 +148,7 @@ fn record_policy_studio_rejection(
 
 pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     USERS_PATH,
+    DIRECTORY_PEOPLE_PATH,
     USERS_ME_PATH,
     CONSOLE_ROLLOUT_PATH,
     CONSOLE_ROLLOUT_OPT_IN_PATH,
@@ -4095,6 +4096,49 @@ mod directory_query_tests {
         assert_eq!(
             directory_read_scope(&principal).unwrap(),
             BranchScope::Branches(BTreeSet::from([granted_branch]))
+        );
+    }
+
+    #[test]
+    fn directory_scope_denies_principal_without_role_or_runtime_grant() {
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::from([Role::Member]),
+            BranchScope::single(BranchId::new()),
+        );
+
+        let error = directory_read_scope(&principal).expect_err("no grant must fail closed");
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn directory_scope_unions_only_live_membership_intersections() {
+        let member_a = BranchId::new();
+        let member_b = BranchId::new();
+        let outside = BranchId::new();
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::from([Role::Member]),
+            BranchScope::Branches(BTreeSet::from([member_a, member_b])),
+        )
+        .with_effective_feature_grants(vec![
+            mnt_platform_authz::EffectiveFeatureGrant::new(
+                Feature::EmployeeDirectoryRead,
+                PermissionLevel::Allow,
+                BranchScope::Branches(BTreeSet::from([member_a, outside])),
+            ),
+            mnt_platform_authz::EffectiveFeatureGrant::new(
+                Feature::EmployeeDirectoryRead,
+                PermissionLevel::Allow,
+                BranchScope::Branches(BTreeSet::from([member_b, outside])),
+            ),
+        ]);
+
+        assert_eq!(
+            directory_read_scope(&principal).unwrap(),
+            BranchScope::Branches(BTreeSet::from([member_a, member_b]))
         );
     }
 
