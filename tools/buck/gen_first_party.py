@@ -172,6 +172,7 @@ TEST_RESOURCE_REQUIREMENTS = {
             'tests/facilities_pilot_story.rs': 'postgres',
             'tests/finance_gl_voucher_sod.rs': 'postgres',
             'tests/health_readiness.rs': 'postgres',
+            'tests/hr_attendance_manager_scope.rs': 'postgres',
             'tests/hr_attendance_self_read.rs': 'postgres',
             'tests/hr_ingest_checklist_gate.rs': 'postgres',
             'tests/hr_people_create_api.rs': 'postgres',
@@ -329,6 +330,9 @@ TEST_RESOURCE_REQUIREMENTS = {
     },
     'mnt-consulting-rest': {
         'unit': 'none',
+        'integration': {
+            'tests/audit_atomicity.rs': 'postgres',
+        },
     },
     'mnt-dispatch-adapter-postgres': {
         'integration': {
@@ -436,6 +440,15 @@ TEST_RESOURCE_REQUIREMENTS = {
         'integration': {
             'tests/api.rs': 'postgres',
         },
+    },
+    'mnt-inventory-adapter-postgres': {
+        'unit': 'none',
+        'integration': {
+            'tests/consume_idempotency_concurrency.rs': 'postgres',
+        },
+    },
+    'mnt-inventory-rest': {
+        'unit': 'none',
     },
     'mnt-inspection-adapter-postgres': {
         'integration': {
@@ -603,6 +616,7 @@ TEST_RESOURCE_REQUIREMENTS = {
     'mnt-platform-db': {
         'unit': 'postgres',
         'integration': {
+            'tests/attendance_console_migration_contract.rs': 'postgres',
             'tests/code_issuance.rs': 'postgres',
             'tests/group_resolvers.rs': 'postgres',
             'tests/m2_flag_on_runtime_drain.rs': 'postgres',
