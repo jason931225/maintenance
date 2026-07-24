@@ -170,12 +170,28 @@ export async function listEvidenceObjects(
   api: ConsoleApiClient,
   limit = 200,
 ): Promise<EvidenceObjectDetail[]> {
-  const { data, error, response } = await api.GET("/api/v1/evidence/objects", {
-    params: { query: { limit } },
-  });
-  if (!data) throw new ApiCallError(response.status, error);
-  const page: EvidenceObjectPage = data;
-  return page.items.map(mapEvidenceObjectSummary);
+  const items: EvidenceObjectDetail[] = [];
+  let offset = 0;
+
+  // The EV list endpoint is paged. A one-page read is an incomplete record
+  // register once the tenant holds more than `limit` objects, so continue
+  // through the server's declared total rather than silently dropping rows.
+  for (;;) {
+    const { data, error, response } = await api.GET("/api/v1/evidence/objects", {
+      params: { query: offset === 0 ? { limit } : { limit, offset } },
+    });
+    if (!data) throw new ApiCallError(response.status, error);
+    const page: EvidenceObjectPage = data;
+    items.push(...page.items.map(mapEvidenceObjectSummary));
+
+    if (items.length >= page.total) return items;
+    // A successful page that cannot advance contradicts the declared total.
+    // Fail closed rather than presenting a partial register as complete.
+    if (page.items.length === 0) {
+      throw new Error("Evidence records pagination returned an empty page before its declared total.");
+    }
+    offset += page.items.length;
+  }
 }
 
 export async function getEvidenceObjectDetail(

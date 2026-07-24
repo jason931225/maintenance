@@ -1,7 +1,8 @@
 import type { components } from "@maintenance/api-client-ts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { aggregateFixity, aggregateTsa } from "./evidenceApi";
+import type { ConsoleApiClient } from "../../api/client";
+import { aggregateFixity, aggregateTsa, listEvidenceObjects } from "./evidenceApi";
 
 type EvidenceCopyView = components["schemas"]["EvidenceCopyView"];
 type TimestampAuthorityProofView = components["schemas"]["TimestampAuthorityProofView"];
@@ -61,5 +62,66 @@ describe("aggregateTsa (fail-closed)", () => {
 
   it("treats an unrecognized proof status as indeterminate (PENDING), never VERIFIED", () => {
     expect(aggregateTsa([proof("SOMETHING_NEW")])).toBe("PENDING");
+  });
+});
+
+function listRow(id: string) {
+  return {
+    id,
+    code: `EV-${id}`,
+    title: `Evidence ${id}`,
+    source: { source_type: "record_archive", source_id: `record-${id}` },
+    classification: "Internal",
+    current_custody_stage: "REGISTERED",
+    legal_hold_state: "NONE",
+    admissibility_status: "REVIEW_NEEDED",
+    created_by: "user-1",
+    updated_by: "user-1",
+    created_at: "2026-07-24T00:00:00Z",
+    updated_at: "2026-07-24T00:00:00Z",
+  };
+}
+
+describe("listEvidenceObjects", () => {
+  it("walks every backend page instead of silently truncating the record list at one page", async () => {
+    const GET = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: { items: [listRow("1"), listRow("2")], limit: 2, offset: 0, total: 3 },
+        response: { status: 200 },
+      })
+      .mockResolvedValueOnce({
+        data: { items: [listRow("3")], limit: 2, offset: 2, total: 3 },
+        response: { status: 200 },
+      });
+    const api = { GET } as unknown as ConsoleApiClient;
+
+    await expect(listEvidenceObjects(api, 2)).resolves.toMatchObject([
+      { id: "1" },
+      { id: "2" },
+      { id: "3" },
+    ]);
+    expect(GET).toHaveBeenNthCalledWith(1, "/api/v1/evidence/objects", {
+      params: { query: { limit: 2 } },
+    });
+    expect(GET).toHaveBeenNthCalledWith(2, "/api/v1/evidence/objects", {
+      params: { query: { limit: 2, offset: 2 } },
+    });
+  });
+
+  it("fails closed when the backend declares more records but returns an empty later page", async () => {
+    const GET = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: { items: [listRow("1")], limit: 1, offset: 0, total: 2 },
+        response: { status: 200 },
+      })
+      .mockResolvedValueOnce({
+        data: { items: [], limit: 1, offset: 1, total: 2 },
+        response: { status: 200 },
+      });
+    const api = { GET } as unknown as ConsoleApiClient;
+
+    await expect(listEvidenceObjects(api, 1)).rejects.toThrow("pagination returned an empty page");
   });
 });
