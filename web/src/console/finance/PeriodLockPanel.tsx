@@ -282,6 +282,7 @@ export function PeriodLockPanel({
                 <th scope="col">{copy.lockedAt}</th>
                 <th scope="col">{copy.unlockedAt}</th>
                 <th scope="col">{copy.unlockReasonLabel}</th>
+                <th scope="col">{copy.actions}</th>
               </tr>
             </thead>
             <tbody>
@@ -293,6 +294,8 @@ export function PeriodLockPanel({
                   <td>{lock.periodEnd}</td>
                   <td>{lock.reason}</td>
                   <td>{displayAt(lock.lockedAt)}</td>
+                  <td />
+                  <td />
                   <td>
                     <div className="period-lock-panel__unlock">
                       <label className="period-lock-panel__field">
@@ -320,7 +323,6 @@ export function PeriodLockPanel({
                       </button>
                     </div>
                   </td>
-                  <td>{copy.locked}</td>
                 </tr>
               ))}
               {history.map((lock) => (
@@ -342,6 +344,7 @@ export function PeriodLockPanel({
                     )}
                   </td>
                   <td>{lock.unlockReason ?? ""}</td>
+                  <td />
                 </tr>
               ))}
             </tbody>

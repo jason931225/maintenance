@@ -67,6 +67,16 @@ describe("PeriodLockPanel", () => {
     const rows = within(region).getAllByRole("row");
     expect(rows[1]).toHaveTextContent("2026-06-01");
     expect(rows[2]).toHaveTextContent("2026-05-01");
+    const headers = within(rows[0]).getAllByRole("columnheader");
+    const activeCells = within(rows[1]).getAllByRole("cell");
+    expect(headers.map((header) => header.textContent)).toEqual([
+      copy.status, copy.domain, copy.start, copy.end, copy.reason,
+      copy.lockedAt, copy.unlockedAt, copy.unlockReasonLabel, copy.actions,
+    ]);
+    expect(activeCells).toHaveLength(headers.length);
+    expect(activeCells[6]).toBeEmptyDOMElement();
+    expect(activeCells[7]).toBeEmptyDOMElement();
+    expect(within(activeCells[8]).getByRole("button", { name: copy.unlock })).toBeVisible();
     expect(GET).toHaveBeenCalledWith(
       "/api/v1/period-locks",
       expect.objectContaining({ params: { query: { domain: "accounting" } } }),

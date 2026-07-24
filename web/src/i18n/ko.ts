@@ -2188,6 +2188,7 @@ export const ko = {
           lockedAt: "마감 시각",
           unlockedAt: "해제 시각",
           unlockReasonLabel: "해제 사유",
+          actions: "작업",
           loading: "회계 마감 이력 불러오는 중",
           empty: "회계 기간 마감 이력이 없습니다.",
           denied: "회계 기간 마감 권한이 없습니다.",
