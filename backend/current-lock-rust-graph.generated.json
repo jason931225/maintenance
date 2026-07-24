@@ -1,7 +1,7 @@
 {
   "artifact_kind": "CURRENT_LOCK_BUCK2_RUST_GRAPH",
   "authority_boundary": "Cargo.lock is immutable dependency input; checked-in Buck2 labels and Buck2 execution are build/test authority. Cargo is not invoked by this verifier.",
-  "buck_sha256": "fb06e2d99f09a7d1144b1e3f1ca28bf990cdc445ccfc49fea91b88644357276f",
+  "buck_sha256": "563aa13c95cf7a1721c48023efa86a2f7eb0632a1e2abf3729d76ad8ce5fbaf3",
   "buck_target_count": 1151,
   "buck_targets": [
     "//backend/vendor/calamine-0.35.0-quickxml41:calamine-0.35",
@@ -1160,7 +1160,7 @@
   "buckfiles": [
     {
       "path": "backend/BUCK",
-      "sha256": "fb06e2d99f09a7d1144b1e3f1ca28bf990cdc445ccfc49fea91b88644357276f"
+      "sha256": "563aa13c95cf7a1721c48023efa86a2f7eb0632a1e2abf3729d76ad8ce5fbaf3"
     },
     {
       "literal_include_resources": [
@@ -1188,14 +1188,14 @@
   ],
   "canonical_sqlx_migration_identity_source": {
     "path": "backend/crates/platform/db/buck2_contract_tests/canonical_migration_identities.generated.rs",
-    "sha256": "2a5b8e160632f0b53033698f5d1431dae3e7e0f8448c01a38a664d9cc03965bb"
+    "sha256": "60ea216d5b1b7af0527879e00ef95f5d80d5c53fd6a91aacd4684c4ab192eff1"
   },
   "canonical_sqlx_migration_staging": {
     "consumer_buckfiles": [
       {
         "helper_call_count": 2,
         "path": "backend/app/BUCK",
-        "sha256": "cb5fd78dc5e3446c2b9227168e3f187d406f56993010388478a9e5435c9a834a"
+        "sha256": "2ad8d1103e5f00cede5f50cc37f36fd8346093b88891fbc7990b2191c5e35c55"
       },
       {
         "helper_call_count": 1,
@@ -1216,7 +1216,7 @@
     "runtime_sentinel": {
       "migration_literal": "./migrations",
       "path": "backend/crates/platform/db/buck2_contract_tests/period_lock_domain.rs",
-      "sha256": "0707442d0bfdd84f84c366febedc9219589fb179e32efddb47f1072000cb34e3"
+      "sha256": "889bad235e9ab833128dc5e58e3b4025a3d48468d5a39b66e40eae738b92ffe0"
     },
     "source_target": "//backend/crates/platform/db:sqlx-migrations"
   },
@@ -2204,10 +2204,34 @@
       "sha256": "cf250ca9d288886d011dee9daff5f2ac55649cd55a70cf287e0313afbf9a2576",
       "size": 4454,
       "version": 164
+    },
+    {
+      "path": "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql",
+      "sha256": "22c490ddb180e2e13385fdb2bac2aa3315f0c29df4c1f961696e400359501352",
+      "size": 57200,
+      "version": 165
+    },
+    {
+      "path": "backend/crates/platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql",
+      "sha256": "0d34f470bc6338ceeab6ebe38b563118170eaa47eece402c504f9fd24a0e3ea0",
+      "size": 93526,
+      "version": 166
+    },
+    {
+      "path": "backend/crates/platform/db/migrations/0167_serving_role_transaction_timeouts.sql",
+      "sha256": "e9128ed9604350a48dcc51e58857cc3854d4549f4d4821fba5a816181c7129e1",
+      "size": 4481,
+      "version": 167
+    },
+    {
+      "path": "backend/crates/platform/db/migrations/0168_runtime_public_schema_usage.sql",
+      "sha256": "4c328d0607c243818ae647df64e88b5fef3ff0987f6793f578ab0ff16c4d61b0",
+      "size": 881,
+      "version": 168
     }
   ],
   "generated_by": "tools/buck/current_lock_rust_graph.py",
-  "local_package_count": 140,
+  "local_package_count": 141,
   "local_packages": [
     {
       "buck_label": "//backend/vendor/calamine-0.35.0-quickxml41:calamine-0.35",
@@ -2215,6 +2239,12 @@
       "manifest": "backend/vendor/calamine-0.35.0-quickxml41/Cargo.toml",
       "name": "calamine",
       "version": "0.35.0"
+    },
+    {
+      "kind": "workspace",
+      "manifest": "backend/crates/action-inbox/application/Cargo.toml",
+      "name": "mnt-action-inbox-application",
+      "version": "0.1.0"
     },
     {
       "kind": "workspace",
@@ -3053,7 +3083,7 @@
       "version": "3.0.0"
     }
   ],
-  "lock_sha256": "5f890beff6884de0cc5bc98a6fee117fd0e2d0b2f1ce35db8049896beb30cf8c",
+  "lock_sha256": "3ee97b65918f35dfaf6261eda53e2455575ea054498c61d31e6abe4224a52c0a",
   "lockfile": "backend/Cargo.lock",
   "materialized_registry_package_count": 583,
   "materialized_registry_packages": [
@@ -7141,7 +7171,7 @@
   ],
   "omitted_registry_package_count": 0,
   "omitted_registry_packages": [],
-  "package_count": 723,
+  "package_count": 724,
   "registry_package_count": 583,
   "registry_packages": [
     {

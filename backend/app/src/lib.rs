@@ -138,7 +138,10 @@ pub mod lifecycle;
 mod mail_sync;
 pub mod objects;
 pub mod office;
+mod workbench;
+mod workbench_native;
 mod workflow_drain;
+mod workflow_object_context;
 pub mod workflow_schedules;
 mod workflow_studio;
 
@@ -2754,6 +2757,12 @@ pub fn build_router(state: AppState) -> Router {
                     )
                     .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
+                .merge(workflow_object_context::router(
+                    workflow_object_context::WorkflowObjectContextState::new(
+                        pool.clone(),
+                        state.jwt_verifier.clone(),
+                    ),
+                ))
                 .merge(collaboration::router(
                     collaboration::CollaborationState::new(
                         pool.clone(),
@@ -2762,6 +2771,11 @@ pub fn build_router(state: AppState) -> Router {
                     .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
                 .merge(action_inbox::router(action_inbox::ActionInboxState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(workbench::router(workbench::WorkbenchState::new(
+                    Arc::new(workbench_native::NativeWorkbenchReaders::new(pool.clone())),
                     pool.clone(),
                     state.jwt_verifier.clone(),
                 )))

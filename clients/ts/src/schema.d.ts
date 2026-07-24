@@ -3960,6 +3960,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the authenticated principal's bounded operations workbench
+         * @description Composes the native action-inbox, owner-scoped todo, and collaboration calendar reads under one captured request instant. Each source remains independently authorized and may return a redacted denied or unavailable envelope; the aggregate never owns mutations or duplicates source data.
+         */
+        get: operations["getMyWorkbench"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/workspace": {
         parameters: {
             query?: never;
@@ -5335,6 +5355,26 @@ export interface paths {
          * @description Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
          */
         post: operations["finalizeWorkflowTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/for-object": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List visible workflow runs for one authorized object
+         * @description Read-only exact-pair bridge for work_order and support_ticket subjects. The server authorizes the native subject first, then returns only workflow runs visible to the same principal. Unknown or invisible cursors fail with the same validation code and do not disclose foreign rows.
+         */
+        get: operations["listWorkflowRunsForObject"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -10204,6 +10244,156 @@ export interface components {
             total_is_exact: boolean;
             /** @description Opaque cursor for the next immutable-keyset page, or null when exhausted. */
             next_cursor: string | null;
+        };
+        /** @enum {string} */
+        WorkbenchUrgency: "now" | "today" | "wait";
+        WorkbenchSourceRef: {
+            kind: string;
+            id: components["schemas"]["Uuid"];
+        };
+        /** @description Server-issued bounded module target; never an arbitrary URL. */
+        WorkbenchTarget: {
+            module: string;
+            id: string;
+        };
+        WorkbenchActionInboxItem: {
+            id: string;
+            urgency: components["schemas"]["WorkbenchUrgency"];
+            title: string;
+            due_at?: components["schemas"]["Timestamp"];
+            source: components["schemas"]["WorkbenchSourceRef"];
+            target: components["schemas"]["WorkbenchTarget"];
+        };
+        WorkbenchTodoItem: {
+            id: components["schemas"]["Uuid"];
+            text: string;
+            done: boolean;
+            /** Format: int64 */
+            source_order: number;
+            target: components["schemas"]["WorkbenchTarget"];
+        };
+        WorkbenchCalendarItem: {
+            id: components["schemas"]["Uuid"];
+            title: string;
+            starts_at: components["schemas"]["Timestamp"];
+            ends_at: components["schemas"]["Timestamp"];
+            target: components["schemas"]["WorkbenchTarget"];
+        };
+        WorkbenchScopeAll: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "all";
+            selected_branch_id?: components["schemas"]["Uuid"];
+        };
+        WorkbenchScopeBranches: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "branches";
+            branch_ids: components["schemas"]["Uuid"][];
+            selected_branch_id?: components["schemas"]["Uuid"];
+        };
+        WorkbenchEffectiveScope: components["schemas"]["WorkbenchScopeAll"] | components["schemas"]["WorkbenchScopeBranches"];
+        WorkbenchRange: {
+            from: components["schemas"]["Timestamp"];
+            to: components["schemas"]["Timestamp"];
+        };
+        WorkbenchDeniedSourceEnvelope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "denied";
+            code: string;
+        };
+        WorkbenchUnavailableSourceEnvelope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "unavailable";
+            code: string;
+        };
+        WorkbenchActionSourceOk: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "ok";
+            as_of: components["schemas"]["Timestamp"];
+            items: components["schemas"]["WorkbenchActionInboxItem"][];
+            total: number;
+            truncated: boolean;
+        };
+        WorkbenchTodoSourceOk: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "ok";
+            as_of: components["schemas"]["Timestamp"];
+            items: components["schemas"]["WorkbenchTodoItem"][];
+            total: number;
+            truncated: boolean;
+        };
+        WorkbenchCalendarSourceOk: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            status: "ok";
+            as_of: components["schemas"]["Timestamp"];
+            items: components["schemas"]["WorkbenchCalendarItem"][];
+            total: number;
+            truncated: boolean;
+        };
+        WorkbenchActionSourceEnvelope: components["schemas"]["WorkbenchActionSourceOk"] | components["schemas"]["WorkbenchDeniedSourceEnvelope"] | components["schemas"]["WorkbenchUnavailableSourceEnvelope"];
+        WorkbenchTodoSourceEnvelope: components["schemas"]["WorkbenchTodoSourceOk"] | components["schemas"]["WorkbenchDeniedSourceEnvelope"] | components["schemas"]["WorkbenchUnavailableSourceEnvelope"];
+        WorkbenchCalendarSourceEnvelope: components["schemas"]["WorkbenchCalendarSourceOk"] | components["schemas"]["WorkbenchDeniedSourceEnvelope"] | components["schemas"]["WorkbenchUnavailableSourceEnvelope"];
+        MyWorkbenchResponse: {
+            as_of: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            timezone: "Asia/Seoul";
+            range: components["schemas"]["WorkbenchRange"];
+            scope: components["schemas"]["WorkbenchEffectiveScope"];
+            partial: boolean;
+            action_inbox: components["schemas"]["WorkbenchActionSourceEnvelope"];
+            todos: components["schemas"]["WorkbenchTodoSourceEnvelope"];
+            calendar: components["schemas"]["WorkbenchCalendarSourceEnvelope"];
+        };
+        /** @enum {string} */
+        WorkflowObjectKind: "work_order" | "support_ticket";
+        WorkflowObjectSubject: {
+            object_type: components["schemas"]["WorkflowObjectKind"];
+            object_id: components["schemas"]["Uuid"];
+        };
+        WorkflowRunDetailTarget: {
+            /** @enum {string} */
+            kind: "workflow_run_detail";
+            run_id: components["schemas"]["Uuid"];
+        };
+        WorkflowRunForObjectSummary: {
+            run_id: components["schemas"]["Uuid"];
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            status: string;
+            trigger_type: string;
+            object_type: components["schemas"]["WorkflowObjectKind"];
+            object_id: components["schemas"]["Uuid"];
+            started_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            completed_at?: components["schemas"]["Timestamp"];
+            detail_target: components["schemas"]["WorkflowRunDetailTarget"];
+        };
+        WorkflowRunsForObjectResponse: {
+            subject: components["schemas"]["WorkflowObjectSubject"];
+            as_of: components["schemas"]["Timestamp"];
+            items: components["schemas"]["WorkflowRunForObjectSummary"][];
+            next_before?: components["schemas"]["Uuid"];
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -18937,6 +19127,37 @@ export interface operations {
             };
         };
     };
+    getMyWorkbench: {
+        parameters: {
+            query?: {
+                from?: components["schemas"]["Timestamp"];
+                to?: components["schemas"]["Timestamp"];
+                branch_id?: components["schemas"]["Uuid"];
+                action_limit?: number;
+                todo_limit?: number;
+                calendar_limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workbench source snapshots at one request ceiling. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyWorkbenchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     getCurrentUserWorkspace: {
         parameters: {
             query?: never;
@@ -21492,6 +21713,36 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowRunsForObject: {
+        parameters: {
+            query: {
+                object_type: components["schemas"]["WorkflowObjectKind"];
+                object_id: components["schemas"]["Uuid"];
+                limit?: number;
+                before?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Visible workflow runs bound to the exact subject pair. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunsForObjectResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     createWorkflowPostFinalizationRejection: {

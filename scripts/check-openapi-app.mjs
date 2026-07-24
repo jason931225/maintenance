@@ -5,9 +5,14 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import { checkPlatformContractDrift } from "./check-platform-contract-drift.mjs";
+import {
+  observeChild,
+  stopChild,
+  waitForChildReady,
+} from "./lib/app-process.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const backendDir = resolve(root, "backend");
+const appBinary = resolve(root, ".tmp/buck2/api-contract/mnt-app");
 const port = process.env.OPENAPI_DRIFT_PORT
   ? Number(process.env.OPENAPI_DRIFT_PORT)
   : await findOpenPort();
@@ -16,36 +21,33 @@ if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 }
 const baseUrl = `http://127.0.0.1:${port}`;
 const expected = readFileSync(resolve(root, "backend/openapi/openapi.yaml"), "utf8");
-const cargoEnv = {
-  ...process.env,
-  SQLX_OFFLINE: process.env.SQLX_OFFLINE ?? "true",
-};
-
 const { backendOperations } = checkPlatformContractDrift();
 console.error(
   `Platform contract drift gate covered ${backendOperations.size} backend operations.`,
 );
 
-await runCommand("cargo", ["build", "-p", "mnt-app"], {
-  cwd: backendDir,
-  env: cargoEnv,
-  label: "cargo build -p mnt-app",
+await runCommand("tools/buck/bootstrap/buck2w", [
+  "build",
+  "--out",
+  ".tmp/buck2/api-contract/mnt-app",
+  "//backend/app:mnt-app",
+], {
+  cwd: root,
+  label: "Buck2 build //backend/app:mnt-app",
 });
 
-const child = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
-  cwd: backendDir,
+const observed = observeChild(spawn(appBinary, [], {
+  cwd: root,
   env: {
-    ...cargoEnv,
     MNT_HTTP_ADDR: `127.0.0.1:${port}`,
     MNT_APP_ROLE: "api",
   },
   stdio: ["ignore", "pipe", "pipe"],
-});
+}));
+const { child } = observed;
 
-// Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
-// boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
-// app's write() before it ever serves /healthz — indistinguishable from a
-// readiness timeout. Echo live so CI logs show exactly what the app did.
+// Drain both streams so a chatty boot cannot fill an OS pipe buffer before the
+// app serves /healthz. Echo live so CI logs show exactly what the app did.
 let appOutput = "";
 const capture = (chunk) => {
   const text = chunk.toString();
@@ -56,7 +58,12 @@ child.stdout.on("data", capture);
 child.stderr.on("data", capture);
 
 try {
-  await waitForApp(baseUrl);
+  await waitForChildReady({
+    observed,
+    checkReady: async ({ signal }) =>
+      (await fetch(`${baseUrl}/healthz`, { signal })).ok,
+    getOutput: () => appOutput,
+  });
   const response = await fetch(`${baseUrl}/openapi/openapi.yaml`);
   if (!response.ok) {
     throw new Error(`GET /openapi/openapi.yaml returned ${response.status}`);
@@ -66,34 +73,12 @@ try {
     throw new Error("App-served OpenAPI YAML differs from backend/openapi/openapi.yaml");
   }
 } finally {
-  child.kill("SIGTERM");
-}
-
-async function waitForApp(url) {
-  // Generous: absorbs a cold `cargo run` compile on a cache-miss runner plus
-  // boot. The early-exit check below fails fast if the app actually crashes.
-  const deadline = Date.now() + 300_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
-      throw new Error(`mnt-app exited early with ${child.exitCode}\n${appOutput}`);
-    }
-    try {
-      const response = await fetch(`${url}/healthz`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // App is still starting.
-    }
-    await new Promise((resolveTimer) => setTimeout(resolveTimer, 500));
-  }
-  throw new Error(`Timed out waiting for mnt-app\n${appOutput}`);
+  await stopChild(child);
 }
 
 async function runCommand(command, args, options) {
   const child = spawn(command, args, {
     cwd: options.cwd,
-    env: options.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

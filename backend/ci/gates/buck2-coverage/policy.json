@@ -40,6 +40,10 @@
       "label": "//backend/ci/gates/vendor-lockin:mnt-gate-vendor-lockin-lib",
       "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
     },
+    "backend/crates/action-inbox/application/Cargo.toml": {
+      "label": "//backend/crates/action-inbox/application:mnt-action-inbox-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
     "backend/crates/analytics-quant/rest/Cargo.toml": {
       "label": "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
       "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."

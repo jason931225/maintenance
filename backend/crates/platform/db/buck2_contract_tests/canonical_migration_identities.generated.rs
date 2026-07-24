@@ -164,4 +164,8 @@ pub const CANONICAL_SQLX_MIGRATION_IDENTITIES: &[(&str, &str)] = &[
     ("backend/crates/platform/db/migrations/0162_create_notices.sql", "52ce4b369ec6f2e5e855c5fd42a503f98b512cab3acfc8ae59bb40165c8b2214"),
     ("backend/crates/platform/db/migrations/0163_finance_gl_voucher_sod.sql", "00ed20de6f53076b3ef271121daef22a595e8add56ee1335835d5aebff0c14ee"),
     ("backend/crates/platform/db/migrations/0164_bind_consume_four_eyes.sql", "cf250ca9d288886d011dee9daff5f2ac55649cd55a70cf287e0313afbf9a2576"),
+    ("backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql", "22c490ddb180e2e13385fdb2bac2aa3315f0c29df4c1f961696e400359501352"),
+    ("backend/crates/platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql", "0d34f470bc6338ceeab6ebe38b563118170eaa47eece402c504f9fd24a0e3ea0"),
+    ("backend/crates/platform/db/migrations/0167_serving_role_transaction_timeouts.sql", "e9128ed9604350a48dcc51e58857cc3854d4549f4d4821fba5a816181c7129e1"),
+    ("backend/crates/platform/db/migrations/0168_runtime_public_schema_usage.sql", "4c328d0607c243818ae647df64e88b5fef3ff0987f6793f578ab0ff16c4d61b0"),
 ];

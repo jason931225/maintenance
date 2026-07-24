@@ -210,11 +210,11 @@ def _canonical_sqlx_migration_contract(
                 "version": int(match.group(1)),
             }
         )
-    expected_versions = list(range(1, 165))
+    expected_versions = list(range(1, 169))
     actual_versions = [migration["version"] for migration in migrations]
     if actual_versions != expected_versions:
         raise GraphError(
-            "canonical SQLx migration versions must be exactly contiguous 0001..0164"
+            "canonical SQLx migration versions must be exactly contiguous 0001..0168"
         )
     if migrations[0]["path"] != (
         SQLX_MIGRATIONS_PATH / "0001_create_regions_branches.sql"
@@ -225,9 +225,9 @@ def _canonical_sqlx_migration_contract(
     ).as_posix():
         raise GraphError("canonical SQLx migration 0026 identity is not exact")
     if migrations[-1]["path"] != (
-        SQLX_MIGRATIONS_PATH / "0164_bind_consume_four_eyes.sql"
+        SQLX_MIGRATIONS_PATH / "0168_runtime_public_schema_usage.sql"
     ).as_posix():
-        raise GraphError("canonical SQLx migration 0164 identity is not exact")
+        raise GraphError("canonical SQLx migration 0168 identity is not exact")
     if re.search(
         rb"(?im)^CREATE TABLE regions\s*\(",
         _read_regular(repo, Path(migrations[0]["path"])),

@@ -11,13 +11,18 @@ import { spawn } from "node:child_process";
 import pg from "pg";
 
 import { createMaintenanceApiClient } from "../clients/ts/src/index.js";
+import {
+  observeChild,
+  stopChild,
+  waitForChildReady,
+} from "./lib/app-process.mjs";
 
 const { Client: PgClient } = pg;
 const root = resolve(new URL("..", import.meta.url).pathname);
 const databaseUrl = process.env.CONTRACT_DATABASE_URL;
 const appBinary = process.env.MNT_APP_BIN
   ? resolve(process.env.MNT_APP_BIN)
-  : resolve(root, "backend/target/debug/mnt-app");
+  : resolve(root, ".tmp/buck2/api-contract/mnt-app");
 const port = process.env.CONTRACT_APP_PORT
   ? Number(process.env.CONTRACT_APP_PORT)
   : await findOpenPort();
@@ -66,7 +71,6 @@ try {
 
   const token = issueAccessToken(userId, branchId);
   const appEnv = {
-    ...process.env,
     DATABASE_URL: topology.runtimeDatabaseUrl,
     LEAVE_COMMAND_DATABASE_URL: topology.leaveCommandDatabaseUrl,
     ONTOLOGY_COMMAND_DATABASE_URL: topology.ontologyCommandDatabaseUrl,
@@ -76,16 +80,15 @@ try {
     MNT_JWT_AUDIENCE: audience,
     MNT_JWT_PUBLIC_KEY_PEM: publicKeyPem,
   };
-  const app = spawn(appBinary, [], {
+  const observed = observeChild(spawn(appBinary, [], {
     cwd: root,
     env: appEnv,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+  }));
+  const { child: app } = observed;
 
-  // Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
-  // boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
-  // app's write() before it ever serves /healthz — indistinguishable from a
-  // readiness timeout. Echo live so CI logs show exactly what the app did.
+  // Drain both streams so a chatty boot cannot fill an OS pipe buffer before
+  // the app serves /healthz. Echo live so CI logs show exactly what it did.
   let appOutput = "";
   const capture = (chunk: Buffer) => {
     const text = chunk.toString();
@@ -96,7 +99,12 @@ try {
   app.stderr.on("data", capture);
 
   try {
-    await waitForApp(app, () => appOutput);
+    await waitForChildReady({
+      observed,
+      checkReady: async ({ signal }) =>
+        (await fetch(`${baseUrl}/healthz`, { signal })).ok,
+      getOutput: () => appOutput,
+    });
     const health = await fetch(`${baseUrl}/healthz`);
     if (!health.ok) {
       throw new Error(`healthz returned ${health.status}`);
@@ -123,7 +131,7 @@ try {
       throw new Error(`Unexpected request_no: ${data.request_no}`);
     }
   } finally {
-    app.kill("SIGTERM");
+    await stopChild(app);
   }
 } finally {
   await db.end();
@@ -519,7 +527,6 @@ async function runAppMigration(binary: string, ownerDatabaseUrl: string) {
   const migration = spawn(binary, [], {
     cwd: root,
     env: {
-      ...process.env,
       DATABASE_URL: ownerDatabaseUrl,
       MNT_APP_ROLE: "migrate",
     },
@@ -645,32 +652,6 @@ function base64url(input: string | Buffer) {
     .replaceAll("=", "")
     .replaceAll("+", "-")
     .replaceAll("/", "_");
-}
-
-async function waitForApp(
-  app: ReturnType<typeof spawn>,
-  getStderr: () => string,
-) {
-  // Generous: absorbs a cold `cargo run` compile on a cache-miss runner plus
-  // boot. The early-exit check below fails fast if the app actually crashes.
-  const deadline = Date.now() + 300_000;
-  while (Date.now() < deadline) {
-    if (app.exitCode !== null) {
-      throw new Error(
-        `mnt-app exited early with ${app.exitCode}\n${getStderr()}`,
-      );
-    }
-    try {
-      const response = await fetch(`${baseUrl}/healthz`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // App is still starting.
-    }
-    await new Promise((resolveTimer) => setTimeout(resolveTimer, 500));
-  }
-  throw new Error(`Timed out waiting for mnt-app\n${getStderr()}`);
 }
 
 async function findOpenPort(): Promise<number> {

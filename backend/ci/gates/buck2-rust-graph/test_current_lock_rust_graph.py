@@ -224,23 +224,45 @@ class CurrentLockRustGraphContract(unittest.TestCase):
             else:
                 self.assertEqual("cross_lane_integration", item.get("state"), source)
 
-    def test_scheduler_apalis_fan_in_is_buck_admitted_and_ci_serialized(self) -> None:
+    def test_scheduler_apalis_fan_in_is_atomic_and_ci_serialized(self) -> None:
         admission = load_json(ADMISSION)
         obligations = {
             item["source"]: item
             for item in admission.get("mapper_test_obligations", [])
         }
+        source_presence = {
+            source: (REPO / source).is_file()
+            for source in SCHEDULER_APALIS_ADMISSION_LABELS
+        }
+        self.assertEqual(
+            1,
+            len(set(source_presence.values())),
+            "scheduler/Apalis mapper sources must fan in atomically",
+        )
+        admitted = all(source_presence.values())
         for source, label in SCHEDULER_APALIS_ADMISSION_LABELS.items():
-            self.assertTrue((REPO / source).is_file(), source)
-            self.assertEqual("admitted", obligations[source].get("state"), source)
+            expected_state = "admitted" if admitted else "cross_lane_integration"
+            self.assertEqual(expected_state, obligations[source].get("state"), source)
             self.assertEqual(label, obligations[source].get("label"), source)
             for key in ("query_labels", "build_labels", "test_labels"):
-                self.assertIn(label, admission[key], f"{source} missing from {key}")
+                if admitted:
+                    self.assertIn(label, admission[key], f"{source} missing from {key}")
+                else:
+                    self.assertNotIn(
+                        label,
+                        admission[key],
+                        f"{source} falsely present in {key} before atomic fan-in",
+                    )
 
         runner = REPO / "tools/buck/ci_rust_admission.py"
-        self.assertTrue(runner.is_file(), runner.relative_to(REPO))
         workflow = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         invocation = "python3 -I tools/buck/ci_rust_admission.py"
+        if not admitted:
+            self.assertFalse(runner.exists(), runner.relative_to(REPO))
+            self.assertEqual(0, workflow.count(invocation))
+            return
+
+        self.assertTrue(runner.is_file(), runner.relative_to(REPO))
         self.assertEqual(1, workflow.count(invocation))
         runner_text = runner.read_text(encoding="utf-8")
         ordered_gates = (
@@ -378,8 +400,8 @@ class CurrentLockRustGraphContract(unittest.TestCase):
         receipt = load_json(GRAPH)
         migrations = receipt.get("canonical_sqlx_migrations")
         self.assertIsInstance(migrations, list)
-        self.assertEqual(164, len(migrations))
-        self.assertEqual(list(range(1, 165)), [item["version"] for item in migrations])
+        self.assertEqual(168, len(migrations))
+        self.assertEqual(list(range(1, 169)), [item["version"] for item in migrations])
         self.assertEqual(
             "backend/crates/platform/db/migrations/0001_create_regions_branches.sql",
             migrations[0]["path"],
@@ -389,7 +411,7 @@ class CurrentLockRustGraphContract(unittest.TestCase):
             migrations[25]["path"],
         )
         self.assertEqual(
-            "backend/crates/platform/db/migrations/0164_bind_consume_four_eyes.sql",
+            "backend/crates/platform/db/migrations/0168_runtime_public_schema_usage.sql",
             migrations[-1]["path"],
         )
         for item in migrations:

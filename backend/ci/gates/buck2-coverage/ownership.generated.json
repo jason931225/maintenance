@@ -70,6 +70,12 @@
     },
     {
       "disposition": "declared",
+      "label": "//backend/crates/action-inbox/application:mnt-action-inbox-application",
+      "manifest": "backend/crates/action-inbox/application/Cargo.toml",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    {
+      "disposition": "declared",
       "label": "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
       "manifest": "backend/crates/analytics-quant/rest/Cargo.toml",
       "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
@@ -851,7 +857,7 @@
   ],
   "exemption_count": 1,
   "generated_by": "tools/buck/backend_manifest_coverage.py",
-  "manifest_count": 141,
-  "queryable_owner_count": 140,
+  "manifest_count": 142,
+  "queryable_owner_count": 141,
   "schema_version": 1
 }

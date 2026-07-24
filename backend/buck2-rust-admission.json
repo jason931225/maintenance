@@ -45,7 +45,7 @@
       "required_test_command": "tools/buck/bootstrap/buck2w test //docs/program/ontology-versioned-contracts:verify-contracts"
     }
   ],
-  "lock_sha256": "5f890beff6884de0cc5bc98a6fee117fd0e2d0b2f1ce35db8049896beb30cf8c",
+  "lock_sha256": "3ee97b65918f35dfaf6261eda53e2455575ea054498c61d31e6abe4224a52c0a",
   "lockfile": "backend/Cargo.lock",
   "mapper_test_obligations": [
     {
