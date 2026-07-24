@@ -77,6 +77,8 @@ mnt-inbox-adapter-postgres = { workspace = true }
 mnt-inbox-rest = { workspace = true }
 mnt-leave-adapter-postgres = { workspace = true }
 mnt-leave-domain = { workspace = true }
+mnt-equipment-adapter-postgres = { workspace = true }
+mnt-equipment-rest = { workspace = true }
 mnt-logistics-adapter-postgres = { workspace = true }
 mnt-logistics-rest = { workspace = true }
 mnt-leave-rest = { workspace = true }

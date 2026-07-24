@@ -38,6 +38,8 @@ use mnt_dispatch_rest::DispatchRestState;
 use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
 use mnt_docs_adapter_postgres::PgDocsStore;
 use mnt_docs_rest::DocsRestState;
+use mnt_equipment_adapter_postgres::PgEquipment3rStore;
+use mnt_equipment_rest::EquipmentRestState;
 use mnt_facilities_rest::FacilitiesRestState;
 use mnt_finance_gl_adapter_postgres::PgVoucherStore;
 use mnt_finance_gl_rest::FinanceGlRestState;
@@ -2787,6 +2789,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_logistics_rest::router(LogisticsRestState::new(
                     logistics_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_equipment_rest::router(EquipmentRestState::new(
+                    PgEquipment3rStore::new(pool.clone()),
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_financial_rest::router(
