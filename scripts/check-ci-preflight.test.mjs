@@ -16,6 +16,32 @@ describe("CI preflight contract", () => {
     assert.deepEqual(evaluateCiPreflight(workflow).failures, []);
   });
 
+  it("rejects Buck2 jobs that do not bootstrap pinned DotSlash before invocation", () => {
+    expectFailure(
+      workflow.replace(
+        "      - name: Install pinned DotSlash runtime\n        run: tools/buck/install_dotslash.sh\n",
+        "",
+      ),
+      "preflight must install pinned DotSlash before Buck2",
+    );
+    const apiContract = workflow.indexOf("  api-contract:\n");
+    const apiWithoutDotSlash = workflow.slice(0, apiContract) + workflow.slice(apiContract).replace(
+      "      - name: Install pinned DotSlash runtime\n        run: tools/buck/install_dotslash.sh\n",
+      "",
+    );
+    expectFailure(apiWithoutDotSlash, "api-contract must install pinned DotSlash before Buck2");
+  });
+
+  it("rejects a generated-face authority job without the complete closure", () => {
+    expectFailure(
+      workflow.replace(
+        "tools/buck/preflight.sh --full-generated-faces",
+        "tools/buck/preflight.sh --unexpected",
+      ),
+      "generated-face-authority must run the complete generated-face closure",
+    );
+  });
+
   it("rejects a preflight that does not run the lockfile and foundation gates", () => {
     expectFailure(workflow.replace("npm run check:package-lock", "npm run check:root-workspaces"), "check:package-lock");
   });

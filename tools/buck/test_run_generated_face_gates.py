@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Execution locks: every registered generated-face gate runs in its snapshot."""
+"""Execution locks for tiered generated-face gates in immutable snapshots."""
 
+from __future__ import annotations
+
+import contextlib
 import importlib.util
+import io
 import json
 import shutil
 import tempfile
@@ -27,7 +31,9 @@ class GeneratedFaceGateRunnerTests(unittest.TestCase):
             (root / "src/input.txt").write_text("input\n")
             (root / "out/one.txt").write_text("one\n")
             (root / "out/two.txt").write_text("two\n")
-        for name, output in (("one", "one.txt"), ("two", "two.txt")):
+            (root / "out/three.txt").write_text("three\n")
+        faces = (("one", "one.txt", "cheap"), ("two", "two.txt", "expensive"), ("three", "three.txt", "cheap"))
+        for name, _output, _tier in faces:
             for root in (baseline, snapshot):
                 script = root / f"tools/{name}.sh"
                 replacement = "printf changed > out/two.txt" if drift_second and name == "two" else ":"
@@ -41,28 +47,49 @@ class GeneratedFaceGateRunnerTests(unittest.TestCase):
                     "source_roots": ["src/input.txt"],
                     "output_patterns": [f"out/{output}"],
                     "writer": {"kind": "repo-exec", "executable": f"tools/{name}.sh", "target": f"//tools:{name}"},
-                    "drift_gate": {"tier": "cheap", "kind": "writer-snapshot"},
+                    "drift_gate": {"tier": tier, "kind": "writer-snapshot"},
                 }
-                for name, output in (("one", "one.txt"), ("two", "two.txt"))
+                for name, output, tier in faces
             ],
         }
         registry_path = baseline / "registry.json"
         registry_path.write_text(json.dumps(registry))
         return temp, baseline, snapshot
 
-    def test_runs_every_registered_gate(self) -> None:
+    def test_full_gate_runs_every_registered_face(self) -> None:
         temp, baseline, snapshot = self.make_tree()
         try:
-            self.assertEqual(0, RUNNER.run(baseline / "registry.json", baseline, snapshot))
+            self.assertEqual(0, RUNNER.run(baseline / "registry.json", baseline, snapshot, tier="all"))
+            self.assertEqual("onetwothree", (snapshot / "gate-calls").read_text())
+        finally:
+            shutil.rmtree(temp)
+
+    def test_cheap_gate_runs_only_cheap_faces_and_reports_every_deferral(self) -> None:
+        temp, baseline, snapshot = self.make_tree()
+        output = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(0, RUNNER.run(baseline / "registry.json", baseline, snapshot, tier="cheap"))
+            self.assertEqual("onethree", (snapshot / "gate-calls").read_text())
+            self.assertIn("tier=cheap selected=2 deferred=1", output.getvalue())
+            self.assertIn("two (expensive) DEFERRED", output.getvalue())
+            self.assertIn("run --tier all before merge", output.getvalue())
+        finally:
+            shutil.rmtree(temp)
+
+    def test_full_gate_fails_closed_on_expensive_face_drift(self) -> None:
+        temp, baseline, snapshot = self.make_tree(drift_second=True)
+        try:
+            self.assertEqual(1, RUNNER.run(baseline / "registry.json", baseline, snapshot, tier="all"))
             self.assertEqual("onetwo", (snapshot / "gate-calls").read_text())
         finally:
             shutil.rmtree(temp)
 
-    def test_fails_closed_on_registered_face_drift(self) -> None:
-        temp, baseline, snapshot = self.make_tree(drift_second=True)
+    def test_rejects_unknown_tier(self) -> None:
+        temp, baseline, snapshot = self.make_tree()
         try:
-            self.assertEqual(1, RUNNER.run(baseline / "registry.json", baseline, snapshot))
-            self.assertEqual("onetwo", (snapshot / "gate-calls").read_text())
+            with self.assertRaisesRegex(ValueError, "unsupported generated-face gate tier"):
+                RUNNER.run(baseline / "registry.json", baseline, snapshot, tier="surprise")
         finally:
             shutil.rmtree(temp)
 

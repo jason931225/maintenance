@@ -11,8 +11,9 @@ manifest/dependency metadata and is never a substitute for product verification.
 
 - `./tools/buck2` is the official DotSlash manifest pinned to released
   [Buck2 2026-07-15](https://github.com/facebook/buck2/releases/tag/2026-07-15).
-  Every platform entry uses its exact BLAKE3 digest. Scripts never select a
-  developer-global Buck binary.
+  Every platform entry uses its exact BLAKE3 digest. CI installs an exact
+  SHA-256-verified DotSlash 0.5.7 runtime before invoking the manifest; scripts
+  never select a developer-global Buck binary.
 - The **released pin** is production authority. New upstream capabilities remain
   a separately recorded **canary** until exact-digest toolchain, target-graph,
   action-result, and artifact-provenance parity are proven. Do not point CI at
@@ -45,15 +46,19 @@ one executable artifact plus a resolvable Buck writer target, existing declared
 source roots, exact generated output paths or constrained `/**`/`/**/BUCK`
 patterns, and a `writer-snapshot` drift gate. The validator rejects missing
 artifacts, unresolved targets, raw commands, and overlapping writable faces.
-The no-write preflight snapshots the candidate and executes **every** registered
-gate through the allowlisted writer dispatcher; `cheap` and `expensive` are
-scheduling metadata, never permission to silently skip a gate. Archive snapshots
-exclude mutable `node_modules`; before any OpenAPI gate runs, the preflight
-requires byte-identical `package.json` and `package-lock.json`, validates every
-lockfile package/link against the caller's installed tree, then creates a
-snapshot-local symlink to that verified tree. Missing or inconsistent
-provenance fails closed—there is no ancestor-directory Node resolution and no
-copy of dependencies or generated output into Git.
+The no-write cheap admission command, `tools/buck/preflight.sh`, snapshots the
+candidate and executes only registered `cheap` faces through the allowlisted
+writer dispatcher. It prints a `DEFERRED` receipt for every registered
+`expensive` face, so a face is never silently omitted. The separately callable
+full closure, `tools/buck/preflight.sh --full-generated-faces`, executes
+**every** registered face and is the required generated-face CI status before
+merge. `cheap` and `expensive` are scheduling metadata, never permission to
+skip authority checks. Archive snapshots exclude mutable `node_modules`; before
+any OpenAPI gate runs, the preflight requires byte-identical `package.json` and
+`package-lock.json`, validates every lockfile package/link against the caller's
+installed tree, then creates a snapshot-local symlink to that verified tree.
+Missing or inconsistent provenance fails closed—there is no ancestor-directory
+Node resolution and no copy of dependencies or generated output into Git.
 
 This applies to:
 
