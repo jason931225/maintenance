@@ -11,7 +11,6 @@ import {
   listDispatchQueue,
   listP1DispatchCandidates,
   listP1DispatchResponses,
-  respondToP1Dispatch,
   type DispatchCandidate,
   type DispatchQueueItem,
   type DispatchQueueStatus,
@@ -28,6 +27,8 @@ type DispatchDetail = {
   candidates: DispatchCandidate[];
   responses: P1DispatchResponse[];
 };
+
+type MutationFailure = "denied" | "error";
 
 const statusLabels: Record<DispatchQueueStatus, string> = {
   RECEIVED: "Received",
@@ -66,12 +67,10 @@ function ErrorState({ message, retry }: { message: string; retry: () => void }) 
 function DetailView({
   detail,
   mutation,
-  onRespond,
   onForceAssign,
 }: {
   detail: DispatchDetail | null;
   mutation: string | null;
-  onRespond: (response: "ACCEPT" | "DECLINE") => void;
   onForceAssign: (mechanicId: string) => void;
 }) {
   const [candidateId, setCandidateId] = useState("");
@@ -97,10 +96,6 @@ function DetailView({
         {detail.summary.auto_assigned_mechanic_id && <div><dt>Assigned mechanic</dt><dd>{detail.summary.auto_assigned_mechanic_id}</dd></div>}
       </dl>
 
-      <div className="dispatch-console__actions" aria-label="Dispatch response controls">
-        <button type="button" disabled={mutation !== null} onClick={() => { onRespond("ACCEPT"); }}>Accept broadcast</button>
-        <button type="button" disabled={mutation !== null} onClick={() => { onRespond("DECLINE"); }}>Decline broadcast</button>
-      </div>
 
       <section aria-labelledby="dispatch-candidates-heading">
         <h3 id="dispatch-candidates-heading">Ranked candidates</h3>
@@ -110,7 +105,7 @@ function DetailView({
               <thead><tr><th scope="col">Select</th><th scope="col">Mechanic</th><th scope="col">Score</th><th scope="col">Ranking basis</th><th scope="col">Response</th></tr></thead>
               <tbody>{detail.candidates.map((candidate) => (
                 <tr key={candidate.mechanic_id}>
-                  <td><input aria-label={`Select mechanic ${candidate.mechanic_id}`} type="radio" name="dispatch-candidate" value={candidate.mechanic_id} checked={candidateId === candidate.mechanic_id} onChange={(event) => { setCandidateId(event.target.value); }} /></td>
+                  <td><input aria-label={`Select mechanic ${candidate.mechanic_id}`} type="radio" name="dispatch-candidate" value={candidate.mechanic_id} checked={candidateId === candidate.mechanic_id && candidate.response !== "DECLINE"} disabled={candidate.response === "DECLINE"} onChange={(event) => { setCandidateId(event.target.value); }} /></td>
                   <td>{candidate.mechanic_id}</td>
                   <td>{(candidate.score_milli / 1000).toFixed(3)}</td>
                   <td>{candidate.score_reason}</td>
@@ -185,7 +180,9 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
   const [detailState, setDetailState] = useState<LoadState>("ready");
   const [detailRetry, setDetailRetry] = useState(0);
   const [mutation, setMutation] = useState<string | null>(null);
+  const [mutationFailure, setMutationFailure] = useState<MutationFailure | null>(null);
   const queueEpoch = useRef(0);
+  const selectionId = useRef<string | undefined>(undefined);
   const selectionEpoch = useRef(0);
   const detailEpoch = useRef(0);
 
@@ -198,13 +195,27 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
       setNextAfter(page.next_after);
       setStats(page.stats);
       setQueueState("ready");
-      setSelected((current) => page.items.find((item) => item.work_order_id === current?.work_order_id) ?? null);
+      const retained = selectionId.current
+        ? page.items.find((item) => item.work_order_id === selectionId.current) ?? null
+        : null;
+      if (!retained && selectionId.current !== undefined) {
+        selectionId.current = undefined;
+        selectionEpoch.current += 1;
+        detailEpoch.current += 1;
+        setDetail(null);
+        setDetailState("ready");
+      }
+      setSelected(retained);
     }).catch((error: unknown) => {
       if (controller.signal.aborted || epoch !== queueEpoch.current) return;
       setItems([]);
       setNextAfter(undefined);
+      selectionId.current = undefined;
+      selectionEpoch.current += 1;
+      detailEpoch.current += 1;
       setSelected(null);
       setDetail(null);
+      setDetailState("ready");
       setQueueState(isDispatchAccessDenied(error) ? "denied" : "error");
     });
     return () => { controller.abort(); };
@@ -249,6 +260,8 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
 
   function select(item: DispatchQueueItem) {
     selectionEpoch.current += 1;
+    selectionId.current = item.work_order_id;
+    setMutationFailure(null);
     setDetail(null);
     setDetailState(item.dispatch ? "loading" : "ready");
     setSelected(item);
@@ -272,22 +285,21 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
     }
   }
 
-  async function mutate(action: "ACCEPT" | "DECLINE" | "FORCE", mechanicId?: string) {
+  async function mutateForceAssignment(mechanicId: string) {
     const dispatchId = detail?.summary.id;
     const selectionAtStart = selectionEpoch.current;
     if (!dispatchId || mutation !== null) return;
-    setMutation(action);
+    setMutationFailure(null);
+    setMutation("FORCE");
     try {
-      if (action === "FORCE") {
-        if (!mechanicId) return;
-        await forceAssignP1Dispatch(api, dispatchId, mechanicId);
-      } else {
-        await respondToP1Dispatch(api, dispatchId, action);
-      }
+      await forceAssignP1Dispatch(api, dispatchId, mechanicId);
       if (selectionAtStart === selectionEpoch.current) {
         refreshQueue();
         retryDetail();
       }
+    } catch (error: unknown) {
+      if (selectionAtStart !== selectionEpoch.current) return;
+      setMutationFailure(isDispatchAccessDenied(error) ? "denied" : "error");
     } finally {
       if (selectionAtStart === selectionEpoch.current) setMutation(null);
     }
@@ -311,7 +323,7 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
           {nextAfter && queueState === "ready" && <button type="button" className="dispatch-console__more" onClick={() => { void loadMore(); }}>Load next queue page</button>}
         </section>
         <aside className="dispatch-console__panel" aria-live="polite">
-          {detailState === "loading" ? <p className="dispatch-console__empty" role="status">Loading selected P1 dispatch…</p> : detailState === "denied" ? <p className="dispatch-console__empty" role="alert">Your current role is not authorized to inspect this P1 dispatch.</p> : detailState === "error" ? <ErrorState message="The selected P1 dispatch could not be loaded." retry={retryDetail} /> : selected && !selected.dispatch ? <p className="dispatch-console__empty" role="status">This work order has no active P1 dispatch.</p> : <DetailView key={detail?.summary.id ?? "no-dispatch"} detail={detail} mutation={mutation} onRespond={(response) => { void mutate(response); }} onForceAssign={(mechanicId) => { void mutate("FORCE", mechanicId); }} />}
+          {detailState === "loading" ? <p className="dispatch-console__empty" role="status">Loading selected P1 dispatch…</p> : detailState === "denied" ? <p className="dispatch-console__empty" role="alert">Your current role is not authorized to inspect this P1 dispatch.</p> : detailState === "error" ? <ErrorState message="The selected P1 dispatch could not be loaded." retry={retryDetail} /> : selected && !selected.dispatch ? <p className="dispatch-console__empty" role="status">This work order has no active P1 dispatch.</p> : <>{mutationFailure === "denied" ? <p className="dispatch-console__error" role="alert">Your current role is not authorized to force assign this dispatch.</p> : null}{mutationFailure === "error" ? <p className="dispatch-console__error" role="alert">Force assignment was not confirmed. Refresh the dispatch before taking another action.</p> : null}<DetailView key={`${detail?.summary.id ?? "no-dispatch"}:${detail?.candidates.map((candidate) => `${candidate.mechanic_id}:${candidate.response ?? "PENDING"}`).join(",") ?? ""}`} detail={detail} mutation={mutation} onForceAssign={(mechanicId) => { void mutateForceAssignment(mechanicId); }} /></>}
         </aside>
       </div>
     </section>

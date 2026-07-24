@@ -721,3 +721,24 @@ describe("DispatchPage mechanic accept/decline", () => {
     expect(screen.getByText(freshRequestNo)).toBeVisible();
   });
 });
+
+describe("DispatchPage operational console composition", () => {
+  it("mounts the authenticated dispatch queue vertical without replacing existing dispatch workflows", async () => {
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
+      http.get("*/api/v1/console/dispatch/queue", () =>
+        HttpResponse.json({
+          items: [],
+          stats: { unassigned_count: 0, sla_due_count: 0 },
+        }),
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    expect(await screen.findByRole("heading", { name: "Dispatch operations" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "작업지시 목록" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "20260612-001 배차 제어" })).toBeVisible();
+  });
+});

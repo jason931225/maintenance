@@ -54,6 +54,15 @@ describe("DispatchConsole", () => {
     }));
   });
 
+  it("is a manager queue surface and does not impersonate a technician offer response", async () => {
+    const GET = respondingGet();
+    render(<DispatchConsole api={client(GET)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    await screen.findByRole("heading", { name: "P1 dispatch" });
+    expect(screen.queryByRole("button", { name: "Accept broadcast" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Decline broadcast" })).not.toBeInTheDocument();
+  });
+
   it("keeps force assignment unavailable until a current candidate is selected and refreshes after mutation", async () => {
     const GET = respondingGet();
     const POST = vi.fn().mockResolvedValue(result(summary));
@@ -68,6 +77,73 @@ describe("DispatchConsole", () => {
       params: { path: { dispatchId: "dispatch-1" } }, body: { mechanic_id: "mechanic-7" },
     }); });
     await waitFor(() => { expect(GET.mock.calls.filter(([path]) => path === "/api/v1/console/dispatch/queue").length).toBeGreaterThan(1); });
+  });
+
+  it("keeps declined candidates audit-visible but unavailable for force assignment", async () => {
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/console/dispatch/queue") return Promise.resolve(result(queue));
+      if (path === "/api/v1/p1-dispatches/{dispatchId}") return Promise.resolve(result(summary));
+      if (path.endsWith("/candidates")) return Promise.resolve(result({ items: [{ ...candidatePage.items[0], response: "DECLINE" }] }));
+      if (path.endsWith("/responses")) return Promise.resolve(result(responsePage));
+      throw new Error(`unexpected ${path}`);
+    });
+    render(<DispatchConsole api={client(GET)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    const declined = await screen.findByRole("radio", { name: "Select mechanic mechanic-7" });
+    expect(declined).toBeDisabled();
+    expect(screen.getAllByText("DECLINE").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Force assign selected candidate" })).toBeDisabled();
+  });
+
+  it("clears selected detail when a refreshed queue no longer contains its work order", async () => {
+    let queueCalls = 0;
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/console/dispatch/queue") {
+        queueCalls += 1;
+        return Promise.resolve(result(queueCalls === 1 ? queue : { items: [], stats: { unassigned_count: 0, sla_due_count: 0 } }));
+      }
+      if (path === "/api/v1/p1-dispatches/{dispatchId}") return Promise.resolve(result(summary));
+      if (path.endsWith("/candidates")) return Promise.resolve(result(candidatePage));
+      if (path.endsWith("/responses")) return Promise.resolve(result(responsePage));
+      throw new Error(`unexpected ${path}`);
+    });
+    render(<DispatchConsole api={client(GET)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    expect(await screen.findByRole("heading", { name: "P1 dispatch" })).toBeVisible();
+    fireEvent.click(screen.getByLabelText("Received"));
+    await waitFor(() => { expect(screen.queryByRole("heading", { name: "P1 dispatch" })).not.toBeInTheDocument(); });
+    expect(screen.getByText("No work orders match the selected dispatch statuses.")).toBeVisible();
+  });
+
+  it.each([401, 403])("contains force-assignment authorization status %s as a fail-closed user-visible state", async (status) => {
+    const GET = respondingGet();
+    const POST = vi.fn().mockResolvedValue({ error: { error: { message: "denied" } }, response: new Response(null, { status }) });
+    render(<DispatchConsole api={client(GET, POST)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Select mechanic mechanic-7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Force assign selected candidate" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("not authorized to force assign");
+    expect(POST).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([409, 500])("contains force-assignment status %s without an unhandled mutation", async (status) => {
+    const GET = respondingGet();
+    const POST = vi.fn().mockResolvedValue({ error: { error: { message: "conflict" } }, response: new Response(null, { status }) });
+    render(<DispatchConsole api={client(GET, POST)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Select mechanic mechanic-7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Force assign selected candidate" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Force assignment was not confirmed");
+  });
+
+  it("contains a force-assignment network failure", async () => {
+    const GET = respondingGet();
+    const POST = vi.fn().mockRejectedValue(new TypeError("network unavailable"));
+    render(<DispatchConsole api={client(GET, POST)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /WO-001/i }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Select mechanic mechanic-7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Force assign selected candidate" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Force assignment was not confirmed");
   });
 
   it("shows an explicit denied state without rendering queue records", async () => {

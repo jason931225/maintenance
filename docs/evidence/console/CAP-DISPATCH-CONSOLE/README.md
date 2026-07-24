@@ -44,3 +44,23 @@ The focused tests exercise generated path/body wiring, malformed DTO rejection,
 status filtering, opaque cursor follow-up, detail rendering, restricted force
 assignment, refresh-after-mutation, and the denied state. They do not replace
 backend authorization or full browser/runtime evidence.
+
+## Dispatch route composition and authority refinement
+
+The active authenticated `/dispatch` page composes `DispatchConsoleBody` alongside
+its pre-existing work-order list, dispatch board, controls, and mechanic-offer
+flow. This narrow composition change does not alter route guards or navigation.
+
+The new vertical is a manager operational queue/read surface. It intentionally
+does **not** expose ACCEPT/DECLINE controls: those are person-scoped pending-offer
+actions and remain on the existing mechanic offer workflow. The queue endpoint
+cannot establish that the viewer received an offer, so showing response controls
+there would impersonate an authority the UI cannot prove.
+
+Only `MANAGER_FORCE_PENDING` dispatches can expose force assignment. A selected
+candidate that has declined remains audit-visible but is disabled; any refreshed
+candidate response list remounts the selector and clears an invalid selection.
+A queue refresh that removes the selected work order invalidates the selection
+and its detail request before rendering the empty queue state. Force-assignment
+401/403, 409/server, and network failures remain in the module as explicit
+fail-closed alerts rather than rejected event handlers.

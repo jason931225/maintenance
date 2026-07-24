@@ -6,6 +6,7 @@ import type { UserSummary, WorkOrderListItem } from "../api/types";
 import type { PendingDispatchOffersLoadResult } from "../features/dispatch/MechanicDispatchOffers";
 type WorkResultType = components["schemas"]["WorkResultType"];
 import { useAuth } from "../context/auth";
+import { DispatchConsoleBody } from "../console/dispatch";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
@@ -598,6 +599,7 @@ export function DispatchPage() {
             filters.query.trim() ? ko.dispatch.search.noMatches : undefined
           }
         />
+        <DispatchConsoleBody />
         <DispatchBoard
           workOrders={filteredWorkOrders}
           selectedMechanicId={session?.user_id ?? ""}
