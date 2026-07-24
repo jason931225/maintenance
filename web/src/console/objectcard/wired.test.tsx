@@ -118,10 +118,12 @@ function renderGoverned(
 function renderGovernedWith(
   api: ConsoleApiClient,
   descriptor: ObjectCardDescriptor,
+  gate: PolicyGate = allowGate,
+  handlers?: ObjectCardHandlers,
 ) {
   return render(
-    <PolicyGateProvider gate={allowGate}>
-      <GovernedObjectCard api={api} descriptor={descriptor} />
+    <PolicyGateProvider gate={gate}>
+      <GovernedObjectCard api={api} descriptor={descriptor} handlers={handlers} />
     </PolicyGateProvider>,
   );
 }
@@ -179,6 +181,38 @@ describe("GovernedObjectCard action preflight → execute", () => {
       expect(screen.queryByRole("button", { name: S.preflight.execute })).toBeNull();
     });
     expect(postB).not.toHaveBeenCalled();
+  });
+
+  it("synchronously retires a same-API preflight when its policy gate is replaced", async () => {
+    const stalePreflight = deferred<ReturnType<typeof apiResult>>();
+    const post = vi.fn(() => stalePreflight.promise);
+    const api = {
+      GET: vi.fn(() => Promise.resolve(apiResult([]))),
+      POST: post,
+    } as unknown as ConsoleApiClient;
+    const descriptor = createObjectCardStub();
+    const gateA: PolicyGate = { can: () => true };
+    const gateB: PolicyGate = { can: () => false };
+    const view = renderGovernedWith(api, descriptor, gateA);
+    clickAction(T.samples.actions.reassign);
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledTimes(1);
+    });
+
+    // Resolve immediately after rerender: no passive effect is allowed to be
+    // the fence between the old continuation and this new authority.
+    view.rerender(
+      <PolicyGateProvider gate={gateB}>
+        <GovernedObjectCard api={api} descriptor={descriptor} />
+      </PolicyGateProvider>,
+    );
+    stalePreflight.resolve(
+      apiResult({ gates: passingChain, criteria_ok: true, would_execute: true }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: S.preflight.execute })).toBeNull();
+    });
+    expect(post).toHaveBeenCalledTimes(1);
   });
   it("renders each gate's status and withholds execute while a gate is pending (writes nothing)", async () => {
     const executeCalls = vi.fn();
@@ -370,6 +404,26 @@ describe("GovernedObjectCard §20 override → four-eyes decide", () => {
     expect(screen.getByRole("button", { name: S.override.approve })).toBeTruthy();
   });
 
+  it("drops a late override-open response after authority replacement", async () => {
+    const opened = deferred<HttpResponse>();
+    const api = createConsoleApiClient();
+    const descriptor = createObjectCardStub();
+    const gateA: PolicyGate = { can: () => true };
+    const gateB: PolicyGate = { can: () => false };
+    server.use(http.post("*/api/v1/governance/overrides", () => opened.promise));
+    const view = renderGovernedWith(api, descriptor, gateA);
+    openOverride();
+    view.rerender(
+      <PolicyGateProvider gate={gateB}>
+        <GovernedObjectCard api={api} descriptor={descriptor} />
+      </PolicyGateProvider>,
+    );
+    opened.resolve(HttpResponse.json(overrideSummary, { status: 201 }));
+    await waitFor(() => {
+      expect(screen.queryByText(S.override.pendingTitle)).toBeNull();
+    });
+  });
+
   it("surfaces the server's self-approval rejection", async () => {
     server.use(
       http.post("*/api/v1/governance/overrides", () =>
@@ -425,6 +479,49 @@ describe("GovernedObjectCard §20 override → four-eyes decide", () => {
     fireEvent.click(await screen.findByRole("button", { name: S.override.approve }));
     expect(await screen.findByText(S.override.approvedChip)).toBeTruthy();
     expect(onEdit).toHaveBeenCalledWith({ mode: "override", reason: "감사 정정" });
+  });
+
+  it("drops a late approval and never forwards it to replacement handlers", async () => {
+    const decided = deferred<HttpResponse>();
+    const api = createConsoleApiClient();
+    const descriptor = createObjectCardStub();
+    const onEditA = vi.fn();
+    const onEditB = vi.fn();
+    const gateA: PolicyGate = { can: () => true };
+    const gateB: PolicyGate = { can: () => false };
+    server.use(
+      http.post("*/api/v1/governance/overrides", () =>
+        HttpResponse.json(overrideSummary, { status: 201 }),
+      ),
+      http.post("*/api/v1/governance/approvals/decide", () => decided.promise),
+    );
+    const view = renderGovernedWith(api, descriptor, gateA, { onEdit: onEditA });
+    openOverride();
+    fireEvent.click(await screen.findByRole("button", { name: S.override.approve }));
+    view.rerender(
+      <PolicyGateProvider gate={gateB}>
+        <GovernedObjectCard api={api} descriptor={descriptor} handlers={{ onEdit: onEditB }} />
+      </PolicyGateProvider>,
+    );
+    decided.resolve(
+      HttpResponse.json(
+        {
+          id: "apr-9",
+          request_ref: "ovr-1",
+          kind: "override",
+          requested_by: "user-requester",
+          approver_id: "user-approver",
+          decision: "approved",
+          decided_at: "2026-07-10T02:05:00Z",
+        },
+        { status: 201 },
+      ),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText(S.override.approvedChip)).toBeNull();
+    });
+    expect(onEditA).not.toHaveBeenCalled();
+    expect(onEditB).not.toHaveBeenCalled();
   });
 });
 
@@ -482,6 +579,31 @@ describe("GovernedObjectCard dynamic layer (acting-read + code resolve)", () => 
 });
 
 describe("GovernedObjectCard lifecycle transition preflight", () => {
+  it("retires a lifecycle preflight when only the same-id descriptor from_state changes", async () => {
+    const stalePreflight = deferred<ReturnType<typeof apiResult>>();
+    const post = vi.fn(() => stalePreflight.promise);
+    const api = {
+      GET: vi.fn(() => Promise.resolve(apiResult([]))),
+      POST: post,
+    } as unknown as ConsoleApiClient;
+    const descriptor = createObjectCardStub();
+    const changedState = { ...descriptor, lifecycleState: "locked" as const };
+    const view = renderGovernedWith(api, descriptor);
+    fireEvent.click(screen.getByRole("button", { name: archiveLabel }));
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledTimes(1);
+    });
+    view.rerender(
+      <PolicyGateProvider gate={allowGate}>
+        <GovernedObjectCard api={api} descriptor={changedState} />
+      </PolicyGateProvider>,
+    );
+    stalePreflight.resolve(apiResult({ configured: true, config: {}, outcome: passingChain }));
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: archiveLabel })).toHaveLength(1);
+    });
+  });
+
   const archiveLabel = T.transitionTo(T.lifecycle.archived);
 
   it("discards an API-A lifecycle preflight after descriptor B is current", async () => {
