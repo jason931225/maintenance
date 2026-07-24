@@ -6,8 +6,10 @@
 use std::collections::BTreeMap;
 
 use mnt_attendance_application::{
-    self as app, AcknowledgeWeek52, AmendClose, AssignSubstitute, CallerScope, CancelSubstitution,
-    CloseChecks, CloseMonth, ListSubstitutions, RaiseException, ResolveException, Week52Input,
+    self as app, AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence,
+    AttendanceExceptionRead, AttendanceObjectLink, AttendancePage, CallerScope, CancelSubstitution,
+    CloseChecks, CloseMonth, ExceptionResolutionRead, ListSubstitutions, RaiseException,
+    ResolveException, Week52Input,
 };
 use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, HistoricalAbsence};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
@@ -70,13 +72,16 @@ impl PgAttendanceStore {
         caller: &CallerScope,
         range: AttendanceDateRange,
         branch_id: Option<Uuid>,
-    ) -> Result<Vec<Value>, AttendanceStoreError> {
+    ) -> Result<AttendancePage<AttendanceExceptionRead>, AttendanceStoreError> {
         app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let rows = sqlx::query("SELECT e.id,e.code,e.kind,e.status,e.employee_id,e.branch_id,e.work_date,e.detail,e.created_at FROM attendance_exceptions e WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) ORDER BY e.work_date DESC,e.created_at DESC")
+            let rows = sqlx::query(&exception_projection("WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) ORDER BY e.work_date DESC,e.created_at DESC LIMIT 200"))
                 .bind(range.from).bind(range.to_exclusive).bind(branch_id).fetch_all(tx.as_mut()).await?;
-            rows.iter().map(exception_json).collect::<Result<Vec<_>, _>>()
+            let total: i64 = sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions e WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3)")
+                .bind(range.from).bind(range.to_exclusive).bind(branch_id).fetch_one(tx.as_mut()).await?;
+            let items = rows.iter().map(exception_read).collect::<Result<Vec<_>, _>>()?;
+            Ok(AttendancePage { items, total, limit: 200, offset: 0 })
         })).await
     }
 
@@ -84,7 +89,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         command: RaiseException,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<AttendanceExceptionRead, AttendanceStoreError> {
         let key = app::validate_idempotency_key(&command.idempotency_key)?;
         let detail = app::validate_text(&command.detail, "detail", 2000)?;
         let org = OrgId::from_uuid(caller.org_id);
@@ -101,10 +106,11 @@ impl PgAttendanceStore {
             if command.branch_id != Some(branch) { return Err(AttendanceStoreError::Conflict); }
             app::ensure_scope(&caller, Some(branch))?;
             let request=json!({"kind":command.kind,"employeeId":command.employee_id,"branchId":branch,"workDate":command.work_date,"detail":detail,"evidence":command.evidence}); let fp=fingerprint(&request);
+            let evidence_json = serde_json::to_value(&command.evidence).map_err(|_| AttendanceStoreError::Conflict)?;
             if let Some((existing, stored, _)) = existing { if stored==fp { return Ok((exception_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             let code=issue_code(tx, OrgId::from_uuid(caller.org_id), "attendance_exception").await?;
             sqlx::query("INSERT INTO attendance_exceptions (id,org_id,code,kind,employee_id,branch_id,work_date,detail,evidence,links,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'[]'::jsonb,$10,$11,$12)")
-                .bind(id).bind(caller.org_id).bind(&code).bind(command.kind.as_db()).bind(command.employee_id).bind(branch).bind(command.work_date).bind(&detail).bind(command.evidence).bind(&key).bind(&fp).bind(actor).execute(tx.as_mut()).await?;
+                .bind(id).bind(caller.org_id).bind(&code).bind(command.kind.as_db()).bind(command.employee_id).bind(branch).bind(command.work_date).bind(&detail).bind(evidence_json).bind(&key).bind(&fp).bind(actor).execute(tx.as_mut()).await?;
             let view=exception_by_id(tx,id).await?; let audit=event(&caller,"attendance.exception.raise","attendance_exception",id,Some(branch),Some(json!({"code":code})))?; Ok((view,vec![audit]))
         })).await
     }
@@ -137,7 +143,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         exception_id: Uuid,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<AttendanceExceptionRead, AttendanceStoreError> {
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| {
@@ -158,7 +164,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         command: ResolveException,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<AttendanceExceptionRead, AttendanceStoreError> {
         let reason = app::validate_text(&command.reason, "reason", 2000)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
@@ -746,12 +752,57 @@ async fn close_checks(
         already_closed: closed,
     })
 }
+fn exception_projection(suffix: &str) -> String {
+    format!(
+        "SELECT e.id,e.code,e.kind,e.status,e.employee_id,employee.name AS employee_name,employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,e.detail,e.evidence,e.links,e.created_at,r.action AS resolution_action,r.reason AS resolution_reason,r.linked_work_ref,r.ot_hours,r.actor_user_id,r.created_at AS resolved_at FROM attendance_exceptions e JOIN employees employee ON employee.id=e.employee_id AND employee.org_id=e.org_id LEFT JOIN attendance_exception_resolutions r ON r.exception_id=e.id AND r.org_id=e.org_id {suffix}"
+    )
+}
 async fn exception_by_id(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
-) -> Result<Value, AttendanceStoreError> {
-    let r=sqlx::query("SELECT id,code,kind,status,employee_id,branch_id,work_date,detail,created_at FROM attendance_exceptions WHERE id=$1").bind(id).fetch_one(tx.as_mut()).await?;
-    exception_json(&r)
+) -> Result<AttendanceExceptionRead, AttendanceStoreError> {
+    let query = exception_projection("WHERE e.id=$1");
+    let r = sqlx::query(&query).bind(id).fetch_one(tx.as_mut()).await?;
+    exception_read(&r)
+}
+fn exception_read(
+    r: &sqlx::postgres::PgRow,
+) -> Result<AttendanceExceptionRead, AttendanceStoreError> {
+    let evidence: Vec<AttendanceEvidence> = serde_json::from_value(r.try_get("evidence")?)
+        .map_err(|_| AttendanceStoreError::Conflict)?;
+    let links: Vec<AttendanceObjectLink> =
+        serde_json::from_value(r.try_get("links")?).map_err(|_| AttendanceStoreError::Conflict)?;
+    let resolution_action: Option<String> = r.try_get("resolution_action")?;
+    let resolution = match resolution_action {
+        None => None,
+        Some(action) => Some(ExceptionResolutionRead {
+            action: mnt_attendance_domain::ResolutionAction::parse(&action)
+                .map_err(app::AttendanceApplicationError::from)?,
+            reason: r.try_get("resolution_reason")?,
+            linked_work_ref: r.try_get("linked_work_ref")?,
+            ot_hours: r.try_get("ot_hours")?,
+            actor: r.try_get("actor_user_id")?,
+            resolved_at: r.try_get("resolved_at")?,
+        }),
+    };
+    Ok(AttendanceExceptionRead {
+        id: r.try_get("id")?,
+        code: r.try_get("code")?,
+        kind: ExceptionKind::parse(&r.try_get::<String, _>("kind")?)
+            .map_err(app::AttendanceApplicationError::from)?,
+        status: r.try_get("status")?,
+        employee_id: r.try_get("employee_id")?,
+        employee_name: r.try_get("employee_name")?,
+        team: r.try_get("team")?,
+        branch_id: r.try_get("branch_id")?,
+        work_date: r.try_get("work_date")?,
+        occurred_at: r.try_get("occurred_at")?,
+        detail: r.try_get("detail")?,
+        evidence,
+        links,
+        resolution,
+        created_at: r.try_get("created_at")?,
+    })
 }
 async fn substitution_by_id(
     tx: &mut Transaction<'_, Postgres>,
@@ -763,11 +814,6 @@ async fn substitution_by_id(
 fn close_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {
     Ok(
         json!({"id":r.try_get::<Uuid,_>("id")?,"month":r.try_get::<Date,_>("month")?.to_string(),"branchScope":r.try_get::<String,_>("branch_scope")?,"checks":r.try_get::<Value,_>("checks")?,"attestedBy":r.try_get::<Uuid,_>("attested_by")?,"periodLockId":r.try_get::<Option<Uuid>,_>("period_lock_id")?}),
-    )
-}
-fn exception_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {
-    Ok(
-        json!({"id":r.try_get::<Uuid,_>("id")?,"code":r.try_get::<String,_>("code")?,"kind":r.try_get::<String,_>("kind")?,"status":r.try_get::<String,_>("status")?,"employeeId":r.try_get::<Uuid,_>("employee_id")?,"branchId":r.try_get::<Option<Uuid>,_>("branch_id")?,"workDate":r.try_get::<Date,_>("work_date")?.to_string(),"detail":r.try_get::<String,_>("detail")?,"createdAt":r.try_get::<OffsetDateTime,_>("created_at")?.to_string()}),
     )
 }
 fn substitution_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {

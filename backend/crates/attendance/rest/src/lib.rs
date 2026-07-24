@@ -12,8 +12,9 @@ use axum::{
 };
 use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
-    AcknowledgeWeek52, AmendClose, AssignSubstitute, CallerScope, CancelSubstitution, CloseMonth,
-    ListSubstitutions, RaiseException, ResolveException, validate_week52_start, week52_tone,
+    AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
+    CallerScope, CancelSubstitution, CloseMonth, ListSubstitutions, RaiseException,
+    ResolveException, validate_week52_start, week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -22,7 +23,7 @@ use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_request_context::{RequestContextError, resolve_principal};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use time::{Date, Duration};
 use uuid::Uuid;
@@ -52,7 +53,8 @@ pub const ATTENDANCE_ROUTE_PATHS: &[&str] = &[
     ATTENDANCE_WEEK52_ACK_PATH,
 ];
 const READ: Feature = Feature::EmployeeDirectoryRead;
-const MANAGE: Feature = Feature::EmployeeDirectoryManage;
+const EXCEPTION_MANAGE: Feature = Feature::AttendanceExceptionManage;
+const SUBSTITUTION_MANAGE: Feature = Feature::AttendanceSubstitutionManage;
 const CLOSE: Feature = Feature::PeriodLockManage;
 
 #[derive(Clone)]
@@ -261,23 +263,132 @@ async fn list_substitutions(
         .map_err(RestError::store)?;
     Ok(Json(json!({"items":items,"total":total})))
 }
+#[derive(Serialize)]
+struct ExceptionEvidenceDto {
+    name: String,
+    size: Option<String>,
+}
+#[derive(Serialize)]
+struct ExceptionLinkDto {
+    kind: String,
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#ref: Option<String>,
+}
+#[derive(Serialize)]
+struct ExceptionResolutionDto {
+    action: String,
+    reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    linked_work_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ot_hours: Option<f64>,
+    actor: String,
+    resolved_at: String,
+}
+#[derive(Serialize)]
+struct ExceptionDto {
+    id: String,
+    code: String,
+    kind: String,
+    status: String,
+    employee_id: String,
+    employee_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    team: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_id: Option<String>,
+    work_date: String,
+    occurred_at: String,
+    detail: String,
+    evidence: Vec<ExceptionEvidenceDto>,
+    links: Vec<ExceptionLinkDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolution: Option<ExceptionResolutionDto>,
+    created_at: String,
+}
+impl From<AttendanceExceptionRead> for ExceptionDto {
+    fn from(value: AttendanceExceptionRead) -> Self {
+        Self {
+            id: value.id.to_string(),
+            code: value.code,
+            kind: value.kind.as_db().to_owned(),
+            status: value.status,
+            employee_id: value.employee_id.to_string(),
+            employee_name: value.employee_name,
+            team: value.team,
+            branch_id: value.branch_id.map(|id| id.to_string()),
+            work_date: value.work_date.to_string(),
+            occurred_at: value
+                .occurred_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| value.occurred_at.to_string()),
+            detail: value.detail,
+            evidence: value
+                .evidence
+                .into_iter()
+                .map(|v| ExceptionEvidenceDto {
+                    name: v.name,
+                    size: v.size,
+                })
+                .collect(),
+            links: value
+                .links
+                .into_iter()
+                .map(|v| ExceptionLinkDto {
+                    kind: v.kind,
+                    label: v.label,
+                    r#ref: v.reference,
+                })
+                .collect(),
+            resolution: value.resolution.map(|v| ExceptionResolutionDto {
+                action: v.action.as_db().to_owned(),
+                reason: v.reason,
+                linked_work_ref: v.linked_work_ref,
+                ot_hours: v.ot_hours.and_then(|hours| hours.parse().ok()),
+                actor: v.actor.to_string(),
+                resolved_at: v
+                    .resolved_at
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_else(|_| v.resolved_at.to_string()),
+            }),
+            created_at: value
+                .created_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| value.created_at.to_string()),
+        }
+    }
+}
+#[derive(Serialize)]
+struct ExceptionPageDto {
+    items: Vec<ExceptionDto>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
 async fn list_exceptions(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Query(q): Query<ListQuery>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<ExceptionPageDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
-    let items = state
+    let page = state
         .store
         .list_exceptions(&scope(&p), list_range(&q)?, q.branch_id)
         .await
         .map_err(RestError::store)?;
-    Ok(Json(json!({"items":items})))
+    Ok(Json(ExceptionPageDto {
+        items: page.items.into_iter().map(ExceptionDto::from).collect(),
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+    }))
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct RaiseBody {
     kind: String,
     employee_id: Uuid,
@@ -285,15 +396,15 @@ struct RaiseBody {
     work_date: String,
     detail: String,
     #[serde(default)]
-    evidence: Value,
+    evidence: Vec<AttendanceEvidence>,
 }
 async fn raise_exception(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<RaiseBody>,
-) -> Result<(StatusCode, Json<Value>), RestError> {
+) -> Result<(StatusCode, Json<ExceptionDto>), RestError> {
     let p = principal(&state, &headers).await?;
-    require_for_branch(&p, MANAGE, body.branch_id)?;
+    require_for_branch(&p, EXCEPTION_MANAGE, body.branch_id)?;
     let key = idempotency(&headers)?;
     let command = RaiseException {
         kind: ExceptionKind::parse(&body.kind).map_err(|e| {
@@ -315,13 +426,13 @@ async fn raise_exception(
         .raise_exception(&scope(&p), command)
         .await
         .map_err(RestError::store)?;
-    Ok((StatusCode::CREATED, Json(v)))
+    Ok((StatusCode::CREATED, Json(ExceptionDto::from(v))))
 }
 async fn exception_detail(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     axum::extract::Path(exception_id): axum::extract::Path<Uuid>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<ExceptionDto>, RestError> {
     let p = principal(&state, &headers).await?;
     let branch = state
         .store
@@ -336,12 +447,13 @@ async fn exception_detail(
         .store
         .exception_detail(&scope(&p), exception_id)
         .await
+        .map(ExceptionDto::from)
         .map(Json)
         .map_err(RestError::store)
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct ResolveBody {
     action: String,
     reason: String,
@@ -353,7 +465,7 @@ async fn resolve_exception(
     headers: HeaderMap,
     axum::extract::Path(exception_id): axum::extract::Path<Uuid>,
     Json(body): Json<ResolveBody>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<ExceptionDto>, RestError> {
     let p = principal(&state, &headers).await?;
     let resource_branch = state
         .store
@@ -363,7 +475,7 @@ async fn resolve_exception(
         .ok_or_else(|| {
             RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
         })?;
-    require_resource_branch(&p, MANAGE, resource_branch)?;
+    require_resource_branch(&p, EXCEPTION_MANAGE, resource_branch)?;
     let v = state
         .store
         .resolve_exception(
@@ -384,7 +496,7 @@ async fn resolve_exception(
         )
         .await
         .map_err(RestError::store)?;
-    Ok(Json(v))
+    Ok(Json(ExceptionDto::from(v)))
 }
 
 #[derive(Deserialize)]
@@ -411,7 +523,7 @@ async fn assign_substitute(
     Json(body): Json<AssignBody>,
 ) -> Result<(StatusCode, Json<Value>), RestError> {
     let p = principal(&state, &headers).await?;
-    require_for_branch(&p, MANAGE, body.branch_id)?;
+    require_for_branch(&p, SUBSTITUTION_MANAGE, body.branch_id)?;
     let command = AssignSubstitute {
         window: SubstitutionWindow::new(
             parse_date(&body.cover_date, "coverDate")?,
@@ -466,7 +578,7 @@ async fn cancel_substitution(
         .ok_or_else(|| {
             RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
         })?;
-    require_resource_branch(&p, MANAGE, branch)?;
+    require_resource_branch(&p, SUBSTITUTION_MANAGE, branch)?;
     state
         .store
         .cancel_substitution(

@@ -6,7 +6,6 @@ use mnt_attendance_domain::{
     AttendanceDateRange, AttendanceDomainError, ExceptionKind, ResolutionAction, SubstitutionWindow,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
@@ -53,7 +52,7 @@ pub struct RaiseException {
     pub branch_id: Option<Uuid>,
     pub work_date: Date,
     pub detail: String,
-    pub evidence: Value,
+    pub evidence: Vec<AttendanceEvidence>,
     pub idempotency_key: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,17 +134,30 @@ pub struct AttendanceObjectLink {
     pub reference: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExceptionResolutionRead {
+    pub action: ResolutionAction,
+    pub reason: String,
+    pub linked_work_ref: Option<String>,
+    pub ot_hours: Option<String>,
+    pub actor: Uuid,
+    pub resolved_at: OffsetDateTime,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttendanceExceptionRead {
     pub id: Uuid,
     pub code: String,
     pub kind: ExceptionKind,
     pub status: String,
     pub employee_id: Uuid,
+    pub employee_name: String,
+    pub team: Option<String>,
     pub branch_id: Option<Uuid>,
     pub work_date: Date,
+    pub occurred_at: OffsetDateTime,
     pub detail: String,
     pub evidence: Vec<AttendanceEvidence>,
     pub links: Vec<AttendanceObjectLink>,
+    pub resolution: Option<ExceptionResolutionRead>,
     pub created_at: OffsetDateTime,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
