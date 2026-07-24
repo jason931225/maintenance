@@ -159,8 +159,11 @@ export const attendanceStrings = {
     from: "시작",
     to: "종료",
     poolSearch: "이름 검색",
-    todayActive: "오늘 출근 기록",
-    noActivity: "기록 없음",
+    candidateWindow: "시작과 종료 시간을 입력하면 가능한 인원을 찾습니다.",
+    invalidWindow: "종료 시간은 시작 시간보다 늦어야 합니다.",
+    candidatesDenied: "대근 가능 인원을 볼 권한이 없습니다.",
+    candidatesError: "대근 가능 인원을 불러오지 못했습니다.",
+    retryCandidates: "다시 시도",
     assign: "배정",
     empty: "배정 가능한 인원이 없습니다.",
     reasonKind: {

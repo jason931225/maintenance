@@ -17,7 +17,8 @@ import {
   type Week52Board,
   type Week52Row,
   type EmployeeAttendanceRecord,
-  type AttendanceSummaryItem,
+  type SubstitutionCandidate,
+  type SubstitutionCandidateQuery,
   type ResolutionAction,
 } from "./attendanceApi";
 
@@ -169,6 +170,17 @@ export function createAttendanceApiTransport(
       return requireData<Page<Substitution>>(result);
     },
 
+    async listSubstitutionCandidates(
+      query: SubstitutionCandidateQuery,
+      signal,
+    ) {
+      const result = await api.GET("/api/v1/attendance/substitution-candidates", {
+        params: { query: { ...query, branch_id: activeBranchId } },
+        signal,
+      });
+      return requireData<Page<SubstitutionCandidate>>(result);
+    },
+
     async createSubstitution(input: CreateSubstitution, signal) {
       const result = await api.POST("/api/v1/attendance/substitutions", {
         body: { ...input, branch_id: activeBranchId },
@@ -251,12 +263,5 @@ export function createAttendanceApiTransport(
       return requireData<{ items: EmployeeAttendanceRecord[] }>(result);
     },
 
-    async listAttendanceSummary(limit, signal) {
-      const result = await api.GET("/api/v1/hr/attendance-summary", {
-        params: { query: { limit, branch_id: activeBranchId } },
-        signal,
-      });
-      return requireData<{ items: AttendanceSummaryItem[] }>(result);
-    },
   };
 }

@@ -21,6 +21,7 @@ describe("AttendanceTransport", () => {
       "createException",
       "resolveException",
       "listSubstitutions",
+      "listSubstitutionCandidates",
       "createSubstitution",
       "cancelSubstitution",
       "listCloses",
@@ -30,7 +31,6 @@ describe("AttendanceTransport", () => {
       "listWeek52",
       "ackWeek52",
       "listAttendanceRecords",
-      "listAttendanceSummary",
     ];
     expect(requiredOperations).toHaveLength(14);
   });

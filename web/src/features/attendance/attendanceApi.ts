@@ -6,8 +6,8 @@ import type { components } from "@maintenance/api-client-ts";
 
 export type EmployeeAttendanceRecord =
   components["schemas"]["EmployeeAttendanceRecord"];
-export type AttendanceSummaryItem =
-  components["schemas"]["AttendanceSummaryItem"];
+export type SubstitutionCandidate =
+  components["schemas"]["AttendanceSubstitutionCandidate"];
 
 export type ExceptionKind =
   "LATE" | "NO_SHOW" | "UNAPPROVED_OVERTIME" | "EARLY_LEAVE";
@@ -106,10 +106,7 @@ export interface CreateSubstitution {
   covered_employee_id: string;
   reason_kind: SubstitutionReasonKind;
   reason_detail?: string | null;
-  worker_employee_id?: string | null;
-  worker_name: string;
-  worker_type: string;
-  worker_rate?: string | null;
+  worker_employee_id: string;
   exception_id?: string | null;
 }
 
@@ -210,6 +207,16 @@ export interface SubstitutionQuery {
   to_date: string;
 }
 
+export interface SubstitutionCandidateQuery {
+  covered_employee_id: string;
+  cover_date: string;
+  from_minutes: number;
+  to_minutes: number;
+  search?: string;
+  limit: number;
+  offset: number;
+}
+
 export interface ResolveException {
   action: ResolutionAction;
   reason: string;
@@ -243,6 +250,10 @@ export interface AttendanceTransport {
     query: SubstitutionQuery,
     signal?: AbortSignal,
   ): Promise<Page<Substitution>>;
+  listSubstitutionCandidates(
+    query: SubstitutionCandidateQuery,
+    signal?: AbortSignal,
+  ): Promise<Page<SubstitutionCandidate>>;
   createSubstitution(
     input: CreateSubstitution,
     signal?: AbortSignal,
@@ -278,8 +289,4 @@ export interface AttendanceTransport {
     limit: number,
     signal?: AbortSignal,
   ): Promise<{ items: EmployeeAttendanceRecord[] }>;
-  listAttendanceSummary(
-    limit: number,
-    signal?: AbortSignal,
-  ): Promise<{ items: AttendanceSummaryItem[] }>;
 }

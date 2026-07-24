@@ -65,7 +65,7 @@ function client(resolutionAction = "CONFIRM") {
 }
 
 describe("createAttendanceApiTransport", () => {
-  it("maps all 13 canonical Attendance operations with branch-scoped reads and strict bodies", async () => {
+  it("maps canonical Attendance operations with branch-scoped reads and strict bodies", async () => {
     const api = client();
     const uuid = vi.fn(() => "idem-1");
     vi.stubGlobal("crypto", { randomUUID: uuid });
@@ -84,6 +84,10 @@ describe("createAttendanceApiTransport", () => {
       reason: "Approved evidence",
     });
     await transport.listSubstitutions({ from_date: "2026-07-01", to_date: "2026-07-31" });
+    await transport.listSubstitutionCandidates({
+      covered_employee_id: "employee-a", cover_date: "2026-07-01",
+      from_minutes: 540, to_minutes: 1_080, search: "Park", limit: 25, offset: 0,
+    });
     await transport.createSubstitution({
       site: "Seoul",
       role: "Operator",
@@ -91,9 +95,7 @@ describe("createAttendanceApiTransport", () => {
       from_minutes: 540,
       to_minutes: 1_080,
       covered_employee_id: "employee-a",
-      reason_kind: "NO_SHOW",
-      worker_name: "Park",
-      worker_type: "part-time",
+      reason_kind: "NO_SHOW", worker_employee_id: "employee-b",
     });
     await transport.cancelSubstitution("substitution-a", "Shift no longer requires cover");
     await transport.listCloses("2026-07");
@@ -131,7 +133,7 @@ describe("createAttendanceApiTransport", () => {
       body: {
         site: "Seoul", branch_id: "branch-a", role: "Operator", cover_date: "2026-07-01",
         from_minutes: 540, to_minutes: 1_080, covered_employee_id: "employee-a",
-        reason_kind: "NO_SHOW", worker_name: "Park", worker_type: "part-time",
+        reason_kind: "NO_SHOW", worker_employee_id: "employee-b",
       },
       params: { header: { "Idempotency-Key": "idem-1" } }, signal: undefined,
     });
@@ -139,7 +141,13 @@ describe("createAttendanceApiTransport", () => {
       params: { path: { substitution_id: "substitution-a" } },
       body: { reason: "Shift no longer requires cover" }, signal: undefined,
     });
-    expect(api.GET).toHaveBeenNthCalledWith(4, "/api/v1/attendance/closes", {
+    expect(api.GET).toHaveBeenNthCalledWith(4, "/api/v1/attendance/substitution-candidates", {
+      params: { query: {
+        covered_employee_id: "employee-a", cover_date: "2026-07-01", from_minutes: 540,
+        to_minutes: 1_080, search: "Park", limit: 25, offset: 0, branch_id: "branch-a",
+      } }, signal: undefined,
+    });
+    expect(api.GET).toHaveBeenNthCalledWith(5, "/api/v1/attendance/closes", {
       params: { query: { month: "2026-07", branch_id: "branch-a" } }, signal: undefined,
     });
     expect(api.POST).toHaveBeenNthCalledWith(5, "/api/v1/attendance/closes/preflight", {
@@ -152,7 +160,7 @@ describe("createAttendanceApiTransport", () => {
       params: { path: { close_id: "close-a" }, header: { "Idempotency-Key": "idem-1" } },
       body: { reason: "Correct verified attendance", detail: "Corrected approved record", ref: "AT-0701-01" }, signal: undefined,
     });
-    expect(api.GET).toHaveBeenNthCalledWith(5, "/api/v1/attendance/week52", {
+    expect(api.GET).toHaveBeenNthCalledWith(6, "/api/v1/attendance/week52", {
       params: { query: { week_start: "2026-06-29", branch_id: "branch-a" } }, signal: undefined,
     });
     expect(api.POST).toHaveBeenNthCalledWith(8, "/api/v1/attendance/week52/acks", {
@@ -188,18 +196,24 @@ describe("createAttendanceApiTransport", () => {
     });
   });
 
-  it("uses the active branch for the two pre-existing HR read models without an empty fallback", async () => {
+  it("uses the active branch for the attendance-record read model and candidate picker", async () => {
     const api = client();
     const transport = createAttendanceApiTransport(api, "branch-a");
 
     await transport.listAttendanceRecords(20);
-    await transport.listAttendanceSummary(10);
+    await transport.listSubstitutionCandidates({
+      covered_employee_id: "employee-a", cover_date: "2026-07-01",
+      from_minutes: 540, to_minutes: 1_080, limit: 25, offset: 0,
+    });
 
     expect(api.GET).toHaveBeenNthCalledWith(1, "/api/v1/hr/attendance-records", {
       params: { query: { limit: 20, branch_id: "branch-a" } }, signal: undefined,
     });
-    expect(api.GET).toHaveBeenNthCalledWith(2, "/api/v1/hr/attendance-summary", {
-      params: { query: { limit: 10, branch_id: "branch-a" } }, signal: undefined,
+    expect(api.GET).toHaveBeenNthCalledWith(2, "/api/v1/attendance/substitution-candidates", {
+      params: { query: {
+        covered_employee_id: "employee-a", cover_date: "2026-07-01", from_minutes: 540,
+        to_minutes: 1_080, limit: 25, offset: 0, branch_id: "branch-a",
+      } }, signal: undefined,
     });
   });
 

@@ -12,7 +12,6 @@ import { attendanceStrings as text } from "../../i18n/attendance";
 import {
   AttendanceTransportError,
   type AttendanceException,
-  type AttendanceSummaryItem,
   type AttendanceTransport,
   type MonthCloseBoard,
   type Page,
@@ -156,15 +155,12 @@ const closes: MonthCloseBoard = {
 type TransportOverrides = Partial<AttendanceTransport>;
 
 function transport(overrides: TransportOverrides = {}): AttendanceTransport {
-  const pool: { items: AttendanceSummaryItem[] } = {
+  const candidates = {
     items: [
       {
-        user_id: "user-9",
-        display_name: "박대근",
-        arrivals: 12,
-        departures: 12,
-        last_kind: "DEPARTURE",
-        last_event_at: "2026-07-22T18:01:00+09:00",
+        employee_id: "worker-9",
+        employee_name: "박대근",
+        branch_id: "branch-1",
       },
     ],
   };
@@ -241,8 +237,8 @@ function transport(overrides: TransportOverrides = {}): AttendanceTransport {
     listAttendanceRecords: vi.fn<AttendanceTransport["listAttendanceRecords"]>(
       () => Promise.resolve(records),
     ),
-    listAttendanceSummary: vi.fn<AttendanceTransport["listAttendanceSummary"]>(
-      () => Promise.resolve(pool),
+    listSubstitutionCandidates: vi.fn<AttendanceTransport["listSubstitutionCandidates"]>(
+      () => Promise.resolve(page(candidates.items)),
     ),
     ...overrides,
   };
@@ -614,7 +610,7 @@ describe("AttendanceScreen", () => {
     await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
     await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
     await userEvent.click(
-      within(dialog).getByRole("button", { name: text.sub.assign }),
+      await within(dialog).findByRole("button", { name: text.sub.assign }),
     );
     await waitFor(() => {
       expect(createSubstitution).toHaveBeenCalledWith(
@@ -625,7 +621,7 @@ describe("AttendanceScreen", () => {
           from_minutes: 690,
           to_minutes: 1080,
           reason_kind: "NO_SHOW",
-          worker_name: "박대근",
+          worker_employee_id: "worker-9",
         }),
         expect.any(AbortSignal),
       );
@@ -665,7 +661,7 @@ describe("AttendanceScreen", () => {
       "18:00",
     );
     await userEvent.click(
-      within(failedDialog).getByRole("button", { name: text.sub.assign }),
+      await within(failedDialog).findByRole("button", { name: text.sub.assign }),
     );
     expect(await screen.findByText("substitute failed")).toBeVisible();
     expect(screen.getByRole("dialog", { name: text.sub.title })).toBeVisible();
@@ -689,7 +685,7 @@ describe("AttendanceScreen", () => {
     await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
     await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
     await userEvent.click(
-      within(dialog).getByRole("button", { name: text.sub.assign }),
+      await within(dialog).findByRole("button", { name: text.sub.assign }),
     );
 
     await assertBusyDialogCannotClose(dialog, text.sub.title, text.sub.cancel);
@@ -722,7 +718,7 @@ describe("AttendanceScreen", () => {
     await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
     await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
     await userEvent.click(
-      within(dialog).getByRole("button", { name: text.sub.assign }),
+      await within(dialog).findByRole("button", { name: text.sub.assign }),
     );
     await waitFor(() => {
       expect(createSubstitution).toHaveBeenCalledTimes(1);
@@ -790,7 +786,7 @@ describe("AttendanceScreen", () => {
     await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
     await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
     await userEvent.click(
-      within(dialog).getByRole("button", { name: text.sub.assign }),
+      await within(dialog).findByRole("button", { name: text.sub.assign }),
     );
     await waitFor(() => {
       expect(createSubstitution).toHaveBeenCalledTimes(1);

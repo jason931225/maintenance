@@ -17,7 +17,6 @@ import {
   type AttendanceException,
   type CloseAmendmentInput,
   type CreateAttendanceException,
-  type AttendanceSummaryItem,
   type ClosePreflight,
   type EmployeeAttendanceRecord,
   type MonthCloseBoard,
@@ -28,6 +27,7 @@ import {
   type Week52Board,
   type Week52Row,
 } from "./attendanceApi";
+import { SubstitutionCandidateDialog } from "./SubstitutionCandidateDialog";
 import type { AttendanceCapabilities } from "./attendanceCapabilities";
 import {
   checkedInCount,
@@ -951,7 +951,7 @@ function AttendanceScreenBodyInner({
       )}
 
       {subGap && (
-        <SubModal
+        <SubstitutionCandidateDialog
           gap={subGap}
           transport={transport}
           busy={busy}
@@ -2021,239 +2021,6 @@ function PreflightModal({
             onClick={onConfirm}
           >
             {scope} {text.closePanel.confirmCta}
-          </button>
-        </div>
-    </Dialog>
-  );
-}
-
-function SubModal({
-  gap,
-  transport,
-  busy,
-  onClose,
-  onAssign,
-}: {
-  gap: AttendanceException;
-  transport: AttendanceTransport;
-  busy: boolean;
-  onClose: () => void;
-  onAssign: (input: {
-    site: string;
-    role: string;
-    cover_date: string;
-    from_minutes: number;
-    to_minutes: number;
-    covered_employee_id: string;
-    reason_kind: "NO_SHOW";
-    reason_detail: string;
-    worker_name: string;
-    worker_type: string;
-    exception_id: string;
-  }) => void;
-}) {
-  const [pool, setPool] = useState<Res<{ items: AttendanceSummaryItem[] }>>({
-    s: "loading",
-  });
-  const [query, setQuery] = useState("");
-  const [site, setSite] = useState(gap.team ?? "");
-  const [role, setRole] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [fieldError, setFieldError] = useState<string>();
-  const close = () => {
-    if (!busy) onClose();
-  };
-  const siteId = useId();
-  const roleId = useId();
-  const fromId = useId();
-  const toId = useId();
-  const searchId = useId();
-  useEffect(() => {
-    const controller = new AbortController();
-    transport
-      .listAttendanceSummary(100, controller.signal)
-      .then((page) => {
-        if (!controller.signal.aborted)
-          setPool({ s: "ready", data: { items: page.items } });
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) setPool(resolveError(cause));
-      });
-    return () => {
-      controller.abort();
-    };
-  }, [transport]);
-  const parseMinutes = (value: string): number | undefined => {
-    const match = /^(\d{2}):(\d{2})$/.exec(value);
-    if (!match) return undefined;
-    return Number(match[1]) * 60 + Number(match[2]);
-  };
-  const assign = (worker: AttendanceSummaryItem) => {
-    const fromMin = parseMinutes(from);
-    const toMin = parseMinutes(to);
-    if (
-      !site.trim() ||
-      !role.trim() ||
-      fromMin === undefined ||
-      toMin === undefined ||
-      toMin <= fromMin
-    ) {
-      setFieldError(text.actionError);
-      return;
-    }
-    setFieldError(undefined);
-    onAssign({
-      site: site.trim(),
-      role: role.trim(),
-      cover_date: gap.work_date,
-      from_minutes: fromMin,
-      to_minutes: toMin,
-      covered_employee_id: gap.employee_id,
-      reason_kind: "NO_SHOW",
-      reason_detail: gap.detail,
-      worker_name: worker.display_name,
-      worker_type: "EMPLOYEE",
-      exception_id: gap.id,
-    });
-  };
-  const items =
-    pool.s === "ready"
-      ? pool.data.items.filter((item) =>
-          item.display_name.includes(query.trim()),
-        )
-      : [];
-  return (
-    <Dialog
-      open
-      onClose={close}
-      closeOnScrimClick={!busy}
-      label={text.sub.title}
-      className="attendance__modal"
-    >
-        <div className="attendance__modalhead">
-          <span className="attendance__modaltitle">{text.sub.title}</span>
-          <span className="attendance__chip attendance__chip--danger">
-            {gap.employee_name} · {text.sub.gapReason}
-          </span>
-          <span className="attendance__count">{gap.work_date}</span>
-        </div>
-        <p className="attendance__exdetail">{gap.detail}</p>
-        <label className="attendance__field" htmlFor={siteId}>
-          {text.sub.site}
-          <input
-            id={siteId}
-            value={site}
-            required
-            onChange={(event) => {
-              setSite(event.target.value);
-            }}
-          />
-        </label>
-        <label className="attendance__field" htmlFor={roleId}>
-          {text.sub.role}
-          <input
-            id={roleId}
-            value={role}
-            required
-            onChange={(event) => {
-              setRole(event.target.value);
-            }}
-          />
-        </label>
-        <div className="attendance__modalhead">
-          <label className="attendance__field" htmlFor={fromId}>
-            {text.sub.from}
-            <input
-              id={fromId}
-              type="time"
-              value={from}
-              required
-              onChange={(event) => {
-                setFrom(event.target.value);
-              }}
-            />
-          </label>
-          <label className="attendance__field" htmlFor={toId}>
-            {text.sub.to}
-            <input
-              id={toId}
-              type="time"
-              value={to}
-              required
-              onChange={(event) => {
-                setTo(event.target.value);
-              }}
-            />
-          </label>
-        </div>
-        <label className="attendance__field" htmlFor={searchId}>
-          {text.sub.poolSearch}
-          <input
-            id={searchId}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-          />
-        </label>
-        {fieldError !== undefined && (
-          <span className="attendance__fielderror" role="alert">
-            {fieldError}
-          </span>
-        )}
-        {pool.s === "loading" && (
-          <p role="status" className="attendance__status">
-            {text.loading}
-          </p>
-        )}
-        {pool.s === "denied" && (
-          <p role="status" className="attendance__status">
-            {text.panelDenied}
-          </p>
-        )}
-        {pool.s === "error" && (
-          <div className="attendance__alert" role="alert">
-            <span>{pool.message}</span>
-          </div>
-        )}
-        {pool.s === "ready" &&
-          (items.length === 0 ? (
-            <p role="status" className="attendance__status">
-              {text.sub.empty}
-            </p>
-          ) : (
-            items.map((item) => (
-              <div key={item.user_id} className="attendance__poolrow">
-                <span className="attendance__poolname">
-                  {item.display_name}
-                </span>
-                <span className="attendance__chip">
-                  {item.last_event_at != null
-                    ? timeLabel(item.last_event_at)
-                    : text.sub.noActivity}
-                </span>
-                <button
-                  type="button"
-                  className="attendance__actionbtn"
-                  disabled={busy}
-                  onClick={() => {
-                    assign(item);
-                  }}
-                >
-                  {text.sub.assign}
-                </button>
-              </div>
-            ))
-          ))}
-        <div className="attendance__modalactions">
-          <button
-            type="button"
-            className="attendance__ghostbtn"
-            disabled={busy}
-            onClick={close}
-          >
-            {text.sub.cancel}
           </button>
         </div>
     </Dialog>

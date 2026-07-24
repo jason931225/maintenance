@@ -55,8 +55,8 @@ describe("AttendanceScreenBody", () => {
         sessionKey: "session-a",
       }),
     );
-    const props = screenSpy.mock.calls.at(-1)?.[0] as { transport: { listAttendanceSummary: unknown } };
-    expect(props.transport.listAttendanceSummary).toEqual(expect.any(Function));
+    const props = screenSpy.mock.calls.at(-1)?.[0] as { transport: { listSubstitutionCandidates: unknown } };
+    expect(props.transport.listSubstitutionCandidates).toEqual(expect.any(Function));
   });
 
   it("rebinds to a replacement session rather than retaining the previous branch", () => {
