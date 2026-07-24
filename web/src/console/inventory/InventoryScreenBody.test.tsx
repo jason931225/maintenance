@@ -24,6 +24,14 @@ const item = {
   created_at: "2026-07-24T00:00:00Z",
   updated_at: "2026-07-24T00:00:00Z",
 };
+const secondItem = {
+  ...item,
+  id: "item-2",
+  branch_id: "branch-2",
+  iv_code: "IV-032",
+  display_name: "윤활유",
+  stock_location: { id: "location-2", label: "B-02" },
+};
 
 function renderScreen(GET: ReturnType<typeof vi.fn>, POST = vi.fn()) {
   const api = { GET, POST };
@@ -117,6 +125,74 @@ describe("InventoryScreenBody", () => {
     ).toBeNull();
   });
 
+  it("clears a loaded detail and trace when list authority is lost", async () => {
+    let denyList = false;
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/inventory/items") {
+        return denyList
+          ? {
+              data: undefined,
+              error: { error: { code: "forbidden" } },
+              response: new Response(null, { status: 403 }),
+            }
+          : {
+              data: { items: [item], total: 1, limit: 100, offset: 0 },
+              response: new Response(),
+            };
+      }
+      if (path === "/api/v1/inventory/items/{item_id}")
+        return { data: item, response: new Response() };
+      if (path === "/api/v1/inventory/items/{item_id}/consumptions")
+        return {
+          data: [
+            {
+              id: "event-1",
+              item_id: item.id,
+              iv_code: item.iv_code,
+              branch_id: item.branch_id,
+              stock_location_id: item.stock_location.id,
+              source: { kind: "work_order", work_order_id: "wo-1" },
+              quantity_before_milli: 3_000,
+              quantity_consumed_milli: 1_000,
+              quantity_after_milli: 2_000,
+              consumed_by: "user-1",
+              occurred_at: "2026-07-24T01:00:00Z",
+              memo: "정기 정비",
+              created_at: "2026-07-24T01:00:00Z",
+            },
+          ],
+          response: new Response(),
+        };
+      return { data: undefined, response: new Response(null, { status: 404 }) };
+    });
+    renderScreen(GET);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "IV-031 상세 열기" }),
+    );
+    expect(await screen.findByText("작업 지시 wo-1")).toBeVisible();
+
+    denyList = true;
+    await userEvent.click(screen.getByRole("button", { name: "새로고침" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("권한");
+    expect(screen.queryByRole("heading", { name: "유압 필터" })).toBeNull();
+    expect(screen.queryByText("작업 지시 wo-1")).toBeNull();
+  });
+
+  it("shows a visible error instead of rendering a malformed 2xx list", async () => {
+    const GET = vi.fn(() => ({
+      data: { items: "not-an-array", total: 1 },
+      response: new Response(),
+    }));
+    renderScreen(GET);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "불러오지 못했습니다",
+    );
+    expect(
+      screen.queryByText("현재 조건에 맞는 재고 품목이 없습니다."),
+    ).toBeNull();
+  });
+
   it("records consumption only against a selected real work order", async () => {
     const GET = vi.fn((path: string) => {
       if (path === "/api/v1/inventory/items")
@@ -194,5 +270,120 @@ describe("InventoryScreenBody", () => {
         }),
       );
     });
+  });
+
+  it("does not let a deferred consumption for A overwrite selected item B", async () => {
+    let resolveConsumption: ((value: unknown) => void) | undefined;
+    const POST = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveConsumption = resolve;
+        }),
+    );
+    const GET = vi.fn(
+      (
+        path: string,
+        options?: { params?: { path?: { item_id?: string } } },
+      ) => {
+        if (path === "/api/v1/inventory/items")
+          return {
+            data: {
+              items: [item, secondItem],
+              total: 2,
+              limit: 100,
+              offset: 0,
+            },
+            response: new Response(),
+          };
+        const selected =
+          options?.params?.path?.item_id === secondItem.id ? secondItem : item;
+        if (path === "/api/v1/inventory/items/{item_id}")
+          return { data: selected, response: new Response() };
+        if (path === "/api/v1/inventory/items/{item_id}/consumptions")
+          return { data: [], response: new Response() };
+        if (path === "/api/v1/work-orders")
+          return {
+            data: {
+              items: [
+                {
+                  id: "wo-1",
+                  request_no: "WO-1001",
+                  branch_id: item.branch_id,
+                  status: "IN_PROGRESS",
+                  priority: "HIGH",
+                },
+                {
+                  id: "wo-2",
+                  request_no: "WO-1002",
+                  branch_id: secondItem.branch_id,
+                  status: "IN_PROGRESS",
+                  priority: "HIGH",
+                },
+              ],
+            },
+            response: new Response(),
+          };
+        return {
+          data: undefined,
+          response: new Response(null, { status: 404 }),
+        };
+      },
+    );
+
+    renderScreen(GET, POST);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "IV-031 상세 열기" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "작업 지시 출고 기록" }),
+    );
+    await userEvent.selectOptions(
+      await screen.findByLabelText("작업 지시"),
+      "wo-1",
+    );
+    await userEvent.type(screen.getByLabelText("출고 수량 (EA)"), "1");
+    await userEvent.click(
+      screen.getByRole("button", { name: "출고 기록 저장" }),
+    );
+    await waitFor(() => {
+      expect(resolveConsumption).toBeTypeOf("function");
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "IV-032 상세 열기" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "윤활유" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("form", { name: "작업 지시 출고 기록" }),
+    ).toBeNull();
+
+    resolveConsumption?.({
+      data: {
+        item: { ...item, quantity_on_hand_milli: 0 },
+        event: {
+          id: "event-a",
+          item_id: item.id,
+          iv_code: item.iv_code,
+          branch_id: item.branch_id,
+          stock_location_id: item.stock_location.id,
+          source: { kind: "work_order", work_order_id: "wo-1" },
+          quantity_before_milli: 2_000,
+          quantity_consumed_milli: 2_000,
+          quantity_after_milli: 0,
+          consumed_by: "user-1",
+          occurred_at: "2026-07-24T01:00:00Z",
+          created_at: "2026-07-24T01:00:00Z",
+        },
+      },
+      response: new Response(),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "윤활유" })).toBeVisible();
+    });
+    expect(screen.queryByText("event-a")).toBeNull();
+    expect(screen.getByText("2 EA")).toBeVisible();
   });
 });

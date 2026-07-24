@@ -21,21 +21,136 @@ export interface InventoryListFilters {
   lowStock?: boolean;
 }
 
-function isErrorBody(value: unknown): value is ErrorBody {
-  return typeof value === "object" && value !== null && "error" in value;
+/** A 2xx response that does not satisfy the generated contract at runtime. */
+export class InventoryApiContractError extends Error {
+  constructor(readonly operation: string) {
+    super(`${operation} returned an invalid response`);
+    this.name = "InventoryApiContractError";
+  }
 }
 
-function requireData<T>(result: {
-  data?: T;
-  error?: unknown;
-  response: Response;
-}): T {
-  if (!result.data) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value == null || isString(value);
+}
+
+function isOptionalNumber(value: unknown): boolean {
+  return value == null || isNumber(value);
+}
+
+function isInventoryItem(value: unknown): value is InventoryItem {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.branch_id) &&
+    isRecord(value.stock_location) &&
+    isString(value.stock_location.id) &&
+    isString(value.stock_location.label) &&
+    isString(value.iv_code) &&
+    isString(value.display_name) &&
+    isOptionalString(value.description) &&
+    isOptionalString(value.sku) &&
+    isString(value.unit_code) &&
+    isNumber(value.quantity_on_hand_milli) &&
+    isNumber(value.safety_stock_milli) &&
+    isOptionalNumber(value.unit_cost_won) &&
+    typeof value.low_stock === "boolean" &&
+    isString(value.status)
+  );
+}
+
+function isInventoryItemPage(value: unknown): value is InventoryItemPage {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.items) &&
+    value.items.every(isInventoryItem) &&
+    isNumber(value.limit) &&
+    isNumber(value.offset) &&
+    isNumber(value.total)
+  );
+}
+
+function isInventoryConsumptionEvent(
+  value: unknown,
+): value is InventoryConsumptionEvent {
+  if (
+    !isRecord(value) ||
+    !isString(value.id) ||
+    !isString(value.item_id) ||
+    !isString(value.iv_code) ||
+    !isString(value.branch_id) ||
+    !isString(value.stock_location_id) ||
+    !isRecord(value.source) ||
+    !isNumber(value.quantity_consumed_milli) ||
+    !isNumber(value.quantity_after_milli) ||
+    !isString(value.occurred_at) ||
+    !isOptionalString(value.memo)
+  ) {
+    return false;
+  }
+  return value.source.kind === "work_order"
+    ? isString(value.source.work_order_id)
+    : value.source.kind === "p1_dispatch" && isString(value.source.dispatch_id);
+}
+
+function isInventoryConsumptionResult(
+  value: unknown,
+): value is InventoryConsumptionResult {
+  return (
+    isRecord(value) &&
+    isInventoryItem(value.item) &&
+    isInventoryConsumptionEvent(value.event)
+  );
+}
+
+function isWorkOrderSummary(value: unknown): value is WorkOrderSummary {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.request_no) &&
+    isString(value.branch_id) &&
+    isString(value.status) &&
+    isString(value.priority)
+  );
+}
+
+function isWorkOrderPage(
+  value: unknown,
+): value is { items: WorkOrderSummary[] } {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.items) &&
+    value.items.every(isWorkOrderSummary)
+  );
+}
+
+function isErrorBody(value: unknown): value is ErrorBody {
+  return isRecord(value) && isRecord(value.error);
+}
+
+function requireData<T>(
+  operation: string,
+  result: { data?: unknown; error?: unknown; response: Response },
+  isValid: (value: unknown) => value is T,
+): T {
+  if (result.data == null) {
     throw new ApiCallError(
       result.response.status,
       isErrorBody(result.error) ? result.error : undefined,
     );
   }
+  if (!isValid(result.data)) throw new InventoryApiContractError(operation);
   return result.data;
 }
 
@@ -45,6 +160,7 @@ export async function listInventoryItems(
   signal?: AbortSignal,
 ): Promise<InventoryItemPage> {
   return requireData(
+    "inventory item list",
     await api.GET("/api/v1/inventory/items", {
       params: {
         query: {
@@ -56,6 +172,7 @@ export async function listInventoryItems(
       },
       signal,
     }),
+    isInventoryItemPage,
   );
 }
 
@@ -65,10 +182,12 @@ export async function getInventoryItem(
   signal?: AbortSignal,
 ): Promise<InventoryItem> {
   return requireData(
+    "inventory item",
     await api.GET("/api/v1/inventory/items/{item_id}", {
       params: { path: { item_id: itemId } },
       signal,
     }),
+    isInventoryItem,
   );
 }
 
@@ -78,24 +197,33 @@ export async function listInventoryConsumptions(
   signal?: AbortSignal,
 ): Promise<InventoryConsumptionEvent[]> {
   return requireData(
+    "inventory consumption trace",
     await api.GET("/api/v1/inventory/items/{item_id}/consumptions", {
       params: { path: { item_id: itemId }, query: { limit: 100, offset: 0 } },
       signal,
     }),
+    (value): value is InventoryConsumptionEvent[] =>
+      Array.isArray(value) && value.every(isInventoryConsumptionEvent),
   );
 }
 
 export async function listOpenWorkOrders(
   api: ConsoleApiClient,
+  branchId: string,
   signal?: AbortSignal,
 ): Promise<WorkOrderSummary[]> {
   const page = requireData(
+    "work-order list",
     await api.GET("/api/v1/work-orders", {
       params: { query: { limit: 100, offset: 0 } },
       signal,
     }),
+    isWorkOrderPage,
   );
-  return page.items;
+  // The current generated endpoint is RLS branch-scoped but does not expose a
+  // branch_id query parameter. Retain only the selected item's branch as a
+  // defense-in-depth fence until the contract adds an explicit branch query.
+  return page.items.filter((order) => order.branch_id === branchId);
 }
 
 export async function consumeInventoryItem(
@@ -104,10 +232,12 @@ export async function consumeInventoryItem(
   request: ConsumeInventoryItemRequest,
 ): Promise<InventoryConsumptionResult> {
   return requireData(
+    "inventory consumption",
     await api.POST("/api/v1/inventory/items/{item_id}/consumptions", {
       params: { path: { item_id: itemId } },
       body: request,
     }),
+    isInventoryConsumptionResult,
   );
 }
 

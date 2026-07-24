@@ -160,6 +160,13 @@ export function InventoryScreenContent({ api }: { api: ConsoleApiClient }) {
   const [detailRetry, setDetailRetry] = useState(0);
   const listEpoch = useRef(0);
   const detailEpoch = useRef(0);
+  const selectionEpoch = useRef(0);
+  const [selectionToken, setSelectionToken] = useState(0);
+
+  function advanceSelectionEpoch() {
+    selectionEpoch.current += 1;
+    setSelectionToken(selectionEpoch.current);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -178,6 +185,12 @@ export function InventoryScreenContent({ api }: { api: ConsoleApiClient }) {
         if (controller.signal.aborted || epoch !== listEpoch.current) return;
         setItems([]);
         setTotal(0);
+        selectionEpoch.current += 1;
+        setSelectionToken(selectionEpoch.current);
+        setSelectedId(null);
+        setDetail(null);
+        setEvents([]);
+        setDetailState("idle");
         setListState(isAccessDenied(error) ? "denied" : "error");
       });
     return () => {
@@ -189,18 +202,29 @@ export function InventoryScreenContent({ api }: { api: ConsoleApiClient }) {
     if (!selectedId) return;
     const controller = new AbortController();
     const epoch = ++detailEpoch.current;
+    const selectedAtStart = selectionEpoch.current;
     void Promise.all([
       getInventoryItem(api, selectedId, controller.signal),
       listInventoryConsumptions(api, selectedId, controller.signal),
     ])
       .then(([nextDetail, nextEvents]) => {
-        if (controller.signal.aborted || epoch !== detailEpoch.current) return;
+        if (
+          controller.signal.aborted ||
+          epoch !== detailEpoch.current ||
+          selectedAtStart !== selectionEpoch.current
+        )
+          return;
         setDetail(nextDetail);
         setEvents(nextEvents);
         setDetailState("ready");
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || epoch !== detailEpoch.current) return;
+        if (
+          controller.signal.aborted ||
+          epoch !== detailEpoch.current ||
+          selectedAtStart !== selectionEpoch.current
+        )
+          return;
         setDetail(null);
         setEvents([]);
         setDetailState(isAccessDenied(error) ? "denied" : "error");
@@ -211,6 +235,7 @@ export function InventoryScreenContent({ api }: { api: ConsoleApiClient }) {
   }, [api, detailRetry, selectedId]);
 
   function selectItem(itemId: string) {
+    advanceSelectionEpoch();
     setSelectedId(itemId);
     setDetail(null);
     setEvents([]);
@@ -396,12 +421,19 @@ export function InventoryScreenContent({ api }: { api: ConsoleApiClient }) {
 
       {selectedId ? (
         <InventoryDetail
+          key={selectedId}
           api={api}
           item={detail}
           events={events}
           state={detailState}
+          selectionEpoch={selectionToken}
           onRetry={retryDetail}
-          onConsumed={(result) => {
+          onConsumed={(result, consumedSelectionEpoch) => {
+            if (
+              consumedSelectionEpoch !== selectionEpoch.current ||
+              result.item.id !== selectedId
+            )
+              return;
             setDetail(result.item);
             setEvents((current) => [result.event, ...current]);
             setItems((current) =>
@@ -423,6 +455,7 @@ function InventoryDetail({
   item,
   events,
   state,
+  selectionEpoch,
   onRetry,
   onConsumed,
 }: {
@@ -430,9 +463,11 @@ function InventoryDetail({
   item: InventoryItem | null;
   events: InventoryConsumptionEvent[];
   state: DetailState;
+  selectionEpoch: number;
   onRetry: () => void;
   onConsumed: (
     result: Awaited<ReturnType<typeof consumeInventoryItem>>,
+    selectionEpoch: number,
   ) => void;
 }) {
   const [showConsume, setShowConsume] = useState(false);
@@ -523,7 +558,7 @@ function InventoryDetail({
           api={api}
           item={item}
           onSuccess={(result) => {
-            onConsumed(result);
+            onConsumed(result, selectionEpoch);
             setShowConsume(false);
           }}
         />
@@ -600,7 +635,7 @@ function ConsumptionForm({
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void listOpenWorkOrders(api, controller.signal)
+    void listOpenWorkOrders(api, item.branch_id, controller.signal)
       .then((next) => {
         if (!controller.signal.aborted) {
           setOrders(next);
@@ -614,7 +649,7 @@ function ConsumptionForm({
     return () => {
       controller.abort();
     };
-  }, [api]);
+  }, [api, item.branch_id]);
   async function submit() {
     const milli = milliUnits(amount);
     if (!workOrderId || milli == null) {
