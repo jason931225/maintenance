@@ -94,7 +94,7 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
         "attendance_substitutions",
         "attendance_month_closes",
         "attendance_close_amendments",
-        "attendance_week52_acks",
+        "attendance_week52_acknowledgements",
     ] {
         let row = sqlx::query(
             "SELECT c.relrowsecurity, c.relforcerowsecurity, has_table_privilege('mnt_rt', c.oid, 'SELECT,INSERT') AS can_read_write \
@@ -126,6 +126,8 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
     )
     .bind(ORG_A).bind(a.employee).bind(a.branch).bind(a.user).bind(FINGERPRINT)
     .fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = runtime_tx(&pool, ORG_A).await;
     let duplicate = sqlx::query(
         "INSERT INTO attendance_exceptions \
          (org_id, code, kind, employee_id, branch_id, work_date, detail, created_by, idempotency_key, request_fingerprint) \
@@ -137,7 +139,7 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
         duplicate.is_err(),
         "exception create key must be unique per org"
     );
-    tx.commit().await.unwrap();
+    tx.rollback().await.unwrap();
 
     let mut tx = runtime_tx(&pool, ORG_B).await;
     let invisible: i64 =
@@ -211,6 +213,8 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
         substitution.is_ok(),
         "runtime role may create a substitution"
     );
+    tx.commit().await.unwrap();
+    let mut tx = runtime_tx(&pool, ORG_A).await;
     let substitution_duplicate = sqlx::query(
         "INSERT INTO attendance_substitutions \
          (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
@@ -260,6 +264,13 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
         amendment.is_ok(),
         "a close amendment is an append-only create"
     );
+    tx.commit().await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     let amendment_duplicate = sqlx::query(
         "INSERT INTO attendance_close_amendments \
          (org_id, close_id, reason, detail, actor_user_id, idempotency_key, request_fingerprint) \
@@ -275,7 +286,7 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
         amendment_duplicate.is_err(),
         "amendment create key must be unique per org"
     );
-    tx.commit().await.unwrap();
+    tx.rollback().await.unwrap();
 
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SELECT set_config('app.current_org', $1, true)")
@@ -296,4 +307,165 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
         "organization close must require its period lock"
     );
     tx.rollback().await.unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn attendance_close_lock_and_exception_resolution_invariants_are_deferred(pool: PgPool) {
+    let a = seed_org(&pool, ORG_A, "deferred").await;
+    let exception_id = Uuid::new_v4();
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    sqlx::query(
+        "INSERT INTO attendance_exceptions \
+         (id, org_id, code, kind, employee_id, branch_id, work_date, detail, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, $2, 'AT-deferred', 'LATE', $3, $4, DATE '2026-07-01', 'late arrival', $5, 'exception-deferred-1', $6)",
+    )
+    .bind(exception_id)
+    .bind(ORG_A)
+    .bind(a.employee)
+    .bind(a.branch)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // A lone resolution and a lone RESOLVED state both remain legal interim
+    // statements, but are rejected by the deferred pair invariant at commit.
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    sqlx::query(
+        "INSERT INTO attendance_exception_resolutions (org_id, exception_id, action, reason, actor_user_id) \
+         VALUES ($1, $2, 'CONFIRM', 'premature', $3)",
+    )
+    .bind(ORG_A)
+    .bind(exception_id)
+    .bind(a.user)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    assert!(
+        tx.commit().await.is_err(),
+        "OPEN exception cannot retain a resolution"
+    );
+
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    sqlx::query("UPDATE attendance_exceptions SET status = 'RESOLVED' WHERE id = $1")
+        .bind(exception_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(
+        tx.commit().await.is_err(),
+        "RESOLVED exception requires one resolution"
+    );
+
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    sqlx::query(
+        "INSERT INTO attendance_exception_resolutions (org_id, exception_id, action, reason, actor_user_id) \
+         VALUES ($1, $2, 'CONFIRM', 'resolved atomically', $3)",
+    )
+    .bind(ORG_A)
+    .bind(exception_id)
+    .bind(a.user)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE attendance_exceptions SET status = 'RESOLVED' WHERE id = $1")
+        .bind(exception_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit()
+        .await
+        .expect("matching resolution and terminal state commit together");
+
+    for (month, domain, period_start, period_end, unlocked, key) in [
+        (
+            "2026-08-01",
+            "accounting",
+            "2026-08-01",
+            "2026-08-31",
+            false,
+            "wrong-domain",
+        ),
+        (
+            "2026-09-01",
+            "payroll",
+            "2026-09-01",
+            "2026-09-29",
+            false,
+            "wrong-period",
+        ),
+        (
+            "2026-10-01",
+            "payroll",
+            "2026-10-01",
+            "2026-10-31",
+            true,
+            "inactive",
+        ),
+    ] {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(ORG_A.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let lock_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO period_locks (org_id, domain, period_start, period_end, reason, unlocked_at, unlock_reason) \
+             VALUES ($1, $2, $3::date, $4::date, 'attendance close test', \
+                     CASE WHEN $5 THEN now() ELSE NULL END, CASE WHEN $5 THEN 'inactive' ELSE NULL END) RETURNING id",
+        )
+        .bind(ORG_A)
+        .bind(domain)
+        .bind(period_start)
+        .bind(period_end)
+        .bind(unlocked)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO attendance_month_closes (org_id, month, checks, attested_by, period_lock_id) \
+             VALUES ($1, $2::date, '{}'::jsonb, $3, $4)",
+        )
+        .bind(ORG_A)
+        .bind(month)
+        .bind(a.user)
+        .bind(lock_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        assert!(
+            tx.commit().await.is_err(),
+            "{key} lock must not support an org close"
+        );
+    }
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let lock_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO period_locks (org_id, domain, period_start, period_end, reason) \
+         VALUES ($1, 'payroll', DATE '2026-11-01', DATE '2026-11-30', 'attendance close') RETURNING id",
+    )
+    .bind(ORG_A)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO attendance_month_closes (org_id, month, checks, attested_by, period_lock_id) \
+         VALUES ($1, DATE '2026-11-01', '{}'::jsonb, $2, $3)",
+    )
+    .bind(ORG_A)
+    .bind(a.user)
+    .bind(lock_id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit()
+        .await
+        .expect("exact active payroll lock supports org close");
 }

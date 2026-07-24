@@ -130,18 +130,18 @@ CREATE TABLE attendance_close_amendments (
 );
 CREATE INDEX attendance_close_amendments_close_idx ON attendance_close_amendments (org_id, close_id, created_at DESC);
 
--- mnt-gate: audited-table attendance_week52_acks
-CREATE TABLE attendance_week52_acks (
+-- mnt-gate: audited-table attendance_week52_acknowledgements
+CREATE TABLE attendance_week52_acknowledgements (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
     employee_id UUID NOT NULL,
     week_start DATE NOT NULL CHECK (extract(isodow FROM week_start) = 1),
-    actor_user_id UUID NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    acknowledged_by_user_id UUID NOT NULL,
+    acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
     UNIQUE (org_id, employee_id, week_start),
     FOREIGN KEY (employee_id, org_id) REFERENCES employees(id, org_id) ON DELETE RESTRICT,
-    FOREIGN KEY (actor_user_id, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
+    FOREIGN KEY (acknowledged_by_user_id, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
 );
 
 DO $$
@@ -151,7 +151,7 @@ BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'attendance_exceptions', 'attendance_exception_resolutions',
         'attendance_substitutions', 'attendance_month_closes',
-        'attendance_close_amendments', 'attendance_week52_acks'
+        'attendance_close_amendments', 'attendance_week52_acknowledgements'
     ] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', table_name);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', table_name);
@@ -209,6 +209,141 @@ $$;
 CREATE TRIGGER trg_attendance_substitutions_transition_only
     BEFORE UPDATE ON attendance_substitutions FOR EACH ROW EXECUTE FUNCTION attendance_substitution_transition_only();
 
+-- A resolution and its terminal exception state are one atomic fact.  Either
+-- write can arrive first inside the command transaction, so enforce the pair
+-- at COMMIT rather than rejecting the intermediate row order.
+CREATE OR REPLACE FUNCTION attendance_exception_resolution_consistent()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    checked_org_id UUID;
+    checked_exception_id UUID;
+    exception_status TEXT;
+    resolution_count INTEGER;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        checked_org_id := OLD.org_id;
+        IF TG_TABLE_NAME = 'attendance_exceptions' THEN
+            checked_exception_id := OLD.id;
+        ELSE
+            checked_exception_id := OLD.exception_id;
+        END IF;
+    ELSE
+        checked_org_id := NEW.org_id;
+        IF TG_TABLE_NAME = 'attendance_exceptions' THEN
+            checked_exception_id := NEW.id;
+        ELSE
+            checked_exception_id := NEW.exception_id;
+        END IF;
+    END IF;
+
+    SELECT status INTO exception_status
+      FROM attendance_exceptions
+     WHERE org_id = checked_org_id AND id = checked_exception_id;
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+    SELECT count(*) INTO resolution_count
+      FROM attendance_exception_resolutions
+     WHERE org_id = checked_org_id AND exception_id = checked_exception_id;
+    IF (exception_status = 'RESOLVED') <> (resolution_count = 1) THEN
+        RAISE EXCEPTION 'attendance exception % status/resolution mismatch', checked_exception_id
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER trg_attendance_exception_resolution_consistent
+    AFTER INSERT OR UPDATE OR DELETE ON attendance_exceptions
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION attendance_exception_resolution_consistent();
+CREATE CONSTRAINT TRIGGER trg_attendance_resolution_exception_consistent
+    AFTER INSERT OR UPDATE OR DELETE ON attendance_exception_resolutions
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION attendance_exception_resolution_consistent();
+
+-- A close is evidence of one currently active payroll lock for exactly its
+-- organization-month.  Branch closes intentionally have no lock; an org close
+-- is rejected if a referenced lock is later unlocked or rewritten in the same
+-- transaction.
+CREATE OR REPLACE FUNCTION attendance_month_close_lock_consistent()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    checked_close attendance_month_closes%ROWTYPE;
+    lock_org_id UUID;
+    lock_domain TEXT;
+    lock_start DATE;
+    lock_end DATE;
+    lock_unlocked_at TIMESTAMPTZ;
+    changed_lock_id UUID;
+    changed_lock_org_id UUID;
+BEGIN
+    IF TG_TABLE_NAME = 'attendance_month_closes' THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN NULL;
+        END IF;
+        SELECT * INTO checked_close
+          FROM attendance_month_closes
+         WHERE org_id = NEW.org_id AND id = NEW.id;
+        IF NOT FOUND THEN
+            RETURN NULL;
+        END IF;
+        IF checked_close.branch_id IS NOT NULL THEN
+            RETURN NULL;
+        END IF;
+        SELECT org_id, domain, period_start, period_end, unlocked_at
+          INTO lock_org_id, lock_domain, lock_start, lock_end, lock_unlocked_at
+          FROM period_locks
+         WHERE id = checked_close.period_lock_id AND org_id = checked_close.org_id;
+        IF NOT FOUND
+           OR lock_domain <> 'payroll'
+           OR lock_start <> checked_close.month
+           OR lock_end <> (checked_close.month + INTERVAL '1 month - 1 day')::date
+           OR lock_unlocked_at IS NOT NULL
+        THEN
+            RAISE EXCEPTION 'attendance org close requires an active same-org payroll lock for its exact month'
+                USING ERRCODE = '23514';
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        changed_lock_id := OLD.id;
+        changed_lock_org_id := OLD.org_id;
+    ELSE
+        changed_lock_id := NEW.id;
+        changed_lock_org_id := NEW.org_id;
+    END IF;
+    FOR checked_close IN
+        SELECT * FROM attendance_month_closes
+         WHERE period_lock_id = changed_lock_id
+           AND org_id = changed_lock_org_id
+    LOOP
+        SELECT org_id, domain, period_start, period_end, unlocked_at
+          INTO lock_org_id, lock_domain, lock_start, lock_end, lock_unlocked_at
+          FROM period_locks
+         WHERE id = checked_close.period_lock_id AND org_id = checked_close.org_id;
+        IF NOT FOUND
+           OR lock_domain <> 'payroll'
+           OR lock_start <> checked_close.month
+           OR lock_end <> (checked_close.month + INTERVAL '1 month - 1 day')::date
+           OR lock_unlocked_at IS NOT NULL
+        THEN
+            RAISE EXCEPTION 'attendance org close requires an active same-org payroll lock for its exact month'
+                USING ERRCODE = '23514';
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER trg_attendance_month_close_lock_consistent
+    AFTER INSERT OR UPDATE OR DELETE ON attendance_month_closes
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION attendance_month_close_lock_consistent();
+CREATE CONSTRAINT TRIGGER trg_period_lock_attendance_close_consistent
+    AFTER INSERT OR UPDATE OR DELETE ON period_locks
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION attendance_month_close_lock_consistent();
+
 CREATE TRIGGER trg_attendance_exception_resolutions_append_only
     BEFORE UPDATE OR DELETE ON attendance_exception_resolutions
     FOR EACH ROW EXECUTE FUNCTION platform_append_only_immutable();
@@ -218,14 +353,14 @@ CREATE TRIGGER trg_attendance_month_closes_append_only
 CREATE TRIGGER trg_attendance_close_amendments_append_only
     BEFORE UPDATE OR DELETE ON attendance_close_amendments
     FOR EACH ROW EXECUTE FUNCTION platform_append_only_immutable();
-CREATE TRIGGER trg_attendance_week52_acks_append_only
-    BEFORE UPDATE OR DELETE ON attendance_week52_acks
+CREATE TRIGGER trg_attendance_week52_acknowledgements_append_only
+    BEFORE UPDATE OR DELETE ON attendance_week52_acknowledgements
     FOR EACH ROW EXECUTE FUNCTION platform_append_only_immutable();
 
 GRANT SELECT, INSERT, UPDATE ON attendance_exceptions, attendance_substitutions TO mnt_rt;
 GRANT SELECT, INSERT ON attendance_exception_resolutions, attendance_month_closes,
-    attendance_close_amendments, attendance_week52_acks TO mnt_rt;
+    attendance_close_amendments, attendance_week52_acknowledgements TO mnt_rt;
 REVOKE DELETE ON attendance_exceptions, attendance_substitutions, attendance_exception_resolutions,
-    attendance_month_closes, attendance_close_amendments, attendance_week52_acks FROM mnt_rt;
+    attendance_month_closes, attendance_close_amendments, attendance_week52_acknowledgements FROM mnt_rt;
 REVOKE UPDATE ON attendance_exception_resolutions, attendance_month_closes,
-    attendance_close_amendments, attendance_week52_acks FROM mnt_rt;
+    attendance_close_amendments, attendance_week52_acknowledgements FROM mnt_rt;

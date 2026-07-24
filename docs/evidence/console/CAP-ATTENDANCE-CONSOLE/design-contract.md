@@ -21,8 +21,10 @@ Close preconditions (server-recomputed at commit time, never trusted from client
 1. open exceptions for (scope, month) == 0 → else 409 `{open_exceptions: n}`
 2. attest == true in request (human attestation, recorded with actor+ts)
 3. soft warning (not blocking): pending leave decisions count returned in preflight.
-Effects (single txn): insert close row (checks snapshot as JSONB evidence) → create payroll-domain
-`period_lock` for the month via the platform helper, store `period_lock_id` → audit
+Effects (single txn): insert close row (checks snapshot as JSONB evidence).  An **org close**
+(`branch_id = null`) references one active payroll-domain `period_lock` for exactly that calendar
+month; a **branch close** (`branch_id != null`) stores no lock.  The command layer creates the
+org lock via the platform helper, then stores `period_lock_id` → audit
 `attendance.close.confirm` (code `AT-CLOSE`) → notification fan-out is the notifications owner's
 consumer (outbox/audit-driven; not synchronous coupling).
 
@@ -46,7 +48,7 @@ truthfully rendered as pending chips, never fabricated).
 | `POST /api/v1/attendance/substitutions` | Assign a substitute for a gap (today or future-dated) | `ATTENDANCE_SUBSTITUTION_MANAGE` |
 | `POST /api/v1/attendance/substitutions/{id}/cancel` | Cancel with reason | `ATTENDANCE_SUBSTITUTION_MANAGE` |
 | `GET /api/v1/attendance/closes?month=` | Close rows for all authorized entities + readiness (open-exception count, pending-leave warn) — powers the close card checklist and payroll's gate read | `EmployeeDirectoryRead` (aggregates only inside caller scope) |
-| `POST /api/v1/attendance/closes/preflight` | Server-computed preflight for (branch_scope, month) — returns checks[] without committing | `PeriodLockManage` |
+| `POST /api/v1/attendance/closes/preflight` | Server-computed preflight for (`branch_id|null`, month) — returns checks[] without committing | `PeriodLockManage` |
 | `POST /api/v1/attendance/closes` | Confirm close (attest required; fail-closed) | `PeriodLockManage` |
 | `POST /api/v1/attendance/closes/{id}/amendments` | Record a post-close retro adjustment | `PeriodLockManage` |
 | `GET /api/v1/attendance/week52?week_start=` | Derived weekly totals + projection + ack state per employee in scope | `EmployeeDirectoryRead`; self row on the employee floor |
@@ -96,7 +98,7 @@ CreateAttendanceSubstitutionRequest:
 CancelAttendanceSubstitutionRequest: { reason: string }
 
 AttendanceMonthClose:
-  { id: uuid, month: string /* YYYY-MM */, branch_scope: string,  # entity/branch key ("coss"…) or branch uuid
+  { id: uuid, month: string /* YYYY-MM */, branch_id: uuid|null,  # null = org close; UUID = branch close
     status: enum [CLOSED], attested_by: uuid, attested_at: date-time,
     checks: [ {key: string, ok: boolean, warn: boolean, note: string} ],  # committed preflight snapshot
     period_lock_id: uuid|null, closed_at: date-time,
@@ -106,9 +108,9 @@ AttendanceCloseAmendment:
 AttendanceClosesPage:
   { month: string, items: [ AttendanceMonthCloseStatus ] }
 AttendanceMonthCloseStatus:
-  { branch_scope: string, closed: boolean, close: AttendanceMonthClose|null,
+  { branch_id: uuid|null, closed: boolean, close: AttendanceMonthClose|null,
     open_exceptions: int, pending_leave: int }                   # readiness for the not-yet-closed rows
-CloseAttendanceMonthRequest: { month, branch_scope, attest: boolean }
+CloseAttendanceMonthRequest: { month, branch_id?: uuid|null, attest: boolean }
 AttendancePreflight:
   { ready: boolean, checks: [ {key, ok, warn, note} ] }
 
@@ -145,11 +147,14 @@ CREATE TABLE attendance_exceptions (
     detail        TEXT NOT NULL CHECK (btrim(detail) <> ''),
     evidence      JSONB NOT NULL DEFAULT '[]'::jsonb,
     links         JSONB NOT NULL DEFAULT '[]'::jsonb,
+    idempotency_key TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL CHECK (request_fingerprint ~ '^[a-f0-9]{64}$'),
     created_by    UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
     FOREIGN KEY (employee_id, org_id) REFERENCES employees(id, org_id) ON DELETE RESTRICT,
-    UNIQUE (org_id, code)
+    UNIQUE (org_id, code),
+    UNIQUE (org_id, idempotency_key)
 );
 CREATE INDEX attendance_exceptions_day_idx    ON attendance_exceptions (org_id, work_date, status);
 CREATE INDEX attendance_exceptions_emp_idx    ON attendance_exceptions (org_id, employee_id, work_date DESC);
@@ -196,9 +201,12 @@ CREATE TABLE attendance_substitutions (
     approval_ref         TEXT NULL,
     contract_ref         TEXT NULL,
     exception_id         UUID NULL,
+    idempotency_key      TEXT NOT NULL,
+    request_fingerprint  TEXT NOT NULL CHECK (request_fingerprint ~ '^[a-f0-9]{64}$'),
     created_by           UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
+    UNIQUE (org_id, idempotency_key),
     FOREIGN KEY (covered_employee_id, org_id) REFERENCES employees(id, org_id) ON DELETE RESTRICT,
     FOREIGN KEY (exception_id, org_id) REFERENCES attendance_exceptions(id, org_id) ON DELETE SET NULL
 );
@@ -211,14 +219,18 @@ CREATE TABLE attendance_month_closes (
     id             UUID NOT NULL DEFAULT gen_random_uuid(),
     org_id         UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
     month          DATE NOT NULL CHECK (date_trunc('month', month) = month),   -- first of month
-    branch_scope   TEXT NOT NULL CHECK (btrim(branch_scope) <> ''),
+    branch_id      UUID NULL,
     checks         JSONB NOT NULL,                                             -- committed preflight snapshot
     attested_by    UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     attested_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     period_lock_id UUID NULL,
     closed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
-    UNIQUE (org_id, month, branch_scope)                                       -- one close per scope-month
+    UNIQUE NULLS NOT DISTINCT (org_id, month, branch_id),                      -- one close per org/branch scope-month
+    FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id) ON DELETE RESTRICT,
+    FOREIGN KEY (period_lock_id, org_id) REFERENCES period_locks(id, org_id) ON DELETE RESTRICT,
+    CHECK ((branch_id IS NULL AND period_lock_id IS NOT NULL)
+        OR (branch_id IS NOT NULL AND period_lock_id IS NULL))
 );
 -- + RLS + append-only trigger (a close is immutable; corrections go below)
 
@@ -230,21 +242,24 @@ CREATE TABLE attendance_close_amendments (
     reason        TEXT NOT NULL CHECK (btrim(reason) <> ''),
     detail        TEXT NOT NULL,
     ref           TEXT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL CHECK (request_fingerprint ~ '^[a-f0-9]{64}$'),
     actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
+    UNIQUE (org_id, idempotency_key),
     FOREIGN KEY (close_id, org_id) REFERENCES attendance_month_closes(id, org_id) ON DELETE RESTRICT
 );
 -- + RLS + append-only trigger
 
--- mnt-gate: audited-table attendance_week52_acks  (append-only)
-CREATE TABLE attendance_week52_acks (
+-- mnt-gate: audited-table attendance_week52_acknowledgements  (append-only)
+CREATE TABLE attendance_week52_acknowledgements (
     id            UUID NOT NULL DEFAULT gen_random_uuid(),
     org_id        UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
     employee_id   UUID NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
     week_start    DATE NOT NULL,
-    actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    acknowledged_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
     UNIQUE (org_id, employee_id, week_start),
     FOREIGN KEY (employee_id, org_id) REFERENCES employees(id, org_id) ON DELETE RESTRICT
@@ -258,4 +273,9 @@ CREATE TABLE attendance_week52_acks (
 - **List/overview**: day board (plans ⨯ records ⨯ exceptions ⨯ substitutions) + month drill + stat bar; **object detail**: exception detail + EmployeeDay composition (audited view); **action/workflow**: resolve (mandatory reason), substitute assign (incl. future-dated cover planner), week52 ack, gated month close (preflight+attest); **history**: resolutions, amendments, audit stream.
 - **≥2 upstream links**: employee/person card, daily work plan (workorder), leave request (leave), site/branch. **≥2 downstream**: payroll run gate + material refs, approval AP- refs, notifications, labor-cost series.
 - **Authorization**: deny-by-omission at scope level (aggregates computed only inside caller's branch scope; out-of-scope ids → 404), self floor for own rows, RLS verified as `mnt_rt`.
-- **State survival**: selection/drafts (resolve reason draft, close attest) are client concerns for stage 3; server idempotency (week52 ack unique, one-resolution-per-exception, one-close-per-scope-month) makes retry safe.
+- **State survival**: selection/drafts (resolve reason draft, close attest) are client concerns for stage 3; `attendance_week52_acknowledgements` has an identity-unique acknowledgement row, and closes/resolutions have their own domain uniqueness.
+- **Create retry boundary**: exception/substitution/amendment persistence stores tenant-scoped
+  `idempotency_key` plus canonical payload fingerprint with a unique key.  This is the database
+  conflict/replay-lookup primitive only: the adapter performs same-fingerprint replay and rejects
+  a different fingerprint for the same key.  No database constraint by itself fabricates a replay
+  response.
