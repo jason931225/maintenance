@@ -347,7 +347,7 @@ fn create_body(fixture: &Fixture, key: &str) -> Value {
     })
 }
 
-async fn release_body(fixture: &Fixture, plan: &Value, key: &str) -> Value {
+async fn release_body(pool: &PgPool, fixture: &Fixture, plan: &Value, key: &str) -> Value {
     let approval = Uuid::new_v4();
     let plan_id = plan["id"].as_str().unwrap();
     let digest = plan["plan_digest"].as_str().unwrap();
@@ -420,7 +420,7 @@ async fn planner_reviewer_operator_complete_a_durable_production_lifecycle(pool:
         service.clone(),
         &format!("/api/v1/production/plans/{plan_id}/release"),
         &reviewer_token,
-        release_body(&fixture, &plan, "production-release-1").await,
+        release_body(&pool, &fixture, &plan, "production-release-1").await,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{released:?}");
@@ -471,7 +471,7 @@ async fn release_requires_the_bound_reviewer_and_consumes_the_approval_once(pool
     .await;
     assert_eq!(status, StatusCode::CREATED, "{plan:?}");
     let plan_id = plan["id"].as_str().unwrap();
-    let body = release_body(&fixture, &plan, "bound-release").await;
+    let body = release_body(&pool, &fixture, &plan, "bound-release").await;
     let uri = format!("/api/v1/production/plans/{plan_id}/release");
     let (status, self_release) = post(service.clone(), &uri, &planner, body.clone()).await;
     assert_eq!(status, StatusCode::CONFLICT, "{self_release:?}");
@@ -631,9 +631,10 @@ async fn concurrent_tenant_authorized_reservations_do_not_oversubscribe_material
         .await
         .unwrap();
     let service = app(runtime_role_pool(&pool).await, &keys);
+    let first_service = service.clone();
     let first_token = token.clone();
     let first_request = tokio::spawn(async move {
-        post(service.clone(), PRODUCTION_PLANS_PATH, &first_token, first).await
+        post(first_service, PRODUCTION_PLANS_PATH, &first_token, first).await
     });
     let second_request =
         tokio::spawn(async move { post(service, PRODUCTION_PLANS_PATH, &token, second).await });
@@ -741,7 +742,7 @@ async fn operation_record_rejects_a_terminal_operation_write(pool: PgPool) {
         service.clone(),
         &format!("/api/v1/production/plans/{plan_id}/release"),
         &reviewer_token,
-        release_body(&fixture, &plan, "production-terminal-release").await,
+        release_body(&pool, &fixture, &plan, "production-terminal-release").await,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{release:?}");
