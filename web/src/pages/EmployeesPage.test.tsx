@@ -132,6 +132,7 @@ const readinessSummary = {
     draft_runs: 1,
     blocked_runs: 1,
     calculation_enabled_runs: 0,
+    active_close_runs: 0,
     draft_lines: 2,
     payroll_source_rows: 8,
     attendance_source_rows: 4,

@@ -2,7 +2,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
 import type { AuthContextValue, AuthSession } from "../context/auth";
@@ -50,6 +58,7 @@ const readinessSummary = {
     draft_runs: 1,
     blocked_runs: 0,
     calculation_enabled_runs: 1,
+    active_close_runs: 1,
     draft_lines: 3,
     payroll_source_rows: 3,
     attendance_source_rows: 2,
@@ -151,10 +160,11 @@ afterAll(() => {
 });
 
 function makeAuthContext(
-  session: AuthSession = adminSession,
+  session: AuthSession | null = adminSession,
+  api = createConsoleApiClient(session?.access_token),
 ): AuthContextValue {
   return {
-    session,
+    session: session ?? undefined,
     restoring: false,
     login: async () => {},
     logout: async () => {},
@@ -164,18 +174,28 @@ function makeAuthContext(
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
+    api,
   };
 }
 
-function renderPage(session: AuthSession = adminSession) {
-  return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
+function payrollPageTree(
+  session: AuthSession | null = adminSession,
+  api = createConsoleApiClient(session?.access_token),
+) {
+  return (
+    <AuthContext.Provider value={makeAuthContext(session, api)}>
       <MemoryRouter>
         <PayrollPage />
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
+}
+
+function renderPage(
+  session: AuthSession | null = adminSession,
+  api = createConsoleApiClient(session?.access_token),
+) {
+  return render(payrollPageTree(session, api));
 }
 
 function mockPayrollEndpoints(dashboard: unknown) {
@@ -193,6 +213,44 @@ function mockPayrollEndpoints(dashboard: unknown) {
       HttpResponse.json(dashboard),
     ),
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function aggregateApi(readiness: unknown, onPayrollRuns?: () => void) {
+  return {
+    GET: vi.fn((path: string) => {
+      switch (path) {
+        case "/api/v1/hr/readiness-summary":
+          return Promise.resolve({ data: readiness });
+        case "/api/v1/hr/attendance-summary":
+          return Promise.resolve({
+            data: { items: [], total: 0, limit: 1000, offset: 0 },
+          });
+        case "/api/v1/employees":
+          return Promise.resolve({
+            data: { items: [], total: 0, limit: 1000, offset: 0 },
+          });
+        case "/api/v1/hr/absence-exit-dashboard":
+          return Promise.resolve({ data: makeDashboard("CERTIFIED") });
+        case "/api/v1/payroll/runs":
+          onPayrollRuns?.();
+          return Promise.resolve({
+            data: { items: [], total: 0, limit: 50, offset: 0 },
+          });
+        default:
+          throw new Error(`unexpected GET ${path}`);
+      }
+    }),
+  } as unknown as ReturnType<typeof createConsoleApiClient>;
 }
 
 describe("PayrollPage exit settlement panel", () => {
@@ -250,6 +308,7 @@ describe("PayrollPage audited close integration", () => {
         draft_runs: 0,
         blocked_runs: 0,
         calculation_enabled_runs: 0,
+        active_close_runs: 0,
       },
     };
     mockPayrollEndpoints(makeDashboard("CERTIFIED"));
@@ -273,18 +332,54 @@ describe("PayrollPage audited close integration", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders the audited close workspace for a signed custom PayrollRunRead hint", async () => {
+  it("does not issue a payroll-run request for issued and void history only", async () => {
+    let runRequests = 0;
+    const terminalHistoryOnly = {
+      ...readinessSummary,
+      payroll: {
+        ...readinessSummary.payroll,
+        draft_runs: 2,
+        calculation_enabled_runs: 1,
+        active_close_runs: 0,
+        latest_status: "ISSUED",
+      },
+    };
     mockPayrollEndpoints(makeDashboard("CERTIFIED"));
     server.use(
-      http.get("*/api/v1/payroll/runs", () =>
-        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      http.get("*/api/v1/hr/readiness-summary", () =>
+        HttpResponse.json(terminalHistoryOnly),
       ),
+      http.get("*/api/v1/payroll/runs", () => {
+        runRequests += 1;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      }),
+    );
+
+    renderPage(customPayrollReaderSession);
+    await screen.findByRole("heading", { name: copy.title });
+    await waitFor(() => {
+      expect(runRequests).toBe(0);
+    });
+    expect(
+      screen.queryByRole("heading", { name: "급여 마감 명부" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the audited close workspace for a signed custom PayrollRunRead hint", async () => {
+    let runRequests = 0;
+    mockPayrollEndpoints(makeDashboard("CERTIFIED"));
+    server.use(
+      http.get("*/api/v1/payroll/runs", () => {
+        runRequests += 1;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      }),
     );
 
     renderPage(customPayrollReaderSession);
     expect(
       await screen.findByRole("heading", { name: "급여 마감 명부" }),
     ).toBeVisible();
+    expect(runRequests).toBe(1);
   });
 
   it("renders the audited close workspace only for an org-wide payroll reader", async () => {
@@ -302,5 +397,93 @@ describe("PayrollPage audited close integration", () => {
     expect(
       await screen.findByText("현재 조회 가능한 급여 회차가 없습니다."),
     ).toBeVisible();
+  });
+
+  it("aborts and ignores a deferred previous-authority success after a session switch", async () => {
+    const pendingA = deferred<{ data: unknown }>();
+    const aSignals: AbortSignal[] = [];
+    const apiA = {
+      GET: vi.fn((_path: string, options?: { signal?: AbortSignal }) => {
+        if (options?.signal) aSignals.push(options.signal);
+        return pendingA.promise;
+      }),
+    } as unknown as ReturnType<typeof createConsoleApiClient>;
+    const readinessB = {
+      ...readinessSummary,
+      payroll: {
+        ...readinessSummary.payroll,
+        latest_source_label: "B-current",
+      },
+    };
+    let bRunRequests = 0;
+    const apiB = aggregateApi(readinessB, () => {
+      bRunRequests += 1;
+    });
+    const sessionA = {
+      ...customPayrollReaderSession,
+      access_token: "authority-a",
+      client_session_incarnation: "authority-a",
+    };
+    const sessionB = {
+      ...customPayrollReaderSession,
+      access_token: "authority-b",
+      client_session_incarnation: "authority-b",
+    };
+    const page = renderPage(sessionA, apiA);
+
+    await waitFor(() => {
+      expect(aSignals).toHaveLength(4);
+    });
+    page.rerender(payrollPageTree(sessionB, apiB));
+
+    expect(
+      await screen.findByRole("heading", { name: "급여 마감 명부" }),
+    ).toBeVisible();
+    expect(aSignals.every((signal) => signal.aborted)).toBe(true);
+
+    pendingA.resolve({
+      data: {
+        ...readinessSummary,
+        payroll: {
+          ...readinessSummary.payroll,
+          latest_source_label: "A-stale",
+        },
+      },
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("A-stale")).not.toBeInTheDocument();
+      expect(bRunRequests).toBe(1);
+    });
+  });
+
+  it("ignores a deferred previous-authority rejection after logout", async () => {
+    const pendingA = deferred<{ data: unknown }>();
+    const aSignals: AbortSignal[] = [];
+    const apiA = {
+      GET: vi.fn((_path: string, options?: { signal?: AbortSignal }) => {
+        if (options?.signal) aSignals.push(options.signal);
+        return pendingA.promise;
+      }),
+    } as unknown as ReturnType<typeof createConsoleApiClient>;
+    const sessionA = {
+      ...customPayrollReaderSession,
+      access_token: "authority-a",
+      client_session_incarnation: "authority-a",
+    };
+    const page = renderPage(sessionA, apiA);
+
+    await waitFor(() => {
+      expect(aSignals).toHaveLength(4);
+    });
+    page.rerender(payrollPageTree(null, aggregateApi(readinessSummary)));
+    pendingA.reject(new Error("stale authority rejected"));
+
+    await waitFor(() => {
+      expect(aSignals.every((signal) => signal.aborted)).toBe(true);
+      expect(
+        screen.queryByRole("heading", { name: "급여 마감 명부" }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(copy.loadFailed)).not.toBeInTheDocument();
+    });
   });
 });

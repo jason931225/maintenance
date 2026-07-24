@@ -461,6 +461,7 @@ struct HrPayrollReadinessSummary {
     draft_runs: i64,
     blocked_runs: i64,
     calculation_enabled_runs: i64,
+    active_close_runs: i64,
     draft_lines: i64,
     payroll_source_rows: i64,
     attendance_source_rows: i64,
@@ -1571,6 +1572,11 @@ async fn get_hr_readiness_summary(
                     COUNT(*)::BIGINT AS draft_runs,
                     COUNT(*) FILTER (WHERE status = 'BLOCKED_LEGAL_GATE')::BIGINT AS blocked_runs,
                     COUNT(*) FILTER (WHERE calculation_enabled)::BIGINT AS calculation_enabled_runs,
+                    -- Inspectable close states are STAGED, BLOCKED_LEGAL_GATE,
+                    -- READY_FOR_REVIEW, and APPROVED. ISSUED and VOID are terminal history.
+                    COUNT(*) FILTER (
+                        WHERE status IN ('STAGED', 'BLOCKED_LEGAL_GATE', 'READY_FOR_REVIEW', 'APPROVED')
+                    )::BIGINT AS active_close_runs,
                     (ARRAY_AGG(status ORDER BY updated_at DESC, id DESC))[1] AS latest_status,
                     (ARRAY_AGG(source_label ORDER BY updated_at DESC, id DESC))[1] AS latest_source_label,
                     (ARRAY_AGG(period_start::TEXT ORDER BY updated_at DESC, id DESC))[1] AS latest_period_start,
@@ -1645,6 +1651,7 @@ async fn get_hr_readiness_summary(
                     blocked_runs: payroll_run_row.try_get("blocked_runs")?,
                     calculation_enabled_runs: payroll_run_row
                         .try_get("calculation_enabled_runs")?,
+                    active_close_runs: payroll_run_row.try_get("active_close_runs")?,
                     draft_lines: payroll_line_row.try_get("draft_lines")?,
                     payroll_source_rows: payroll_line_row.try_get("payroll_source_rows")?,
                     attendance_source_rows: payroll_line_row

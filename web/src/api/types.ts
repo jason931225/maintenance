@@ -546,6 +546,8 @@ export interface HrReadinessSummary {
     draft_runs: number;
     blocked_runs: number;
     calculation_enabled_runs: number;
+    /** Non-terminal payroll close runs that an authorized reader can inspect. */
+    active_close_runs: number;
     draft_lines: number;
     payroll_source_rows: number;
     attendance_source_rows: number;

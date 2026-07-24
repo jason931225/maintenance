@@ -19,6 +19,7 @@ use uuid::Uuid;
 const TEST_ISSUER: &str = "mnt-platform-auth";
 const TEST_AUDIENCE: &str = "mnt-api";
 const EMPLOYEES_PATH: &str = "/api/v1/employees";
+const HR_READINESS_SUMMARY_PATH: &str = "/api/v1/hr/readiness-summary";
 
 struct Keys {
     private_pem: String,
@@ -27,6 +28,70 @@ struct Keys {
 struct JsonResponse {
     status: StatusCode,
     json: Value,
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn readiness_counts_only_inspectable_active_payroll_close_statuses(pool: PgPool) {
+    let keys = keys();
+    let org = OrgId::knl();
+    let user = UserId::new();
+    seed_user(&pool, org, user).await;
+
+    for (source_label, status, calculation_enabled) in [
+        ("terminal-issued", "ISSUED", true),
+        ("terminal-void", "VOID", false),
+    ] {
+        sqlx::query(
+            "INSERT INTO payroll_draft_runs \
+             (id, org_id, period_start, period_end, source_label, status, calculation_enabled, created_by) \
+             VALUES ($1, $2, '2026-07-01', '2026-07-31', $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(*org.as_uuid())
+        .bind(source_label)
+        .bind(status)
+        .bind(calculation_enabled)
+        .bind(*user.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let service = build_router(
+        app_state(
+            runtime_role_pool(&pool).await,
+            leave_command_role_pool(&pool).await,
+            keys.public_pem.clone(),
+        )
+        .unwrap(),
+    );
+    let token = bearer(&keys, org, user, &["SUPER_ADMIN"]);
+
+    let terminal_only = get(service.clone(), HR_READINESS_SUMMARY_PATH, &token).await;
+    assert_eq!(
+        terminal_only.status,
+        StatusCode::OK,
+        "{:?}",
+        terminal_only.json
+    );
+    assert_eq!(terminal_only.json["payroll"]["draft_runs"], 2);
+    assert_eq!(terminal_only.json["payroll"]["active_close_runs"], 0);
+
+    sqlx::query(
+        "INSERT INTO payroll_draft_runs \
+         (id, org_id, period_start, period_end, source_label, status, calculation_enabled, created_by) \
+         VALUES ($1, $2, '2026-08-01', '2026-08-31', 'active-staged', 'STAGED', FALSE, $3)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(*org.as_uuid())
+    .bind(*user.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let active = get(service, HR_READINESS_SUMMARY_PATH, &token).await;
+    assert_eq!(active.status, StatusCode::OK, "{:?}", active.json);
+    assert_eq!(active.json["payroll"]["active_close_runs"], 1);
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]

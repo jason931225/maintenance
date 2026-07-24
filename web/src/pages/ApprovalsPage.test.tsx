@@ -300,6 +300,7 @@ function readinessSummaryPayload() {
       draft_runs: 1,
       blocked_runs: 0,
       calculation_enabled_runs: 1,
+      active_close_runs: 1,
       draft_lines: 10,
       payroll_source_rows: 10,
       attendance_source_rows: 8,

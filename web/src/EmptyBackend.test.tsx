@@ -90,6 +90,7 @@ const emptyHrReadinessSummary = {
     draft_runs: 0,
     blocked_runs: 0,
     calculation_enabled_runs: 0,
+    active_close_runs: 0,
     draft_lines: 0,
     payroll_source_rows: 0,
     attendance_source_rows: 0,
