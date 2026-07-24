@@ -329,6 +329,10 @@ separable strata so module implementation can continue in parallel:
 1. Pin the repository toolchain to Meta's 2026-07-15 Buck2 release through its
    official dotslash manifest; do not rely on the developer's globally
    installed 2026-06-09 binary.
+   The current execution policy is
+   [the Buck2 scale playbook](console-buck2-scale-playbook.md): cells are
+   trust/toolchain/configuration boundaries, while packages and targets are the
+   module boundary; it explicitly rejects one cell per console module.
 2. Port only the reviewed Buck2 configuration, Rust toolchain, Reindeer
    configuration/fixups, deterministic first-party target generator, and
    batched test runner. Preserve current product source and resource ownership.
