@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { buildFanoutPlan, normalizePattern, patternsOverlap } from './plan-fanout.mjs';
 const SHA = 'a'.repeat(40);
@@ -22,8 +23,8 @@ test('unsupported authority intersections fail closed', () => {
 
 test('migration roots are excluded from leaves and serialised', () => {
   const value = plan([cap('A', ['backend/crates/a/**', 'backend/crates/platform/db/migrations/**'])]);
-  assert.deepEqual(value.selected[0].private_roots, ['backend/crates/a/**', 'docs/evidence/A/**']);
-  assert.deepEqual(value.selected[0].excluded_shared_roots, ['backend/crates/platform/db/migrations/**']);
+  assert.equal(value.selected.length, 0);
+  assert.match(value.held[0].reasons.join(','), /protected_shared_root_intersection/);
 });
 
 test('per-lane resource declarations are mandatory and budgets produce explicit holds', () => {
@@ -32,8 +33,20 @@ test('per-lane resource declarations are mandatory and budgets produce explicit 
   const first = cap('A', ['backend/crates/a/**'], { resource_requirements: { ...resources, postgres: 1 } });
   const second = cap('B', ['backend/crates/b/**'], { resource_requirements: { ...resources, postgres: 1 } });
   const value = plan([first, second]);
-  assert.equal(value.selected.length, 1);
-  assert.deepEqual(value.collision_blocked[0].resources, ['postgres']);
+  assert.equal(value.selected.length, 2);
+  assert.equal(value.verification_queue.filter((entry) => entry.scheduled).length, 1);
+  assert.deepEqual(value.verification_queue.find((entry) => !entry.scheduled).constrained_resources, ['postgres']);
+});
+
+test('cold Rust compile capacity is capped independently of parallel source writers', () => {
+  const backendA = cap('RUST-A', ['backend/crates/rust-a/**']);
+  const backendB = cap('RUST-B', ['backend/crates/rust-b/**']);
+  const backendC = cap('RUST-C', ['backend/crates/rust-c/**']);
+  const frontend = cap('WEB', ['web/console/**']);
+  const value = buildFanoutPlan(reg([backendA, backendB, backendC, frontend], { resource_budgets: { writer: 4, postgres: 1, browser: 1, ios: 1, graph: 4, cas: 4 } }), { anchorSha: SHA, maxWriters: 4, qualityBias: .6, generatedFaces: faces });
+  assert.deepEqual(value.selected.map((lane) => lane.lane_id).sort(), ['RUST-A', 'RUST-B', 'RUST-C', 'WEB']);
+  assert.equal(value.verification_queue.filter((lane) => lane.scheduled && lane.buck2_targets.length > 0).length, 2);
+  assert.match(value.verification_queue.find((entry) => entry.lane_id === 'RUST-C').hold_reason, /cold_rust_compile_capacity_exhausted/);
 });
 
 test('same writer, worktree, or branch cannot be co-selected', () => {
@@ -61,7 +74,7 @@ test('completed source checks unowned private roots before its review shortcut',
 
 test('consolidation is blocked until exact independent review and valid consolidation identity', () => {
   const source = cap('A', ['backend/crates/a/**', 'backend/openapi/openapi.yaml']);
-  source.lane_assignments = { source: { owner: source.owner, worktree: source.worktree, branch: source.branch, roots: ['backend/crates/a/**', 'backend/openapi/openapi.yaml', 'docs/evidence/A/**'], resources, tests: source.tests }, consolidation: { owner: 'console-consolidation', worktree: '/tmp/consolidation', branch: 'codex/consolidation', resources } };
+  source.lane_assignments = { source: { owner: source.owner, worktree: source.worktree, branch: source.branch, roots: ['backend/crates/a/**', 'docs/evidence/A/**'], resources, tests: source.tests }, consolidation: { owner: 'console-consolidation', worktree: '/tmp/consolidation', branch: 'codex/consolidation', resources } };
   const value = plan([source]);
   assert.equal(value.consolidation_queue[0].ready_after_leaf_review, false);
   assert.match(value.consolidation_queue[0].review_prerequisites.join(','), /exact_leaf_review_receipts_required/);
@@ -121,6 +134,29 @@ test('review authority rejects duplicate IDs or fingerprints and incomplete exac
   assert.throws(() => buildFanoutPlan(reg([cap('A', ['backend/crates/a/**'])], { review_authority: { reviewers: [{ ...reviewer, committer_email: 'committer@example.test ' }] } }), { anchorSha: SHA, maxWriters: 3, qualityBias: .6, generatedFaces: faces }), /invalid trusted reviewer identity/);
 });
 
+test('format-discriminated SSH authority requires the exact verified principal and SHA256 fingerprint', async () => {
+  const { signatureMatchesAuthority } = await import('./plan-fanout.mjs');
+  const authority = { format: 'ssh', principal: 'jason19931225@gmail.com', fingerprint: 'SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8' };
+  const raw = 'Good "git" signature for jason19931225@gmail.com with ED25519 key SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8\n';
+  assert.equal(signatureMatchesAuthority(raw, authority), true);
+  assert.equal(signatureMatchesAuthority(raw, { ...authority, principal: 'other@example.test' }), false);
+  assert.equal(signatureMatchesAuthority(raw, { ...authority, fingerprint: 'SHA256:0000000000000000000000000000000000000000000' }), false);
+  assert.equal(signatureMatchesAuthority(`${raw}Good "git" signature for malformed\n`, authority), false);
+});
+
+test('real repository SSH-signed commit passes the exact raw verifier smoke', async () => {
+  const { signatureMatchesAuthority } = await import('./plan-fanout.mjs');
+  const result = spawnSync('git', ['verify-commit', '--raw', 'HEAD'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  assert.equal(signatureMatchesAuthority(`${result.stdout}${result.stderr}`, { format: 'ssh', principal: 'jason19931225@gmail.com', fingerprint: 'SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8' }), true);
+});
+
+test('immutable JSON rejects duplicate object keys before canonicalization', async () => {
+  const { parseImmutableJson } = await import('./plan-fanout.mjs');
+  assert.equal(parseImmutableJson('{"lane_id":"A","review_commit":"x"}', 'receipt').canonical_sha256.length, 64);
+  for (const value of ['{"lane_id":"A","lane_id":"B"}', '{"outer":{"id":"a","id":"b"}}', '{"items":[{"id":"a","id":"b"}]}']) assert.throws(() => parseImmutableJson(value, 'immutable fixture'), /duplicate JSON key/);
+});
+
 test('admission manifests are single-parent manifest-only commits with unique connected references', async () => {
   const { validateAdmissionManifest } = await import('./plan-fanout.mjs');
   const REVIEW_A = 'b'.repeat(40); const REVIEW_B = 'c'.repeat(40); const ADMISSION = 'd'.repeat(40);
@@ -135,6 +171,24 @@ test('admission manifests are single-parent manifest-only commits with unique co
   assert.throws(() => validateAdmissionManifest({ ...manifest, receipts: [manifest.receipts[0], { ...manifest.receipts[0] }] }, SHA, ADMISSION, operations), /duplicate/);
   assert.throws(() => validateAdmissionManifest({ ...manifest, receipts: [manifest.receipts[0], { ...manifest.receipts[1], review_commit: REVIEW_A }] }, SHA, ADMISSION, operations), /duplicate/);
   assert.throws(() => validateAdmissionManifest(manifest, SHA, ADMISSION, { ...operations, isAncestor: () => false }), /ancestor/);
+});
+
+test('epoch admission closure rejects unreviewed, unrelated, and divergent-train commits', async () => {
+  const { validateEpochAdmissionClosure } = await import('./plan-fanout.mjs');
+  const LEAF_A = 'b'.repeat(40), REVIEW_A = 'c'.repeat(40), LEAF_B = 'd'.repeat(40), REVIEW_B = 'e'.repeat(40), ADMISSION = 'f'.repeat(40), OTHER = '1'.repeat(40);
+  const receipts = [{ leaf_commit: LEAF_A, review_commit: REVIEW_A }, { leaf_commit: LEAF_B, review_commit: REVIEW_B }];
+  const operations = { commitsBetween: () => [LEAF_A, REVIEW_A, LEAF_B, REVIEW_B, ADMISSION], parentOf: (sha) => ({ [LEAF_A]: SHA, [REVIEW_A]: LEAF_A, [LEAF_B]: REVIEW_A, [REVIEW_B]: LEAF_B, [ADMISSION]: REVIEW_B })[sha] };
+  assert.doesNotThrow(() => validateEpochAdmissionClosure(SHA, ADMISSION, receipts, operations));
+  assert.throws(() => validateEpochAdmissionClosure(SHA, ADMISSION, receipts, { ...operations, commitsBetween: () => [LEAF_A, OTHER, REVIEW_A, LEAF_B, REVIEW_B, ADMISSION] }), /unreviewed or unrelated/);
+  assert.throws(() => validateEpochAdmissionClosure(SHA, ADMISSION, receipts, { ...operations, parentOf: (sha) => sha === LEAF_B ? SHA : operations.parentOf(sha) }), /serialized admission train/);
+});
+
+test('private lane roots that intersect protected authority are held instead of partially admitted', () => {
+  const unsafe = cap('UNSAFE', ['backend/crates/unsafe/**']);
+  unsafe.lane_assignments = { source: { owner: unsafe.owner, worktree: unsafe.worktree, branch: unsafe.branch, roots: ['backend/**', 'docs/evidence/UNSAFE/**'], resources, tests: unsafe.tests } };
+  const value = plan([unsafe]);
+  assert.equal(value.selected.length, 0);
+  assert.match(value.held.find((entry) => entry.lane_id === 'UNSAFE#source').reasons.join(','), /protected_shared_root_intersection/);
 });
 
 test('runtime-ineligible lanes are held before ranking so lower safe lanes fill capacity', () => {

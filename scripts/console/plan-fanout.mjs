@@ -9,6 +9,8 @@ import { pathToFileURL } from 'node:url';
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const QUALITY_BIAS_DEFAULT = 0.6;
 const RESOURCE_KEYS = ['writer', 'postgres', 'browser', 'ios', 'graph', 'cas'];
+const COLD_RUST_COMPILE_LANES = 2;
+const COLD_RUST_COMPILE_JOBS = 6;
 
 function compareText(a, b) { return a.localeCompare(b, 'en'); }
 function arrays(value) { return Array.isArray(value) ? value : []; }
@@ -105,7 +107,16 @@ function conflictBetween(left, right) { for (const a of left.private_roots) for 
 function nonemptyIdentity(value) { return typeof value === 'string' && /^[A-Za-z0-9._@/-]+$/.test(value); }
 function exactIdentity(value) { return typeof value === 'string' && value !== '' && value.trim() === value && !value.includes('\0'); }
 function canonicalFingerprint(value) { return typeof value === 'string' && /^[A-F0-9]{40,64}$/.test(value); }
+function sshFingerprint(value) { return typeof value === 'string' && /^SHA256:[A-Za-z0-9+/]+={0,2}$/.test(value); }
 function canonicalReceiptDigest(receipt) { return createHash('sha256').update(stableJson(receipt)).digest('hex'); }
+function signingAuthority(reviewer) {
+  if (reviewer?.signing === undefined) return reviewer?.signing_fingerprint ? { format: 'gpg', fingerprint: reviewer.signing_fingerprint } : null;
+  const signing = reviewer.signing;
+  if (!signing || typeof signing !== 'object' || Array.isArray(signing)) return null;
+  if (signing.format === 'gpg' && canonicalFingerprint(signing.fingerprint)) return { format: 'gpg', fingerprint: signing.fingerprint };
+  if (signing.format === 'ssh' && exactIdentity(signing.principal) && sshFingerprint(signing.fingerprint)) return { format: 'ssh', principal: signing.principal, fingerprint: signing.fingerprint };
+  return null;
+}
 export function validateReviewAuthority(authority) {
   if (authority === undefined) return [];
   if (!authority || typeof authority !== 'object' || !Array.isArray(authority.reviewers)) throw new Error('invalid trusted reviewer authority');
@@ -113,10 +124,12 @@ export function validateReviewAuthority(authority) {
   for (const reviewer of authority.reviewers) {
     if (!reviewer || typeof reviewer !== 'object' || !nonemptyIdentity(reviewer.id)) throw new Error('invalid trusted reviewer id');
     if (ids.has(reviewer.id)) throw new Error('duplicate trusted reviewer id');
-    if (!canonicalFingerprint(reviewer.signing_fingerprint)) throw new Error('invalid trusted reviewer signing fingerprint');
-    if (fingerprints.has(reviewer.signing_fingerprint)) throw new Error('duplicate trusted reviewer signing fingerprint');
+    const signing = signingAuthority(reviewer);
+    if (!signing) throw new Error('invalid trusted reviewer signing authority');
+    const signingKey = `${signing.format}:${signing.fingerprint}`;
+    if (fingerprints.has(signingKey)) throw new Error('duplicate trusted reviewer signing fingerprint');
     if (!exactIdentity(reviewer.author_name) || !exactIdentity(reviewer.author_email) || !exactIdentity(reviewer.committer_name) || !exactIdentity(reviewer.committer_email)) throw new Error('invalid trusted reviewer identity');
-    ids.add(reviewer.id); fingerprints.add(reviewer.signing_fingerprint);
+    ids.add(reviewer.id); fingerprints.add(signingKey);
   }
   return authority.reviewers;
 }
@@ -137,6 +150,14 @@ export function signatureMatchesFingerprint(rawStatus, fingerprint) {
   const match = signatureLines[0].match(/^\[GNUPG:\] VALIDSIG ([A-F0-9]{40,64})(?:\s|$)/);
   return match?.[1] === fingerprint;
 }
+export function signatureMatchesAuthority(rawStatus, authority) {
+  if (authority?.format === 'gpg') return signatureMatchesFingerprint(rawStatus, authority.fingerprint);
+  if (authority?.format !== 'ssh' || !exactIdentity(authority.principal) || !sshFingerprint(authority.fingerprint) || typeof rawStatus !== 'string') return false;
+  const signatureLines = rawStatus.split(/\r?\n/).filter((line) => line.startsWith('Good "git" signature'));
+  if (signatureLines.length !== 1) return false;
+  const match = signatureLines[0].match(/^Good "git" signature for (.+) with [A-Za-z0-9-]+ key (SHA256:[A-Za-z0-9+/]+={0,2})$/);
+  return match?.[1] === authority.principal && match[2] === authority.fingerprint;
+}
 export function validateReviewReceiptForAnchor(receipt, anchor, lane, authority, operations) {
   const trusted = trustedReviewer(authority, receipt?.reviewer);
   const valid = staticReviewReceipt(receipt, anchor, lane, trusted);
@@ -153,7 +174,7 @@ export function validateReviewReceiptForAnchor(receipt, anchor, lane, authority,
   if (!identity || identity.author_name !== trusted.author_name || identity.author_email !== trusted.author_email || identity.committer_name !== trusted.committer_name || identity.committer_email !== trusted.committer_email) throw new Error('review commit identity is not trusted at epoch base');
   let signatureStatus;
   try { signatureStatus = operations.verifySignature(valid.review_commit); } catch { throw new Error('review commit signature verification is unavailable'); }
-  if (!signatureMatchesFingerprint(signatureStatus, trusted.signing_fingerprint)) throw new Error('review commit signature is not verified by trusted epoch-base authority');
+  if (!signatureMatchesAuthority(signatureStatus, signingAuthority(trusted))) throw new Error('review commit signature is not verified by trusted epoch-base authority');
   return valid;
 }
 function validateInputs(registry, options) {
@@ -231,6 +252,7 @@ export function buildFanoutPlan(registry, options) {
       if (!capability.signature_story?.id || !capability.signature_story?.outcome?.trim()) reasons.push('missing_signature_story');
       if (!lane.leafCommands.length) reasons.push('missing_leaf_gates');
       if (!roots.privateRoots.length) reasons.push('missing_private_ownership_roots');
+      if (roots.sharedRoots.length || roots.migrationRoots.length) reasons.push('protected_shared_root_intersection');
       const resources = validResources(lane.resources);
       if (!resources) reasons.push('invalid_lane_resource_requirements');
       if (options.runtimeLaneEligibility?.[lane.laneId]) reasons.push(options.runtimeLaneEligibility[lane.laneId]);
@@ -250,14 +272,20 @@ export function buildFanoutPlan(registry, options) {
   const degree = new Map(candidates.map((lane) => [lane.lane_id, 0])); const privateConflicts = [];
   for (let i = 0; i < candidates.length; i += 1) for (let j = i + 1; j < candidates.length; j += 1) { const roots = conflictBetween(candidates[i], candidates[j]); if (roots) { privateConflicts.push({ lane_ids: [candidates[i].lane_id, candidates[j].lane_id], roots }); degree.set(candidates[i].lane_id, degree.get(candidates[i].lane_id) + 1); degree.set(candidates[j].lane_id, degree.get(candidates[j].lane_id) + 1); } }
   const ranked = candidates.map((lane) => ({ ...lane, selection_density: round(lane.quality_utility / (1 + degree.get(lane.lane_id))) })).sort((a, b) => b.selection_density - a.selection_density || b.quality_utility - a.quality_utility || compareText(a.lane_id, b.lane_id));
-  const selected = [], collisionBlocked = [], allocated = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
+  const selected = [], collisionBlocked = [];
   for (const lane of ranked) {
-    const resourceExceeded = RESOURCE_KEYS.filter((key) => allocated[key] + lane.resources[key] > budgets[key]);
     if (selected.length >= Math.min(options.maxWriters, budgets.writer)) { collisionBlocked.push({ capability_id: lane.capability_id, lane_id: lane.lane_id, reason: 'writer_budget_exhausted' }); continue; }
     const conflict = selected.find((chosen) => conflictBetween(lane, chosen)); if (conflict) { collisionBlocked.push({ capability_id: lane.capability_id, lane_id: lane.lane_id, reason: 'private_root_conflict', conflicts_with: conflict.lane_id }); continue; }
-    if (resourceExceeded.length) { collisionBlocked.push({ capability_id: lane.capability_id, lane_id: lane.lane_id, reason: 'resource_budget_exhausted', resources: resourceExceeded }); continue; }
-    selected.push(lane); for (const key of RESOURCE_KEYS) allocated[key] += lane.resources[key];
+    selected.push(lane);
   }
+  const verificationAllocated = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])); let coldRustCompileLanes = 0;
+  const verificationQueue = selected.map((lane) => ({ ...lane, verification_age: finiteNumber(registry.capabilities.find((capability) => capability.id === lane.capability_id)?.priority?.verification_age), cache_affinity: options.anchorSha, execution: 'canonical_shared_daemon_combined_targets' })).sort((a, b) => b.verification_age - a.verification_age || b.selection_density - a.selection_density || compareText(a.lane_id, b.lane_id)).map((lane) => {
+    const exceeded = RESOURCE_KEYS.filter((key) => verificationAllocated[key] + lane.resources[key] > budgets[key]);
+    const coldBlocked = lane.buck2_targets.length && coldRustCompileLanes >= COLD_RUST_COMPILE_LANES;
+    if (exceeded.length || coldBlocked) return { ...lane, scheduled: false, hold_reason: coldBlocked ? 'cold_rust_compile_capacity_exhausted' : 'verification_resource_capacity_exhausted', constrained_resources: exceeded };
+    for (const key of RESOURCE_KEYS) verificationAllocated[key] += lane.resources[key]; if (lane.buck2_targets.length) coldRustCompileLanes += 1;
+    return { ...lane, scheduled: true };
+  });
   const byId = new Map(registry.capabilities.map((capability) => [capability.id, capability]));
   const selectedCapabilities = [...new Set(selected.map((lane) => lane.capability_id))].sort(compareText);
   const mergeDependencyHolds = selectedCapabilities.map((id) => ({ capability_id: id, unresolved_dependencies: selected.find((lane) => lane.capability_id === id).dependencies.filter((dependency) => !byId.has(dependency) || !sourceComplete(byId.get(dependency))) })).filter((entry) => entry.unresolved_dependencies.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
@@ -274,14 +302,65 @@ export function buildFanoutPlan(registry, options) {
     return { capability_id: id, shared_roots: sharedByCapability.get(id) ?? [], ready_after_leaf_review: prerequisites.length === 0 && awaiting.length === 0 && !(unassignedByCapability.get(id) ?? []).length, review_prerequisites: prerequisites, awaiting_lane_ids: awaiting, awaiting_unassigned_roots: unassignedByCapability.get(id) ?? [] };
   }).filter((entry) => entry.shared_roots.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
   const reviewQueue = [...selected.map((lane) => ({ capability_id: lane.capability_id, lane_id: lane.lane_id, reason: 'leaf_result_requires_exact_independent_review_receipt' })), ...reviewReady].sort((a,b) => compareText(a.capability_id,b.capability_id) || compareText(a.reason,b.reason));
-  return { schema_version: 'console-fanout-epoch-v2', anchor_sha: options.anchorSha, authority: { registry_schema: registry.schema_version, registry_digest_sha256: registryDigest(registry), registry_source_revision: registry.source_revision ?? null, generated_face_registry_schema: generatedFaces.schema_version, generated_face_registry_digest_sha256: digest(generatedFaces) }, policy: { max_writer_lanes: Math.min(options.maxWriters, budgets.writer), resource_budgets: budgets, allocated_resources: allocated, buck_isolation_policy: 'stable_epoch_lane_isolation_shared_remote_cache', quality_bias: options.qualityBias, shared_owner: registry.shared_collision_roots?.owner ?? null, dependency_behavior: 'source_parallel_merge_fail_closed', generated_face_behavior: 'single_writer_after_exact_review', selection_algorithm: 'deterministic_quality_weighted_maximal_independent_set' }, selected, held, collision_blocked: collisionBlocked, completed_source_capabilities: completed, completed_leaf_lanes: completedLeafLanes.sort(compareText), private_conflicts: privateConflicts, merge_dependency_holds: mergeDependencyHolds, review_queue: reviewQueue, consolidation_queue: consolidationQueue };
+  return { schema_version: 'console-fanout-epoch-v2', anchor_sha: options.anchorSha, authority: { registry_schema: registry.schema_version, registry_digest_sha256: registryDigest(registry), registry_source_revision: registry.source_revision ?? null, generated_face_registry_schema: generatedFaces.schema_version, generated_face_registry_digest_sha256: digest(generatedFaces) }, policy: { max_writer_lanes: Math.min(options.maxWriters, budgets.writer), resource_budgets: budgets, verification_allocated_resources: verificationAllocated, cold_rust_compile_lanes: COLD_RUST_COMPILE_LANES, cold_rust_compile_jobs: COLD_RUST_COMPILE_JOBS, buck_isolation_policy: 'canonical_local_daemon_for_compatible_exact_sha', quality_bias: options.qualityBias, shared_owner: registry.shared_collision_roots?.owner ?? null, dependency_behavior: 'source_parallel_merge_fail_closed', generated_face_behavior: 'single_writer_after_exact_review', selection_algorithm: 'deterministic_quality_weighted_maximal_independent_set' }, selected, verification_queue: verificationQueue, held, collision_blocked: collisionBlocked, completed_source_capabilities: completed, completed_leaf_lanes: completedLeafLanes.sort(compareText), private_conflicts: privateConflicts, merge_dependency_holds: mergeDependencyHolds, review_queue: reviewQueue, consolidation_queue: consolidationQueue };
 }
 
 const ADMISSION_PATH = 'docs/evidence/console/fanout-admission.json';
 function usage() { return ['usage: node scripts/console/plan-fanout.mjs --epoch-base <40-char-sha> [--admission <40-char-sha>] [options]', '', 'options:', '  --registry <path>       capability registry at epoch base', '  --epoch-base <sha>      immutable lane/authority baseline', '  --admission <sha>       immutable receipt manifest commit (default: epoch base)', '  --max-writers <count>   bounded source writers (default: 6)', `  --quality-bias <0..1>   quality weighting (default: ${QUALITY_BIAS_DEFAULT})`].join('\n'); }
 function parseArgs(argv) { const result = { registryPath: 'docs/program/console-capability-registry.json', epochBaseSha: null, admissionSha: null, maxWriters: 6, qualityBias: QUALITY_BIAS_DEFAULT }; for (let i = 0; i < argv.length; i += 1) { const arg = argv[i]; if (arg === '--help' || arg === '-h') { process.stdout.write(`${usage()}\n`); process.exit(0); } const value = argv[i + 1]; if (value === undefined) throw new Error(`missing value for ${arg}`); if (arg === '--registry') result.registryPath = value; else if (arg === '--epoch-base' || arg === '--anchor') result.epochBaseSha = value; else if (arg === '--admission') result.admissionSha = value; else if (arg === '--max-writers') result.maxWriters = Number(value); else if (arg === '--quality-bias') result.qualityBias = Number(value); else throw new Error(`unknown argument: ${arg}`); i += 1; } result.admissionSha ??= result.epochBaseSha; return result; }
 function git(repoRoot, args) { return execFileSync('git', ['-C', repoRoot, ...args], { encoding: 'utf8' }).trim(); }
-function readAnchorJson(repoRoot, anchor, relativePath) { return JSON.parse(git(repoRoot, ['show', `${anchor}:${relativePath}`])); }
+function skipJsonWhitespace(text, index) { while (index < text.length && /\s/.test(text[index])) index += 1; return index; }
+function scanJsonString(text, index, label) {
+  if (text[index] !== '"') throw new Error(`${label}: expected JSON string`);
+  const start = index; index += 1;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '"') return { end: index + 1, value: JSON.parse(text.slice(start, index + 1)) };
+    if (character === '\\') { index += 2; continue; }
+    if (character.charCodeAt(0) < 0x20) throw new Error(`${label}: invalid JSON string`);
+    index += 1;
+  }
+  throw new Error(`${label}: unterminated JSON string`);
+}
+function scanJsonValue(text, index, label) {
+  index = skipJsonWhitespace(text, index);
+  if (text[index] === '"') return scanJsonString(text, index, label).end;
+  if (text[index] === '{') {
+    index = skipJsonWhitespace(text, index + 1); const keys = new Set();
+    if (text[index] === '}') return index + 1;
+    while (true) {
+      const key = scanJsonString(text, index, label);
+      if (keys.has(key.value)) throw new Error(`${label}: duplicate JSON key: ${key.value}`);
+      keys.add(key.value); index = skipJsonWhitespace(text, key.end);
+      if (text[index] !== ':') throw new Error(`${label}: expected JSON object colon`);
+      index = scanJsonValue(text, index + 1, label); index = skipJsonWhitespace(text, index);
+      if (text[index] === '}') return index + 1;
+      if (text[index] !== ',') throw new Error(`${label}: expected JSON object delimiter`);
+      index = skipJsonWhitespace(text, index + 1);
+    }
+  }
+  if (text[index] === '[') {
+    index = skipJsonWhitespace(text, index + 1);
+    if (text[index] === ']') return index + 1;
+    while (true) {
+      index = scanJsonValue(text, index, label); index = skipJsonWhitespace(text, index);
+      if (text[index] === ']') return index + 1;
+      if (text[index] !== ',') throw new Error(`${label}: expected JSON array delimiter`);
+      index = skipJsonWhitespace(text, index + 1);
+    }
+  }
+  const end = text.slice(index).search(/[\s,}\]]/);
+  if (end === 0 || index >= text.length) throw new Error(`${label}: invalid JSON value`);
+  return end < 0 ? text.length : index + end;
+}
+export function parseImmutableJson(text, label = 'immutable JSON') {
+  if (typeof text !== 'string') throw new Error(`${label}: immutable JSON must be text`);
+  const end = scanJsonValue(text, 0, label);
+  if (skipJsonWhitespace(text, end) !== text.length) throw new Error(`${label}: trailing JSON data`);
+  const value = JSON.parse(text);
+  return { value, raw_sha256: createHash('sha256').update(text).digest('hex'), canonical_sha256: canonicalReceiptDigest(value) };
+}
+function readAnchorJson(repoRoot, anchor, relativePath) { const raw = execFileSync('git', ['-C', repoRoot, 'show', `${anchor}:${relativePath}`], { encoding: 'utf8' }); return parseImmutableJson(raw, `${anchor}:${relativePath}`).value; }
 export function parseSourceRevision(value) {
   if (typeof value !== 'string' || value.trim() !== value) throw new Error('source_revision must be canonical <ref>@<40sha>');
   const match = value.match(/^(.+?)@([0-9a-f]{40})$/);
@@ -331,6 +410,28 @@ export function validateAdmissionManifest(manifest, epochBaseSha, admissionSha, 
   }
   return manifest.receipts;
 }
+export function validateEpochAdmissionClosure(epochBaseSha, admissionSha, receipts, operations) {
+  const commits = operations.commitsBetween(epochBaseSha, admissionSha);
+  if (!Array.isArray(commits) || commits.at(-1) !== admissionSha) throw new Error('admission closure is not an ordered epoch-to-admission train');
+  const leafs = new Set(receipts.map((receipt) => receipt.leaf_commit));
+  const reviews = new Set(receipts.map((receipt) => receipt.review_commit));
+  let previous = epochBaseSha;
+  for (const commit of commits) {
+    if (commit === admissionSha) {
+      if (operations.parentOf(commit) !== previous) throw new Error('admission commit does not close the serialized admission train');
+      continue;
+    }
+    if (leafs.has(commit)) {
+      if (operations.parentOf(commit) !== previous) throw new Error('leaf commit is not on the serialized admission train');
+    } else if (reviews.has(commit)) {
+      const receipt = receipts.find((entry) => entry.review_commit === commit);
+      if (!receipt || operations.parentOf(commit) !== receipt.leaf_commit || receipt.leaf_commit !== previous) throw new Error('review commit is not the direct authorized receipt for the preceding leaf');
+    } else {
+      throw new Error('admission closure contains an unreviewed or unrelated commit');
+    }
+    previous = commit;
+  }
+}
 function admissionReceipts(repoRoot, epochBaseSha, admissionSha) {
   if (admissionSha === epochBaseSha) return {};
   if (!gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', epochBaseSha, admissionSha])) throw new Error('admission SHA must descend from epoch base SHA');
@@ -340,6 +441,10 @@ function admissionReceipts(repoRoot, epochBaseSha, admissionSha) {
     changedPaths: (sha) => git(repoRoot, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean),
     isAncestor: (ancestor, descendant) => gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', ancestor, descendant]),
     readJson: (sha, filePath) => readAnchorJson(repoRoot, sha, filePath),
+  });
+  validateEpochAdmissionClosure(epochBaseSha, admissionSha, manifest.receipts.map((entry) => ({ ...readAnchorJson(repoRoot, entry.review_commit, entry.receipt_path), review_commit: entry.review_commit })), {
+    commitsBetween: (base, tip) => git(repoRoot, ['rev-list', '--reverse', `${base}..${tip}`]).split('\n').filter(Boolean),
+    parentOf: (sha) => git(repoRoot, ['rev-parse', `${sha}^`]),
   });
   const result = {};
   for (const entry of manifest.receipts) result[entry.lane_id] = readAnchorJson(repoRoot, entry.review_commit, entry.receipt_path);
@@ -366,7 +471,7 @@ function runtimeEligibility(repoRoot, registry, anchor, receipts) {
             isAncestor: (ancestor, descendant) => gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', ancestor, descendant]),
             parentOf: (sha) => git(repoRoot, ['rev-parse', `${sha}^`]),
             changedPaths: (sha) => git(repoRoot, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean),
-            readJson: (sha, filePath) => JSON.parse(git(repoRoot, ['show', `${sha}:${filePath}`])),
+            readJson: (sha, filePath) => readAnchorJson(repoRoot, sha, filePath),
             leafDiff: (base, leaf) => execFileSync('git', ['-C', repoRoot, 'diff', '--no-ext-diff', '--no-renames', '--full-index', '--binary', base, leaf]),
             commitIdentity: (sha) => { const [author_name, author_email, committer_name, committer_email] = git(repoRoot, ['show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', sha]).split('\0'); return { author_name, author_email, committer_name, committer_email }; },
             verifySignature: (sha) => verifyGitCommitSignature(repoRoot, sha),
