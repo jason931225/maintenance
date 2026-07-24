@@ -410,7 +410,7 @@ async fn source_system_lifecycle_context(
     id: Uuid,
 ) -> Result<
     (
-        sqlx::Transaction<'_, sqlx::Postgres>,
+        sqlx::Transaction<'static, sqlx::Postgres>,
         Principal,
         mnt_kernel_core::OrgId,
         Uuid,
@@ -699,7 +699,7 @@ async fn ingest_source(
     let response = serde_json::to_value(&receipt)
         .map_err(|_| RestError::internal("source ingress receipt could not be serialized"))?;
     sqlx::query("UPDATE service_principal_ingress_claims SET response=$1, completed_at=now() WHERE org_id=$2 AND service_principal_id=$3 AND kind=$4 AND source_id=$5 AND source_version=$6")
-        .bind(&response).bind(*org.as_uuid()).bind(service_principal_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
+        .bind(&response).bind(*org.as_uuid()).bind(service_principal_id).bind(kind).bind(source_id.trim()).bind(receipt.source_version.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok(Json(receipt))
 }
