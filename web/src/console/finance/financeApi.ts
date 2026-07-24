@@ -198,3 +198,51 @@ export async function listAccountDrillEntries(
   if (!data) throw new ApiCallError(response.status, error);
   return parseAccountDrillEntries(data);
 }
+
+export type PeriodLock = components["schemas"]["PeriodLock"];
+export type CreatePeriodLockRequest =
+  components["schemas"]["CreatePeriodLockRequest"];
+export type UnlockPeriodLockRequest =
+  components["schemas"]["UnlockPeriodLockRequest"];
+
+/** Accounting close authority is a separate backend-owned control plane from
+ * voucher lifecycle. It intentionally does not claim that existing voucher
+ * posting is period-lock enforced. */
+export async function listAccountingPeriodLocks(
+  api: ConsoleApiClient,
+  signal?: AbortSignal,
+): Promise<PeriodLock[]> {
+  const { data, error, response } = await api.GET("/api/v1/period-locks", {
+    params: { query: { domain: "accounting" } },
+    signal,
+  });
+  if (!data) throw new ApiCallError(response.status, error);
+  return data.items;
+}
+
+export async function createAccountingPeriodLock(
+  api: ConsoleApiClient,
+  request: CreatePeriodLockRequest,
+): Promise<PeriodLock> {
+  const { data, error, response } = await api.POST("/api/v1/period-locks", {
+    body: request,
+  });
+  if (!data) throw new ApiCallError(response.status, error);
+  return data;
+}
+
+export async function unlockAccountingPeriodLock(
+  api: ConsoleApiClient,
+  lockId: string,
+  request: UnlockPeriodLockRequest,
+): Promise<PeriodLock> {
+  const { data, error, response } = await api.POST(
+    "/api/v1/period-locks/{lockId}/unlock",
+    {
+      params: { path: { lockId } },
+      body: request,
+    },
+  );
+  if (!data) throw new ApiCallError(response.status, error);
+  return data;
+}

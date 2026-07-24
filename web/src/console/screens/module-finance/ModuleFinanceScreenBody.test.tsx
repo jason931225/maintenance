@@ -75,6 +75,7 @@ describe("ModuleFinanceScreenBody", () => {
       if (path === "/api/v1/financial/purchase-requests") {
         return { data: { items: [], limit: 50, offset: 0, total: 0 } };
       }
+      if (path === "/api/v1/period-locks") return { data: { items: [] } };
       return { data: undefined };
     });
 
@@ -102,6 +103,7 @@ describe("ModuleFinanceScreenBody", () => {
     expect(screen.queryByRole("button", { name: "VC-1001 상세 열기" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "구매요청서" })).toBeNull();
     expect(GET.mock.calls.filter(([path]) => path === "/api/v1/financial/purchase-requests")).toHaveLength(0);
+    expect(GET.mock.calls.filter(([path]) => path === "/api/v1/period-locks")).toHaveLength(0);
   });
 
   it("shows the list-load error state (not a blank/frozen screen) when the real request fails", async () => {
@@ -110,6 +112,7 @@ describe("ModuleFinanceScreenBody", () => {
       if (path === "/api/v1/financial/purchase-requests") {
         return { data: { items: [], limit: 50, offset: 0, total: 0 } };
       }
+      if (path === "/api/v1/period-locks") return { data: { items: [] } };
       throw new Error("network down");
     });
 
