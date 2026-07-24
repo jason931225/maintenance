@@ -217,7 +217,9 @@ describe("AppRouter console rollout boundary", () => {
 
     renderAt("/console/sales", { auth });
 
-    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
     expect(await screen.findByText("장비 판매 목록")).toBeVisible();
     expect(screen.getByRole("button", { name: "판매·고객 문의" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "통합 개요" })).not.toBeInTheDocument();
@@ -249,7 +251,9 @@ describe("AppRouter console rollout boundary", () => {
 
     renderAt("/console/sales", { auth });
 
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/overview"));
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/overview");
+    });
     expect(screen.queryByText("장비 판매 목록")).not.toBeInTheDocument();
   });
 
