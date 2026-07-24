@@ -12,14 +12,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: authority
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
       - name: Checkout candidate as untrusted data
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
       - name: Fetch protected parent into candidate object database
         run: git -C candidate fetch --depth=1 origin "${{ github.event.pull_request.base.sha }}"
