@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
-import { parseSingleBuckOutput } from "./lib/dev-up-buck-output.mjs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parseSingleBuckOutput, resolveRepoBuckOutput } from "./lib/dev-up-buck-output.mjs";
+import { processIdentityMatches, shouldSignalManagedProcess } from "./lib/dev-up-process-identity.mjs";
 import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
 
 const compose = readFileSync(
@@ -524,4 +527,58 @@ test("dev-up executes one validated Buck2 output for both migration and API role
   assert.match(bootstrap, /mode: "buck2",[\s\S]*?target: appBinary\.target,[\s\S]*?outputPath: appBinary\.outputPath/);
   assert.doesNotMatch(devUp, /\bcargo\b/i);
   assert.doesNotMatch(devUp, /target\/debug/);
+});
+
+
+test("Buck2 launcher accepts only a single executable under this repo's buck-out", () => {
+  const repo = mkdtempSync(path.join(tmpdir(), "mnt-dev-up-buck-output-"));
+  const buckOut = path.join(repo, "buck-out");
+  const executable = path.join(buckOut, "mnt-app");
+  const nonExecutable = path.join(buckOut, "not-executable");
+  const outsideBuckOut = path.join(repo, "backend", "target", "debug", "mnt-app");
+  try {
+    mkdirSync(path.dirname(executable), { recursive: true });
+    mkdirSync(path.dirname(outsideBuckOut), { recursive: true });
+    writeFileSync(executable, "#!/bin/sh\\nexit 0\\n");
+    writeFileSync(nonExecutable, "not executable\\n");
+    writeFileSync(outsideBuckOut, "#!/bin/sh\\nexit 0\\n");
+    chmodSync(executable, 0o700);
+    chmodSync(nonExecutable, 0o600);
+    chmodSync(outsideBuckOut, 0o700);
+
+    assert.equal(resolveRepoBuckOutput(repo, "buck-out/mnt-app"), executable);
+    assert.throws(() => resolveRepoBuckOutput(repo, executable), /invalid Buck2 output/);
+    assert.throws(
+      () => resolveRepoBuckOutput(repo, "backend/target/debug/mnt-app"),
+      /invalid Buck2 output/,
+    );
+    assert.throws(() => resolveRepoBuckOutput(repo, "../mnt-app"), /invalid Buck2 output/);
+    assert.throws(() => resolveRepoBuckOutput(repo, "buck-out/missing"), /does not exist/);
+    assert.throws(
+      () => resolveRepoBuckOutput(repo, "buck-out/not-executable"),
+      /not executable/,
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("dev-up signals only a process whose persisted start identity still matches", () => {
+  const expected = {
+    startToken: "Fri Jul 24 10:00:00 2026",
+    command: "/repo/buck-out/mnt-app",
+  };
+  const stale = { ...expected, startToken: "Fri Jul 24 10:01:00 2026" };
+  let signals = 0;
+  if (shouldSignalManagedProcess(expected, stale)) signals += 1;
+  assert.equal(signals, 0, "a reused PID must be cleaned up without signalling its new owner");
+  assert.equal(processIdentityMatches(expected, stale), false);
+
+  if (shouldSignalManagedProcess(expected, { ...expected })) signals += 1;
+  assert.equal(signals, 1, "the recorded process remains stoppable when its identity is intact");
+
+  const down = devUp.slice(devUp.indexOf("async function cmdDown()"));
+  assert.match(devUp, /function readProcessIdentity\(pid\)/);
+  assert.match(devUp, /processIdentityMatches\(proc\.identity, currentIdentity\)/);
+  assert.match(down, /if \(existsSync\(PID_FILE\)\) rmSync\(PID_FILE\)/);
 });

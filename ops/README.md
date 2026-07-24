@@ -42,6 +42,10 @@ by default. It builds exactly one repository-pinned Buck2 app target per run,
 then executes that exact `buck-out` artifact for both migrations and the API:
 `//backend/app:mnt-app` normally, or `//backend/app:mnt-app-dev-auth` only when
 `MNT_DEV_AUTH_E2E=1`. It never falls back to a locally compiled backend binary.
+The launcher rejects absolute, missing, non-executable, and non-`buck-out`
+outputs. Its local PID state also records the child command and OS start token;
+`dev:down` signals a process group only if that identity still matches, then
+removes stale state rather than risking a reused PID.
 That dev-only overlay adds Mailpit, a published OTEL port, and the Postgres WAL
 archive retention helper described below.
 

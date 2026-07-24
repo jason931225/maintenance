@@ -35,7 +35,6 @@ import {
   openSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
@@ -43,8 +42,9 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSingleBuckOutput } from "./lib/dev-up-buck-output.mjs";
+import { parseSingleBuckOutput, resolveRepoBuckOutput } from "./lib/dev-up-buck-output.mjs";
 import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
+import { processIdentityMatches } from "./lib/dev-up-process-identity.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -186,8 +186,34 @@ async function assertPortFree(port, label) {
 // `detached: true` makes the child the leader of its own process group,
 // so a plain SIGTERM to its pid can leave grandchildren (mnt-app/vite)
 // orphaned. Signalling the group reaches the whole background stack.
+function readProcessIdentity(pid) {
+  if (process.platform === "win32") return null;
+  const start = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  const command = spawnSync("ps", ["-o", "command=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  const startToken = start.status === 0 ? start.stdout.trim() : "";
+  const commandText = command.status === 0 ? command.stdout.trim() : "";
+  return startToken && commandText ? { startToken, command: commandText } : null;
+}
+
+function managedProcessState(proc) {
+  const identity = readProcessIdentity(proc.pid);
+  if (!identity) {
+    throw new Error(`could not verify process identity for pid ${proc.pid}; refusing to persist an unsafe shutdown target`);
+  }
+  return { ...proc, identity };
+}
+
 function stopBackendProcess(proc) {
-  if (!proc?.pid) return;
+  if (!proc?.pid) return false;
+  const currentIdentity = readProcessIdentity(proc.pid);
+  if (!processIdentityMatches(proc.identity, currentIdentity)) {
+    log(`refusing to signal stale or unverifiable pid ${proc.pid}`);
+    return false;
+  }
   try {
     if (proc.group || proc.mode === "buck2" || proc.mode === "npm") {
       if (process.platform === "win32") {
@@ -199,8 +225,10 @@ function stopBackendProcess(proc) {
       process.kill(proc.pid, "SIGTERM");
     }
     log(`stopped pid ${proc.pid}`);
+    return true;
   } catch {
     // already gone
+    return false;
   }
 }
 
@@ -498,15 +526,7 @@ function commandDatabaseUrl(role, password) {
 // non-Buck binary or separately compiled API binary from satisfying
 // readiness. Any ambiguous Buck output is rejected before execution.
 function resolveBuckOutput(target, stdout) {
-  const outputPath = path.resolve(REPO_ROOT, parseSingleBuckOutput(target, stdout));
-  const relative = path.relative(REPO_ROOT, outputPath);
-  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !existsSync(outputPath)) {
-    throw new Error(`Buck2 reported an invalid output for ${target}; refusing to launch it`);
-  }
-  if (process.platform !== "win32" && (statSync(outputPath).mode & 0o111) === 0) {
-    throw new Error(`Buck2 output for ${target} is not executable; refusing to launch it`);
-  }
-  return outputPath;
+  return resolveRepoBuckOutput(REPO_ROOT, parseSingleBuckOutput(target, stdout));
 }
 
 function buildAppBinary(devAuth) {
@@ -709,8 +729,8 @@ async function cmdUp() {
   const backend = spawn(appBinary.outputPath, [], { cwd: REPO_ROOT, env: appEnv, stdio: "inherit", detached: process.platform !== "win32" });
   const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
   const web = spawn(npmBin, ["run", "web:dev"], { cwd: REPO_ROOT, env: buildViteEnv(appEnv, process.env.VITE_CONSOLE_DEV_PREVIEW === "1"), stdio: "inherit", detached: process.platform !== "win32" });
-  const backendState = { pid: backend.pid, mode: "buck2", target: appBinary.target, outputPath: appBinary.outputPath, group: process.platform !== "win32" };
-  const webState = { pid: web.pid, mode: "npm", group: process.platform !== "win32" };
+  const backendState = managedProcessState({ pid: backend.pid, mode: "buck2", target: appBinary.target, outputPath: appBinary.outputPath, group: process.platform !== "win32" });
+  const webState = managedProcessState({ pid: web.pid, mode: "npm", group: process.platform !== "win32" });
   writePidState({ startedBy: "up", backend: backendState, web: webState });
   let shuttingDown = false;
   const shutdown = (exitCode = 0) => {
@@ -759,14 +779,14 @@ async function cmdBootstrap() {
     stdio: ["ignore", out, out],
     detached: process.platform !== "win32",
   });
-  const backendState = {
+  const backendState = managedProcessState({
     pid: backend.pid,
     mode: "buck2",
     target: appBinary.target,
     outputPath: appBinary.outputPath,
     logFile,
     group: process.platform !== "win32",
-  };
+  });
   let ready = false;
   const backendStart = new Promise((_, reject) => {
     let settled = false;
@@ -822,12 +842,12 @@ async function cmdBootstrap() {
       stdio: ["ignore", webOut, webOut],
       detached: process.platform !== "win32",
     });
-    webState = {
+    webState = managedProcessState({
       pid: web.pid,
       mode: "npm",
       logFile: webLogFile,
       group: process.platform !== "win32",
-    };
+    });
     writePidState({
       startedBy: "bootstrap",
       backend: backendState,
