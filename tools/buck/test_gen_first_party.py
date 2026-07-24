@@ -170,11 +170,10 @@ class TestResourceClassification(unittest.TestCase):
     def test_comments_and_unrelated_library_code_cannot_require_postgres(self) -> None:
         self.assertNotIn("PgPool", inspect.getsource(GENERATOR.requires_postgres))
         self.assertFalse(GENERATOR.requires_postgres("mnt-facilities-rest", "test.unit"))
-        self.assertFalse(
+        with self.assertRaisesRegex(ValueError, "missing reviewed resource metadata"):
             GENERATOR.requires_postgres(
                 "mnt-facilities-rest", "test.integration", "tests/comment_only.rs"
             )
-        )
 
     def test_reviewed_database_integration_target_is_postgres_bound(self) -> None:
         self.assertTrue(
@@ -193,6 +192,22 @@ class TestResourceClassification(unittest.TestCase):
     def test_integration_resource_lookup_requires_a_target_path(self) -> None:
         with self.assertRaises(ValueError):
             GENERATOR.requires_postgres("mnt-benefit-adapter-postgres", "test.integration")
+
+    def test_unreviewed_discovered_test_fails_generation_preflight(self) -> None:
+        discovered = {
+            ("mnt-benefit-rest", "test.unit", None),
+            ("mnt-benefit-rest", "test.integration", "tests/unreviewed.rs"),
+        }
+        requirements = {"mnt-benefit-rest": {"unit": "none"}}
+        with self.assertRaisesRegex(ValueError, "missing"):
+            GENERATOR.validate_resource_metadata(discovered, requirements)
+
+    def test_metadata_is_exhaustive_for_current_generator_targets(self) -> None:
+        discovered = set()
+        for directory in GENERATOR.find_members():
+            package = GENERATOR.load(directory)["package"]["name"]
+            discovered.update(GENERATOR.discovered_test_resource_keys(directory, package))
+        GENERATOR.validate_resource_metadata(discovered)
 
 
 if __name__ == "__main__":
