@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { buildFanoutPlan, normalizePattern, patternsOverlap } from './plan-fanout.mjs';
 const SHA = 'a'.repeat(40);
@@ -27,26 +31,24 @@ test('migration roots are excluded from leaves and serialised', () => {
   assert.match(value.held[0].reasons.join(','), /protected_shared_root_intersection/);
 });
 
-test('per-lane resource declarations are mandatory and budgets produce explicit holds', () => {
+test('per-lane resource declarations are mandatory while source admission creates no verification jobs', () => {
   const missing = cap('MISSING', ['backend/crates/missing/**'], { resource_requirements: undefined });
   assert.match(plan([missing]).held[0].reasons.join(','), /invalid_lane_resource_requirements/);
   const first = cap('A', ['backend/crates/a/**'], { resource_requirements: { ...resources, postgres: 1 } });
   const second = cap('B', ['backend/crates/b/**'], { resource_requirements: { ...resources, postgres: 1 } });
   const value = plan([first, second]);
   assert.equal(value.selected.length, 2);
-  assert.equal(value.verification_queue.filter((entry) => entry.scheduled).length, 1);
-  assert.deepEqual(value.verification_queue.find((entry) => !entry.scheduled).constrained_resources, ['postgres']);
+  assert.deepEqual(value.verification_queue, []);
 });
 
-test('cold Rust compile capacity is capped independently of parallel source writers', () => {
+test('cold Rust capacity does not create expensive jobs from selected source writers', () => {
   const backendA = cap('RUST-A', ['backend/crates/rust-a/**']);
   const backendB = cap('RUST-B', ['backend/crates/rust-b/**']);
   const backendC = cap('RUST-C', ['backend/crates/rust-c/**']);
   const frontend = cap('WEB', ['web/console/**']);
   const value = buildFanoutPlan(reg([backendA, backendB, backendC, frontend], { resource_budgets: { writer: 4, postgres: 1, browser: 1, ios: 1, graph: 4, cas: 4 } }), { anchorSha: SHA, maxWriters: 4, qualityBias: .6, generatedFaces: faces });
   assert.deepEqual(value.selected.map((lane) => lane.lane_id).sort(), ['RUST-A', 'RUST-B', 'RUST-C', 'WEB']);
-  assert.equal(value.verification_queue.filter((lane) => lane.scheduled && lane.buck2_targets.length > 0).length, 2);
-  assert.match(value.verification_queue.find((entry) => entry.lane_id === 'RUST-C').hold_reason, /cold_rust_compile_capacity_exhausted/);
+  assert.deepEqual(value.verification_queue, []);
 });
 
 test('same writer, worktree, or branch cannot be co-selected', () => {
@@ -61,6 +63,10 @@ test('completed source cannot bypass invalid roots or exact review receipts', ()
   const value = plan([complete]);
   assert.deepEqual(value.completed_source_capabilities, []);
   assert.match(value.held[0].reasons.join(','), /completed_source_missing_exact_leaf_review_receipts/);
+  const forgedReceipt = { status: 'approved', epoch_base_sha: SHA, lane_id: 'DONE', implementer: complete.owner, reviewer: 'reviewer-b', leaf_commit: 'b'.repeat(40), review_commit: 'c'.repeat(40), leaf_result_sha256: 'd'.repeat(64) };
+  const forged = plan([complete], { admissionReceipts: { DONE: forgedReceipt }, runtimeReviewEligibility: {} });
+  assert.deepEqual(forged.completed_source_capabilities, []);
+  assert.deepEqual(forged.verification_queue, []);
   const invalid = cap('BAD', ['backend/x*/**'], { state: { backend: 'complete', frontend: 'not_applicable' } });
   assert.throws(() => plan([invalid]));
 });
@@ -152,6 +158,42 @@ test('real repository SSH-signed commit passes the exact raw verifier smoke', as
   const result = spawnSync('git', ['verify-commit', '--raw', 'HEAD'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   assert.equal(signatureMatchesAuthority(`${result.stdout}${result.stderr}`, { format: 'ssh', principal: 'jason19931225@gmail.com', fingerprint: 'SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8' }), true);
+});
+
+test('full Git validation emits a reviewed verification job keyed to the actual leaf SHA', () => {
+  const repo = mkdtempSync(path.join(tmpdir(), 'fanout-reviewed-'));
+  const git = (args, input) => {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', input });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    return result.stdout.trim();
+  };
+  try {
+    git(['init', '-b', 'main']); git(['config', 'user.name', 'Jason Lee']); git(['config', 'user.email', 'jason19931225@gmail.com']);
+    git(['config', 'gpg.format', 'ssh']); git(['config', 'user.signingkey', '/Users/jasonlee/.ssh/id_ed25519']);
+    const signerFile = path.join(repo, 'allowed_signers');
+    writeFileSync(signerFile, 'jason19931225@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgMAp8vHS9V/9UQQVTa5FtmS9Q9fdB8I520DsZMMDTR\n');
+    git(['config', 'gpg.ssh.allowedSignersFile', signerFile]);
+    mkdirSync(path.join(repo, 'backend/crates/platform/db/migrations'), { recursive: true }); mkdirSync(path.join(repo, 'tools/buck'), { recursive: true }); mkdirSync(path.join(repo, 'src/a'), { recursive: true }); mkdirSync(path.join(repo, 'docs/program'), { recursive: true }); mkdirSync(path.join(repo, 'docs/evidence/console/fanout-receipts'), { recursive: true });
+    writeFileSync(path.join(repo, 'backend/crates/platform/db/migrations/.keep'), ''); writeFileSync(path.join(repo, 'tools/buck/generated_face_registry.json'), JSON.stringify(faces)); writeFileSync(path.join(repo, 'src/a/file.txt'), 'base\n');
+    git(['add', '.']); git(['commit', '-m', 'base']); const base = git(['rev-parse', 'HEAD']);
+    const reviewer = { id: 'reviewer', author_name: 'Jason Lee', author_email: 'jason19931225@gmail.com', committer_name: 'Jason Lee', committer_email: 'jason19931225@gmail.com', signing: { format: 'ssh', principal: 'jason19931225@gmail.com', fingerprint: 'SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8' } };
+    const registry = reg([{ ...cap('A', ['src/a/**']), ownership: { frontend_roots: ['src/a/**'], backend_roots: [], api_schema_roots: [], migration_owner: 'not_applicable', integration_owner: 'console-consolidation' }, worktree: repo, branch: 'main', state: { backend: 'not_applicable', frontend: 'complete' } }], { source_revision: `main@${base}`, review_authority: { reviewers: [reviewer] } });
+    writeFileSync(path.join(repo, 'docs/program/console-capability-registry.json'), JSON.stringify(registry)); git(['add', '.']); git(['commit', '-m', 'anchor']); const anchor = git(['rev-parse', 'HEAD']);
+    writeFileSync(path.join(repo, 'src/a/file.txt'), 'leaf\n'); git(['add', '.']); git(['commit', '-m', 'leaf']); const leaf = git(['rev-parse', 'HEAD']);
+    const receiptPath = `docs/evidence/console/fanout-receipts/${createHash('sha256').update('A').digest('hex')}.json`;
+    const leafDigest = createHash('sha256').update(spawnSync('git', ['diff', '--no-ext-diff', '--no-renames', '--full-index', '--binary', anchor, leaf], { cwd: repo }).stdout).digest('hex');
+    const receipt = { status: 'approved', epoch_base_sha: anchor, lane_id: 'A', implementer: 'owner-A', reviewer: 'reviewer', leaf_commit: leaf, leaf_result_sha256: leafDigest };
+    writeFileSync(path.join(repo, receiptPath), JSON.stringify(receipt)); git(['add', '.']); git(['commit', '-S', '-m', 'review']); const review = git(['rev-parse', 'HEAD']);
+    const admission = { schema_version: 'console-fanout-admission-v1', epoch_base_sha: anchor, receipts: [{ lane_id: 'A', review_commit: review, receipt_path: receiptPath }] };
+    writeFileSync(path.join(repo, 'docs/evidence/console/fanout-admission.json'), JSON.stringify(admission)); git(['add', '.']); git(['commit', '-m', 'admission']); const admissionSha = git(['rev-parse', 'HEAD']);
+    const runner = path.join(path.dirname(new URL(import.meta.url).pathname), 'plan-fanout.mjs');
+    const result = spawnSync('node', [runner, '--epoch-base', anchor, '--admission', admissionSha], { cwd: repo, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.verification_queue.length, 1, result.stdout);
+    assert.equal(output.verification_queue[0].verification_sha, leaf);
+    assert.equal(output.verification_queue[0].cache_affinity, leaf);
+  } finally { rmSync(repo, { recursive: true, force: true }); }
 });
 
 test('immutable JSON rejects duplicate object keys before canonicalization', async () => {
