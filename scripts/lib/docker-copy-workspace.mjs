@@ -43,50 +43,67 @@ function runDocker(spawn, args, options = {}) {
 export function runDockerWithCopiedWorkspace({
   image,
   args,
-  dockerOptions = [],
   inputs,
   outputs = [],
   stagingRoot,
+  workingDirectory,
   containerName = `mnt-openapi-codegen-${randomUUID()}`,
   spawn = spawnSync,
+  ...unsupportedOptions
 }) {
+  const unsupportedOptionNames = Object.keys(unsupportedOptions);
+  if (unsupportedOptionNames.length > 0) {
+    throw new Error(
+      `Docker options are not supported by copied-workspace transport: ${unsupportedOptionNames.join(", ")}`,
+    );
+  }
+  if (
+    workingDirectory !== undefined &&
+    (!/^\/workspace(?:\/[^=]*)?$/.test(workingDirectory) || workingDirectory.includes(".."))
+  ) {
+    throw new Error(
+      `Docker working directory must be /workspace or a relative child: ${workingDirectory}`,
+    );
+  }
+
   requirePinnedImage(image);
   mkdirSync(stagingRoot, { recursive: true });
   const workspace = mkdtempSync(resolve(stagingRoot, "docker-workspace-"));
   let containerCreated = false;
 
   try {
-    for (const { source, destination } of inputs) {
-      if (!existsSync(source)) {
-        throw new Error(`Docker workspace input is absent: ${source}`);
+    try {
+      for (const { source, destination } of inputs) {
+        if (!existsSync(source)) {
+          throw new Error(`Docker workspace input is absent: ${source}`);
+        }
+        const target = workspaceDestination(workspace, destination);
+        mkdirSync(resolve(target, ".."), { recursive: true });
+        cpSync(source, target, { recursive: true, force: true });
       }
-      const target = workspaceDestination(workspace, destination);
-      mkdirSync(resolve(target, ".."), { recursive: true });
-      cpSync(source, target, { recursive: true, force: true });
-    }
 
-    for (const { destination } of outputs) {
-      mkdirSync(destination, { recursive: true });
-    }
+      for (const { destination } of outputs) {
+        mkdirSync(destination, { recursive: true });
+      }
 
-    runDocker(spawn, [
-      "create",
-      "--name",
-      containerName,
-      ...dockerOptions,
-      image,
-      ...args,
-    ]);
-    containerCreated = true;
-    runDocker(spawn, ["cp", `${workspace}/.`, `${containerName}:/workspace`]);
-    runDocker(spawn, ["start", "--attach", containerName]);
-    for (const { source, destination } of outputs) {
-      runDocker(spawn, ["cp", `${containerName}:${source}/.`, destination]);
+      const createArgs = ["create", "--name", containerName];
+      if (workingDirectory !== undefined) {
+        createArgs.push("--workdir", workingDirectory);
+      }
+      createArgs.push(image, ...args);
+      runDocker(spawn, createArgs);
+      containerCreated = true;
+      runDocker(spawn, ["cp", `${workspace}/.`, `${containerName}:/workspace`]);
+      runDocker(spawn, ["start", "--attach", containerName]);
+      for (const { source, destination } of outputs) {
+        runDocker(spawn, ["cp", `${containerName}:${source}/.`, destination]);
+      }
+    } finally {
+      if (containerCreated) {
+        runDocker(spawn, ["rm", "-f", containerName], { stdio: "ignore" });
+      }
     }
   } finally {
-    if (containerCreated) {
-      runDocker(spawn, ["rm", "-f", containerName], { stdio: "ignore" });
-    }
     rmSync(workspace, { recursive: true, force: true });
   }
 }

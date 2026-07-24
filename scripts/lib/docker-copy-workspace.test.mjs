@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -149,6 +150,7 @@ test("removes the disposable container and copied workspace after generator fail
 
 test("fails closed when disposable container cleanup fails", (t) => {
   const fixture = makeFixture(t);
+  let copiedWorkspace;
 
   assert.throws(
     () =>
@@ -159,11 +161,59 @@ test("fails closed when disposable container cleanup fails", (t) => {
         stagingRoot: fixture.stagingRoot,
         containerName: "test-container",
         spawn(_command, args) {
+          if (args[0] === "cp" && args[2] === "test-container:/workspace") {
+            copiedWorkspace = args[1];
+          }
           return { status: args[0] === "rm" ? 23 : 0 };
         },
       }),
     /docker rm -f test-container failed with exit 23/,
   );
+  assert.equal(existsSync(copiedWorkspace), false);
+  assert.deepEqual(
+    readdirSync(fixture.stagingRoot).filter((entry) => entry.startsWith("docker-workspace-")),
+    [],
+  );
+});
+
+test("rejects Docker flag passthrough, including equals-form variants", (t) => {
+  const fixture = makeFixture(t);
+  const forbiddenOptions = [
+    ["dockerOptions", ["--volume=/host:/workspace"]],
+    ["bind", "--bind=/host:/workspace"],
+    ["mount", "--mount=type=bind,source=/host,target=/workspace"],
+    ["network", "--network=host"],
+    ["privileged", "--privileged=true"],
+    ["device", "--device=/dev/fuse"],
+    ["capAdd", "--cap-add=SYS_ADMIN"],
+    ["secret", "--secret=id=token"],
+  ];
+
+  for (const [option, value] of forbiddenOptions) {
+    assert.throws(
+      () =>
+        runDockerWithCopiedWorkspace({
+          image: `example.invalid/codegen:v1@sha256:${"d".repeat(64)}`,
+          args: ["generate"],
+          inputs: [],
+          stagingRoot: fixture.stagingRoot,
+          [option]: value,
+        }),
+      new RegExp(`Docker options are not supported.*${option}`),
+    );
+  }
+  assert.throws(
+    () =>
+      runDockerWithCopiedWorkspace({
+        image: `example.invalid/codegen:v1@sha256:${"d".repeat(64)}`,
+        args: ["generate"],
+        inputs: [],
+        stagingRoot: fixture.stagingRoot,
+        workingDirectory: "--network=host",
+      }),
+    /Docker working directory must be \/workspace/,
+  );
+  assert.equal(existsSync(fixture.stagingRoot), false);
 });
 
 test("rejects an unpinned generator image before creating a workspace", (t) => {
@@ -189,7 +239,7 @@ test("runs a copied workspace command without bind mounts or host outputs", (t) 
 
   runDockerWithCopiedWorkspace({
     image: `example.invalid/gradle:v1@sha256:${"b".repeat(64)}`,
-    dockerOptions: ["--workdir", "/workspace/clients/kotlin"],
+    workingDirectory: "/workspace/clients/kotlin",
     args: ["gradle", "build"],
     inputs: [{ source: fixture.templates, destination: "clients/kotlin" }],
     stagingRoot: fixture.stagingRoot,

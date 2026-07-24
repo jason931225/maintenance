@@ -47,7 +47,7 @@ if (hasJava()) {
   }
   runDockerWithCopiedWorkspace({
     image: gradleImage,
-    dockerOptions: ["--workdir", "/workspace/clients/kotlin"],
+    workingDirectory: "/workspace/clients/kotlin",
     args: ["gradle", "build"],
     inputs: [{ source: projectDir, destination: "clients/kotlin" }],
     stagingRoot: resolve(root, ".cache/kotlin-build"),
