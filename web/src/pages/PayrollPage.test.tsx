@@ -241,6 +241,38 @@ describe("PayrollPage audited close integration", () => {
     });
   });
 
+  it("does not issue a payroll-run request when readiness proves the close queue is empty", async () => {
+    let runRequests = 0;
+    const emptyReadiness = {
+      ...readinessSummary,
+      payroll: {
+        ...readinessSummary.payroll,
+        draft_runs: 0,
+        blocked_runs: 0,
+        calculation_enabled_runs: 0,
+      },
+    };
+    mockPayrollEndpoints(makeDashboard("CERTIFIED"));
+    server.use(
+      http.get("*/api/v1/hr/readiness-summary", () =>
+        HttpResponse.json(emptyReadiness),
+      ),
+      http.get("*/api/v1/payroll/runs", () => {
+        runRequests += 1;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      }),
+    );
+
+    renderPage(customPayrollReaderSession);
+    await screen.findByRole("heading", { name: copy.title });
+    await waitFor(() => {
+      expect(runRequests).toBe(0);
+    });
+    expect(
+      screen.queryByRole("heading", { name: "급여 마감 명부" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the audited close workspace for a signed custom PayrollRunRead hint", async () => {
     mockPayrollEndpoints(makeDashboard("CERTIFIED"));
     server.use(

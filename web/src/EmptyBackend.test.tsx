@@ -285,6 +285,7 @@ let attendanceRecordReads = 0;
 let ownAttendanceReads = 0;
 let managerAttendanceReads = 0;
 let attendanceAuthzReads = 0;
+let payrollRunReads = 0;
 
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
@@ -294,6 +295,9 @@ const inFlightHttpRequests = new Map<string, string>();
 server.events.on("request:start", ({ request, requestId }) => {
   if (request.url.startsWith("http://") || request.url.startsWith("https://")) {
     inFlightHttpRequests.set(requestId, request.url);
+    if (new URL(request.url).pathname === "/api/v1/payroll/runs") {
+      payrollRunReads += 1;
+    }
   }
 });
 server.events.on("request:end", ({ requestId }) => {
@@ -321,6 +325,7 @@ afterEach(() => {
   ownAttendanceReads = 0;
   managerAttendanceReads = 0;
   attendanceAuthzReads = 0;
+  payrollRunReads = 0;
   server.resetHandlers();
 });
 afterAll(() => {
@@ -471,6 +476,7 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(await screen.findByText("급여 산출 준비도")).toBeVisible();
     expect(await screen.findByText("법적 검토 게이트 차단")).toBeVisible();
     await waitForNetworkIdle();
+    expect(payrollRunReads).toBe(0);
   });
 
   it("renders /equipment (no data assumed) without crashing", async () => {

@@ -131,6 +131,14 @@ export function PayrollPage() {
     () => employees.filter((employee) => employee.status === "ACTIVE").length,
     [employees],
   );
+  // The readiness aggregate is the authoritative active-close signal. Avoid a
+  // second organization-wide read when it proves there is no active payroll
+  // close to inspect; this keeps a cold tenant self-contained and ensures a
+  // route transition cannot retain a request for an absent close workspace.
+  const hasActivePayrollClose =
+    (readiness?.payroll.draft_runs ?? 0) > 0 ||
+    (readiness?.payroll.blocked_runs ?? 0) > 0 ||
+    (readiness?.payroll.calculation_enabled_runs ?? 0) > 0;
 
   return (
     <>
@@ -159,7 +167,7 @@ export function PayrollPage() {
         ) : null}
         {state === "idle" && readiness ? (
           <>
-            {canReadOrganizationPayrollRuns ? (
+            {canReadOrganizationPayrollRuns && hasActivePayrollClose ? (
               <PayrollCloseWorkspace
                 key={payrollAuthorityKey}
                 api={api}
