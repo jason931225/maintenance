@@ -1059,6 +1059,89 @@ async fn source_system_lifecycle_uses_typed_credentials_and_generation_cas(pool:
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn source_system_lifecycle_rejects_same_branch_caller_without_role_manage(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let manager_token = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let no_role_manage = seed_user(
+        &pool,
+        fixture.org,
+        fixture.branch,
+        "ADMIN",
+        "lifecycle non-manager",
+    )
+    .await;
+    let denied_token = bearer(&keys, no_role_manage, fixture.org, "ADMIN", fixture.branch);
+    let (registered_status, registered) = post(
+        service.clone(),
+        PRODUCTION_SOURCE_SYSTEMS_PATH,
+        &manager_token,
+        json!({"branch_id": fixture.branch, "source_system": "restricted-erp"}),
+    )
+    .await;
+    assert_eq!(registered_status, StatusCode::CREATED, "{registered:?}");
+    let id = Uuid::parse_str(registered["id"].as_str().expect("principal id")).unwrap();
+    let before: (Vec<u8>, i32, String) =
+        sqlx::query_as("SELECT verifier,generation,state FROM service_principals WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let before_audit_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let rotate_uri =
+        PRODUCTION_SOURCE_SYSTEM_ROTATE_PATH.replace("{source_system_id}", &id.to_string());
+    let (rotate_status, rotate_body) = post(
+        service.clone(),
+        &rotate_uri,
+        &denied_token,
+        json!({"expected_generation": 1}),
+    )
+    .await;
+    assert_eq!(rotate_status, StatusCode::FORBIDDEN, "{rotate_body:?}");
+
+    let disable_uri =
+        PRODUCTION_SOURCE_SYSTEM_DISABLE_PATH.replace("{source_system_id}", &id.to_string());
+    let (disable_status, disable_body) = post(
+        service,
+        &disable_uri,
+        &denied_token,
+        json!({"expected_generation": 1}),
+    )
+    .await;
+    assert_eq!(disable_status, StatusCode::FORBIDDEN, "{disable_body:?}");
+
+    let after: (Vec<u8>, i32, String) =
+        sqlx::query_as("SELECT verifier,generation,state FROM service_principals WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let after_audit_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(after, before);
+    assert_eq!(after_audit_count, before_audit_count);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn source_system_lifecycle_cannot_mutate_a_same_branch_other_feature_principal(pool: PgPool) {
     let keys = keys();
     let fixture = seed_fixture(&pool).await;
