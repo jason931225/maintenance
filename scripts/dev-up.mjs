@@ -577,7 +577,7 @@ function runMigrations(appBinary) {
 }
 
 function reconcileDatabaseTopology(compose) {
-  log("reconciling and verifying the six-role database topology...");
+  log("reconciling and verifying the seven-role database topology...");
   const result = runCompose(compose, ["run", "--rm", "postgres-topology"], {
     cwd: REPO_ROOT,
     env: {

@@ -133,7 +133,8 @@ test("Compose migrates as mnt_app and serves as mnt_rt without owner/admin crede
   assert.match(baseCompose, /postgres-socket:\/var\/run\/postgresql/);
 });
 
-test("fresh and existing databases reconcile the exact hardened six-role topology", () => {
+test("fresh and existing databases reconcile the exact hardened seven-role topology", () => {
+  assert.match(devUp, /reconciling and verifying the seven-role database topology/);
   for (const role of [
     "mnt_app",
     "mnt_rt",
