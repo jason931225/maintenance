@@ -532,6 +532,9 @@ mod tests {
         assert!(CycleCountStatus::parse("VOID").is_err());
         assert!(MovementKind::parse("ISSUE").is_err());
         assert!(VarianceReason::parse("THEFT").is_err());
+        assert!(serde_json::from_str::<CycleCountStatus>("\"VOID\"").is_err());
+        assert!(serde_json::from_str::<MovementKind>("\"ISSUE\"").is_err());
+        assert!(serde_json::from_str::<VarianceReason>("\"THEFT\"").is_err());
     }
 
     #[test]
