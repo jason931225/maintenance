@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run every structured generated-face drift gate in an isolated snapshot."""
+"""Run structured generated-face drift gates in an isolated snapshot.
+
+Cheap admission executes only registry faces tagged ``cheap`` and reports every
+``expensive`` face as deferred. The full gate executes every registered face.
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +19,8 @@ SPEC = importlib.util.spec_from_file_location("generated_face_validator", HERE /
 assert SPEC and SPEC.loader
 VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
+
+TIERS = frozenset({"cheap", "all"})
 
 
 def same_face(baseline: Path, snapshot: Path, pattern: str) -> bool:
@@ -34,12 +40,29 @@ def same_face(baseline: Path, snapshot: Path, pattern: str) -> bool:
     return left.read_bytes() == right.read_bytes()
 
 
-def run(registry_path: Path, baseline: Path, snapshot: Path) -> int:
+def selected_faces(faces: list[dict[str, object]], tier: str) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    if tier not in TIERS:
+        raise ValueError(f"unsupported generated-face gate tier: {tier}")
+    if tier == "all":
+        return faces, []
+    selected = [face for face in faces if face["drift_gate"]["tier"] == tier]
+    return selected, [face for face in faces if face["drift_gate"]["tier"] != tier]
+
+
+def run(registry_path: Path, baseline: Path, snapshot: Path, *, tier: str = "all") -> int:
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     # Targets were resolved when validating the candidate. Gate execution only
     # invokes the allowlisted executable paths from the immutable snapshot.
     VALIDATOR.validate_registry(registry, baseline, target_resolver=lambda _root, _target: True)
-    for face in registry["faces"]:
+    faces, deferred = selected_faces(registry["faces"], tier)
+    print(f"generated-face-gate: tier={tier} selected={len(faces)} deferred={len(deferred)}")
+    for face in deferred:
+        print(
+            "generated-face-gate: "
+            f"{face['id']} ({face['drift_gate']['tier']}) DEFERRED "
+            "(run --tier all before merge)"
+        )
+    for face in faces:
         executable = snapshot / face["writer"]["executable"]
         result = subprocess.run([str(executable)], cwd=snapshot, check=False)
         if result.returncode:
@@ -58,8 +81,14 @@ def main() -> int:
     parser.add_argument("--registry", required=True, type=Path)
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--snapshot", required=True, type=Path)
+    parser.add_argument(
+        "--tier",
+        choices=sorted(TIERS),
+        default="all",
+        help="cheap runs only cheap faces and reports expensive faces as deferred; all runs every registered face",
+    )
     args = parser.parse_args()
-    return run(args.registry, args.baseline, args.snapshot)
+    return run(args.registry, args.baseline, args.snapshot, tier=args.tier)
 
 
 if __name__ == "__main__":

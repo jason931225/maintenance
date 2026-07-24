@@ -73,6 +73,14 @@ grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock audit cell' "${log}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock uquery ' "${log}"
 grep -Fq 'SNAPSHOT_NODE_DEPS=' "${log}"
 grep -Fq 'GENERATED_FACE_GATES=' "${log}"
+grep -Fq -- '--tier cheap' "${log}"
+
+# Full candidate closure is separately callable and never treats the expensive
+# registry faces as an implicit omission.
+PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
+  MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
+  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" "${harness}" --full-generated-faces
+grep -Fq -- '--tier all' "${log}"
 
 if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \

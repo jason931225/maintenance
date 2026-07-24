@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+const dotSlashBootstrap = "tools/buck/install_dotslash.sh";
 const requiredPreflightCommands = [
+  "tools/buck/preflight.sh",
   "npm run check:foundation-gates",
   "npm run check:ci-preflight",
   "npm run check:root-workspaces",
@@ -23,6 +25,7 @@ const protectedJobs = [
   "android-instrumented",
   "ios-app",
   "browser-e2e",
+  "generated-face-authority",
 ];
 
 function jobBlock(workflow, job) {
@@ -53,6 +56,18 @@ function isUnconditional(step) {
   return !/^        (?:if|continue-on-error):/m.test(step);
 }
 
+function requireDotSlashBefore(steps, command, job, failures) {
+  const commandIndex = steps.findIndex((step) => runScalar(step) === command);
+  const dotSlashIndex = steps.findIndex((step) => runScalar(step) === dotSlashBootstrap);
+  if (dotSlashIndex < 0) {
+    failures.push(`${job} must install pinned DotSlash before Buck2`);
+  } else if (!isUnconditional(steps[dotSlashIndex])) {
+    failures.push(`${job} must install DotSlash unconditionally`);
+  } else if (commandIndex >= 0 && dotSlashIndex > commandIndex) {
+    failures.push(`${job} must install DotSlash before ${command}`);
+  }
+}
+
 export function evaluateCiPreflight(workflow) {
   const failures = [];
   const preflight = jobBlock(workflow, "preflight");
@@ -62,6 +77,7 @@ export function evaluateCiPreflight(workflow) {
   }
 
   const preflightSteps = stepBlocks(preflight);
+  requireDotSlashBefore(preflightSteps, "tools/buck/preflight.sh", "preflight", failures);
   for (const command of requiredPreflightCommands) {
     const matchingSteps = preflightSteps.filter((step) => runScalar(step) === command);
     if (matchingSteps.length === 0) {
@@ -69,6 +85,34 @@ export function evaluateCiPreflight(workflow) {
     } else if (matchingSteps.some((step) => !isUnconditional(step))) {
       failures.push(`preflight must run ${command} unconditionally without if or continue-on-error`);
     }
+  }
+
+  const fullGeneratedFaces = jobBlock(workflow, "generated-face-authority");
+  if (fullGeneratedFaces) {
+    const fullGeneratedFaceSteps = stepBlocks(fullGeneratedFaces);
+    const fullGeneratedFaceCommand = "tools/buck/preflight.sh --full-generated-faces";
+    const matchingFullGateSteps = fullGeneratedFaceSteps.filter((step) => runScalar(step) === fullGeneratedFaceCommand);
+    if (matchingFullGateSteps.length === 0) {
+      failures.push("generated-face-authority must run the complete generated-face closure");
+    } else if (matchingFullGateSteps.some((step) => !isUnconditional(step))) {
+      failures.push("generated-face-authority must run the complete generated-face closure unconditionally");
+    }
+    requireDotSlashBefore(
+      fullGeneratedFaceSteps,
+      fullGeneratedFaceCommand,
+      "generated-face-authority",
+      failures,
+    );
+  }
+
+  const apiContract = jobBlock(workflow, "api-contract");
+  if (apiContract) {
+    requireDotSlashBefore(
+      stepBlocks(apiContract),
+      "npm run check:openapi-app",
+      "api-contract",
+      failures,
+    );
   }
 
   for (const job of protectedJobs) {

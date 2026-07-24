@@ -3,6 +3,16 @@
 # worktree: generation runs against a temporary archive of HEAD instead.
 set -euo pipefail
 
+generated_face_tier="cheap"
+case "${1:-}" in
+  "") ;;
+  --full-generated-faces) generated_face_tier="all" ;;
+  *)
+    echo "usage: $0 [--full-generated-faces]" >&2
+    exit 2
+    ;;
+esac
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 buck_bin="${MNT_BUCK_PREFLIGHT_BUCK:-${repo_root}/tools/buck2}"
 expected_release="2026-07-15"
@@ -87,12 +97,15 @@ git -C "${repo_root}" archive --format=tar HEAD | tar -x -C "${scratch}"
 python3 "${repo_root}/tools/buck/provision_snapshot_node_modules.py" \
   --caller "${repo_root}" \
   --snapshot "${scratch}"
-# Every registered generated face runs from the immutable snapshot. The Python
-# runner dispatches only the allowlisted writer kind; registry strings are never
-# eval'd as shell commands. A single non-zero writer or output diff fails closed.
+# Cheap admission runs only cheap faces and reports every expensive face as a
+# visible deferral. --full-generated-faces executes every registered face before
+# merge. The runner dispatches only allowlisted writer paths; registry strings
+# are never eval'd as shell commands. A non-zero writer or output diff fails
+# closed.
 python3 "${repo_root}/tools/buck/run_generated_face_gates.py" \
   --registry "${repo_root}/tools/buck/generated_face_registry.json" \
   --baseline "${repo_root}" \
-  --snapshot "${scratch}"
+  --snapshot "${scratch}" \
+  --tier "${generated_face_tier}"
 
-echo "buck-preflight: PASS"
+echo "buck-preflight: ${generated_face_tier} PASS"
