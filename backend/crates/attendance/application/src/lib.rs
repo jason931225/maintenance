@@ -133,7 +133,40 @@ pub struct Week52Read {
     pub projected_hours: f64,
     pub acknowledged_at: Option<OffsetDateTime>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, Debug, Clone, Serialize, Deserialize)]
+pub struct CloseCheckRead {
+    pub key: String,
+    pub ok: bool,
+    pub warn: Option<bool>,
+    pub note: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloseAmendmentRead {
+    pub id: Uuid,
+    pub reason: String,
+    pub actor: Uuid,
+    pub created_at: OffsetDateTime,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonthCloseRead {
+    pub id: Uuid,
+    pub month: Date,
+    pub branch_id: Option<Uuid>,
+    pub checks: Vec<CloseCheckRead>,
+    pub attested_by: Uuid,
+    pub attested_at: OffsetDateTime,
+    pub period_lock_id: Option<Uuid>,
+    pub closed_at: OffsetDateTime,
+    pub amendments: Vec<CloseAmendmentRead>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClosePreflightRead {
+    pub month: Date,
+    pub branch_id: Option<Uuid>,
+    pub checks: Vec<CloseCheckRead>,
+    pub can_close: bool,
+}
+
 pub struct Week52AcknowledgementRead {
     pub employee_id: Uuid,
     pub week_start: Date,

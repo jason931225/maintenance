@@ -664,6 +664,106 @@ async fn cancel_substitution(
         .map_err(RestError::store)
 }
 
+#[derive(Serialize)]
+struct CloseCheckDto {
+    key: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warn: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
+#[derive(Serialize)]
+struct CloseAmendmentDto {
+    id: String,
+    reason: String,
+    actor: String,
+    created_at: String,
+}
+#[derive(Serialize)]
+struct MonthCloseDto {
+    id: String,
+    month: String,
+    branch_scope: String,
+    checks: Vec<CloseCheckDto>,
+    attested_by: String,
+    attested_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    period_lock_id: Option<String>,
+    closed_at: String,
+    amendments: Vec<CloseAmendmentDto>,
+}
+impl From<MonthCloseRead> for MonthCloseDto {
+    fn from(v: MonthCloseRead) -> Self {
+        Self {
+            id: v.id.to_string(),
+            month: v.month.to_string(),
+            branch_scope: v
+                .branch_id
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| "org".into()),
+            checks: v
+                .checks
+                .into_iter()
+                .map(|c| CloseCheckDto {
+                    key: c.key,
+                    ok: c.ok,
+                    warn: c.warn,
+                    note: c.note,
+                })
+                .collect(),
+            attested_by: v.attested_by.to_string(),
+            attested_at: v.attested_at.to_string(),
+            period_lock_id: v.period_lock_id.map(|i| i.to_string()),
+            closed_at: v.closed_at.to_string(),
+            amendments: v
+                .amendments
+                .into_iter()
+                .map(|a| CloseAmendmentDto {
+                    id: a.id.to_string(),
+                    reason: a.reason,
+                    actor: a.actor.to_string(),
+                    created_at: a.created_at.to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Serialize)]
+struct ClosePreflightDto {
+    month: String,
+    branch_scope: String,
+    checks: Vec<CloseCheckDto>,
+    can_close: bool,
+}
+impl From<ClosePreflightRead> for ClosePreflightDto {
+    fn from(v: ClosePreflightRead) -> Self {
+        Self {
+            month: v.month.to_string(),
+            branch_scope: v
+                .branch_id
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| "org".into()),
+            checks: v
+                .checks
+                .into_iter()
+                .map(|c| CloseCheckDto {
+                    key: c.key,
+                    ok: c.ok,
+                    warn: c.warn,
+                    note: c.note,
+                })
+                .collect(),
+            can_close: v.can_close,
+        }
+    }
+}
+#[derive(Serialize)]
+struct MonthCloseBoardDto {
+    month: String,
+    items: Vec<MonthCloseDto>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CloseBody {
@@ -675,7 +775,7 @@ async fn close_preflight(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<CloseBody>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<ClosePreflightDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, CLOSE, body.branch_scope)?;
     let checks = state
@@ -690,9 +790,7 @@ async fn close_preflight(
         )
         .await
         .map_err(RestError::store)?;
-    Ok(Json(
-        json!({"ready":checks.ready(),"checks":{"openExceptions":checks.open_exceptions,"pendingLeave":checks.pending_leave,"alreadyClosed":checks.already_closed}}),
-    ))
+    Ok(Json(ClosePreflightDto::from(checks)))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -703,14 +801,19 @@ async fn list_closes(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Query(q): Query<CloseListQuery>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<MonthCloseBoardDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
     state
         .store
         .list_closes(&scope(&p), q.branch_id)
         .await
-        .map(Json)
+        .map(|items| {
+            Json(MonthCloseBoardDto {
+                month: String::new(),
+                items: items.into_iter().map(MonthCloseDto::from).collect(),
+            })
+        })
         .map_err(RestError::store)
 }
 #[derive(Deserialize)]
@@ -726,7 +829,7 @@ async fn amend_close(
     headers: HeaderMap,
     axum::extract::Path(close_id): axum::extract::Path<Uuid>,
     Json(body): Json<AmendCloseBody>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<CloseAmendmentDto>, RestError> {
     let p = principal(&state, &headers).await?;
     let branch = state
         .store
@@ -750,6 +853,12 @@ async fn amend_close(
             },
         )
         .await
+        .map(|v| CloseAmendmentDto {
+            id: v.id.to_string(),
+            reason: v.reason,
+            actor: v.actor.to_string(),
+            created_at: v.created_at.to_string(),
+        })
         .map(Json)
         .map_err(RestError::store)
 }
@@ -758,7 +867,7 @@ async fn close_month(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<CloseBody>,
-) -> Result<(StatusCode, Json<Value>), RestError> {
+) -> Result<(StatusCode, Json<MonthCloseDto>), RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, CLOSE, body.branch_scope)?;
     let v = state
@@ -773,7 +882,7 @@ async fn close_month(
         )
         .await
         .map_err(RestError::store)?;
-    Ok((StatusCode::CREATED, Json(v)))
+    Ok((StatusCode::CREATED, Json(MonthCloseDto::from(v))))
 }
 
 #[derive(Serialize)]

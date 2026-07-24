@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use mnt_attendance_application::{
     self as app, AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence,
     AttendanceExceptionRead, AttendanceObjectLink, AttendancePage, CallerScope, CancelSubstitution,
-    CloseChecks, CloseMonth, ExceptionResolutionRead, ListSubstitutions, RaiseException,
-    ResolveException, Week52Input,
+    CloseAmendmentRead, CloseCheckRead, CloseChecks, CloseMonth, ClosePreflightRead,
+    ExceptionResolutionRead, ListSubstitutions, MonthCloseRead, RaiseException, ResolveException,
+    Week52AcknowledgementRead, Week52Input, Week52Read,
 };
 use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, HistoricalAbsence};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
@@ -266,12 +267,20 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         close: &CloseMonth,
-    ) -> Result<CloseChecks, AttendanceStoreError> {
+    ) -> Result<ClosePreflightRead, AttendanceStoreError> {
         app::ensure_scope(caller, close.branch_scope)?;
         let range = AttendanceDateRange::selected_month_with_buffer(&close.month)?;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| {
-            Box::pin(async move { close_checks(tx, range.from, close.branch_scope).await })
+            Box::pin(async move {
+                let checks = close_checks(tx, range.from, close.branch_scope).await?;
+                Ok(ClosePreflightRead {
+                    month: range.from,
+                    branch_id: close.branch_scope,
+                    checks: close_checks_read(&checks),
+                    can_close: checks.ready(),
+                })
+            })
         })
         .await
     }
@@ -279,7 +288,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         close: CloseMonth,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<MonthCloseRead, AttendanceStoreError> {
         if !close.attest {
             return Err(AttendanceStoreError::Application(
                 app::AttendanceApplicationError::MissingAttestation,
@@ -328,7 +337,7 @@ impl PgAttendanceStore {
                 "INSERT INTO attendance_month_closes (id,org_id,month,branch_id,checks,attested_by,period_lock_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (org_id,month,branch_id) DO NOTHING",
             ).bind(id).bind(caller.org_id).bind(month).bind(close.branch_scope).bind(&checks_json).bind(caller.user_id).bind(lock_id).execute(tx.as_mut()).await?;
             if inserted.rows_affected() != 1 { return Err(AttendanceStoreError::Conflict); }
-            let view = json!({"id":id,"month":close.month,"branch_scope":close.branch_scope,"status":"CLOSED","checks":checks_json,"period_lock_id":lock_id});
+            let view = MonthCloseRead { id, month, branch_id: close.branch_scope, checks: close_checks_read(&checks), attested_by: caller.user_id, attested_at: OffsetDateTime::now_utc(), period_lock_id: lock_id, closed_at: OffsetDateTime::now_utc(), amendments: Vec::new() };
             let mut audits = vec![event(&caller,"attendance.close.confirm","attendance_month_close",id,close.branch_scope,Some(json!({"periodLockId":lock_id})))?];
             if created_period_lock {
                 audits.push(event(&caller,"period_lock.create","period_lock",lock_id.expect("created lock id"),None,Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})))?);
@@ -341,12 +350,12 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         branch_id: Option<Uuid>,
-    ) -> Result<Vec<Value>, AttendanceStoreError> {
+    ) -> Result<Vec<MonthCloseRead>, AttendanceStoreError> {
         app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
             let rows = sqlx::query("SELECT id,month,branch_id,checks,attested_by,attested_at,period_lock_id,closed_at FROM attendance_month_closes WHERE branch_id IS NOT DISTINCT FROM $1 ORDER BY month DESC").bind(branch_id).fetch_all(tx.as_mut()).await?;
-            rows.iter().map(close_json).collect::<Result<Vec<_>, _>>()
+            let mut result=Vec::with_capacity(rows.len()); for row in &rows { result.push(close_read(tx,row).await?); } Ok(result)
         })).await
     }
 
@@ -375,7 +384,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         command: AmendClose,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<CloseAmendmentRead, AttendanceStoreError> {
         let reason = app::validate_text(&command.reason, "reason", 2000)?;
         let detail = app::validate_text(&command.detail, "detail", 4000)?;
         let reference = app::normalize_optional_text(command.reference, "ref", 240)?;
@@ -388,10 +397,10 @@ impl PgAttendanceStore {
             app::ensure_scope(&caller, branch)?;
             let fingerprint_value = fingerprint(&json!({"close_id":command.close_id,"reason":reason,"detail":detail,"ref":reference}));
             let existing: Option<(Uuid, String)> = sqlx::query_as("SELECT id,request_fingerprint FROM attendance_close_amendments WHERE org_id=$1 AND idempotency_key=$2").bind(caller.org_id).bind(&key).fetch_optional(tx.as_mut()).await?;
-            if let Some((id, stored)) = existing { if stored == fingerprint_value { return Ok((json!({"id":id,"close_id":command.close_id,"reason":reason,"detail":detail,"ref":reference}), Vec::new())); } return Err(AttendanceStoreError::Conflict); }
+            if let Some((id, stored)) = existing { if stored == fingerprint_value { return Ok((close_amendment_read(tx, id).await?, Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             let amendment_id = Uuid::new_v4();
             sqlx::query("INSERT INTO attendance_close_amendments (id,org_id,close_id,reason,detail,ref,idempotency_key,request_fingerprint,actor_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(amendment_id).bind(caller.org_id).bind(command.close_id).bind(&reason).bind(&detail).bind(&reference).bind(&key).bind(&fingerprint_value).bind(caller.user_id).execute(tx.as_mut()).await?;
-            Ok((json!({"id":amendment_id,"closeId":command.close_id,"reason":reason,"status":"AMENDED"}), vec![event(&caller,"attendance.close.amend","attendance_month_close",command.close_id,branch,Some(json!({"amendmentId":amendment_id})))?]))
+            Ok((close_amendment_read(tx, amendment_id).await?, vec![event(&caller,"attendance.close.amend","attendance_month_close",command.close_id,branch,Some(json!({"amendmentId":amendment_id})))?]))
         })).await
     }
 
@@ -838,10 +847,88 @@ fn substitution_read(
         created_at: r.try_get("created_at")?,
     })
 }
-fn close_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {
-    Ok(
-        json!({"id":r.try_get::<Uuid,_>("id")?,"month":r.try_get::<Date,_>("month")?.to_string(),"branch_id":r.try_get::<Option<Uuid>,_>("branch_id")?,"checks":r.try_get::<Value,_>("checks")?,"attested_by":r.try_get::<Uuid,_>("attested_by")?,"attested_at":r.try_get::<OffsetDateTime,_>("attested_at")?.to_string(),"period_lock_id":r.try_get::<Option<Uuid>,_>("period_lock_id")?,"closed_at":r.try_get::<OffsetDateTime,_>("closed_at")?.to_string()}),
+async fn close_amendment_read(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<CloseAmendmentRead, AttendanceStoreError> {
+    let r = sqlx::query(
+        "SELECT id,reason,actor_user_id,created_at FROM attendance_close_amendments WHERE id=$1",
     )
+    .bind(id)
+    .fetch_one(tx.as_mut())
+    .await?;
+    Ok(CloseAmendmentRead {
+        id: r.try_get("id")?,
+        reason: r.try_get("reason")?,
+        actor: r.try_get("actor_user_id")?,
+        created_at: r.try_get("created_at")?,
+    })
+}
+fn close_checks_read(checks: &CloseChecks) -> Vec<CloseCheckRead> {
+    vec![
+        CloseCheckRead {
+            key: "open_exceptions".into(),
+            ok: checks.open_exceptions == 0,
+            warn: None,
+            note: Some(checks.open_exceptions.to_string()),
+        },
+        CloseCheckRead {
+            key: "pending_leave".into(),
+            ok: true,
+            warn: Some(checks.pending_leave > 0),
+            note: Some(checks.pending_leave.to_string()),
+        },
+        CloseCheckRead {
+            key: "not_already_closed".into(),
+            ok: !checks.already_closed,
+            warn: None,
+            note: None,
+        },
+    ]
+}
+async fn close_read(
+    tx: &mut Transaction<'_, Postgres>,
+    r: &sqlx::postgres::PgRow,
+) -> Result<MonthCloseRead, AttendanceStoreError> {
+    let id: Uuid = r.try_get("id")?;
+    let rows=sqlx::query("SELECT id,reason,actor_user_id,created_at FROM attendance_close_amendments WHERE close_id=$1 ORDER BY created_at").bind(id).fetch_all(tx.as_mut()).await?;
+    let amendments = rows
+        .iter()
+        .map(|a| {
+            Ok(CloseAmendmentRead {
+                id: a.try_get("id")?,
+                reason: a.try_get("reason")?,
+                actor: a.try_get("actor_user_id")?,
+                created_at: a.try_get("created_at")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AttendanceStoreError>>()?;
+    let checks: Value = r.try_get("checks")?;
+    let c = CloseChecks {
+        open_exceptions: checks
+            .get("open_exceptions")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        pending_leave: checks
+            .get("pending_leave")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        already_closed: checks
+            .get("already_closed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    };
+    Ok(MonthCloseRead {
+        id,
+        month: r.try_get("month")?,
+        branch_id: r.try_get("branch_id")?,
+        checks: close_checks_read(&c),
+        attested_by: r.try_get("attested_by")?,
+        attested_at: r.try_get("attested_at")?,
+        period_lock_id: r.try_get("period_lock_id")?,
+        closed_at: r.try_get("closed_at")?,
+        amendments,
+    })
 }
 
 #[cfg(test)]
