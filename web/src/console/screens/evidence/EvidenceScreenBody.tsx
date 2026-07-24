@@ -11,9 +11,11 @@
 // 보존 (retention) is real: GET /api/v1/lifecycles/evidence_object/{id}
 // (console/lifecycle's useLifecycle hook, called here per-row since a table
 // needs N rows, not the single-object shape the hook offers) → retentionUntil.
-// A 404 (no lifecycle row yet) or a denied/failed call renders "—", never a
-// fabricated duration.
+// A missing lifecycle row renders "—". A denied or failed lifecycle read is
+// explicit and retryable; it is never mislabeled as an absent retention rule.
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+
+import type { ConsoleApiClient } from "../../../api/client";
 
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
@@ -81,7 +83,58 @@ type StatFilter = "ALL" | "THIS_MONTH" | "EXPIRING";
 const EXPIRING_WINDOW_DAYS = 90;
 
 type ListState = "loading" | "ready" | "error";
-type RetentionEntry = { retentionUntil: string | null };
+type RetentionEntry =
+  | { state: "ready"; retentionUntil: string | null }
+  | { state: "unavailable"; retentionUntil: null };
+
+/** Bounds per-row lifecycle reads when the real evidence register spans pages. */
+export const RETENTION_READ_CONCURRENCY = 6;
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException("Evidence retention read was aborted", "AbortError");
+}
+
+/**
+ * Enriches every rendered record with an explicit lifecycle state. The endpoint
+ * is per object, so use a fixed worker pool rather than unbounded Promise.all;
+ * every non-abort failure becomes a visible unavailable state, never a silent
+ * omitted map entry.
+ */
+export async function readEvidenceRetentions(
+  api: ConsoleApiClient,
+  rows: EvidenceObjectDetail[],
+  signal: AbortSignal,
+): Promise<Map<string, RetentionEntry>> {
+  const entries = new Map<string, RetentionEntry>();
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      throwIfAborted(signal);
+      const index = nextIndex;
+      nextIndex += 1;
+      const row = rows[index];
+      if (!row) return;
+      try {
+        const { data, response } = await api.GET("/api/v1/lifecycles/{objectType}/{objectId}", {
+          params: { path: { objectType: "evidence_object", objectId: row.id } },
+          signal,
+        });
+        throwIfAborted(signal);
+        entries.set(row.id, data
+          ? { state: "ready", retentionUntil: data.retentionUntil ?? null }
+          : { state: response.status === 404 ? "ready" : "unavailable", retentionUntil: null });
+      } catch {
+        throwIfAborted(signal);
+        entries.set(row.id, { state: "unavailable", retentionUntil: null });
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(RETENTION_READ_CONCURRENCY, rows.length) }, worker));
+  throwIfAborted(signal);
+  return entries;
+}
 
 const rootStyle: CSSProperties = { display: "grid", gap: "var(--sp-4)", color: "var(--ink)", fontFamily: "var(--font-sans)" };
 const headerStyle = screenHeaderStyle;
@@ -218,65 +271,63 @@ export function EvidenceScreenBody() {
   const [statFilter, setStatFilter] = useState<StatFilter>("ALL");
   const [search, setSearch] = useState("");
   const [registerNotice, setRegisterNotice] = useState(false);
+  const [listAttempt, setListAttempt] = useState(0);
+  const [retentionAttempt, setRetentionAttempt] = useState(0);
 
   useEffect(() => {
-    let active = true;
-    async function load() {
-      setListState("loading");
-      try {
-        const items = await listEvidenceObjects(api);
-        if (!active) return;
+    const controller = new AbortController();
+    let current = true;
+    setListState("loading");
+    void listEvidenceObjects(api, 200, controller.signal)
+      .then((items) => {
+        if (!current || controller.signal.aborted) return;
         setRows(items);
         setListState("ready");
-      } catch {
-        if (active) setListState("error");
-      }
-    }
-    void load();
+      })
+      .catch(() => {
+        if (!current || controller.signal.aborted) return;
+        setListState("error");
+      });
     return () => {
-      active = false;
+      current = false;
+      controller.abort();
     };
-  }, [api]);
+  }, [api, listAttempt]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let current = true;
     void api
-      .GET("/api/v1/users")
+      .GET("/api/v1/users", { signal: controller.signal })
       .then((res) => {
-        if (!res.data) return;
+        if (!current || controller.signal.aborted || !res.data) return;
         setUsers(new Map(res.data.items.map((u) => [u.id, u.display_name])));
       })
       .catch(() => undefined);
+    return () => {
+      current = false;
+      controller.abort();
+    };
   }, [api]);
 
-  // Best-effort, per-row retention lookup — a missing/denied/errored lifecycle
-  // read degrades to "no retention on record" (§ file header), never fabricated.
   useEffect(() => {
-    let active = true;
-    void Promise.all(
-      rows.map(async (row) => {
-        try {
-          const { data, response } = await api.GET("/api/v1/lifecycles/{objectType}/{objectId}", {
-            params: { path: { objectType: "evidence_object", objectId: row.id } },
-          });
-          if (data) return [row.id, { retentionUntil: data.retentionUntil ?? null }] as const;
-          if (response.status === 404) return [row.id, { retentionUntil: null }] as const;
-          return undefined;
-        } catch {
-          return undefined;
-        }
-      }),
-    ).then((entries) => {
-      if (!active) return;
-      const next = new Map<string, RetentionEntry>();
-      for (const entry of entries) {
-        if (entry) next.set(entry[0], entry[1]);
-      }
-      setRetention(next);
-    });
+    const controller = new AbortController();
+    let current = true;
+    setRetention(new Map());
+    void readEvidenceRetentions(api, rows, controller.signal)
+      .then((entries) => {
+        if (!current || controller.signal.aborted) return;
+        setRetention(entries);
+      })
+      .catch(() => {
+        if (!current || controller.signal.aborted) return;
+        setRetention(new Map(rows.map((row) => [row.id, { state: "unavailable", retentionUntil: null }])));
+      });
     return () => {
-      active = false;
+      current = false;
+      controller.abort();
     };
-  }, [api, rows]);
+  }, [api, retentionAttempt, rows]);
 
   const resolveOwner = (id: string): string => users.get(id) ?? id;
 
@@ -430,15 +481,7 @@ export function EvidenceScreenBody() {
             type="button"
             style={retryButtonStyle}
             onClick={() => {
-              setListState("loading");
-              void listEvidenceObjects(api)
-                .then((items) => {
-                  setRows(items);
-                  setListState("ready");
-                })
-                .catch(() => {
-                  setListState("error");
-                });
+              setListAttempt((attempt) => attempt + 1);
             }}
           >
             {T.retry}
@@ -464,11 +507,24 @@ export function EvidenceScreenBody() {
             <tbody>
               {visibleRows.map((row) => {
                 const entry = retention.get(row.id);
-                const retentionText = !entry
+                const retentionContent = !entry
                   ? T.retention.pending
-                  : entry.retentionUntil
-                    ? formatDate(entry.retentionUntil)
-                    : T.retention.unset;
+                  : entry.state === "unavailable"
+                    ? <span style={barStyle}>
+                        <StatusChip tone="danger">{T.loadFailed}</StatusChip>
+                        <button
+                          type="button"
+                          style={retryButtonStyle}
+                          onClick={() => {
+                            setRetentionAttempt((attempt) => attempt + 1);
+                          }}
+                        >
+                          {T.retry}
+                        </button>
+                      </span>
+                    : entry.retentionUntil
+                      ? formatDate(entry.retentionUntil)
+                      : T.retention.unset;
                 return (
                   <tr key={row.id} data-row-id={row.id}>
                     <td style={{ ...tdStyle, fontFamily: "var(--font-mono)" }}>{row.code}</td>
@@ -486,7 +542,7 @@ export function EvidenceScreenBody() {
                     </td>
                     <td style={tdStyle}>{resolveOwner(row.custodian)}</td>
                     <td style={tdStyle}>{formatDate(row.registeredAt)}</td>
-                    <td style={tdStyle}>{retentionText}</td>
+                    <td style={tdStyle}>{retentionContent}</td>
                   </tr>
                 );
               })}

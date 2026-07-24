@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { createConsoleApiClient } from "../../../api/client";
 import { AuthContext, type AuthContextValue } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
-import { EvidenceScreenBody } from "./EvidenceScreenBody";
+import {
+  EvidenceScreenBody,
+  readEvidenceRetentions,
+  RETENTION_READ_CONCURRENCY,
+} from "./EvidenceScreenBody";
 
 const now = new Date();
 const thisMonthIso = now.toISOString();
@@ -54,6 +58,66 @@ function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>
     </AuthContext.Provider>,
   );
 }
+
+
+describe("readEvidenceRetentions", () => {
+  it("bounds lifecycle reads and produces an explicit unavailable state", async () => {
+    let active = 0;
+    let maximum = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const rows = Array.from({ length: RETENTION_READ_CONCURRENCY + 3 }, (_, index) => ({
+      id: `ev-${index}`,
+    })) as never[];
+    const GET = vi.fn(async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await gate;
+      active -= 1;
+      return { data: undefined, response: { status: 503 } };
+    });
+
+    const task = readEvidenceRetentions({ GET } as never, rows as never, new AbortController().signal);
+    await waitFor(() => {
+      expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
+    });
+    expect(maximum).toBe(RETENTION_READ_CONCURRENCY);
+    release?.();
+
+    const entries = await task;
+    expect(GET).toHaveBeenCalledTimes(rows.length);
+    expect([...entries.values()]).toEqual(
+      Array.from({ length: rows.length }, () => ({ state: "unavailable", retentionUntil: null })),
+    );
+  });
+
+  it("aborts between worker batches without starting another lifecycle request", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const rows = Array.from({ length: RETENTION_READ_CONCURRENCY + 1 }, (_, index) => ({
+      id: `ev-${index}`,
+    })) as never[];
+    const GET = vi.fn(async () => {
+      await gate;
+      return { data: undefined, response: { status: 404 } };
+    });
+
+    const task = readEvidenceRetentions({ GET } as never, rows as never, controller.signal);
+    await waitFor(() => {
+      expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
+    });
+    controller.abort();
+    release?.();
+
+    await expect(task).rejects.toMatchObject({ name: "AbortError" });
+    expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
+  });
+});
 
 describe("EvidenceScreenBody", () => {
   it("renders the 문서·기록물 shell with a real stat strip and the 증거 row, retention drilled from the lifecycle API", async () => {
@@ -249,6 +313,24 @@ describe("EvidenceScreenBody", () => {
 
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it("owns and aborts the paged register request on unmount", async () => {
+    let listSignal: AbortSignal | undefined;
+    const never = new Promise<never>(() => undefined);
+    const { unmount } = renderBody((path: unknown, opts?: unknown) => {
+      if (path === "/api/v1/evidence/objects") {
+        listSignal = (opts as { signal: AbortSignal }).signal;
+        return never;
+      }
+      return Promise.resolve({ data: { items: [] } });
+    });
+
+    await waitFor(() => {
+      expect(listSignal).toBeDefined();
+    });
+    unmount();
+    expect(listSignal?.aborted).toBe(true);
   });
 
   it("shows the list-load error state with a working retry", async () => {

@@ -136,6 +136,25 @@ describe("EvidenceRecords list (real-wired)", () => {
     expect(within(bar).getByRole("button", { name: new RegExp(T.records.all) })).toBeTruthy();
   });
 
+  it("owns and aborts the paged register request on unmount", async () => {
+    let listSignal: AbortSignal | undefined;
+    const GET = vi.fn((path: string, options?: { signal?: AbortSignal }) => {
+      if (path === "/api/v1/evidence/objects") {
+        listSignal = options?.signal;
+        return new Promise(() => undefined);
+      }
+      return Promise.resolve({ data: { items: [] }, response: { ok: true, status: 200 } });
+    });
+    const api = { GET, POST: vi.fn() } as unknown as ConsoleApiClient;
+    const { unmount } = render(<EvidenceRecords api={api} />);
+
+    await waitFor(() => {
+      expect(listSignal).toBeDefined();
+    });
+    unmount();
+    expect(listSignal?.aborted).toBe(true);
+  });
+
   it("shows a retry affordance when the list fails to load", async () => {
     const GET = vi.fn(() => Promise.resolve({ data: undefined, response: { ok: false, status: 500 } }));
     const api = { GET, POST: vi.fn() } as unknown as ConsoleApiClient;

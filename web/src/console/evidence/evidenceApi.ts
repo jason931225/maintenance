@@ -166,31 +166,59 @@ export function mapEvidenceObjectSummary(view: EvidenceObjectView): EvidenceObje
   };
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new DOMException("Evidence records read was aborted", "AbortError");
+}
+
+/**
+ * Reads the whole immutable evidence register as one internally-consistent
+ * snapshot. Pagination drift can make a later page overlap, skip, or extend
+ * the initial register; each condition is rejected rather than presented as a
+ * truthful-looking partial list.
+ */
 export async function listEvidenceObjects(
   api: ConsoleApiClient,
   limit = 200,
+  signal?: AbortSignal,
 ): Promise<EvidenceObjectDetail[]> {
   const items: EvidenceObjectDetail[] = [];
+  const ids = new Set<string>();
   let offset = 0;
+  let expectedTotal: number | undefined;
 
-  // The EV list endpoint is paged. A one-page read is an incomplete record
-  // register once the tenant holds more than `limit` objects, so continue
-  // through the server's declared total rather than silently dropping rows.
   for (;;) {
+    throwIfAborted(signal);
     const { data, error, response } = await api.GET("/api/v1/evidence/objects", {
       params: { query: offset === 0 ? { limit } : { limit, offset } },
+      signal,
     });
+    throwIfAborted(signal);
     if (!data) throw new ApiCallError(response.status, error);
     const page: EvidenceObjectPage = data;
-    items.push(...page.items.map(mapEvidenceObjectSummary));
+    if (!Number.isInteger(page.total) || page.total < 0 || page.offset !== offset) {
+      throw new Error("Evidence records pagination offset did not match the requested page.");
+    }
+    if (expectedTotal === undefined) expectedTotal = page.total;
+    if (page.total !== expectedTotal) {
+      throw new Error("Evidence records pagination total changed while reading the register.");
+    }
+    for (const item of page.items) {
+      if (ids.has(item.id)) {
+        throw new Error("Evidence records pagination returned a duplicate evidence record id.");
+      }
+      ids.add(item.id);
+      items.push(mapEvidenceObjectSummary(item));
+    }
 
-    if (items.length >= page.total) return items;
-    // A successful page that cannot advance contradicts the declared total.
-    // Fail closed rather than presenting a partial register as complete.
+    const nextOffset = offset + page.items.length;
+    if (nextOffset > expectedTotal) {
+      throw new Error("Evidence records pagination exceeded its declared total.");
+    }
+    if (nextOffset === expectedTotal) return items;
     if (page.items.length === 0) {
       throw new Error("Evidence records pagination returned an empty page before its declared total.");
     }
-    offset += page.items.length;
+    offset = nextOffset;
   }
 }
 
