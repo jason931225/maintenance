@@ -1978,13 +1978,15 @@ async fn append_equipment_maintenance_history(
     completed_at: mnt_kernel_core::Timestamp,
     org_uuid: uuid::Uuid,
 ) -> Result<(), PgWorkOrderError> {
-    sqlx::query_scalar("SELECT append_equipment_maintenance_history($1, $2, $3, $4)")
-        .bind(org_uuid)
-        .bind(*equipment_id.as_uuid())
-        .bind(*work_order_id.as_uuid())
-        .bind(completed_at)
-        .fetch_one(tx.as_mut())
-        .await?;
+    sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT append_equipment_maintenance_history($1, $2, $3, $4)",
+    )
+    .bind(org_uuid)
+    .bind(*equipment_id.as_uuid())
+    .bind(*work_order_id.as_uuid())
+    .bind(completed_at)
+    .fetch_one(tx.as_mut())
+    .await?;
 
     Ok(())
 }
