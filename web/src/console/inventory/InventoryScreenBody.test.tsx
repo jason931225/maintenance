@@ -63,6 +63,29 @@ function renderScreen(GET: ReturnType<typeof vi.fn>, POST = vi.fn()) {
 }
 
 describe("InventoryScreenBody", () => {
+  it("discards a deferred cycle-count detail after the selected branch and item change", async () => {
+    let resolveDetail: ((value: unknown) => void) | undefined;
+    const count = { id: "cc-1", cc_code: "CC-1", branch_id: item.branch_id, stock_location: item.stock_location, status: "DRAFT", version: 1, opened_by: "user-1", submitted_by: null, decided_by: null, decision_memo: null, line_count: 0, variance_line_count: 0, created_at: "2026-07-24T00:00:00Z", updated_at: "2026-07-24T00:00:00Z" };
+    const GET = vi.fn((path: string, options?: { params?: { path?: { item_id?: string } } }) => {
+      if (path === "/api/v1/inventory/items") return { data: { items: [item, secondItem], total: 2, limit: 100, offset: 0 }, response: new Response() };
+      if (path === "/api/v1/inventory/items/{item_id}") return { data: options?.params?.path?.item_id === secondItem.id ? secondItem : item, response: new Response() };
+      if (path === "/api/v1/inventory/items/{item_id}/consumptions") return { data: [], response: new Response() };
+      if (path.includes("/movements")) return { data: [], response: new Response() };
+      if (path === "/api/v1/inventory/mrp") return { data: [], response: new Response() };
+      if (path === "/api/v1/inventory/cycle-counts") return { data: { items: [count], total: 1, limit: 50, offset: 0 }, response: new Response() };
+      if (path === "/api/v1/inventory/cycle-counts/cc-1") return new Promise((resolve) => { resolveDetail = resolve; });
+      return { data: [], response: new Response() };
+    });
+    renderScreen(GET);
+    await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
+    await userEvent.click(await screen.findByRole("button", { name: "CC-1 · DRAFT" }));
+    await waitFor(() => expect(resolveDetail).toBeTypeOf("function"));
+    await userEvent.click(screen.getByRole("button", { name: "IV-032 상세 열기" }));
+    expect(await screen.findByRole("heading", { name: "윤활유" })).toBeVisible();
+    resolveDetail?.({ data: { count, lines: [], applied_movement_ids: [] }, response: new Response() });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "윤활유" })).toBeVisible());
+    expect(screen.queryByText("CC-1 · DRAFT · 버전 1")).toBeNull();
+  });
   it("loads a real list, opens its detail, and exposes the immutable consumption trace", async () => {
     const GET = vi.fn((path: string) => {
       if (path === "/api/v1/inventory/items")

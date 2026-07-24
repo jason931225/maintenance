@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -629,9 +630,18 @@ function InventoryOperations({ api, item }: { api: ConsoleApiClient; item: Inven
   const receiptAttempt = useRef<{ payload: string; key: string } | null>(null);
   const [amount, setAmount] = useState(""); const [sourceRef, setSourceRef] = useState(""); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const [counted, setCounted] = useState(""); const [reason, setReason] = useState(""); const [memo, setMemo] = useState("");
-  useEffect(() => {
+  useLayoutEffect(() => {
     mutationEpoch.current += 1;
     setCount(null);
+    setBusy(false);
+    setMessage(null);
+    setShowReceipt(false);
+    setAmount("");
+    setSourceRef("");
+    setCounted("");
+    setReason("");
+    setMemo("");
+    receiptAttempt.current = null;
   }, [item.branch_id, item.id]);
   const load = async () => {
     const controller = new AbortController();
@@ -649,7 +659,7 @@ function InventoryOperations({ api, item }: { api: ConsoleApiClient; item: Inven
   return <section style={{ padding: "var(--sp-4)", borderBottom: "1px solid var(--border-soft)", display: "grid", gap: "var(--sp-3)" }} aria-label="재고 운영">
     <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-2)", flexWrap: "wrap" }}><h3 style={{ margin: 0, fontSize: "var(--text-base)" }}>입고 · 이동 · 실사 · MRP</h3><button type="button" style={buttonStyle} onClick={() => void load()}>운영 정보 새로고침</button></div>
     {message ? <div role="alert" style={errorStyle}>{message}</div> : null}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}><button type="button" style={primaryButtonStyle} onClick={() => setShowReceipt((value) => !value)}>{showReceipt ? "입고 닫기" : "입고 기록"}</button><button type="button" style={buttonStyle} onClick={() => void openCount()} disabled={busy}>이 위치 실사 개설</button>{counts.map((entry) => <button key={entry.id} type="button" style={buttonStyle} onClick={() => void getCycleCount(api, entry.id).then(setCount).catch(() => setMessage("실사 상세를 불러오지 못했습니다."))}>{entry.cc_code} · {entry.status}</button>)}</div>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}><button type="button" style={primaryButtonStyle} onClick={() => setShowReceipt((value) => !value)}>{showReceipt ? "입고 닫기" : "입고 기록"}</button><button type="button" style={buttonStyle} onClick={() => void openCount()} disabled={busy}>이 위치 실사 개설</button>{counts.map((entry) => <button key={entry.id} type="button" onClick={() => { const generation = mutationEpoch.current; void getCycleCount(api, entry.id).then((detail) => { if (generation === mutationEpoch.current) setCount(detail); }).catch(() => { if (generation === mutationEpoch.current) setMessage("실사 상세를 불러오지 못했습니다."); }); }} style={buttonStyle}>{entry.cc_code} · {entry.status}</button>)}</div>
     {showReceipt ? <form onSubmit={(event) => { event.preventDefault(); void receipt(); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(12rem,1fr))", gap: "var(--sp-2)" }} aria-label="재고 입고 기록"><label>입고 수량 ({item.unit_code})<input required value={amount} onChange={(event) => setAmount(event.target.value)} style={inputStyle} inputMode="decimal" /></label><label>원천 문서 (선택)<input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} style={inputStyle} placeholder="PO-118" /></label><button type="submit" style={primaryButtonStyle} disabled={busy}>{busy ? "저장 중" : "입고 저장"}</button></form> : null}
     {count ? <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: "var(--sp-3)", display: "grid", gap: "var(--sp-2)" }}><strong>{count.count.cc_code} · {count.count.status} · 버전 {count.count.version}</strong><p style={{ margin: 0, color: "var(--steel)" }}>개설자 {count.count.opened_by}. 제출자와 결정자는 분리되어야 하며, 승인 시 조정 원장이 생성됩니다.</p>{count.count.status === "DRAFT" ? <><label>실사 수량 ({item.unit_code})<input value={counted} onChange={(event) => setCounted(event.target.value)} style={inputStyle} inputMode="decimal" /></label><label>차이 사유 (차이가 있을 때 필수)<select value={reason} onChange={(event) => setReason(event.target.value)} style={inputStyle}><option value="">선택</option>{["DAMAGE","LOSS","MISCOUNT","FOUND","OTHER"].map((value) => <option key={value}>{value}</option>)}</select></label><button type="button" style={buttonStyle} onClick={() => void line()} disabled={busy}>실사 라인 저장</button><button type="button" style={primaryButtonStyle} onClick={() => void transition("submit")} disabled={busy || count.lines.length === 0}>실사 제출</button></> : null}<label>결정 메모{count.count.status === "SUBMITTED" ? <input value={memo} onChange={(event) => setMemo(event.target.value)} style={inputStyle} /> : null}</label>{count.count.status === "SUBMITTED" ? <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}><button type="button" style={primaryButtonStyle} onClick={() => void transition("approve")} disabled={busy}>별도 검토자 승인</button><button type="button" style={buttonStyle} onClick={() => void transition("reject")} disabled={busy}>반려</button></div> : null}{["DRAFT", "SUBMITTED"].includes(count.count.status) ? <button type="button" style={buttonStyle} onClick={() => void transition("cancel")} disabled={busy}>실사 취소</button> : null}</div> : null}
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>통합 이동 원장</caption><thead><tr><th style={thStyle}>시각</th><th style={thStyle}>유형</th><th style={thStyle}>증감</th><th style={thStyle}>변경 후</th></tr></thead><tbody>{movements?.map((movement) => <tr key={movement.id}><td style={tdStyle}>{formatTime(movement.occurred_at)}</td><td style={tdStyle}>{movement.kind}</td><td style={tdStyle}>{quantity(movement.quantity_delta_milli, item.unit_code)}</td><td style={tdStyle}>{quantity(movement.quantity_after_milli, item.unit_code)}</td></tr>)}</tbody></table></div>
