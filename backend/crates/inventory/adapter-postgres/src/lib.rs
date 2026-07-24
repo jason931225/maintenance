@@ -361,6 +361,13 @@ impl PgInventoryStore {
                     memo.as_deref(),
                 );
 
+                // The event uniqueness constraint is the durable backstop, but a
+                // read-before-insert replay check alone leaves concurrent callers
+                // racing to that constraint. Serialize one org/key pair for this
+                // transaction so the follower sees the committed event and can
+                // return its stored result (or a fingerprint conflict) instead.
+                lock_consumption_idempotency_key_tx(tx, org, &idempotency_key).await?;
+
                 if let Some((event, existing_fingerprint)) =
                     fetch_event_by_idempotency_key_tx(tx, &idempotency_key).await?
                 {
@@ -852,6 +859,22 @@ async fn fetch_event_by_idempotency_key_tx(
     row.as_ref()
         .map(|row| Ok((event_from_row(row)?, row.try_get("request_fingerprint")?)))
         .transpose()
+}
+
+async fn lock_consumption_idempotency_key_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org: OrgId,
+    idempotency_key: &str,
+) -> Result<(), PgInventoryError> {
+    // Transaction-scoped advisory locks release automatically on both commit
+    // and rollback. Pairing the tenant and normalized key keeps unrelated
+    // inventory requests independent while serializing every replay decision.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))")
+        .bind(org.to_string())
+        .bind(idempotency_key)
+        .execute(tx.as_mut())
+        .await?;
+    Ok(())
 }
 
 fn location_from_row(
