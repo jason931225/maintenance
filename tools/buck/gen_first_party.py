@@ -168,6 +168,7 @@ TEST_RESOURCE_REQUIREMENTS = {
             'tests/dev_auth_persona_guard.rs': 'postgres',
             'tests/dev_auth_persona_guard_feature.rs': 'postgres',
             'tests/dev_seed_notification_links.rs': 'none',
+            'tests/equipment_3r_api.rs': 'postgres',
             'tests/facilities_pilot_story.rs': 'postgres',
             'tests/finance_gl_voucher_sod.rs': 'postgres',
             'tests/health_readiness.rs': 'postgres',
@@ -206,6 +207,9 @@ TEST_RESOURCE_REQUIREMENTS = {
             'tests/workflow_runtime_instance_api.rs': 'postgres',
             'tests/workorder_api.rs': 'postgres',
         },
+    },
+    'mnt-equipment-domain': {
+        'unit': 'none',
     },
     'mnt-gate-audit-coverage': {
         'integration': {
