@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { evaluateCiPreflight } from "./check-ci-preflight.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const cargoLockGate = "cargo metadata --manifest-path backend/Cargo.toml --locked --format-version=1 >/dev/null";
 
 function expectFailure(source, message) {
   const { failures } = evaluateCiPreflight(source);
@@ -313,11 +317,39 @@ describe("CI preflight contract", () => {
     expectFailure(workflow.replace("npm run check:package-lock", "npm run check:root-workspaces"), "check:package-lock");
     expectFailure(
       workflow.replace(
-        "cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null",
-        "cargo metadata --manifest-path backend/Cargo.toml --no-deps --format-version=1 >/dev/null",
+        cargoLockGate,
+        "cargo metadata --manifest-path backend/Cargo.toml --format-version=1 >/dev/null",
       ),
-      "cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null",
+      cargoLockGate,
     );
+  });
+
+  it("rejects a dependency missing from Cargo.lock while the clean lock passes", () => {
+    const root = mkdtempSync(join(tmpdir(), "maintenance-cargo-lock-"));
+    const app = join(root, "app");
+    const dependency = join(root, "dependency");
+    const extra = join(root, "extra");
+    try {
+      for (const directory of [app, dependency, extra]) {
+        mkdirSync(join(directory, "src"), { recursive: true });
+      }
+      writeFileSync(join(root, "Cargo.toml"), "[workspace]\nmembers = [\"app\", \"dependency\"]\nresolver = \"2\"\n");
+      for (const [directory, name] of [[app, "fixture-app"], [dependency, "fixture-dependency"]]) {
+        writeFileSync(join(directory, "Cargo.toml"), `[package]\nname = \"${name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n`);
+        writeFileSync(join(directory, "src/lib.rs"), "pub fn fixture() {}\n");
+      }
+      writeFileSync(join(app, "Cargo.toml"), "[package]\nname = \"fixture-app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nfixture-dependency = { path = \"../dependency\" }\n");
+      assert.equal(spawnSync("cargo", ["generate-lockfile"], { cwd: root }).status, 0);
+      assert.equal(spawnSync("cargo", ["metadata", "--manifest-path", join(app, "Cargo.toml"), "--locked", "--format-version=1"], { cwd: root }).status, 0);
+
+      writeFileSync(join(extra, "Cargo.toml"), "[package]\nname = \"fixture-extra\"\nversion = \"0.1.0\"\nedition = \"2024\"\n");
+      writeFileSync(join(extra, "src/lib.rs"), "pub fn extra() {}\n");
+      writeFileSync(join(app, "Cargo.toml"), "[package]\nname = \"fixture-app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nfixture-dependency = { path = \"../dependency\" }\nfixture-extra = { path = \"../extra\" }\n");
+      assert.equal(spawnSync("cargo", ["metadata", "--manifest-path", join(app, "Cargo.toml"), "--locked", "--no-deps", "--format-version=1"], { cwd: root }).status, 0);
+      assert.notEqual(spawnSync("cargo", ["metadata", "--manifest-path", join(app, "Cargo.toml"), "--locked", "--format-version=1"], { cwd: root }).status, 0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("rejects a preflight command that appears only in a comment", () => {

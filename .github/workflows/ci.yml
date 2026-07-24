@@ -142,7 +142,7 @@ jobs:
           toolchain: "1.96.0"
 
       - name: Cargo.lock consistency
-        run: cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null
+        run: cargo metadata --manifest-path backend/Cargo.toml --locked --format-version=1 >/dev/null
 
   generated-face-authority:
     # This status is the complete generated-face closure required by policy.

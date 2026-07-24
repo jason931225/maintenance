@@ -16,7 +16,7 @@ const requiredPreflightCommands = [
   "npm run check:root-workspaces",
   "npm run test:root-workspaces",
   "npm run check:package-lock",
-  "cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null",
+  "cargo metadata --manifest-path backend/Cargo.toml --locked --format-version=1 >/dev/null",
 ];
 const protectedJobs = [
   "backend",
