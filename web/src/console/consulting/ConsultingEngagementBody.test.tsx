@@ -12,14 +12,15 @@ const engagement = {
   workflow_execution_id: null, version: 1, created_at: "2026-07-23T00:00:00Z", updated_at: "2026-07-23T00:00:00Z",
 };
 
-function renderBody(overrides: { session?: object; history?: unknown[] } = {}) {
+function renderBody(overrides: { session?: object; history?: unknown[]; post?: (path: string, options: unknown) => unknown } = {}) {
+  const POST = vi.fn((path: string, options: unknown) => overrides.post?.(path, options) ?? Promise.resolve({ data: { ...engagement, status: "PROPOSED", version: 2 } }));
   const GET = vi.fn((path: string) => {
     if (path.endsWith("/history")) return Promise.resolve({ data: overrides.history ?? [{ id: "history-1", event_type: "engagement.created", version: 1, payload: {}, occurred_at: "2026-07-23T00:00:00Z" }] });
     if (path.includes("{engagement_id}")) return Promise.resolve({ data: { ...engagement, diagnostics: [], findings: [], initiatives: [], observations: [] } });
     return Promise.resolve({ data: { items: [engagement], limit: 25, offset: 0, total: 1 } });
   });
-  useAuth.mockReturnValue({ api: { GET }, session: { org_id: "org-a", user_id: "user-a", client_session_incarnation: "session-a", access_token: "token-a", ...overrides.session } });
-  return { GET, ...render(<ConsultingEngagementBody />) };
+  useAuth.mockReturnValue({ api: { GET, POST }, session: { org_id: "org-a", user_id: "user-a", client_session_incarnation: "session-a", access_token: "token-a", ...overrides.session } });
+  return { GET, POST, ...render(<ConsultingEngagementBody />) };
 }
 
 describe("ConsultingEngagementBody", () => {
@@ -46,5 +47,60 @@ describe("ConsultingEngagementBody", () => {
     resolveFirst({ data: { items: [engagement], limit: 25, offset: 0, total: 1 } });
     await waitFor(() => { expect(screen.getByText("표시할 컨설팅 참여가 없습니다.")).toBeVisible(); });
     expect(screen.queryByRole("button", { name: /현장 진단/ })).toBeNull();
+  });
+
+  it("records a diagnostic against the selected engagement and re-reads the server lineage", async () => {
+    const { GET, POST } = renderBody();
+    fireEvent.click(await screen.findByRole("button", { name: /현장 진단/ }));
+    const summary = await screen.findByLabelText("진단 요약");
+    fireEvent.change(summary, { target: { value: "현장 운영 흐름을 검토했습니다" } });
+    fireEvent.click(screen.getByRole("button", { name: "진단 기록" }));
+    await waitFor(() => {
+      expect(POST).toHaveBeenCalledWith(
+        "/api/v1/consulting/engagements/{engagement_id}/diagnostics",
+        expect.objectContaining({
+          params: { path: { engagement_id: engagement.id } },
+          body: { summary: "현장 운영 흐름을 검토했습니다" },
+          signal: expect.any(AbortSignal),
+        }),
+      );
+      expect(GET).toHaveBeenCalledWith("/api/v1/consulting/engagements/{engagement_id}", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    });
+  });
+
+  it("submits the governed draft-to-proposed transition with the current version and re-reads detail plus immutable history", async () => {
+    const { GET, POST } = renderBody({ history: [
+      { id: "history-1", event_type: "engagement.created", version: 1, payload: {}, occurred_at: "2026-07-23T00:00:00Z" },
+      { id: "history-2", event_type: "engagement.transitioned", version: 2, payload: {}, occurred_at: "2026-07-23T00:00:01Z" },
+    ] });
+    fireEvent.click(await screen.findByRole("button", { name: /현장 진단/ }));
+    await screen.findByRole("button", { name: "제안으로 전환" });
+    fireEvent.change(screen.getByLabelText("전환 사유"), { target: { value: "현장 진단 범위를 제안합니다" } });
+    fireEvent.click(screen.getByRole("button", { name: "제안으로 전환" }));
+    await waitFor(() => {
+      expect(POST).toHaveBeenCalledWith(
+        "/api/v1/consulting/engagements/{engagement_id}/transition",
+        expect.objectContaining({
+          params: { path: { engagement_id: engagement.id } },
+          body: { toStatus: "PROPOSED", expectedVersion: 1, reason: "현장 진단 범위를 제안합니다" },
+          signal: expect.any(AbortSignal),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(GET).toHaveBeenCalledWith("/api/v1/consulting/engagements/{engagement_id}/history", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(screen.getByText("상태 전환 · v2")).toBeVisible();
+    });
+  });
+
+  it("keeps authoritative state unchanged and exposes a refresh path when a governed transition conflicts", async () => {
+    const { POST } = renderBody({ post: () => Promise.resolve({ error: { message: "engagement changed or was not found; reload before retrying" } }) });
+    fireEvent.click(await screen.findByRole("button", { name: /현장 진단/ }));
+    await screen.findByRole("button", { name: "제안으로 전환" });
+    fireEvent.change(screen.getByLabelText("전환 사유"), { target: { value: "다시 시도" } });
+    fireEvent.click(screen.getByRole("button", { name: "제안으로 전환" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("engagement changed or was not found; reload before retrying");
+    expect(screen.getByRole("button", { name: "현재 상태 새로고침" })).toBeVisible();
+    expect(POST).toHaveBeenCalledTimes(1);
   });
 });
