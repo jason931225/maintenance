@@ -169,9 +169,11 @@ fn check_source_file(
         }
 
         if let Some(function_name) = parse_function_name(line) {
+            let signature = extract_function_signature(source, byte_offset).unwrap_or_default();
             let body = extract_function_body(source, byte_offset).unwrap_or_default();
-            let is_state_changing =
-                pending_state_changing || detects_unmarked_state_changing_handler(file, &body);
+            let is_state_changing = pending_state_changing
+                || (!accepts_transaction(&signature)
+                    && detects_unmarked_state_changing_handler(file, &body));
             let exemption = pending_exemption.take();
 
             if let Some(reason) = exemption {
@@ -329,6 +331,20 @@ fn extract_function_body(source: &str, from: usize) -> Option<String> {
     source.get(open..=close).map(str::to_string)
 }
 
+fn extract_function_signature(source: &str, from: usize) -> Option<String> {
+    let rest = source.get(from..)?;
+    let open_rel = rest.find('{')?;
+    rest.get(..open_rel).map(str::to_string)
+}
+
+fn accepts_transaction(signature: &str) -> bool {
+    let compact: String = signature
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    compact.contains("&mutTransaction<") || compact.contains("&mutsqlx::Transaction<")
+}
+
 fn find_matching_brace(source: &str, open: usize) -> Option<usize> {
     let bytes = source.as_bytes();
     let mut index = open;
@@ -453,22 +469,48 @@ fn contains_state_mutating_sql(body: &str) -> bool {
         || searchable.contains("query_as!")
         || searchable.contains("query_scalar!");
     uses_sqlx_query
-        && ["insert", "update", "delete", "merge", "truncate"]
+        && (["insert", "delete", "merge", "truncate"]
             .iter()
             .any(|keyword| contains_ascii_word(&searchable, keyword))
+            || contains_non_locking_update(&searchable))
 }
 
-fn contains_ascii_word(haystack: &str, needle: &str) -> bool {
+fn contains_non_locking_update(searchable: &str) -> bool {
+    ascii_word_starts(searchable, "update")
+        .into_iter()
+        .any(|start| previous_ascii_word(searchable, start).as_deref() != Some("for"))
+}
+
+fn ascii_word_starts(haystack: &str, needle: &str) -> Vec<usize> {
     let bytes = haystack.as_bytes();
     let needle_bytes = needle.as_bytes();
     if bytes.len() < needle_bytes.len() {
-        return false;
+        return Vec::new();
     }
-    (0..=bytes.len() - needle_bytes.len()).any(|start| {
-        bytes[start..start + needle_bytes.len()] == *needle_bytes
-            && is_word_boundary(bytes.get(start.wrapping_sub(1)).copied())
-            && is_word_boundary(bytes.get(start + needle_bytes.len()).copied())
-    })
+    (0..=bytes.len() - needle_bytes.len())
+        .filter(|start| {
+            bytes[*start..*start + needle_bytes.len()] == *needle_bytes
+                && is_word_boundary(bytes.get(start.wrapping_sub(1)).copied())
+                && is_word_boundary(bytes.get(*start + needle_bytes.len()).copied())
+        })
+        .collect()
+}
+
+fn previous_ascii_word(haystack: &str, before: usize) -> Option<String> {
+    let bytes = haystack.as_bytes();
+    let mut end = before;
+    while end > 0 && !bytes[end - 1].is_ascii_alphanumeric() && bytes[end - 1] != b'_' {
+        end -= 1;
+    }
+    let mut start = end;
+    while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+        start -= 1;
+    }
+    (start < end).then(|| haystack[start..end].to_string())
+}
+
+fn contains_ascii_word(haystack: &str, needle: &str) -> bool {
+    !ascii_word_starts(haystack, needle).is_empty()
 }
 
 fn strip_comments_and_strings(source: &str) -> String {

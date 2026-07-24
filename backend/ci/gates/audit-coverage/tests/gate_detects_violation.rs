@@ -102,6 +102,72 @@ pub async fn approve_work_order(pool: &PgPool, id: WorkOrderId) {
 }
 
 #[test]
+fn gate_ignores_transaction_scoped_mutation_helper_but_not_its_unaudited_handler()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ws = temp_workspace("transaction-helper")?;
+    write_file(
+        &ws.join("crates/workorder/rest/src/lib.rs"),
+        r#"
+async fn insert_history(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: WorkOrderId,
+) {
+    sqlx::query!("INSERT INTO work_order_history (id) VALUES ($1)", id)
+        .execute(&mut **tx)
+        .await;
+}
+
+pub async fn approve_work_order(pool: &PgPool, id: WorkOrderId) {
+    sqlx::query!("UPDATE work_orders SET status = 'APPROVED' WHERE id = $1", id)
+        .execute(pool)
+        .await;
+}
+"#,
+    )?;
+
+    let result = check_source_tree(&ws);
+    let missing_audits: Vec<_> = result
+        .violations
+        .iter()
+        .filter(|violation| violation.kind == ViolationKind::MissingAuditEvent)
+        .collect();
+    assert_eq!(
+        missing_audits.len(),
+        1,
+        "only the transaction-owning handler should require audit coverage: {:#?}",
+        result.violations
+    );
+    assert_eq!(
+        missing_audits[0].function_name.as_deref(),
+        Some("approve_work_order")
+    );
+    Ok(())
+}
+
+#[test]
+fn gate_does_not_treat_select_for_update_as_mutation() -> Result<(), Box<dyn std::error::Error>> {
+    let ws = temp_workspace("select-for-update")?;
+    write_file(
+        &ws.join("crates/workorder/rest/src/lib.rs"),
+        r#"
+pub async fn lock_work_order(pool: &PgPool, id: WorkOrderId) {
+    sqlx::query!("SELECT id FROM work_orders WHERE id = $1 FOR UPDATE", id)
+        .fetch_one(pool)
+        .await;
+}
+"#,
+    )?;
+
+    let result = check_source_tree(&ws);
+    assert!(
+        result.passed(),
+        "row locking without a state mutation should not require an audit event: {:#?}",
+        result.violations
+    );
+    Ok(())
+}
+
+#[test]
 fn gate_does_not_accept_audit_words_in_comments() -> Result<(), Box<dyn std::error::Error>> {
     let ws = temp_workspace("comment-only-audit")?;
     write_file(
