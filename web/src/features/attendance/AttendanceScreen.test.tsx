@@ -40,6 +40,14 @@ function page<T>(items: T[]): Page<T> {
   return { items, total: items.length, limit: 200, offset: 0 };
 }
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function exception(
   overrides: Partial<AttendanceException> = {},
 ): AttendanceException {
@@ -523,6 +531,135 @@ describe("AttendanceScreen", () => {
     await userEvent.click(await within(latest).findByRole("button", { name: `코스 ${text.closePanel.confirmCta}` }));
     expect(await screen.findByText("preflight failed")).toBeVisible();
     view.unmount();
+  });
+
+  it("ignores a close preflight that resolves after the selected month changes", async () => {
+    const pendingPreflight = deferred<{
+      month: string;
+      branch_scope: string;
+      checks: [];
+      can_close: true;
+    }>();
+    const preflightClose = vi.fn(() => pendingPreflight.promise);
+    const confirmClose = vi.fn();
+    const api = transport({
+      listExceptions: vi.fn(() =>
+        Promise.resolve(
+          page(
+            exceptions.map((item) => ({
+              ...item,
+              status: "RESOLVED" as const,
+            })),
+          ),
+        ),
+      ),
+      listCloses: vi.fn((month: string) =>
+        Promise.resolve({
+          month,
+          items: [{ ...closes.items[0], open_exceptions: 0 }],
+        }),
+      ),
+      preflightClose,
+      confirmClose,
+    });
+    renderScreen(api);
+
+    const closeCard = await screen.findByRole("region", {
+      name: text.closePanel.title,
+    });
+    await userEvent.click(
+      await within(closeCard).findByRole("button", {
+        name: `코스 ${text.closePanel.confirmCta}`,
+      }),
+    );
+    await waitFor(() =>
+      expect(preflightClose).toHaveBeenCalledWith(
+        "2026-07",
+        "코스",
+        expect.any(AbortSignal),
+      ),
+    );
+
+    const board = screen.getByRole("region", { name: text.board.title });
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.prevMonth }),
+    );
+    expect(await within(board).findByText("2026년 6월")).toBeVisible();
+
+    pendingPreflight.resolve({
+      month: "2026-07",
+      branch_scope: "코스",
+      checks: [],
+      can_close: true,
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: text.closePanel.preflightTitle }),
+      ).toBeNull(),
+    );
+    expect(confirmClose).not.toHaveBeenCalled();
+  });
+
+  it("retains an actionable close preflight after confirmation rejects", async () => {
+    const confirmClose = vi.fn(() =>
+      Promise.reject(new AttendanceTransportError("close failed", 409)),
+    );
+    const api = transport({
+      listExceptions: vi.fn(() =>
+        Promise.resolve(
+          page(
+            exceptions.map((item) => ({
+              ...item,
+              status: "RESOLVED" as const,
+            })),
+          ),
+        ),
+      ),
+      listCloses: vi.fn(() =>
+        Promise.resolve({
+          month: "2026-07",
+          items: [{ ...closes.items[0], open_exceptions: 0 }],
+        }),
+      ),
+      confirmClose,
+    });
+    renderScreen(api);
+
+    const card = await screen.findByRole("region", {
+      name: text.closePanel.title,
+    });
+    await userEvent.click(
+      await within(card).findByRole("button", {
+        name: `코스 ${text.closePanel.confirmCta}`,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: text.closePanel.preflightTitle,
+    });
+    await userEvent.click(within(dialog).getByLabelText(text.closePanel.attest));
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: `코스 ${text.closePanel.confirmCta}`,
+      }),
+    );
+
+    expect(await screen.findByText("close failed")).toBeVisible();
+    expect(
+      screen.getByRole("dialog", { name: text.closePanel.preflightTitle }),
+    ).toBeVisible();
+    expect(
+      within(card).queryByText(text.closePanel.doneBanner),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: text.retry })).toBeVisible();
+    expect(confirmClose).toHaveBeenCalledWith(
+      "2026-07",
+      "코스",
+      expect.any(AbortSignal),
+    );
   });
 
   it("acknowledges 52-hour risk through the typed port and surfaces failures", async () => {

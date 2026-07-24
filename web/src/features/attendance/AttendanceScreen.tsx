@@ -186,6 +186,8 @@ function AttendanceScreenBodyInner({
   const [preflight, setPreflight] = useState<{
     data: ClosePreflight;
     scope: string;
+    month: string;
+    generation: number;
   }>();
   const [actionError, setActionError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -200,6 +202,14 @@ function AttendanceScreenBodyInner({
     (token: number) => generation.current === token,
     [],
   );
+  const monthRef = useRef(month);
+  const selectMonth = useCallback((nextMonth: string) => {
+    monthRef.current = nextMonth;
+    setPreflight((current) =>
+      current?.month === nextMonth ? current : undefined,
+    );
+    setMonth(nextMonth);
+  }, []);
 
   const load = useCallback(async () => {
     if (!capabilities.canRead) return;
@@ -299,14 +309,21 @@ function AttendanceScreenBodyInner({
     );
   }, []);
 
-  const refreshCloses = useCallback(async () => {
-    try {
-      const board = await transport.listCloses(month);
-      setCloses({ s: "ready", data: board });
-    } catch (cause) {
-      setCloses(resolveError(cause));
-    }
-  }, [transport, month]);
+  const refreshCloses = useCallback(
+    async (targetMonth: string, token: number) => {
+      try {
+        const board = await transport.listCloses(targetMonth);
+        if (monthRef.current === targetMonth && isCurrent(token)) {
+          setCloses({ s: "ready", data: board });
+        }
+      } catch (cause) {
+        if (monthRef.current === targetMonth && isCurrent(token)) {
+          setCloses(resolveError(cause));
+        }
+      }
+    },
+    [transport, isCurrent],
+  );
 
   const exceptionItems = exceptions.s === "ready" ? exceptions.data.items : [];
   const substitutionItems =
@@ -595,7 +612,7 @@ function AttendanceScreenBodyInner({
                   type="button"
                   aria-label={text.board.prevMonth}
                   onClick={() => {
-                    setMonth(shiftMonth(month, -1));
+                    selectMonth(shiftMonth(month, -1));
                   }}
                 >
                   {"<"}
@@ -607,7 +624,7 @@ function AttendanceScreenBodyInner({
                   type="button"
                   aria-label={text.board.nextMonth}
                   onClick={() => {
-                    setMonth(shiftMonth(month, 1));
+                    selectMonth(shiftMonth(month, 1));
                   }}
                 >
                   {">"}
@@ -828,12 +845,24 @@ function AttendanceScreenBodyInner({
                       }}
                       onConfirm={(scope) =>
                         void mutate(async (signal) => {
+                          const requestedMonth = monthRef.current;
+                          const requestedGeneration = generation.current;
                           const result = await transport.preflightClose(
-                            month,
+                            requestedMonth,
                             scope,
                             signal,
                           );
-                          setPreflight({ data: result, scope });
+                          if (
+                            monthRef.current === requestedMonth &&
+                            isCurrent(requestedGeneration)
+                          ) {
+                            setPreflight({
+                              data: result,
+                              scope,
+                              month: requestedMonth,
+                              generation: requestedGeneration,
+                            });
+                          }
                         })
                       }
                     />
@@ -866,7 +895,7 @@ function AttendanceScreenBodyInner({
               replaceException(next);
               storageSet(`attendance:exdraft:${exOpen.id}`, undefined);
               setExOpen(undefined);
-              await refreshCloses();
+              await refreshCloses(monthRef.current, generation.current);
             })
           }
         />
@@ -899,21 +928,29 @@ function AttendanceScreenBodyInner({
         <PreflightModal
           preflight={preflight.data}
           scope={preflight.scope}
+          month={preflight.month}
           busy={busy}
           onClose={() => {
             setPreflight(undefined);
           }}
           onConfirm={() =>
             void mutate(async (signal) => {
+              const preflightMonth = preflight.month;
+              const preflightGeneration = preflight.generation;
               try {
                 await transport.confirmClose(
-                  month,
+                  preflightMonth,
                   preflight.scope,
                   signal,
                 );
-                setPreflight(undefined);
+                if (
+                  monthRef.current === preflightMonth &&
+                  isCurrent(preflightGeneration)
+                ) {
+                  setPreflight(undefined);
+                }
               } finally {
-                await refreshCloses();
+                await refreshCloses(preflightMonth, preflightGeneration);
               }
             })
           }
@@ -1805,12 +1842,14 @@ function ExceptionModal({
 function PreflightModal({
   preflight,
   scope,
+  month,
   busy,
   onClose,
   onConfirm,
 }: {
   preflight: ClosePreflight;
   scope: string;
+  month: string;
   busy: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -1830,7 +1869,7 @@ function PreflightModal({
             {text.closePanel.preflightTitle}
           </span>
           <span className="attendance__chip">{scope}</span>
-          <span className="attendance__count">{preflight.month}</span>
+          <span className="attendance__count">{month}</span>
         </div>
         {preflight.checks.map((check) => (
           <div key={check.key} className="attendance__checkrow">
