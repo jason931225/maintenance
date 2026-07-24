@@ -1,6 +1,49 @@
 {
   "lane": "CAP-ATTENDANCE-CONSOLE",
-  "stage": "scout",
+  "stage": "integration_in_progress",
+  "pinnedParent": {
+    "sha": "051f770e2d34bac947a3c489cf2c2b050ec28993",
+    "review": "approved",
+    "buck2": {
+      "//backend/crates/platform/request-context:mnt-platform-request-context-unit": "passed",
+      "//backend/app:mnt-app-itest-auth_rest": "passed_by_writer; independent_rerun_pending"
+    }
+  },
+  "integratedInputs": [
+    {
+      "lane": "inventory-private",
+      "sourceSha": "6b49185543f67e200eaf6aa007dd49be539de9ba",
+      "review": "approved",
+      "state": "integrated"
+    },
+    {
+      "lane": "console-fanout-planner",
+      "sourceSha": "996e97c8100f28bcb639c1a9b13d3482914e2722",
+      "review": "approved",
+      "state": "integrated",
+      "verification": "27/27 node tests passed after integration"
+    },
+    {
+      "lane": "dialog-focus-contract",
+      "sourceSha": "7c2209716dcaeba63e203e32780e4317623a317f",
+      "review": "approved",
+      "state": "integrated",
+      "verification": "276 files and 2260 tests passed on the source lane"
+    }
+  ],
+  "pendingInputs": [
+    {
+      "lane": "attendance-backend",
+      "sourceSha": "efc551eec49f1a8d899676740e8dcf93d5f234b7",
+      "state": "fresh_independent_review"
+    },
+    {
+      "lane": "attendance-frontend",
+      "sourceSha": "0dc297a6830241f62355f6f1fb828f38366010b6",
+      "state": "fresh_independent_review",
+      "compositeEvidence": "Attendance plus approved Dialog: 6 files and 39 tests passed; ESLint passed; no scoped TypeScript diagnostics"
+    }
+  ],
   "sharedRootEntries": {
     "webRegistry": {
       "web/src/console/shell/nav.ts": [
@@ -34,9 +77,24 @@
     },
     "migrations": {
       "backend/crates/platform/db/migrations": [
-        "0188_create_attendance_console.sql is PROVISIONAL (head today = 0180); integrator takes next free number right before push"
+        "0188_create_attendance_console.sql is the reserved Attendance slot",
+        "0184 through 0191 have active committed reservations; re-scan origin/main and active backend branches immediately before landing",
+        "if 0188 cannot land atomically with its preceding reservations, rename the migration and update this manifest, the capability registry, and design-contract.md in the same commit"
       ]
     }
+  },
+  "completion": {
+    "claim": "not_done",
+    "remainingGates": [
+      "fresh approval of Attendance backend and frontend private sources",
+      "canonical migration, RLS/grants/immutability, and two-connection race tests",
+      "Attendance authz features and branch/non-leakage matrix",
+      "all 13 REST operations mounted and represented in OpenAPI",
+      "first-party BUCK and generated client faces regenerated",
+      "prop-less authenticated frontend adapter and ConsoleShell mount",
+      "authenticated browser user stories, accessibility, and roadmap/TODO/parity reconciliation",
+      "full Buck2/CI/release/deployment admission"
+    ]
   },
   "deferredCrossModule": [
     { "owner": "approvals/appr", "item": "mint AP- object for substitution assignment and shift swap; backfill attendance_substitutions.approval_ref" },
