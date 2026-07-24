@@ -70,6 +70,11 @@ type Res<T> =
   | { s: "error"; message: string }
   | { s: "ready"; data: T };
 
+type MutationFence = {
+  generation: number;
+  month: string;
+};
+
 function resolveError(
   cause: unknown,
 ): { s: "denied" } | { s: "error"; message: string } {
@@ -203,11 +208,18 @@ function AttendanceScreenBodyInner({
     [],
   );
   const monthRef = useRef(month);
+  const isFenceCurrent = useCallback(
+    (fence: MutationFence) =>
+      monthRef.current === fence.month && isCurrent(fence.generation),
+    [isCurrent],
+  );
   const selectMonth = useCallback((nextMonth: string) => {
     monthRef.current = nextMonth;
     setPreflight((current) =>
       current?.month === nextMonth ? current : undefined,
     );
+    setActionError(undefined);
+    setBusy(false);
     setMonth(nextMonth);
   }, []);
 
@@ -217,6 +229,8 @@ function AttendanceScreenBodyInner({
     const controller = new AbortController();
     operation.current = controller;
     const token = ++generation.current;
+    const requestedMonth = month;
+    const requestedSubstitutionWindow = substitutionWindow;
     setExceptions({ s: "loading" });
     setSubstitutions({ s: "loading" });
     setCloses({ s: "loading" });
@@ -225,15 +239,26 @@ function AttendanceScreenBodyInner({
     const guard =
       <T,>(apply: (value: Res<T>) => void) =>
       (settled: PromiseSettledResult<T>) => {
-        if (!isCurrent(token) || controller.signal.aborted) return;
+        if (
+          !isCurrent(token) ||
+          monthRef.current !== requestedMonth ||
+          controller.signal.aborted
+        )
+          return;
         if (settled.status === "fulfilled")
           apply({ s: "ready", data: settled.value });
         else apply(resolveError(settled.reason));
       };
     const [ex, subs, close, w52, recs] = await Promise.allSettled([
-      transport.listExceptions({ month, limit: 200 }, controller.signal),
-      transport.listSubstitutions(substitutionWindow, controller.signal),
-      transport.listCloses(month, controller.signal),
+      transport.listExceptions(
+        { month: requestedMonth, limit: 200 },
+        controller.signal,
+      ),
+      transport.listSubstitutions(
+        requestedSubstitutionWindow,
+        controller.signal,
+      ),
+      transport.listCloses(requestedMonth, controller.signal),
       transport.listWeek52(currentWeek, controller.signal),
       transport.listAttendanceRecords(200, controller.signal),
     ]);
@@ -271,26 +296,31 @@ function AttendanceScreenBodyInner({
   }, [month]);
 
   const mutate = useCallback(
-    async (work: (signal: AbortSignal) => Promise<void>) => {
+    async (
+      work: (signal: AbortSignal, fence: MutationFence) => Promise<void>,
+    ) => {
       const controller = new AbortController();
-      const token = generation.current;
+      const fence = {
+        generation: generation.current,
+        month: monthRef.current,
+      };
       setBusy(true);
       setActionError(undefined);
       try {
-        await work(controller.signal);
-        return isCurrent(token);
+        await work(controller.signal, fence);
+        return isFenceCurrent(fence);
       } catch (cause) {
-        if (isCurrent(token) && !controller.signal.aborted) {
+        if (isFenceCurrent(fence) && !controller.signal.aborted) {
           setActionError(
             cause instanceof Error ? cause.message : text.actionError,
           );
         }
         return false;
       } finally {
-        if (isCurrent(token)) setBusy(false);
+        if (isFenceCurrent(fence)) setBusy(false);
       }
     },
-    [isCurrent],
+    [isFenceCurrent],
   );
 
   const replaceException = useCallback((next: AttendanceException) => {
@@ -313,16 +343,16 @@ function AttendanceScreenBodyInner({
     async (targetMonth: string, token: number) => {
       try {
         const board = await transport.listCloses(targetMonth);
-        if (monthRef.current === targetMonth && isCurrent(token)) {
+        if (isFenceCurrent({ month: targetMonth, generation: token })) {
           setCloses({ s: "ready", data: board });
         }
       } catch (cause) {
-        if (monthRef.current === targetMonth && isCurrent(token)) {
+        if (isFenceCurrent({ month: targetMonth, generation: token })) {
           setCloses(resolveError(cause));
         }
       }
     },
-    [transport, isCurrent],
+    [transport, isFenceCurrent],
   );
 
   const exceptionItems = exceptions.s === "ready" ? exceptions.data.items : [];
@@ -687,12 +717,13 @@ function AttendanceScreenBodyInner({
                       canAck={capabilities.canAckW52}
                       busy={busy}
                       onAck={() =>
-                        void mutate(async (signal) => {
+                        void mutate(async (signal, fence) => {
                           const next = await transport.ackWeek52(
                             row.employee_id,
                             row.week_start,
                             signal,
                           );
+                          if (!isFenceCurrent(fence)) return;
                           setWeek52((current) =>
                             current.s === "ready"
                               ? {
@@ -844,17 +875,19 @@ function AttendanceScreenBodyInner({
                         setExOpen(exception);
                       }}
                       onConfirm={(scope) =>
-                        void mutate(async (signal) => {
-                          const requestedMonth = monthRef.current;
-                          const requestedGeneration = generation.current;
+                        void mutate(async (signal, fence) => {
+                          const requestedMonth = fence.month;
+                          const requestedGeneration = fence.generation;
                           const result = await transport.preflightClose(
                             requestedMonth,
                             scope,
                             signal,
                           );
                           if (
-                            monthRef.current === requestedMonth &&
-                            isCurrent(requestedGeneration)
+                            isFenceCurrent({
+                              month: requestedMonth,
+                              generation: requestedGeneration,
+                            })
                           ) {
                             setPreflight({
                               data: result,
@@ -886,16 +919,17 @@ function AttendanceScreenBodyInner({
             setExOpen(undefined);
           }}
           onResolve={(input) =>
-            void mutate(async (signal) => {
+            void mutate(async (signal, fence) => {
               const next = await transport.resolveException(
                 exOpen.id,
                 input,
                 signal,
               );
+              if (!isFenceCurrent(fence)) return;
               replaceException(next);
               storageSet(`attendance:exdraft:${exOpen.id}`, undefined);
               setExOpen(undefined);
-              await refreshCloses(monthRef.current, generation.current);
+              await refreshCloses(fence.month, fence.generation);
             })
           }
         />
@@ -910,13 +944,15 @@ function AttendanceScreenBodyInner({
             setSubGap(undefined);
           }}
           onAssign={(input) =>
-            void mutate(async (signal) => {
+            void mutate(async (signal, fence) => {
               await transport.createSubstitution(input, signal);
+              if (!isFenceCurrent(fence)) return;
               setSubGap(undefined);
               const [subs, ex] = await Promise.all([
-                transport.listSubstitutions(substitutionWindow),
-                transport.listExceptions({ month, limit: 200 }),
+                transport.listSubstitutions(monthOperationalRange(fence.month)),
+                transport.listExceptions({ month: fence.month, limit: 200 }),
               ]);
+              if (!isFenceCurrent(fence)) return;
               setSubstitutions({ s: "ready", data: subs });
               setExceptions({ s: "ready", data: ex });
             })
@@ -944,8 +980,10 @@ function AttendanceScreenBodyInner({
                   signal,
                 );
                 if (
-                  monthRef.current === preflightMonth &&
-                  isCurrent(preflightGeneration)
+                  isFenceCurrent({
+                    month: preflightMonth,
+                    generation: preflightGeneration,
+                  })
                 ) {
                   setPreflight(undefined);
                 }

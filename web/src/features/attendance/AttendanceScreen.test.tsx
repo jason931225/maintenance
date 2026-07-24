@@ -436,7 +436,9 @@ describe("AttendanceScreen", () => {
     await userEvent.type(within(dialog).getByLabelText(text.sub.role), "경비");
     await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
     await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
-    await userEvent.click(within(dialog).getByRole("button", { name: text.sub.assign }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: text.sub.assign }),
+    );
     await waitFor(() => expect(createSubstitution).toHaveBeenCalledWith(
       expect.objectContaining({
         cover_date: TODAY,
@@ -470,6 +472,98 @@ describe("AttendanceScreen", () => {
     expect(await screen.findByText("substitute failed")).toBeVisible();
     expect(screen.getByRole("dialog", { name: text.sub.title })).toBeVisible();
     view.unmount();
+  });
+
+  it("does not let a dismissed substitution refresh overwrite a newer month", async () => {
+    const pendingCreate = deferred<Substitution>();
+    const staleSubstitutions = deferred<Page<Substitution>>();
+    const staleExceptions = deferred<Page<AttendanceException>>();
+    let refreshAfterCreate = false;
+    const listSubstitutions = vi.fn((range: { from_date: string }) => {
+      if (range.from_date === "2026-07-01" && refreshAfterCreate) {
+        return staleSubstitutions.promise;
+      }
+      return Promise.resolve(page<Substitution>([]));
+    });
+    const listExceptions = vi.fn((query: { month: string }) => {
+      if (query.month === "2026-07" && refreshAfterCreate) {
+        return staleExceptions.promise;
+      }
+      if (query.month === "2026-06") {
+        return Promise.resolve(
+          page([
+            exception({
+              id: "june-current",
+              employee_name: "6월 현재 예외",
+              work_date: "2026-06-12",
+            }),
+          ]),
+        );
+      }
+      return Promise.resolve(page(exceptions));
+    });
+    const createSubstitution = vi.fn(() => pendingCreate.promise);
+    const api = transport({
+      createSubstitution,
+      listExceptions,
+      listSubstitutions,
+    });
+    renderScreen(api);
+
+    const board = await screen.findByRole("region", { name: text.board.title });
+    await userEvent.click(
+      await within(board).findByRole("button", { name: text.board.assignSub }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: text.sub.title });
+    await userEvent.type(within(dialog).getByLabelText(text.sub.role), "경비");
+    await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
+    await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
+    await userEvent.click(within(dialog).getByRole("button", { name: text.sub.assign }));
+    await waitFor(() => expect(createSubstitution).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: text.sub.cancel }),
+    );
+    expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
+
+    refreshAfterCreate = true;
+    pendingCreate.resolve(substitution({ id: "old-month-substitution" }));
+    await waitFor(() => expect(listSubstitutions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listExceptions).toHaveBeenCalledTimes(2));
+
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.prevMonth }),
+    );
+    expect(await within(board).findByText("2026년 6월")).toBeVisible();
+    expect(
+      (await screen.findAllByText("6월 현재 예외")).length,
+    ).toBeGreaterThan(0);
+
+    staleSubstitutions.resolve(
+      page([
+        substitution({
+          id: "stale-substitution",
+          worker_name: "7월 이전 대체",
+        }),
+      ]),
+    );
+    staleExceptions.resolve(
+      page([
+        exception({
+          id: "stale-exception",
+          employee_name: "7월 이전 예외",
+        }),
+      ]),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("6월 현재 예외").length).toBeGreaterThan(0);
+      expect(screen.queryByText("7월 이전 예외")).toBeNull();
+      expect(screen.queryByText("7월 이전 대체")).toBeNull();
+    });
   });
 
   it("runs close preflight and confirmation through exact typed calls, including failures", async () => {
