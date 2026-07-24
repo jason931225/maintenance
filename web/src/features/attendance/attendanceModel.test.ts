@@ -235,6 +235,38 @@ describe("monthSheetRows", () => {
 });
 
 describe("coverPlanRows", () => {
+  it("does not cover a second no-show for the same employee on another date", () => {
+    const rows = coverPlanRows(
+      [
+        exception({
+          id: "ex-early",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          employee_name: "이영희",
+          work_date: "2026-07-10",
+        }),
+        exception({
+          id: "ex-later",
+          kind: "NO_SHOW",
+          employee_id: "emp-9",
+          employee_name: "이영희",
+          work_date: "2026-07-11",
+        }),
+      ],
+      [
+        substitution({
+          covered_employee_id: "emp-9",
+          cover_date: "2026-07-10",
+          exception_id: undefined,
+        }),
+      ],
+    );
+
+    expect(rows.filter((row) => !row.assigned).map((row) => row.key)).toEqual([
+      "gap-ex-later",
+    ]);
+  });
+
   it("lists uncovered open no-shows before assigned covers", () => {
     const rows = coverPlanRows(
       [

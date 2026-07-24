@@ -114,7 +114,11 @@ export function daySegments(
 }
 
 function coverFor(
-  exceptionOrEmployee: { exceptionId?: string; employeeId: string },
+  exceptionOrEmployee: {
+    exceptionId?: string;
+    employeeId: string;
+    workDate: string;
+  },
   substitutions: Substitution[],
 ): Substitution | undefined {
   return substitutions.find(
@@ -124,7 +128,8 @@ function coverFor(
         sub.exception_id === exceptionOrEmployee.exceptionId) ||
         (sub.covered_employee_id !== null &&
           sub.covered_employee_id !== undefined &&
-          sub.covered_employee_id === exceptionOrEmployee.employeeId)),
+          sub.covered_employee_id === exceptionOrEmployee.employeeId &&
+          sub.cover_date === exceptionOrEmployee.workDate)),
   );
 }
 
@@ -171,7 +176,7 @@ export function dayBoardRows(
       exceptions: todayExceptions.filter(
         (exception) => exception.employee_id === employeeId,
       ),
-      cover: coverFor({ employeeId }, todaySubs),
+      cover: coverFor({ employeeId, workDate }, todaySubs),
     }),
   );
   employeeRows.sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -187,7 +192,11 @@ export function dayBoardRows(
         exception.kind === "NO_SHOW" &&
         exception.status === "OPEN" &&
         !coverFor(
-          { exceptionId: exception.id, employeeId: exception.employee_id },
+          {
+            exceptionId: exception.id,
+            employeeId: exception.employee_id,
+            workDate: exception.work_date,
+          },
           todaySubs,
         ),
     )
@@ -338,7 +347,11 @@ export function coverPlanRows(
         exception.kind === "NO_SHOW" &&
         exception.status === "OPEN" &&
         !coverFor(
-          { exceptionId: exception.id, employeeId: exception.employee_id },
+          {
+            exceptionId: exception.id,
+            employeeId: exception.employee_id,
+            workDate: exception.work_date,
+          },
           assigned,
         ),
     )

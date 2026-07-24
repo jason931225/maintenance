@@ -15,13 +15,15 @@ import {
 export function useAttendanceConsoleAuthz() {
   const { session } = useAuth();
   const floor = useMemo(() => jwtFloorProjection(session), [session]);
+  const sessionIdentity =
+    session?.client_session_incarnation ?? session?.access_token;
+  const token = session?.access_token;
   const [authoritative, setAuthoritative] = useState<{
-    token: string | undefined;
+    sessionIdentity: string | undefined;
     projection: AuthzProjection;
   }>();
-  const token = session?.access_token;
   const projection =
-    authoritative && authoritative.token === token
+    authoritative && authoritative.sessionIdentity === sessionIdentity
       ? authoritative.projection
       : floor;
 
@@ -29,12 +31,15 @@ export function useAttendanceConsoleAuthz() {
     const controller = new AbortController();
     void fetchAuthzProjection(token, controller.signal).then((next) => {
       if (!controller.signal.aborted && next)
-        setAuthoritative({ token, projection: next });
+        setAuthoritative({ sessionIdentity, projection: next });
     });
     return () => {
       controller.abort();
     };
-  }, [token]);
+    // The effective session identity owns this request's lifetime. A token
+    // refresh within the same incarnation must not replace its cache key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionIdentity]);
 
   return useMemo(
     () => makePolicyGate(projection, projection.source === "authz"),
