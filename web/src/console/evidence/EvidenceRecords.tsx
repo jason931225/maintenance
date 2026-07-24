@@ -236,7 +236,7 @@ export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
   }, [api, resolveNames]);
 
   useEffect(() => {
-    void loadList();
+    void Promise.resolve().then(loadList);
     return () => {
       listController.current?.abort();
     };

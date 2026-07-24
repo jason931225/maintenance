@@ -12,8 +12,6 @@
 // explicit and retryable; it is never mislabeled as an absent retention rule.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
-import type { ConsoleApiClient } from "../../../api/client";
-
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
@@ -38,6 +36,7 @@ const SOURCE_TONE: Record<EvidenceSourceKind, ChipTone> = {
 };
 import { documentsKoManifest as T } from "./koManifest";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
+import { readEvidenceRetentions, type RetentionEntry } from "./evidenceRetention";
 
 // Real, honest export — a client-side CSV of the rows actually on screen
 // (never a fabricated bulk export the backend doesn't offer). Native
@@ -57,59 +56,6 @@ type StatFilter = "ALL" | "THIS_MONTH" | "EXPIRING";
 const EXPIRING_WINDOW_DAYS = 90;
 
 type ListState = "loading" | "ready" | "error";
-type RetentionEntry =
-  | { state: "ready"; retentionUntil: string | null }
-  | { state: "unavailable"; retentionUntil: null };
-
-/** Bounds per-row lifecycle reads when the real evidence register spans pages. */
-export const RETENTION_READ_CONCURRENCY = 6;
-
-function throwIfAborted(signal: AbortSignal): void {
-  if (signal.aborted) throw new DOMException("Evidence retention read was aborted", "AbortError");
-}
-
-/**
- * Enriches every rendered record with an explicit lifecycle state. The endpoint
- * is per object, so use a fixed worker pool rather than unbounded Promise.all;
- * every non-abort failure becomes a visible unavailable state, never a silent
- * omitted map entry.
- */
-export async function readEvidenceRetentions(
-  api: ConsoleApiClient,
-  rows: EvidenceObjectDetail[],
-  signal: AbortSignal,
-): Promise<Map<string, RetentionEntry>> {
-  const entries = new Map<string, RetentionEntry>();
-  let nextIndex = 0;
-
-  async function worker(): Promise<void> {
-    for (;;) {
-      throwIfAborted(signal);
-      const index = nextIndex;
-      nextIndex += 1;
-      const row = rows[index];
-      if (!row) return;
-      try {
-        const { data, response } = await api.GET("/api/v1/lifecycles/{objectType}/{objectId}", {
-          params: { path: { objectType: "evidence_object", objectId: row.id } },
-          signal,
-        });
-        throwIfAborted(signal);
-        entries.set(row.id, data
-          ? { state: "ready", retentionUntil: data.retentionUntil ?? null }
-          : { state: response.status === 404 ? "ready" : "unavailable", retentionUntil: null });
-      } catch {
-        throwIfAborted(signal);
-        entries.set(row.id, { state: "unavailable", retentionUntil: null });
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(RETENTION_READ_CONCURRENCY, rows.length) }, worker));
-  throwIfAborted(signal);
-  return entries;
-}
-
 const rootStyle: CSSProperties = { display: "grid", gap: "var(--sp-4)", color: "var(--ink)", fontFamily: "var(--font-sans)" };
 const headerStyle = screenHeaderStyle;
 const titleStyle = screenTitleStyle;
@@ -141,18 +87,6 @@ const statButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 const statButtonActiveStyle: CSSProperties = { ...statButtonStyle, border: "1px solid var(--accent-bd)", background: "var(--accent-bg)" };
-const tabButtonStyle: CSSProperties = {
-  minHeight: 44,
-  borderRadius: "var(--radius-pill)",
-  border: "1px solid var(--border)",
-  background: "var(--surface)",
-  color: "var(--ink)",
-  padding: "0 var(--sp-4)",
-  fontSize: "var(--text-sm)",
-  fontWeight: "var(--fw-strong)",
-  cursor: "pointer",
-};
-const tabButtonActiveStyle: CSSProperties = { ...tabButtonStyle, border: "1px solid var(--signal)", background: "var(--signal)" };
 const searchInputStyle: CSSProperties = {
   minHeight: 44,
   minWidth: 0,
@@ -247,11 +181,6 @@ export function EvidenceScreenBody() {
     const controller = new AbortController();
     let current = true;
     const { append, offset } = pageRequest;
-    if (append) setLoadingMore(true);
-    else {
-      setListState("loading");
-      setNextOffset(null);
-    }
 
     void listEvidenceObjectPage(api, 200, offset, controller.signal)
       .then((page) => {
@@ -262,6 +191,7 @@ export function EvidenceScreenBody() {
         }
         if (append) page.items.forEach((item) => loadedIds.current.add(item.id));
         else loadedIds.current = pageIds;
+        setRetention(new Map());
         setRows((previous) => (append ? [...previous, ...page.items] : page.items));
         setNextOffset(page.mayHaveMore ? page.nextOffset : null);
         setListState("ready");
@@ -299,7 +229,6 @@ export function EvidenceScreenBody() {
   useEffect(() => {
     const controller = new AbortController();
     let current = true;
-    setRetention(new Map());
     void readEvidenceRetentions(api, rows, controller.signal)
       .then((entries) => {
         if (!current || controller.signal.aborted) return;
@@ -425,6 +354,8 @@ export function EvidenceScreenBody() {
             type="button"
             style={retryButtonStyle}
             onClick={() => {
+              setListState("loading");
+              setNextOffset(null);
               setPageRequest((request) => ({ offset: 0, append: false, attempt: request.attempt + 1 }));
             }}
           >
@@ -512,6 +443,7 @@ export function EvidenceScreenBody() {
             disabled={loadingMore}
             onClick={() => {
               if (loadingMore) return;
+              setLoadingMore(true);
               setPageRequest((request) => ({ offset: nextOffset, append: true, attempt: request.attempt + 1 }));
             }}
           >

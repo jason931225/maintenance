@@ -5,15 +5,21 @@ import { describe, expect, it, vi } from "vitest";
 import { createConsoleApiClient } from "../../../api/client";
 import { AuthContext, type AuthContextValue } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
+import type { EvidenceObjectDetail } from "../../evidence";
+import type { ConsoleApiClient } from "../../../api/client";
+import { EvidenceScreenBody } from "./EvidenceScreenBody";
 import {
-  EvidenceScreenBody,
   readEvidenceRetentions,
   RETENTION_READ_CONCURRENCY,
-} from "./EvidenceScreenBody";
+} from "./evidenceRetention";
 
 const now = new Date();
 const thisMonthIso = now.toISOString();
 const soonIso = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+function retentionRow(id: string): EvidenceObjectDetail {
+  return { id } as EvidenceObjectDetail;
+}
 
 const evidenceObjectView = {
   id: "ev-1",
@@ -68,9 +74,10 @@ describe("readEvidenceRetentions", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const rows = Array.from({ length: RETENTION_READ_CONCURRENCY + 3 }, (_, index) => ({
-      id: `ev-${index}`,
-    })) as never[];
+    const rows = Array.from(
+      { length: RETENTION_READ_CONCURRENCY + 3 },
+      (_, index) => retentionRow(`ev-${String(index)}`),
+    );
     const GET = vi.fn(async () => {
       active += 1;
       maximum = Math.max(maximum, active);
@@ -79,7 +86,7 @@ describe("readEvidenceRetentions", () => {
       return { data: undefined, response: { status: 503 } };
     });
 
-    const task = readEvidenceRetentions({ GET } as never, rows as never, new AbortController().signal);
+    const task = readEvidenceRetentions({ GET } as unknown as ConsoleApiClient, rows, new AbortController().signal);
     await waitFor(() => {
       expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
     });
@@ -99,15 +106,16 @@ describe("readEvidenceRetentions", () => {
       release = resolve;
     });
     const controller = new AbortController();
-    const rows = Array.from({ length: RETENTION_READ_CONCURRENCY + 1 }, (_, index) => ({
-      id: `ev-${index}`,
-    })) as never[];
+    const rows = Array.from(
+      { length: RETENTION_READ_CONCURRENCY + 1 },
+      (_, index) => retentionRow(`ev-${String(index)}`),
+    );
     const GET = vi.fn(async () => {
       await gate;
       return { data: undefined, response: { status: 404 } };
     });
 
-    const task = readEvidenceRetentions({ GET } as never, rows as never, controller.signal);
+    const task = readEvidenceRetentions({ GET } as unknown as ConsoleApiClient, rows, controller.signal);
     await waitFor(() => {
       expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
     });
@@ -246,12 +254,12 @@ describe("EvidenceScreenBody", () => {
   });
 
   it("exposes only backed evidence interactions and no unsupported document actions", async () => {
-    renderBody(async (path: unknown) => {
+    renderBody((path: unknown) => {
       if (path === "/api/v1/evidence/objects") {
-        return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
+        return Promise.resolve({ data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } });
       }
-      if (path === "/api/v1/users") return { data: { items: [] } };
-      return { data: undefined, response: { status: 404 } };
+      if (path === "/api/v1/users") return Promise.resolve({ data: { items: [] } });
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
     });
 
     await screen.findByText("EV-101");
@@ -263,24 +271,24 @@ describe("EvidenceScreenBody", () => {
   it("loads a subsequent bounded page without asserting that same-total paging is complete", async () => {
     const firstPage = Array.from({ length: 200 }, (_, index) => ({
       ...evidenceObjectView,
-      id: `ev-${index + 1}`,
-      code: `EV-${index + 1}`,
-      title: `기록 ${index + 1}`,
+      id: `ev-${String(index + 1)}`,
+      code: `EV-${String(index + 1)}`,
+      title: `기록 ${String(index + 1)}`,
     }));
     const laterPage = [
       { ...evidenceObjectView, id: "ev-202", code: "EV-202", title: "나중 기록" },
       { ...evidenceObjectView, id: "ev-201", code: "EV-201", title: "재정렬 기록" },
     ];
     let objectPageCalls = 0;
-    renderBody(async (path: unknown, opts?: unknown) => {
+    renderBody((path: unknown, opts?: unknown) => {
       if (path === "/api/v1/evidence/objects") {
         objectPageCalls += 1;
         const offset = (opts as { params: { query?: { offset?: number } } }).params.query?.offset ?? 0;
-        if (offset === 0) return { data: { items: firstPage, limit: 200, offset: 0, total: 400 } };
-        return { data: { items: laterPage, limit: 200, offset: 200, total: 400 } };
+        if (offset === 0) return Promise.resolve({ data: { items: firstPage, limit: 200, offset: 0, total: 400 } });
+        return Promise.resolve({ data: { items: laterPage, limit: 200, offset: 200, total: 400 } });
       }
-      if (path === "/api/v1/users") return { data: { items: [] } };
-      return { data: undefined, response: { status: 404 } };
+      if (path === "/api/v1/users") return Promise.resolve({ data: { items: [] } });
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
     });
 
     await screen.findByText("EV-1");
