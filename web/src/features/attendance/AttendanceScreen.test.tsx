@@ -259,7 +259,11 @@ async function assertDialogKeyboardContract(
   const dialog = await screen.findByRole("dialog", { name });
   const focusables = dialogFocusables(dialog);
   expect(focusables.length).toBeGreaterThan(0);
-  expect(dialog).toContainElement(document.activeElement);
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement || activeElement instanceof SVGElement)) {
+    throw new Error("dialog must receive an element focus target");
+  }
+  expect(dialog).toContainElement(activeElement);
 
   // JSDOM does not compute layout, while the production primitive excludes
   // hidden controls via `offsetParent`. Make these rendered controls visible to
