@@ -88,7 +88,7 @@ async fn seed_employee(
     .bind("Covered employee")
     .bind("attendance-test")
     .bind("FULL_TIME")
-    .bind(Option::<String>::None)
+    .bind("+821012345678")
     .bind("Operations")
     .bind("Forklift operator")
     .bind("Seoul depot")
