@@ -1,5 +1,7 @@
 import type { components } from "@maintenance/api-client-ts";
 
+import type { ConsoleApiClient } from "../../api/client";
+
 export type DailyPlan = components["schemas"]["DailyPlanSummary"];
 export type CreateDailyPlan = components["schemas"]["CreateDailyPlanRequest"];
 export type ReviewDailyPlan = components["schemas"]["ReviewDailyPlanRequest"];
@@ -11,54 +13,63 @@ export class ProductionApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  headers.set("content-type", "application/json");
-  const response = await fetch(path, {
-    credentials: "include",
-    headers,
-    ...options,
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    throw new ProductionApiError(
-      body?.error?.message ?? `Production request failed (${String(response.status)})`,
-      response.status,
-    );
+function message(error: unknown, status: number): string {
+  if (error && typeof error === "object" && "error" in error) {
+    const body = error as { error?: { message?: unknown } };
+    if (typeof body.error?.message === "string") return body.error.message;
   }
-  return response.json() as Promise<T>;
+  return `Production request failed (${String(status)})`;
 }
 
-export const productionApi = {
-  list: (planDate?: string, signal?: AbortSignal) =>
-    request<{ items: DailyPlan[] }>(
-      `/api/daily-work-plans${planDate ? `?plan_date=${encodeURIComponent(planDate)}` : ""}`,
-      { signal },
-    ),
-  get: (id: string, signal?: AbortSignal) =>
-    request<DailyPlan>(`/api/daily-work-plans/${encodeURIComponent(id)}`, { signal }),
-  create: (input: CreateDailyPlan, signal?: AbortSignal) =>
-    request<DailyPlan>("/api/daily-work-plans", {
-      method: "POST",
-      body: JSON.stringify(input),
-      signal,
-    }),
-  requestReview: (id: string, signal?: AbortSignal) =>
-    request<DailyPlan>(`/api/daily-work-plans/${encodeURIComponent(id)}/request-review`, {
-      method: "POST",
-      signal,
-    }),
-  review: (id: string, input: ReviewDailyPlan, signal?: AbortSignal) =>
-    request<DailyPlan>(`/api/daily-work-plans/${encodeURIComponent(id)}/review`, {
-      method: "POST",
-      body: JSON.stringify(input),
-      signal,
-    }),
-  confirm: (id: string, signal?: AbortSignal) =>
-    request<DailyPlan>(`/api/daily-work-plans/${encodeURIComponent(id)}/confirm`, {
-      method: "POST",
-      signal,
-    }),
-};
+function requireData<T>(response: { data?: T; error?: unknown; response: Response }): T {
+  if (response.data !== undefined) return response.data;
+  throw new ProductionApiError(message(response.error, response.response.status), response.response.status);
+}
+
+/** Daily-plan transport bound to the authenticated ConsoleApiClient. */
+export function createProductionApi(api: ConsoleApiClient) {
+  return {
+    list: async (planDate?: string, signal?: AbortSignal) => {
+      const response = await api.GET("/api/daily-work-plans", {
+        params: { query: planDate ? { plan_date: planDate } : {} },
+        signal,
+      });
+      return requireData(response);
+    },
+    get: async (id: string, signal?: AbortSignal) => {
+      const response = await api.GET("/api/daily-work-plans/{planId}", {
+        params: { path: { planId: id } },
+        signal,
+      });
+      return requireData(response);
+    },
+    create: async (input: CreateDailyPlan, signal?: AbortSignal) => {
+      const response = await api.POST("/api/daily-work-plans", { body: input, signal });
+      return requireData(response);
+    },
+    requestReview: async (id: string, signal?: AbortSignal) => {
+      const response = await api.POST("/api/daily-work-plans/{planId}/request-review", {
+        params: { path: { planId: id } },
+        signal,
+      });
+      return requireData(response);
+    },
+    review: async (id: string, input: ReviewDailyPlan, signal?: AbortSignal) => {
+      const response = await api.POST("/api/daily-work-plans/{planId}/review", {
+        params: { path: { planId: id } },
+        body: input,
+        signal,
+      });
+      return requireData(response);
+    },
+    confirm: async (id: string, signal?: AbortSignal) => {
+      const response = await api.POST("/api/daily-work-plans/{planId}/confirm", {
+        params: { path: { planId: id } },
+        signal,
+      });
+      return requireData(response);
+    },
+  };
+}
+
+export type ProductionApi = ReturnType<typeof createProductionApi>;

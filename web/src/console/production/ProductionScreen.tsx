@@ -1,17 +1,31 @@
-import { useCallback, useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
+import type { ConsoleApiClient } from "../../api/client";
 import { productionStrings as text } from "../../i18n/production";
-import { productionApi, type DailyPlan } from "./productionApi";
+import { createProductionApi, type DailyPlan } from "./productionApi";
 import type { ProductionCapabilities } from "./productionCapabilities";
 import "./production.css";
 
 type Props = {
+  api: ConsoleApiClient;
   branchId: string;
   actorId: string | undefined;
   capabilities: ProductionCapabilities;
   /** Changes whenever auth replaces the effective tenant/session. */
   sessionKey: string | undefined;
 };
+
+const apiFenceIds = new WeakMap<object, number>();
+let nextApiFenceId = 1;
+
+function apiFenceKey(api: ConsoleApiClient): number {
+  const reference = api as object;
+  const existing = apiFenceIds.get(reference);
+  if (existing) return existing;
+  const id = nextApiFenceId++;
+  apiFenceIds.set(reference, id);
+  return id;
+}
 
 function message(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
@@ -43,12 +57,13 @@ export function ProductionScreen(props: Props) {
     props.sessionKey ?? "no-session",
     props.branchId,
     props.actorId ?? "no-actor",
+    apiFenceKey(props.api),
     capabilityKey,
   ].join(":");
   return <ProductionScreenBody key={sessionFence} {...props} />;
 }
 
-function ProductionScreenBody({ branchId, actorId, capabilities, sessionKey }: Props) {
+function ProductionScreenBody({ api, branchId, actorId, capabilities, sessionKey }: Props) {
   const [plans, setPlans] = useState<DailyPlan[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -63,6 +78,7 @@ function ProductionScreenBody({ branchId, actorId, capabilities, sessionKey }: P
   const dateId = useId();
   const reviewMemoId = useId();
   const selected = plans.find((plan) => planId(plan) === selectedId);
+  const productionApi = useMemo(() => createProductionApi(api), [api]);
 
   const isCurrent = useCallback((token: number) => generation.current === token, []);
   const replacePlan = useCallback((next: DailyPlan) => {
@@ -103,7 +119,7 @@ function ProductionScreenBody({ branchId, actorId, capabilities, sessionKey }: P
     } finally {
       if (isCurrent(token)) setLoading(false);
     }
-  }, [branchId, capabilities.canRead, isCurrent]);
+  }, [branchId, capabilities.canRead, isCurrent, productionApi]);
 
   useEffect(() => {
     generation.current += 1;

@@ -3,12 +3,9 @@ export type ProductionFeature =
   | "daily_plan_review"
   | "org_wide_queue_triage";
 
-export interface EffectiveCapabilityProjection {
-  allows: (query: {
-    feature: ProductionFeature;
-    branch?: string;
-    minPermission?: "allow";
-  }) => boolean;
+/** Canonical console authz output. Only effective feature grants can expose UI. */
+export interface ProductionGrantSource {
+  featureGrants: readonly string[];
 }
 
 export interface ProductionCapabilities {
@@ -22,11 +19,11 @@ export interface ProductionCapabilities {
 
 /** Pure projection adapter matching the DailyPlan backend feature gates. */
 export function deriveProductionCapabilities(
-  projection: EffectiveCapabilityProjection,
-  branchId: string,
+  grants: ProductionGrantSource,
 ): ProductionCapabilities {
-  const allows = (feature: ProductionFeature) =>
-    projection.allows({ feature, branch: branchId, minPermission: "allow" });
+  // `useConsoleAuthz` is deny-by-omission. Request-only/limited entries are
+  // deliberately not translated into these effective action grants.
+  const allows = (feature: ProductionFeature) => grants.featureGrants.includes(feature);
   const canRequest = allows("daily_plan_request");
   const canReview = allows("daily_plan_review");
   const canTriage = allows("org_wide_queue_triage");

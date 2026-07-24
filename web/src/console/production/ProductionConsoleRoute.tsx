@@ -1,27 +1,24 @@
 import { useAuth } from "../../context/auth";
+import { useConsoleAuthz } from "../shell/authz";
 import { ProductionScreen } from "./ProductionScreen";
-import {
-  deriveProductionCapabilities,
-  type EffectiveCapabilityProjection,
-} from "./productionCapabilities";
+import { deriveProductionCapabilities } from "./productionCapabilities";
 
 /**
- * Module-owned shell adapter. Its caller must supply the shared effective
- * capability projection; unavailable authority is a mount error, not a local
- * deny-all fallback. Backend authorization remains the authority for every call.
+ * Module-owned route/body adapter. It consumes the console's canonical authz
+ * source, while shared registration remains intentionally outside this module.
  */
-export function ProductionConsoleRoute({
-  branchId,
-  capabilityProjection,
-}: {
-  branchId: string;
-  capabilityProjection: EffectiveCapabilityProjection;
-}) {
-  const { session } = useAuth();
-  const capabilities = deriveProductionCapabilities(capabilityProjection, branchId);
+export function ProductionConsoleRoute({ branchId }: { branchId: string }) {
+  return <ProductionConsoleBody branchId={branchId} />;
+}
+
+export function ProductionConsoleBody({ branchId }: { branchId: string }) {
+  const { api, session } = useAuth();
+  const { grants } = useConsoleAuthz();
+  const capabilities = deriveProductionCapabilities(grants);
 
   return (
     <ProductionScreen
+      api={api}
       branchId={branchId}
       actorId={session?.user_id}
       capabilities={capabilities}
