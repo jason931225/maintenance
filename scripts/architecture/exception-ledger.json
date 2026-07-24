@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Explicit baseline debt. New violations must not be added; remove entries as code is migrated to an adapter boundary.",
+  "exceptions": [
+    {
+      "id": "generated-client-boundary:web/src/auth/webauthn.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/auth/webauthn.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/components/shell/Sidebar.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/components/shell/Sidebar.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/charts/ProjectionPanel.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/charts/ProjectionPanel.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/compliance/complianceApi.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/compliance/complianceApi.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/composer/candidates.test.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/composer/candidates.test.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/consulting/ConsultingEngagementBody.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/consulting/ConsultingEngagementBody.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/evidence/evidenceApi.test.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/evidence/evidenceApi.test.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/evidence/evidenceApi.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/evidence/evidenceApi.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/finance/financeApi.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/finance/financeApi.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/leave/api.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/leave/api.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/leave/LeaveConsole.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/leave/LeaveConsole.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/lifecycle/types.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/lifecycle/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/module/moduleConfigs.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/module/moduleConfigs.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/module/ModuleDemo.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/module/ModuleDemo.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/objectcard/useObjectCard.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/objectcard/useObjectCard.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/production/productionApi.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/production/productionApi.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/rollout/status.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/rollout/status.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/screens/benefit/BenefitBody.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/screens/benefit/BenefitBody.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/screens/inbox/inboxApi.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/screens/inbox/inboxApi.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/screens/laborcost/LaborCostBody.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/screens/laborcost/LaborCostBody.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/screens/mywork/myWorkApi.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/screens/mywork/myWorkApi.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/console/screens/overview/overviewModel.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/console/screens/overview/overviewModel.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/approvals/ApprovalQueue.test.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/approvals/ApprovalQueue.test.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/EvidenceUpload.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/EvidenceUpload.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/MechanicDispatchOffers.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/MechanicDispatchOffers.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/WorkOrderActions.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/WorkOrderActions.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/WorkOrderDetail.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/WorkOrderDetail.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/WorkOrderEvidenceList.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/WorkOrderEvidenceList.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/WorkOrderFilters.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/WorkOrderFilters.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/dispatch/workOrderQuery.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/dispatch/workOrderQuery.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/facilities/facilitiesCapabilities.test.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/facilities/facilitiesCapabilities.test.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/facilities/facilitiesCapabilities.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/facilities/facilitiesCapabilities.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/facilities/FacilitiesWorkflowPage.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/facilities/FacilitiesWorkflowPage.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/financial/AssetLifecycleCostPanel.test.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/financial/AssetLifecycleCostPanel.test.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/financial/FinancialWorkflow.test.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/financial/FinancialWorkflow.test.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/features/financial/purchaseRequestQueue.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/features/financial/purchaseRequestQueue.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/lib/objectCandidates.test.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/lib/objectCandidates.test.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/pages/ApprovalsPage.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/pages/ApprovalsPage.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/pages/DispatchPage.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/pages/DispatchPage.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/pages/IntegrityPage.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/pages/IntegrityPage.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/pages/WorkOrderDetailPage.test.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/pages/WorkOrderDetailPage.test.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/pages/WorkOrderDetailPage.tsx:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/pages/WorkOrderDetailPage.tsx",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/test/fixtures.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/test/fixtures.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "generated-client-boundary:web/src/test/module-fixtures.ts:@maintenance/api-client-ts",
+      "rule": "generated-client-boundary",
+      "path": "web/src/test/module-fixtures.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
+    },
+    {
+      "id": "rest-lifecycle-policy:backend/crates/compliance/rest/src/lib.rs:lifecycle-named-handler",
+      "rule": "rest-lifecycle-policy",
+      "path": "backend/crates/compliance/rest/src/lib.rs",
+      "owner": "console-boundary-migration",
+      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+    },
+    {
+      "id": "rest-lifecycle-policy:backend/crates/finance-gl/rest/src/lib.rs:lifecycle-named-handler",
+      "rule": "rest-lifecycle-policy",
+      "path": "backend/crates/finance-gl/rest/src/lib.rs",
+      "owner": "console-boundary-migration",
+      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+    },
+    {
+      "id": "rest-lifecycle-policy:backend/crates/financial/rest/src/lib.rs:lifecycle-named-handler",
+      "rule": "rest-lifecycle-policy",
+      "path": "backend/crates/financial/rest/src/lib.rs",
+      "owner": "console-boundary-migration",
+      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+    },
+    {
+      "id": "rest-lifecycle-policy:backend/crates/inspection/rest/src/lib.rs:lifecycle-named-handler",
+      "rule": "rest-lifecycle-policy",
+      "path": "backend/crates/inspection/rest/src/lib.rs",
+      "owner": "console-boundary-migration",
+      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+    },
+    {
+      "id": "rest-lifecycle-policy:backend/crates/support/rest/src/lib.rs:lifecycle-named-handler",
+      "rule": "rest-lifecycle-policy",
+      "path": "backend/crates/support/rest/src/lib.rs",
+      "owner": "console-boundary-migration",
+      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+    },
+    {
+      "id": "rest-lifecycle-policy:backend/crates/workorder/rest/src/lib.rs:lifecycle-named-handler",
+      "rule": "rest-lifecycle-policy",
+      "path": "backend/crates/workorder/rest/src/lib.rs",
+      "owner": "console-boundary-migration",
+      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+    }
+  ]
+}
