@@ -31,9 +31,10 @@ import {
  *   - 임원 (EXECUTIVE)          → HQ-confirms as a SEPARATE user
  *     (holds ExitCaseHqConfirm; user id differs from the HR confirmer).
  *
- * Runs ONLY under the dev-auth Playwright project (MNT_DEV_AUTH_E2E=1). Bring up
- * the real stack first — `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap`
- * (backend `--features dev-auth` + Vite dev server) — then run this config; see
+ * Runs ONLY under the dev-auth Playwright project. Bring up the paired real
+ * stack first — `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 node
+ * scripts/dev-up.mjs bootstrap` — then run `MNT_DEV_AUTH_E2E=1
+ * VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`; see
  * playwright.config.ts.
  */
 

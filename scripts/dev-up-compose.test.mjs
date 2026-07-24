@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const compose = readFileSync(
@@ -35,6 +35,14 @@ const commandRoleInit = readFileSync(
 );
 const ciGates = readFileSync(new URL("../docs/CI-GATES.md", import.meta.url), "utf8");
 const playwrightConfig = readFileSync(new URL("../playwright.config.ts", import.meta.url), "utf8");
+const e2eSpecInstructionSources = readdirSync(new URL("../e2e/specs/", import.meta.url), {
+  recursive: true,
+})
+  .filter((entry) => entry.endsWith(".spec.ts"))
+  .map((entry) => ({
+    path: String(entry),
+    text: readFileSync(new URL(`../e2e/specs/${entry}`, import.meta.url), "utf8"),
+  }));
 
 test("mox localserve creates its config below the named volume root", () => {
   assert.match(compose, /localserve/);
@@ -413,4 +421,20 @@ test("authoritative dev-auth instructions pair console preview with every Attend
     playwrightConfig,
     /MNT_DEV_AUTH_E2E=1[\s\S]*?VITE_CONSOLE_DEV_PREVIEW=1[\s\S]*?npx playwright test --project=dev-auth/,
   );
+  for (const source of e2eSpecInstructionSources) {
+    for (const command of source.text.matchAll(/`([^`]+)`/g)) {
+      const value = command[1];
+      if (
+        value.includes("MNT_DEV_AUTH_E2E=1") &&
+        (value.includes("node scripts/dev-up.mjs bootstrap") ||
+          value.includes("npx playwright test --project=dev-auth"))
+      ) {
+        assert.match(
+          value,
+          /MNT_DEV_AUTH_E2E=1[\s\S]*?VITE_CONSOLE_DEV_PREVIEW=1/,
+          `${source.path} must pair every copy-pastable dev-auth proof command with console preview`,
+        );
+      }
+    }
+  }
 });
