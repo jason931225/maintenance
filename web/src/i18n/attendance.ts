@@ -1,7 +1,7 @@
 /**
  * Attendance console module strings (screen key "attendance").
- * All user-visible Korean for web/src/features/attendance/** lives here
- * (check-ui-strings gate bans inline Hangul in components).
+ * User-visible Korean copy for the attendance feature lives in this i18n
+ * resource so the UI-string gate can validate the feature directory.
  */
 export const attendanceStrings = {
   title: "근태",

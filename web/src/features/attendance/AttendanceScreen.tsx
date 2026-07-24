@@ -8,7 +8,7 @@ import {
   type ReactElement,
 } from "react";
 
-import { attendanceStrings as text } from "./attendanceStrings";
+import { attendanceStrings as text } from "../../i18n/attendance";
 import { consoleScreenPath } from "../../console/shell/nav";
 import { Dialog } from "../../components/ui/dialog";
 import {
@@ -214,14 +214,14 @@ function AttendanceScreenBodyInner({
     [isCurrent],
   );
   const selectMonth = useCallback((nextMonth: string) => {
+    if (busy) return;
     monthRef.current = nextMonth;
     setPreflight((current) =>
       current?.month === nextMonth ? current : undefined,
     );
     setActionError(undefined);
-    setBusy(false);
     setMonth(nextMonth);
-  }, []);
+  }, [busy]);
 
   const load = useCallback(async () => {
     if (!capabilities.canRead) return;
@@ -641,6 +641,7 @@ function AttendanceScreenBodyInner({
                 <button
                   type="button"
                   aria-label={text.board.prevMonth}
+                  disabled={busy}
                   onClick={() => {
                     selectMonth(shiftMonth(month, -1));
                   }}
@@ -653,6 +654,7 @@ function AttendanceScreenBodyInner({
                 <button
                   type="button"
                   aria-label={text.board.nextMonth}
+                  disabled={busy}
                   onClick={() => {
                     selectMonth(shiftMonth(month, 1));
                   }}

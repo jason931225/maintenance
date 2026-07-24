@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { attendanceStrings as text } from "./attendanceStrings";
+import { attendanceStrings as text } from "../../i18n/attendance";
 import {
   AttendanceTransportError,
   type AttendanceException,
@@ -581,7 +581,49 @@ describe("AttendanceScreen", () => {
     });
   });
 
-  it("does not let a completed substitution refresh overwrite a newer month", async () => {
+  it("disables direct month controls while a substitution mutation is pending", async () => {
+    const pendingCreate = deferred<Substitution>();
+    const createSubstitution = vi.fn<AttendanceTransport["createSubstitution"]>(
+      () => pendingCreate.promise,
+    );
+    renderScreen(transport({ createSubstitution }));
+
+    const board = await screen.findByRole("region", { name: text.board.title });
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+    await within(board).findByRole("button", { name: text.board.prevMonth });
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.day }),
+    );
+    await userEvent.click(
+      await within(board).findByRole("button", { name: text.board.assignSub }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: text.sub.title });
+    await userEvent.type(within(dialog).getByLabelText(text.sub.role), "경비");
+    await userEvent.type(within(dialog).getByLabelText(text.sub.from), "11:30");
+    await userEvent.type(within(dialog).getByLabelText(text.sub.to), "18:00");
+    await userEvent.click(within(dialog).getByRole("button", { name: text.sub.assign }));
+    await waitFor(() => { expect(createSubstitution).toHaveBeenCalledTimes(1); });
+
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+    const previousMonth = within(board).getByRole("button", {
+      name: text.board.prevMonth,
+    });
+    expect(previousMonth).toBeDisabled();
+    await userEvent.click(previousMonth);
+    expect(within(board).getByText("2026년 7월")).toBeVisible();
+    expect(screen.getByRole("dialog", { name: text.sub.title })).toBeVisible();
+
+    pendingCreate.resolve(substitution({ id: "pending-substitution" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
+    });
+  });
+
+  it("allows month navigation after a substitution mutation settles", async () => {
     const pendingCreate = deferred<Substitution>();
     const staleSubstitutions = deferred<Page<Substitution>>();
     const staleExceptions = deferred<Page<AttendanceException>>();
@@ -634,17 +676,6 @@ describe("AttendanceScreen", () => {
     await waitFor(() => { expect(listExceptions).toHaveBeenCalledTimes(2); });
     expect(screen.queryByRole("dialog", { name: text.sub.title })).toBeNull();
 
-    await userEvent.click(
-      within(board).getByRole("button", { name: text.board.month }),
-    );
-    await userEvent.click(
-      within(board).getByRole("button", { name: text.board.prevMonth }),
-    );
-    expect(await within(board).findByText("2026년 6월")).toBeVisible();
-    expect(
-      (await screen.findAllByText("6월 현재 예외")).length,
-    ).toBeGreaterThan(0);
-
     staleSubstitutions.resolve(
       page([
         substitution({
@@ -663,10 +694,19 @@ describe("AttendanceScreen", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getAllByText("6월 현재 예외").length).toBeGreaterThan(0);
-      expect(screen.queryByText("7월 이전 예외")).toBeNull();
-      expect(screen.queryByText("7월 이전 대체")).toBeNull();
+      expect(screen.getByText("7월 이전 예외")).toBeVisible();
+      expect(screen.getByText("7월 이전 대체")).toBeVisible();
     });
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.prevMonth }),
+    );
+    expect(await within(board).findByText("2026년 6월")).toBeVisible();
+    expect(
+      (await screen.findAllByText("6월 현재 예외")).length,
+    ).toBeGreaterThan(0);
   });
 
   it("runs close preflight and confirmation through exact typed calls, including failures", async () => {
@@ -789,7 +829,7 @@ describe("AttendanceScreen", () => {
     });
   });
 
-  it("ignores a close preflight that resolves after the selected month changes", async () => {
+  it("keeps month controls disabled while close preflight is pending", async () => {
     const pendingPreflight = deferred<{
       month: string;
       branch_scope: string;
@@ -797,7 +837,6 @@ describe("AttendanceScreen", () => {
       can_close: true;
     }>();
     const preflightClose = vi.fn(() => pendingPreflight.promise);
-    const confirmClose = vi.fn();
     const api = transport({
       listExceptions: vi.fn(() =>
         Promise.resolve(
@@ -816,11 +855,18 @@ describe("AttendanceScreen", () => {
         }),
       ),
       preflightClose,
-      confirmClose,
     });
     renderScreen(api);
 
-    const closeCard = await screen.findByRole("region", {
+    const board = await screen.findByRole("region", { name: text.board.title });
+    await userEvent.click(
+      within(board).getByRole("button", { name: text.board.month }),
+    );
+    const previousMonth = await within(board).findByRole("button", {
+      name: text.board.prevMonth,
+    });
+
+    const closeCard = screen.getByRole("region", {
       name: text.closePanel.title,
     });
     await userEvent.click(
@@ -836,14 +882,9 @@ describe("AttendanceScreen", () => {
       ); },
     );
 
-    const board = screen.getByRole("region", { name: text.board.title });
-    await userEvent.click(
-      within(board).getByRole("button", { name: text.board.month }),
-    );
-    await userEvent.click(
-      within(board).getByRole("button", { name: text.board.prevMonth }),
-    );
-    expect(await within(board).findByText("2026년 6월")).toBeVisible();
+    expect(previousMonth).toBeDisabled();
+    await userEvent.click(previousMonth);
+    expect(within(board).getByText("2026년 7월")).toBeVisible();
 
     pendingPreflight.resolve({
       month: "2026-07",
@@ -852,12 +893,9 @@ describe("AttendanceScreen", () => {
       can_close: true,
     });
 
-    await waitFor(() =>
-      { expect(
-        screen.queryByRole("dialog", { name: text.closePanel.preflightTitle }),
-      ).toBeNull(); },
-    );
-    expect(confirmClose).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("dialog", { name: text.closePanel.preflightTitle }),
+    ).toBeVisible();
   });
 
   it("retains an actionable close preflight after confirmation rejects", async () => {
