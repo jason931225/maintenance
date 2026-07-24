@@ -31,6 +31,9 @@ const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 const DEV_AUTH_SPEC =
   /(?:admin-29-console-window|auth-09-dev-role-switcher|chrome-0[123]-(?:mobile-drawer|axe|workspace)|console-01-shell|hr-30-absence-exit-settlement|attendance-31-console-live)\.spec\.ts$/;
 const DEV_AUTH_E2E = process.env.MNT_DEV_AUTH_E2E === "1";
+const DEV_AUTH_CONSOLE_PREVIEW =
+  DEV_AUTH_E2E && process.env.VITE_CONSOLE_DEV_PREVIEW === "1";
+const DEV_AUTH_CONSOLE_SPEC = /attendance-31-console-live\.spec\.ts$/;
 const STATIC_PREVIEW_FALLBACK = process.env.E2E_STATIC_PREVIEW_FALLBACK === "1";
 
 export default defineConfig({
@@ -64,6 +67,12 @@ export default defineConfig({
           {
             name: "dev-auth",
             testMatch: DEV_AUTH_SPEC,
+            // Attendance uses the separate console-preview dev gate. It is
+            // impossible to accidentally select that spec from a dev-auth run
+            // whose Vite child did not receive the matching flag.
+            ...(DEV_AUTH_CONSOLE_PREVIEW
+              ? {}
+              : { testIgnore: DEV_AUTH_CONSOLE_SPEC }),
             use: { ...devices["Desktop Chrome"] },
           },
         ]

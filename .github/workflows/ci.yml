@@ -491,6 +491,7 @@ jobs:
       - name: dev-up bootstrap --features dev-auth (backend + Vite dev server)
         env:
           MNT_DEV_AUTH_E2E: "1"
+          VITE_CONSOLE_DEV_PREVIEW: "1"
         run: node scripts/dev-up.mjs bootstrap
 
       - name: Dev-mode e2e — role switcher against the real dev-auth stack
@@ -501,6 +502,7 @@ jobs:
         # from the previous step.
         env:
           MNT_DEV_AUTH_E2E: "1"
+          VITE_CONSOLE_DEV_PREVIEW: "1"
         run: npx playwright test --project=dev-auth
 
       - name: Upload dev-auth e2e report

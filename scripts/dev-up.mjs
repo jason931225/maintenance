@@ -600,9 +600,10 @@ function runSeed(compose) {
 // SeaweedFS endpoint, and OTEL_EXPORTER_OTLP_ENDPOINT — rewritten to the
 // published localhost ports for a host-launched process.
 function buildAppEnv(role) {
+  const { VITE_CONSOLE_DEV_PREVIEW: _ignoredConsolePreview, ...parentEnv } = process.env;
   const { privateKeyPem, publicKeyPem } = ensureDevKeys();
   return {
-    ...process.env,
+    ...parentEnv,
     MNT_APP_ROLE: role,
     DATABASE_URL: role === "migrate" ? databaseUrl() : runtimeDatabaseUrl(),
     LEAVE_COMMAND_DATABASE_URL: commandDatabaseUrl(
@@ -662,6 +663,18 @@ function buildAppEnv(role) {
   };
 }
 
+// The console preview is a dev-auth E2E affordance, not a general dev-server
+// default. Strip a caller-supplied flag in buildAppEnv(), then reintroduce it
+// only for the Vite child of an explicitly requested dev-auth stack. The screen
+// itself still requires import.meta.env.DEV, so production builds never mount it.
+function buildViteEnv(appEnv, devAuth) {
+  return {
+    ...appEnv,
+    VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}`,
+    ...(devAuth ? { VITE_CONSOLE_DEV_PREVIEW: "1" } : {}),
+  };
+}
+
 function writePidState(state) {
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(state, null, 2));
@@ -713,7 +726,7 @@ async function cmdUp() {
   const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
   const web = spawn(npmBin, ["run", "web:dev"], {
     cwd: REPO_ROOT,
-    env: { ...appEnv, VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}` },
+    env: buildViteEnv(appEnv, process.env.MNT_DEV_AUTH_E2E === "1"),
     stdio: "inherit",
   });
 
@@ -868,7 +881,7 @@ async function cmdBootstrap() {
     log(`starting vite dev server in the background, logging to ${path.relative(REPO_ROOT, webLogFile)}...`);
     const web = spawn(npmBin, ["run", "web:dev"], {
       cwd: REPO_ROOT,
-      env: { ...appEnv, VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}` },
+      env: buildViteEnv(appEnv, devAuth),
       stdio: ["ignore", webOut, webOut],
       detached: process.platform !== "win32",
     });

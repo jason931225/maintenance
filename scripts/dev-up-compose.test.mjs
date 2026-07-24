@@ -348,3 +348,38 @@ test("dev seed uses the audited runtime compatibility boundary for ontology defi
     "idempotent retries must audit only parents created by the current transaction",
   );
 });
+
+test("dev-auth bootstrap alone enables the console preview and CI preserves the paired fence", () => {
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const appRouter = readFileSync(new URL("../web/src/AppRouter.tsx", import.meta.url), "utf8");
+  assert.match(
+    devUp,
+    /const \{ VITE_CONSOLE_DEV_PREVIEW: _ignoredConsolePreview, \.\.\.parentEnv \} = process\.env/,
+    "caller-supplied console preview flags must not leak through the shared app environment",
+  );
+  assert.match(
+    devUp,
+    /function buildViteEnv\(appEnv, devAuth\)[\s\S]*?\.\.\.\(devAuth \? \{ VITE_CONSOLE_DEV_PREVIEW: "1" \} : \{\}\)/,
+    "only an explicit dev-auth Vite child may receive the console preview flag",
+  );
+  assert.match(
+    devUp,
+    /env: buildViteEnv\(appEnv, devAuth\)/,
+    "dev-auth bootstrap must start Vite with the console preview enabled",
+  );
+  assert.match(
+    appRouter,
+    /dev: import\.meta\.env\.DEV,[\s\S]*?flag: import\.meta\.env\.VITE_CONSOLE_DEV_PREVIEW/,
+    "the product route must retain its import.meta.env.DEV production fence alongside the preview flag",
+  );
+  assert.match(
+    ci,
+    /dev-up bootstrap --features dev-auth[\s\S]*?MNT_DEV_AUTH_E2E: "1"[\s\S]*?VITE_CONSOLE_DEV_PREVIEW: "1"/,
+    "CI must request the paired dev-auth/console-preview stack",
+  );
+  assert.match(
+    ci,
+    /Dev-mode e2e[\s\S]*?MNT_DEV_AUTH_E2E: "1"[\s\S]*?VITE_CONSOLE_DEV_PREVIEW: "1"/,
+    "CI test selection must use the same paired flags",
+  );
+});

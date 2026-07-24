@@ -35,7 +35,9 @@ import {
  */
 
 const ORG_ID = "00000000-0000-0000-0000-0000000000a1";
-const BRANCH_ID = "00000000-0000-0000-0000-0000000000c1";
+const REGION_ID = "00000000-0000-0000-0000-0000000000b1";
+const BRANCH_ID = randomUUID();
+const branchName = `E2E 근태 지점 ${BRANCH_ID.slice(0, 8)}`;
 const SEED_ACTOR_ID = "00000000-0000-0000-0000-00000000d001";
 const DATABASE_URL =
   process.env.MNT_DEV_DATABASE_URL ??
@@ -50,31 +52,43 @@ const coverExceptionCode = `AT-E2E-COVER-${runId.slice(0, 8).toUpperCase()}`;
 const closeExceptionCode = `AT-E2E-CLOSE-${runId.slice(0, 8).toUpperCase()}`;
 const reason = `e2e 근태 확인 ${runId}`;
 
-function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+const SEOUL_DATE = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Seoul",
+});
+
+/** Korean operations use an Asia/Seoul business day, never the runner's UTC day. */
+function seoulIsoDate(value: Date): string {
+  return SEOUL_DATE.format(value);
 }
 
-function addMonths(month: Date, amount: number): Date {
-  return new Date(
-    Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + amount, 1),
-  );
+function nextMonth(month: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) throw new RangeError(`Invalid month: ${month}`);
+  const shifted = new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function mondayOfCurrentWeek(now: Date): Date {
-  const date = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+function addDays(date: string, amount: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) throw new RangeError(`Invalid date: ${date}`);
+  const shifted = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + amount),
   );
-  const isoDay = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - isoDay);
-  return date;
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
+}
+
+function seoulWeekStart(value: Date): string {
+  const date = seoulIsoDate(value);
+  const noonUtc = new Date(`${date}T12:00:00Z`);
+  return addDays(date, -((noonUtc.getUTCDay() + 6) % 7));
 }
 
 const now = new Date();
-const closeMonth = addMonths(now, 1);
-const closeMonthValue = `${closeMonth.getUTCFullYear()}-${String(closeMonth.getUTCMonth() + 1).padStart(2, "0")}`;
+const todayValue = seoulIsoDate(now);
+const closeMonthValue = nextMonth(todayValue.slice(0, 7));
+const [closeYear, closeMonthNumber] = closeMonthValue.split("-").map(Number);
 const coverDate = `${closeMonthValue}-15`;
-const weekStart = mondayOfCurrentWeek(now);
-const weekStartValue = isoDate(weekStart);
+const weekStartValue = seoulWeekStart(now);
 
 type DevRole = "관리자" | "일반 멤버";
 
@@ -106,11 +120,9 @@ function sqlLiteral(value: string): string {
 /** Dev-auth/e2e-only DB prerequisites, all unique to this test run. */
 function seedAttendanceStory(): void {
   assertDevOnlyEnvironment();
-  const weekDays = Array.from({ length: 5 }, (_, day) => {
-    const workDay = new Date(weekStart);
-    workDay.setUTCDate(workDay.getUTCDate() + day);
-    return isoDate(workDay);
-  });
+  const weekDays = Array.from({ length: 5 }, (_, day) =>
+    addDays(weekStartValue, day),
+  );
   const clockRows = weekDays
     .flatMap((workDate, day) => {
       const inId = randomUUID();
@@ -127,6 +139,10 @@ function seedAttendanceStory(): void {
   const sql = `
     BEGIN;
     SET LOCAL app.current_org = ${sqlLiteral(ORG_ID)};
+    INSERT INTO branches (id, region_id, name, org_id) VALUES (
+      ${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(REGION_ID)}, ${sqlLiteral(branchName)}, ${sqlLiteral(ORG_ID)}
+    );
+
     INSERT INTO employees (
       id, org_id, company, name, source_filename, source_sheet, source_row,
       source_key, employment_status, org_unit
@@ -140,7 +156,7 @@ function seedAttendanceStory(): void {
     ) VALUES
       (
         ${sqlLiteral(randomUUID())}, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(coverExceptionCode)}, 'NO_SHOW', 'OPEN',
-        ${sqlLiteral(blockedEmployeeId)}, ${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(isoDate(now))}::date,
+        ${sqlLiteral(blockedEmployeeId)}, ${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(todayValue)}::date,
         ${sqlLiteral(`e2e today cover gap ${runId}`)}, '[]'::jsonb, '[]'::jsonb,
         ${sqlLiteral(`attendance-live-e2e-cover-${runId}`)}, repeat('a', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid
       ),
@@ -187,9 +203,17 @@ async function mintAdminToken(request: APIRequestContext): Promise<string> {
   return body.access_token;
 }
 
-test.beforeAll(() => {
-  seedAttendanceStory();
+test("ATTENDANCE-31 derives the Korean business calendar across a UTC boundary", () => {
+  const utcBoundary = new Date("2026-07-31T15:30:00.000Z");
+  expect(seoulIsoDate(utcBoundary)).toBe("2026-08-01");
+  expect(nextMonth(seoulIsoDate(utcBoundary).slice(0, 7))).toBe("2026-09");
+  expect(seoulWeekStart(utcBoundary)).toBe("2026-07-27");
 });
+
+test.describe("ATTENDANCE-31 live operator story", () => {
+  test.beforeAll(() => {
+    seedAttendanceStory();
+  });
 
 test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels cover, acknowledges Week-52, closes, and amends", async ({
   page,
@@ -255,7 +279,7 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   await page.getByRole("button", { name: "다음 달" }).click();
   await expect(
     page.getByText(
-      `${closeMonth.getUTCFullYear()}년 ${closeMonth.getUTCMonth() + 1}월`,
+      `${closeYear}년 ${closeMonthNumber}월`,
     ),
   ).toBeVisible();
   const exceptionRow = page
@@ -375,4 +399,5 @@ test("ATTENDANCE-31 reader persona is denied by omission before attendance data 
   await assertNoAxeViolations(page, {
     context: "attendance reader denied-by-omission",
   });
+});
 });
