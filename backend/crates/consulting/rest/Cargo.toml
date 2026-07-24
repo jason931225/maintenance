@@ -20,5 +20,11 @@ sqlx = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+mnt-platform-test-support = { path = "../../platform/test-support" }
+p256 = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+
 [lints]
 workspace = true

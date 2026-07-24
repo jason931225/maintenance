@@ -26,7 +26,10 @@ use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
-use mnt_kernel_core::{AccessScope, BranchScope, ErrorKind, KernelError, OrgId, UserId};
+use mnt_kernel_core::{
+    AccessScope, AuditRequestContext, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
+};
 use mnt_platform_auth::{JwtVerifier, TenantAccessContext};
 use mnt_platform_authz::{
     PlatformPrincipal, Principal, Role, SubjectFreshness, effective_branch_scope_for_tenant,
@@ -40,6 +43,17 @@ tokio::task_local! {
     /// The tenant of the in-flight request. Set once per request by the shared
     /// middleware; read by [`current_org`].
     pub static CURRENT_ORG: OrgId;
+
+    /// Trace and transport metadata captured once at the authenticated HTTP
+    /// boundary, then reused by every audit event emitted by that request.
+    static CURRENT_AUDIT_CONTEXT: RequestAuditContext;
+}
+
+/// Request-correlated metadata suitable for an [`mnt_kernel_core::AuditEvent`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestAuditContext {
+    pub trace: TraceContext,
+    pub request: AuditRequestContext,
 }
 
 /// Why a request could not be given a tenant context.
@@ -109,6 +123,16 @@ pub fn current_org() -> Result<OrgId, RequestContextError> {
     CURRENT_ORG
         .try_with(|org| *org)
         .map_err(|_| RequestContextError::MissingOrg)
+}
+
+/// Return the audit context bound by [`with_request_context`].
+///
+/// `None` means the caller is outside an authenticated HTTP request. Mutation
+/// handlers must treat that as an invariant failure instead of fabricating an
+/// unrelated trace at the persistence boundary.
+#[must_use]
+pub fn current_audit_context() -> Option<RequestAuditContext> {
+    CURRENT_AUDIT_CONTEXT.try_with(Clone::clone).ok()
 }
 
 /// Extract the raw bearer token from an Authorization header.
@@ -317,11 +341,74 @@ where
                     Err(err) => return error_response_for(&err),
                 };
                 let org = principal.org_id;
+                let audit_context = request_audit_context(request.headers());
                 request.extensions_mut().insert(principal);
-                CURRENT_ORG.scope(org, next.run(request)).await
+                CURRENT_ORG
+                    .scope(
+                        org,
+                        CURRENT_AUDIT_CONTEXT.scope(audit_context, next.run(request)),
+                    )
+                    .await
             }
         },
     ))
+}
+
+fn request_audit_context(headers: &HeaderMap) -> RequestAuditContext {
+    RequestAuditContext {
+        trace: trace_context(headers),
+        request: AuditRequestContext {
+            // This is request metadata for audit investigation, never trusted
+            // as an authorization or network-boundary assertion.
+            ip: header_text(headers, "x-forwarded-for")
+                .and_then(|forwarded| forwarded.split(',').next().map(str::trim))
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
+            user_agent: header_text(headers, http::header::USER_AGENT.as_str()).map(str::to_owned),
+            auth_method: Some("bearer".to_owned()),
+            device: header_text(headers, "x-device-id").map(str::to_owned),
+        },
+    }
+}
+
+fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(name)?
+        .to_str()
+        .ok()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn trace_context(headers: &HeaderMap) -> TraceContext {
+    header_text(headers, "traceparent")
+        .and_then(parse_traceparent)
+        .unwrap_or_else(TraceContext::generate)
+}
+
+fn parse_traceparent(value: &str) -> Option<TraceContext> {
+    let mut fields = value.split('-');
+    let version = fields.next()?;
+    let trace_id = fields.next()?;
+    let span_id = fields.next()?;
+    let flags = fields.next()?;
+    if fields.next().is_some()
+        || version == "ff"
+        || !is_lower_hex(version, 2)
+        || !is_lower_hex(flags, 2)
+        || trace_id.bytes().all(|byte| byte == b'0')
+        || span_id.bytes().all(|byte| byte == b'0')
+    {
+        return None;
+    }
+    TraceContext::new(trace_id, span_id).ok()
+}
+
+fn is_lower_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn error_response(status: StatusCode, message: &str) -> Response {
