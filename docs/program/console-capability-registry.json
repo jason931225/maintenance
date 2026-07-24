@@ -934,6 +934,384 @@
     "independent_review": "missing",
     "production_exposure": "dark"
    }
+  },
+  {
+   "id": "CAP-PAYROLL-CONSOLE",
+   "label": "Payroll run pipeline: close, calculate, exceptions, approval, disbursement, payslip receipt",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.6,
+     "correctness_and_risk_reduction": 0.85,
+     "visual_or_functional_parity_gap": 0.85,
+     "business_coverage_gain": 0.8,
+     "verification_readiness": 0.5,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.5
+    },
+    "score": 0.67
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/payroll/**"
+    ],
+    "backend_roots": [
+     "backend/crates/payroll/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "payroll-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/payroll"
+   ],
+   "signature_story": {
+    "id": "STORY-PAYROLL-001",
+    "outcome": "A pay period closes attendance-complete, calculates, surfaces exceptions for resolution, routes for approval, schedules disbursement, and delivers payslips with acknowledged receipt."
+   },
+   "evidence_path": "docs/evidence/console/CAP-PAYROLL-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-payroll-backend-20260724",
+     "branch": "claude/console-payroll-backend-20260724",
+     "roots": [
+      "backend/crates/payroll/**",
+      "backend/app/tests/payroll_run_api.rs",
+      "docs/evidence/console/CAP-PAYROLL-CONSOLE/**",
+      "backend/crates/platform/db/migrations/0186_payroll_run_pipeline.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0186"
+     ]
+    },
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-payroll-frontend-20260724",
+     "branch": "claude/console-payroll-frontend-20260724",
+     "roots": [
+      "web/src/console/payroll/**",
+      "docs/evidence/console/CAP-PAYROLL-CONSOLE/frontend/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-ATTENDANCE-CONSOLE",
+   "label": "Attendance plan-vs-actual, exceptions, substitute coverage, 52h monitor, gated close",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.8,
+     "visual_or_functional_parity_gap": 0.85,
+     "business_coverage_gain": 0.75,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.67
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/attendance/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/attendance"
+   ],
+   "signature_story": {
+    "id": "STORY-ATTENDANCE-001",
+    "outcome": "A day's plan versus actual reconciles: check-ins, exceptions with mandatory reasons, substitute coverage, weekly-52h monitoring, and a gated monthly close."
+   },
+   "evidence_path": "docs/evidence/console/CAP-ATTENDANCE-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-attendance-frontend-20260724",
+     "branch": "claude/console-attendance-frontend-20260724",
+     "roots": [
+      "web/src/console/attendance/**",
+      "docs/evidence/console/CAP-ATTENDANCE-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-RECRUITING",
+   "label": "Recruiting: posting publish preflight, applicant pipeline, offer, hire creates employee object",
+   "evidence_basis": [
+    "design_reference",
+    "inference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.9,
+     "business_coverage_gain": 0.75,
+     "verification_readiness": 0.35,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.58
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/recruiting/**"
+    ],
+    "backend_roots": [
+     "backend/crates/recruiting/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "recruiting-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/recruiting"
+   ],
+   "signature_story": {
+    "id": "STORY-RECRUITING-001",
+    "outcome": "A job posting publishes through preflight, applicants advance through evaluation to offer, and acceptance creates the employee object with full audit lineage."
+   },
+   "evidence_path": "docs/evidence/console/CAP-RECRUITING/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-recruiting-backend-20260724",
+     "branch": "claude/console-recruiting-backend-20260724",
+     "roots": [
+      "backend/crates/recruiting/**",
+      "backend/app/tests/recruiting_pipeline_api.rs",
+      "docs/evidence/console/CAP-RECRUITING/**",
+      "backend/crates/platform/db/migrations/0187_create_recruiting.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0187"
+     ]
+    },
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-recruiting-frontend-20260724",
+     "branch": "claude/console-recruiting-frontend-20260724",
+     "roots": [
+      "web/src/console/recruiting/**",
+      "docs/evidence/console/CAP-RECRUITING/frontend/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_new_crate",
+    "frontend": "writer_assigned",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-ORG-CONSOLE",
+   "label": "Organization chart: entities, sites, teams, positions, governed org-change lifecycle",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.6,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/org/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/org"
+   ],
+   "signature_story": {
+    "id": "STORY-ORG-001",
+    "outcome": "An organization change drafts a new entity, site, or team structure, passes impact preflight and SoD approval, takes effect on its effective date, and reflects across scope segments and the graph."
+   },
+   "evidence_path": "docs/evidence/console/CAP-ORG-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-org-frontend-20260724",
+     "branch": "claude/console-org-frontend-20260724",
+     "roots": [
+      "web/src/console/org/**",
+      "docs/evidence/console/CAP-ORG-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
   }
  ]
 }
