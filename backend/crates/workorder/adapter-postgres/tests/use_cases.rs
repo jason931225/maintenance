@@ -274,6 +274,17 @@ async fn final_completion_ignores_legacy_flag_and_blocks_unverified_completion_e
             store.work_order(created.id).await.unwrap().status,
             WorkOrderStatus::AdminReview
         );
+        let history_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM equipment_maintenance_history WHERE work_order_id = $1",
+        )
+        .bind(*created.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            history_count, 0,
+            "a denied final completion must leave maintenance history unchanged"
+        );
     })
     .await;
 }
