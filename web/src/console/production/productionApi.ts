@@ -12,9 +12,11 @@ export class ProductionApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  headers.set("content-type", "application/json");
   const response = await fetch(path, {
     credentials: "include",
-    headers: { "content-type": "application/json", ...options.headers },
+    headers,
     ...options,
   });
   if (!response.ok) {
@@ -22,7 +24,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       error?: { message?: string };
     } | null;
     throw new ProductionApiError(
-      body?.error?.message ?? `Production request failed (${response.status})`,
+      body?.error?.message ?? `Production request failed (${String(response.status)})`,
       response.status,
     );
   }

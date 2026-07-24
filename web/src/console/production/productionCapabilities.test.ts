@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { deriveProductionCapabilities } from "./productionCapabilities";
 
-function projection(features: readonly string[]) {
-  return { allows: ({ feature }: { feature: string }) => features.includes(feature) };
+function projection(features: readonly string[], permission: "request_only" | "allow" = "allow") {
+  return {
+    allows: ({ feature, minPermission }: { feature: string; minPermission?: string }) =>
+      features.includes(feature) && minPermission === permission,
+  };
 }
 
 describe("deriveProductionCapabilities", () => {
@@ -20,5 +23,13 @@ describe("deriveProductionCapabilities", () => {
   it("lets org-wide triage read without inventing mutation actions", () => {
     const result = deriveProductionCapabilities(projection(["org_wide_queue_triage"]), "branch-1");
     expect(result).toMatchObject({ canRead: true, canCreate: false, canReview: false, canConfirm: false, canTriage: true });
+  });
+
+  it("does not expose an endpoint control to request-only grants", () => {
+    const result = deriveProductionCapabilities(
+      projection(["daily_plan_request"], "request_only"),
+      "branch-1",
+    );
+    expect(result).toMatchObject({ canRead: false, canCreate: false, canRequestReview: false });
   });
 });

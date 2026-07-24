@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -51,6 +51,8 @@ describe("ProductionScreen", () => {
     vi.spyOn(productionApi, "list").mockResolvedValue({ items: [plan()] });
     renderScreen();
     const choice = await screen.findByRole("button", { name: /2026-07-23/ });
+    expect(choice).toHaveTextContent(text.status.DRAFT);
+    expect(screen.queryByText("DRAFT")).toBeNull();
     choice.focus();
     await userEvent.keyboard("{Enter}");
     expect(await screen.findByRole("button", { name: text.requestReview })).toBeVisible();
@@ -72,21 +74,60 @@ describe("ProductionScreen", () => {
     renderScreen();
     await userEvent.click(await screen.findByRole("button", { name: /2026-07-23/ }));
     await userEvent.click(screen.getByRole("button", { name: text.requestReview }));
-    await waitFor(() => expect(screen.getAllByText("REQUESTED")).not.toHaveLength(0));
+    await waitFor(() => {
+      expect(screen.getAllByText(text.status.REQUESTED)).not.toHaveLength(0);
+    });
     expect(screen.queryByRole("button", { name: text.requestReview })).toBeNull();
   });
 
   it("ignores a stale list result after the effective session changes", async () => {
     const first = deferred<{ items: DailyPlan[] }>();
     const second = deferred<{ items: DailyPlan[] }>();
-    vi.spyOn(productionApi, "list")
+    const list = vi.spyOn(productionApi, "list")
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
     const view = renderScreen(planner, "session-a");
+    await waitFor(() => {
+      expect(list).toHaveBeenCalledTimes(1);
+    });
     view.rerender(<ProductionScreen branchId="branch-1" actorId="mechanic-1" capabilities={reviewer} sessionKey="session-b" />);
+    await waitFor(() => {
+      expect(list).toHaveBeenCalledTimes(2);
+    });
     first.resolve({ items: [plan()] });
     second.resolve({ items: [plan("REQUESTED")] });
-    expect(await screen.findByRole("button", { name: /2026-07-23/ })).toHaveTextContent("REQUESTED");
+    expect(await screen.findByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED);
     expect(screen.queryByRole("button", { name: text.create })).toBeNull();
+  });
+
+  it("filters mixed branch results before presenting the queue", async () => {
+    vi.spyOn(productionApi, "list").mockResolvedValue({
+      items: [plan(), { ...plan("REQUESTED"), id: "other-plan", branch_id: "branch-2" }],
+    });
+    renderScreen();
+    expect(await screen.findByRole("button", { name: /2026-07-23/ })).toBeVisible();
+    expect(screen.queryByText(text.status.REQUESTED)).toBeNull();
+  });
+
+  it("synchronously removes old plan, busy, and denial state on a session fence", async () => {
+    const pending = deferred<DailyPlan>();
+    vi.spyOn(productionApi, "list").mockResolvedValue({ items: [plan()] });
+    vi.spyOn(productionApi, "requestReview").mockImplementation(() => {
+      return pending.promise;
+    });
+    const view = renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: /2026-07-23/ }));
+    await userEvent.click(screen.getByRole("button", { name: text.requestReview }));
+    expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
+
+    view.rerender(<ProductionScreen branchId="branch-1" actorId="mechanic-2" capabilities={denied} sessionKey="session-b" />);
+
+    expect(screen.getByText(text.denied)).toBeVisible();
+    expect(screen.queryByText(text.status.DRAFT)).toBeNull();
+    expect(screen.queryByRole("button", { name: text.requestReview })).toBeNull();
+    expect(screen.queryByRole("main")).not.toHaveAttribute("aria-busy");
+
+    view.rerender(<ProductionScreen branchId="branch-1" actorId="mechanic-2" capabilities={planner} sessionKey="session-c" />);
+    expect(screen.queryByText(text.denied)).toBeNull();
   });
 });

@@ -24,4 +24,12 @@ export const productionStrings = {
   approve: "승인",
   reject: "반려",
   confirm: "최종 확정",
+  status: {
+    DRAFT: "작성 중",
+    REQUESTED: "검토 대기",
+    APPROVED: "승인됨",
+    REJECTED: "반려됨",
+    FINAL_CONFIRMED: "최종 확정됨",
+    unknown: "상태 확인 필요",
+  },
 } as const;

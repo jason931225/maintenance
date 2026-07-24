@@ -1,29 +1,24 @@
-import { useMemo } from "react";
-
 import { useAuth } from "../../context/auth";
-import { usePolicyGate } from "../policy/PolicyGate";
 import { ProductionScreen } from "./ProductionScreen";
-import { deriveProductionCapabilities, type EffectiveCapabilityProjection } from "./productionCapabilities";
+import {
+  deriveProductionCapabilities,
+  type EffectiveCapabilityProjection,
+} from "./productionCapabilities";
 
 /**
- * Module-owned shell adapter. The shell supplies a branch and its shared,
- * advisory effective-capability projection; this module never derives controls
- * from role names. Backend authorization remains the authority for every call.
+ * Module-owned shell adapter. Its caller must supply the shared effective
+ * capability projection; unavailable authority is a mount error, not a local
+ * deny-all fallback. Backend authorization remains the authority for every call.
  */
 export function ProductionConsoleRoute({
   branchId,
   capabilityProjection,
 }: {
   branchId: string;
-  capabilityProjection?: EffectiveCapabilityProjection;
+  capabilityProjection: EffectiveCapabilityProjection;
 }) {
   const { session } = useAuth();
-  const sharedGate = usePolicyGate();
-  const projection = capabilityProjection ?? sharedGate;
-  const capabilities = useMemo(
-    () => deriveProductionCapabilities(projection, branchId),
-    [branchId, projection],
-  );
+  const capabilities = deriveProductionCapabilities(capabilityProjection, branchId);
 
   return (
     <ProductionScreen

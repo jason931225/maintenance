@@ -7,7 +7,7 @@ export interface EffectiveCapabilityProjection {
   allows: (query: {
     feature: ProductionFeature;
     branch?: string;
-    minPermission?: "request_only";
+    minPermission?: "allow";
   }) => boolean;
 }
 
@@ -26,7 +26,7 @@ export function deriveProductionCapabilities(
   branchId: string,
 ): ProductionCapabilities {
   const allows = (feature: ProductionFeature) =>
-    projection.allows({ feature, branch: branchId, minPermission: "request_only" });
+    projection.allows({ feature, branch: branchId, minPermission: "allow" });
   const canRequest = allows("daily_plan_request");
   const canReview = allows("daily_plan_review");
   const canTriage = allows("org_wide_queue_triage");
