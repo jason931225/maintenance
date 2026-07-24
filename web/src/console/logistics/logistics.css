@@ -1,0 +1,180 @@
+.logistics {
+  display: grid;
+  grid-template-columns: minmax(20rem, 1fr) minmax(0, 1.3fr);
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  color: var(--ink);
+  font: var(--fw-body) var(--text-body)/var(--lh-base) var(--font-sans);
+}
+
+.logistics__panel {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: var(--sp-4);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: var(--sp-card-y);
+}
+
+.logistics__panel h1,
+.logistics__panel h2,
+.logistics__panel h3,
+.logistics__panel p { margin: 0; }
+.logistics__panel h1 { font-size: var(--text-h1); font-weight: var(--fw-strong); }
+.logistics__panel h2 { font-size: var(--text-card-title); }
+.logistics__panel h3 { font-size: var(--text-card-title); }
+
+.logistics__bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.logistics__stats { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+
+.logistics__chip {
+  display: inline-block;
+  border: var(--border-hairline);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--sp-2);
+  background: var(--muted);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.logistics__chip--info { border-color: var(--info-bd); background: var(--info-bg); color: var(--info-tx); }
+.logistics__chip--warn { border-color: var(--warn-bd); background: var(--warn-bg); color: var(--warn-tx); }
+.logistics__chip--ok { border-color: var(--ok-bd); background: var(--ok-bg); color: var(--ok-tx); }
+.logistics__chip--danger { border-color: var(--danger-bd); background: var(--danger-bg); color: var(--danger-tx); }
+
+.logistics__filter { display: grid; gap: var(--sp-1); color: var(--steel); }
+
+.logistics__list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--border-hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.logistics__list > li[role="status"] { padding: var(--sp-3); color: var(--steel); }
+
+.logistics__item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  border: 0;
+  border-bottom: var(--border-hairline);
+  border-radius: 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.logistics__list > li:last-child .logistics__item { border-bottom: 0; }
+.logistics__item--selected { background: var(--muted); box-shadow: inset 3px 0 0 var(--teal); }
+
+.logistics__form { display: grid; gap: var(--sp-2); border: var(--border-hairline); border-radius: var(--radius-sm); padding: var(--sp-3); }
+.logistics label { display: grid; gap: var(--sp-1); color: var(--steel); }
+.logistics input {
+  box-sizing: border-box;
+  width: 100%;
+  border: var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.logistics button:not(.logistics__item):not(.logistics__link) {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--teal);
+  color: var(--surface);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.logistics button:hover:not(:disabled) { filter: brightness(0.95); }
+.logistics button:focus-visible,
+.logistics input:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.logistics button:disabled { cursor: wait; opacity: 0.55; }
+
+.logistics__link {
+  justify-self: start;
+  border: var(--border-hairline);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--sp-3);
+  background: var(--muted);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 2;
+  cursor: pointer;
+}
+
+.logistics__alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-2);
+  border: 1px solid var(--danger-bd);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3);
+  color: var(--danger-tx);
+  background: var(--danger-bg);
+}
+
+.logistics__detail { display: grid; gap: var(--sp-3); align-content: start; }
+.logistics__detail > header { display: flex; align-items: center; gap: var(--sp-2); }
+.logistics__detail > header h2 { margin: 0; font-size: var(--text-value-lg); }
+
+.logistics__fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0;
+}
+.logistics__fields dt { color: var(--steel); }
+.logistics__fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+
+.logistics__history { display: grid; gap: var(--sp-2); margin: 0; padding-left: var(--sp-4); }
+.logistics__history li { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+
+.logistics-shell { display: grid; gap: var(--sp-2); }
+.logistics-shell > label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) 0;
+  color: var(--steel);
+}
+.logistics-shell select {
+  border: var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+@media (max-width: 900px) {
+  .logistics { grid-template-columns: 1fr; padding: var(--sp-3); }
+}
