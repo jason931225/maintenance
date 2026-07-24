@@ -47,12 +47,16 @@ function ensureTenantBranch(): void {
 
 async function loginWithDevRole(page: Page, roleLabel: DevRoleLabel) {
   await page.goto("/login");
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-  await page.getByRole("combobox").selectOption({ label: roleLabel });
-  if (roleLabel === "정비사") {
-    await page.getByLabel(/지점 ID/).fill(TENANT_BRANCH_ID);
-  }
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  const roleSwitcher = page.getByRole("region", { name: "로컬 역할 전환" });
+  await roleSwitcher
+    .getByRole("combobox", { name: "역할" })
+    .selectOption({ label: roleLabel });
+  await roleSwitcher
+    .getByRole("combobox", { name: "지점" })
+    .selectOption(TENANT_BRANCH_ID);
+  await roleSwitcher
+    .getByRole("button", { name: new RegExp(`${roleLabel} 로그인$`) })
+    .click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
   await expect(
     page.getByRole("navigation", { name: "메인 내비게이션" }),

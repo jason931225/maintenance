@@ -508,12 +508,16 @@ function memberScalar(sql: string): string {
 
 async function loginAs(page: Page, role: DevRole): Promise<void> {
   await page.goto("/login");
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-  await page.getByRole("combobox").selectOption({ label: role });
-  await page.getByRole("button", { name: "고급 설정" }).click();
-  await page.getByLabel("조직 ID").fill(ORG_ID);
-  await page.getByLabel("지점 ID (쉼표로 구분)").fill(BRANCH_ID);
-  await page
+  const roleSwitcher = page.getByRole("region", { name: "로컬 역할 전환" });
+  await roleSwitcher
+    .getByRole("combobox", { name: "역할" })
+    .selectOption({ label: role });
+  await roleSwitcher.getByRole("button", { name: "고급 설정" }).click();
+  await roleSwitcher.getByLabel("조직 ID").fill(ORG_ID);
+  await roleSwitcher
+    .getByLabel("지점 ID (쉼표로 구분)")
+    .fill(BRANCH_ID);
+  await roleSwitcher
     .getByRole("button", {
       name: role === "관리자" ? /관리자 로그인$/ : /일반 멤버 로그인$/,
     })
@@ -523,13 +527,17 @@ async function loginAs(page: Page, role: DevRole): Promise<void> {
 
 async function loginAsMemberWithoutBranch(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-  await page.getByRole("combobox").selectOption({ label: "일반 멤버" });
-  await page.getByRole("button", { name: "고급 설정" }).click();
-  await page.getByLabel("조직 ID").fill(memberOrgId);
-  await page.getByLabel("지점 ID (쉼표로 구분)").fill("");
-  await expect(page.getByRole("status")).toContainText("조직 전체 범위");
-  await page.getByRole("button", { name: /일반 멤버 로그인$/ }).click();
+  const roleSwitcher = page.getByRole("region", { name: "로컬 역할 전환" });
+  await roleSwitcher
+    .getByRole("combobox", { name: "역할" })
+    .selectOption({ label: "일반 멤버" });
+  await roleSwitcher.getByRole("button", { name: "고급 설정" }).click();
+  await roleSwitcher.getByLabel("조직 ID").fill(memberOrgId);
+  await roleSwitcher.getByLabel("지점 ID (쉼표로 구분)").fill("");
+  await expect(roleSwitcher.getByRole("status")).toContainText("조직 전체 범위");
+  await roleSwitcher
+    .getByRole("button", { name: /일반 멤버 로그인$/ })
+    .click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 

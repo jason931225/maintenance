@@ -14,8 +14,10 @@ test("320px authenticated drawer opens, traps focus, navigates, and closes", asy
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto("/login");
 
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  await page
+    .getByRole("region", { name: "로컬 역할 전환" })
+    .getByRole("button", { name: /관리자 로그인$/ })
+    .click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 
   await page.getByRole("button", { name: "메뉴 열기" }).click();

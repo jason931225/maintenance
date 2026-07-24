@@ -20,14 +20,13 @@ test("role switcher mints a real session and pages render real (non-fixture) dat
 }) => {
   await page.goto("/login");
 
-  // The switcher is a DEV-only affordance, collapsed behind a reveal button —
-  // same predicate the deleted dev-preview.ts used (DEV build + localhost).
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-
-  // Default role (SUPER_ADMIN) + the prefilled KNL org id are enough:
-  // SUPER_ADMIN gets org-wide BranchScope::All server-side, so no branch_id
-  // is required to see something real.
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  // The DEV-only local preset is intentionally visible and immediately usable:
+  // the default ADMIN + Changwon branch exercises a real scoped session without
+  // exposing raw organization or branch identifiers in the primary flow.
+  await page
+    .getByRole("region", { name: "로컬 역할 전환" })
+    .getByRole("button", { name: /관리자 로그인$/ })
+    .click();
 
   // A real signed session was accepted -> navigated off /login into the app.
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });

@@ -5,8 +5,10 @@ const CONSOLE_TOAST_EVENT = "maintenance:console-toast";
 
 async function loginWithDevRole(page: Page) {
   await page.goto("/login");
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  await page
+    .getByRole("region", { name: "로컬 역할 전환" })
+    .getByRole("button", { name: /관리자 로그인$/ })
+    .click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
   await expect(page.getByRole("navigation", { name: "메인 내비게이션" })).toBeVisible();
 }
