@@ -89,6 +89,15 @@ impl PgEquipment3rStore {
         let now = OffsetDateTime::now_utc();
         with_audits(&self.pool, org, |tx| {
             Box::pin(async move {
+                // An org-wide principal passes the JWT branch-scope check for
+                // any branch id, so existence is validated here under the
+                // armed org: a cross-org or unknown branch is a concealed 404,
+                // never a foreign-key 500.
+                sqlx::query_scalar::<_, i32>("SELECT 1 FROM branches WHERE id=$1")
+                    .bind(*cmd.branch_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("branch was not found"))?;
                 sqlx::query(
                     "INSERT INTO equipment_3r_units (id,org_id,branch_id,serial_no,model_name,capacity_class,acquisition_cost_minor,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)",
                 )

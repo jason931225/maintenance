@@ -487,6 +487,53 @@ async fn capabilities_deny_without_leakage_across_branch_grant_and_org(pool: PgP
         status_now, "QUOTED",
         "denied approvals must not transition the case"
     );
+
+    // Count-leak-free listing: an org-wide observer in the second org sees an
+    // EMPTY list, never first-org rows or counts.
+    sqlx::query("UPDATE users SET roles = $1 WHERE id = $2")
+        .bind(vec!["EXECUTIVE"])
+        .bind(*outsider.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let outsider_exec = keys.token(outsider, org2, vec!["EXECUTIVE".into()], vec![]);
+    let (status, foreign_units) = send(&rt, &keys, "GET", UNITS, &outsider_exec, None, None).await;
+    assert_eq!(status, StatusCode::OK, "org-2 unit list: {foreign_units}");
+    assert_eq!(
+        foreign_units.as_array().unwrap().len(),
+        0,
+        "cross-org unit list must be empty: {foreign_units}"
+    );
+    let (status, foreign_cases) = send(&rt, &keys, "GET", CASES, &outsider_exec, None, None).await;
+    assert_eq!(status, StatusCode::OK, "org-2 case list: {foreign_cases}");
+    assert_eq!(
+        foreign_cases.as_array().unwrap().len(),
+        0,
+        "cross-org case list must be empty: {foreign_cases}"
+    );
+
+    // An org-wide principal skips the JWT branch-scope check, so the store
+    // must still conceal a cross-org (or nonexistent) branch as 404 — never
+    // surface the FK violation as a 500.
+    let (status, foreign_branch) = send(
+        &rt,
+        &keys,
+        "POST",
+        UNITS,
+        &outsider_exec,
+        Some(json!({
+            "branchId": branch_a, "serialNo": "3R-FOREIGN-0001", "modelName": "FX-25",
+            "capacityClass": "2.5t", "acquisitionCostMinor": 1_i64
+        })),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "cross-org branch must be concealed on register: {foreign_branch}"
+    );
+    assert_eq!(foreign_branch["error"]["code"], "not_found");
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
