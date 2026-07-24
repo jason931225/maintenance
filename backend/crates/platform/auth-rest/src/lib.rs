@@ -2249,7 +2249,7 @@ async fn list_group_admin_groups(
 ) -> Result<Json<GroupAdminGroupsResponse>, RestError> {
     let services = state.services()?;
     let actor = authenticated_group_actor(services, &headers)?;
-    let groups = load_group_admin_groups(&state.pool, actor).await?;
+    let groups = load_group_admin_groups(&state.pool, actor.id).await?;
     Ok(Json(GroupAdminGroupsResponse { groups }))
 }
 
@@ -2266,7 +2266,7 @@ async fn start_group_admin_tenant_context(
     let services = state.services()?;
     let actor = authenticated_group_actor(services, &headers)?;
     let (group_id, target) =
-        resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
+        resolve_group_admin_target_org(&state.pool, actor.id, OrgId::from_uuid(body.org_id)).await?;
 
     // Source REAL subject freshness for the token's OWN (target subsidiary org,
     // actor) so a promoted Cedar guard — which re-reads exactly that (org, user)
@@ -2274,7 +2274,7 @@ async fn start_group_admin_tenant_context(
     // The read arms the target org's RLS GUC internally; the actor typically has
     // no `users` row in the subsidiary, so subject/session read as the absent 0
     // baseline while the subsidiary's `policy_version` is real.
-    let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor)
+    let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor.id)
         .await
         .map_err(|err| {
             tracing::error!(error = %err, "failed to read subject freshness for group-admin tenant-context");
@@ -2287,7 +2287,7 @@ async fn start_group_admin_tenant_context(
         .jwt_issuer
         .issue_group_admin_tenant_context_access_token(
             AccessTokenInput {
-                subject: actor,
+                subject: actor.id,
                 org_id: target.org_id,
                 roles: vec!["ADMIN".to_owned()],
                 branches: Vec::new(),
@@ -2305,13 +2305,14 @@ async fn start_group_admin_tenant_context(
                 issued_at: now,
             },
             group_id,
+            actor.home_org,
             GROUP_ADMIN_TENANT_CONTEXT_TTL,
         )
         .map_err(|err| RestError::internal(err.to_string()))?;
 
     record_group_tenant_context_audit(
         &state.pool,
-        actor,
+        actor.id,
         target.org_id,
         group_id,
         "group.tenant_context.start",
@@ -2341,11 +2342,11 @@ async fn exit_group_admin_tenant_context(
     let services = state.services()?;
     let actor = authenticated_group_actor(services, &headers)?;
     let (group_id, target) =
-        resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
+        resolve_group_admin_target_org(&state.pool, actor.id, OrgId::from_uuid(body.org_id)).await?;
 
     record_group_tenant_context_audit(
         &state.pool,
-        actor,
+        actor.id,
         target.org_id,
         group_id,
         "group.tenant_context.stop",
@@ -3138,10 +3139,19 @@ fn rest_error_from_request_context(
     }
 }
 
+#[derive(Clone, Copy)]
+struct AuthenticatedGroupAdminActor {
+    id: UserId,
+    /// The source tenant of the non-delegated session. It is carried separately
+    /// from the delegated token's target `org` claim for audit and UI context;
+    /// authorization continues to resolve live group grants.
+    home_org: OrgId,
+}
+
 fn authenticated_group_actor(
     services: &AuthServices,
     headers: &HeaderMap,
-) -> Result<UserId, RestError> {
+) -> Result<AuthenticatedGroupAdminActor, RestError> {
     let token = bearer_token(headers)?;
     let claims = services
         .jwt_verifier
@@ -3165,7 +3175,13 @@ fn authenticated_group_actor(
     if !has_group_admin_role_hint(&claims.group_roles) {
         return Err(RestError::forbidden("group admin role required"));
     }
-    Ok(UserId::from_uuid(user_id_from_claims(claims)?))
+    let home_org = Uuid::parse_str(&claims.org)
+        .map(OrgId::from_uuid)
+        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
+    Ok(AuthenticatedGroupAdminActor {
+        id: UserId::from_uuid(user_id_from_claims(claims)?),
+        home_org,
+    })
 }
 
 fn has_group_admin_role_hint(group_roles: &[String]) -> bool {

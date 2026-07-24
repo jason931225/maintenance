@@ -109,6 +109,41 @@ fn es256_access_token_carries_feature_grant_ui_hints() {
 }
 
 #[test]
+fn es256_rejects_actor_home_org_on_non_delegated_tokens() {
+    let (issuer, private_pem, _) = es256_material();
+    let token = issuer
+        .issue_access_token(AccessTokenInput {
+            subject: UserId::new(),
+            org_id: OrgId::knl(),
+            roles: vec!["ADMIN".to_owned()],
+            branches: Vec::new(),
+            platform: false,
+            view_as: false,
+            read_only: false,
+            display_name: None,
+            feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
+            issued_at: OffsetDateTime::now_utc(),
+        })
+        .unwrap();
+    let mut claims = issuer.verify_access_token(&token).unwrap();
+    claims.actor_home_org = Some(OrgId::new().to_string());
+    let forged = jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_ec_pem(private_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
+
+    let err = issuer.verify_access_token(&forged).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("actor_home_org requires group-admin tenant context"));
+}
+
+#[test]
 fn es256_access_token_carries_optional_display_name_claim() {
     let issuer = es256_issuer();
 
@@ -177,12 +212,14 @@ fn es256_access_token_can_carry_group_roles_without_widening_scope() {
 fn group_admin_tenant_context_token_is_bounded_and_distinct_from_super_admin() {
     let issuer = es256_issuer();
     let group_id = uuid::Uuid::new_v4();
+    let target_org = OrgId::new();
+    let actor_home_org = OrgId::knl();
 
     let token = issuer
         .issue_group_admin_tenant_context_access_token(
             AccessTokenInput {
                 subject: UserId::new(),
-                org_id: OrgId::knl(),
+                org_id: target_org,
                 roles: vec!["ADMIN".to_owned()],
                 branches: vec![],
                 platform: false,
@@ -196,6 +233,7 @@ fn group_admin_tenant_context_token_is_bounded_and_distinct_from_super_admin() {
                 issued_at: OffsetDateTime::now_utc(),
             },
             group_id,
+            actor_home_org,
             Duration::minutes(15),
         )
         .unwrap();
@@ -206,6 +244,9 @@ fn group_admin_tenant_context_token_is_bounded_and_distinct_from_super_admin() {
     assert_eq!(claims.group_roles, vec!["GROUP_ADMIN"]);
     assert_eq!(claims.tenant_context, Some(TenantAccessContext::GroupAdmin));
     assert_eq!(claims.group_context_id, Some(group_id.to_string()));
+    assert_eq!(claims.actor_home_org, Some(actor_home_org.to_string()));
+    assert_eq!(claims.org, target_org.to_string());
+    assert_ne!(claims.actor_home_org.as_deref(), Some(claims.org.as_str()));
 }
 
 #[test]
@@ -230,6 +271,7 @@ fn group_admin_tenant_context_token_rejects_super_admin_role() {
                 issued_at: OffsetDateTime::now_utc(),
             },
             uuid::Uuid::new_v4(),
+            OrgId::knl(),
             Duration::minutes(15),
         )
         .unwrap_err();
@@ -327,6 +369,7 @@ fn es256_scoped_token_rejects_unknown_group_role_on_verify() {
         group_roles: vec!["GROUP_OWNER".to_owned()],
         tenant_context: None,
         group_context_id: None,
+        actor_home_org: None,
         feature_grants: Vec::new(),
         authz_subject_version: 0,
         authz_policy_version: 0,
@@ -398,6 +441,7 @@ fn access_scope_claims_must_be_a_complete_pair() {
         group_roles: Vec::new(),
         tenant_context: None,
         group_context_id: None,
+        actor_home_org: None,
         feature_grants: Vec::new(),
         authz_subject_version: 0,
         authz_policy_version: 0,

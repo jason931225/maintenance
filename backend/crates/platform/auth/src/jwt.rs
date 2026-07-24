@@ -135,6 +135,13 @@ pub struct AccessClaims {
     /// Required only when `tenant_context = group_admin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_context_id: Option<String>,
+    /// The delegated actor's source/home tenant, distinct from `org`, which is
+    /// the target tenant context. This is intentionally optional during the
+    /// rolling Release-E expansion: tokens minted before this claim existed
+    /// remain valid, while new group-admin issuances always stamp it. It is
+    /// invalid on every non-delegated token type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_home_org: Option<String>,
     /// Runtime-effective custom-role feature keys for client-side nav/route
     /// gating hints. These are never consulted by backend authz; request
     /// principals resolve the live custom policy from the DB on every request.
@@ -195,6 +202,7 @@ fn validate_group_roles(group_roles: &[String]) -> Result<(), AuthError> {
 fn validate_tenant_context(
     tenant_context: Option<TenantAccessContext>,
     group_context_id: Option<&str>,
+    actor_home_org: Option<&str>,
     roles: &[String],
     group_roles: &[String],
     platform: bool,
@@ -206,6 +214,11 @@ fn validate_tenant_context(
             if group_context_id.is_some() {
                 return Err(AuthError::InvalidStoredData(
                     "group_context_id requires tenant_context".to_owned(),
+                ));
+            }
+            if actor_home_org.is_some() {
+                return Err(AuthError::InvalidStoredData(
+                    "actor_home_org requires group-admin tenant context".to_owned(),
                 ));
             }
         }
@@ -225,6 +238,13 @@ fn validate_tenant_context(
                     "group-admin tenant context group_context_id is not a uuid".to_owned(),
                 )
             })?;
+            if let Some(actor_home_org) = actor_home_org {
+                Uuid::parse_str(actor_home_org).map_err(|_| {
+                    AuthError::InvalidStoredData(
+                        "group-admin tenant context actor_home_org is not a uuid".to_owned(),
+                    )
+                })?;
+            }
             if !group_roles.iter().any(|role| role == "GROUP_ADMIN") {
                 return Err(AuthError::InvalidStoredData(
                     "group-admin tenant context requires GROUP_ADMIN group role".to_owned(),
@@ -320,6 +340,7 @@ impl JwtIssuer {
         &self,
         input: AccessTokenInput,
         group_id: Uuid,
+        actor_home_org: OrgId,
         ttl: Duration,
     ) -> Result<String, AuthError> {
         self.issue_access_token_inner(
@@ -329,6 +350,7 @@ impl JwtIssuer {
             vec!["GROUP_ADMIN".to_owned()],
             Some(TenantAccessContext::GroupAdmin),
             Some(group_id.to_string()),
+            Some(actor_home_org.to_string()),
         )
     }
 
@@ -345,7 +367,7 @@ impl JwtIssuer {
         input: AccessTokenInput,
         ttl: Duration,
     ) -> Result<String, AuthError> {
-        self.issue_access_token_inner(input, ttl, None, Vec::new(), None, None)
+        self.issue_access_token_inner(input, ttl, None, Vec::new(), None, None, None)
     }
 
     fn issue_access_token_inner(
@@ -356,6 +378,7 @@ impl JwtIssuer {
         group_roles: Vec<String>,
         tenant_context: Option<TenantAccessContext>,
         group_context_id: Option<String>,
+        actor_home_org: Option<String>,
     ) -> Result<String, AuthError> {
         if input.view_as && !group_roles.is_empty() {
             return Err(AuthError::InvalidStoredData(
@@ -366,6 +389,7 @@ impl JwtIssuer {
         validate_tenant_context(
             tenant_context,
             group_context_id.as_deref(),
+            actor_home_org.as_deref(),
             &input.roles,
             &group_roles,
             input.platform,
@@ -406,6 +430,7 @@ impl JwtIssuer {
             group_roles,
             tenant_context,
             group_context_id,
+            actor_home_org,
             feature_grants: input.feature_grants,
             authz_subject_version: input.authz_subject_version,
             authz_policy_version: input.authz_policy_version,
@@ -468,6 +493,7 @@ fn verify_access_token(
     validate_tenant_context(
         token.claims.tenant_context,
         token.claims.group_context_id.as_deref(),
+        token.claims.actor_home_org.as_deref(),
         &token.claims.roles,
         &token.claims.group_roles,
         token.claims.platform,
