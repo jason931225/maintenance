@@ -72,20 +72,21 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         json!({}),
         "employee creation must not fabricate acknowledgements"
     );
-    for table in [
-        "employees",
-        "employee_employment_profiles",
-        "employee_lifecycle_events",
-        "employee_create_idempotency",
-    ] {
-        let count: i64 =
-            sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE org_id = $1"))
-                .bind(*org.as_uuid())
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(count, 1, "same-key race must write exactly one {table} row");
-    }
+    let row_counts: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM employees WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_employment_profiles WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_lifecycle_events WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_create_idempotency WHERE org_id = $1)",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row_counts,
+        (1, 1, 1, 1),
+        "same-key race must write exactly one row in each employee creation table"
+    );
 
     let changed = post(
         service.clone(),
