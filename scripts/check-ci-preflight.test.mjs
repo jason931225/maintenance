@@ -9,6 +9,12 @@ import { evaluateCiPreflight } from "./check-ci-preflight.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const cargoLockGate = "cargo metadata --manifest-path backend/Cargo.toml --locked --format-version=1 >/dev/null";
+const preflightRustToolchainSetup = `      - name: Install Rust toolchain for Cargo.lock consistency
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
+`;
 
 function expectFailure(source, message) {
   const { failures } = evaluateCiPreflight(source);
@@ -310,6 +316,19 @@ describe("CI preflight contract", () => {
         "          export REINDEER_TOOLCHAIN=untrusted\n          rustup toolchain install \"$REINDEER_TOOLCHAIN\" --profile minimal",
       ),
       "must not override REINDEER_TOOLCHAIN after sourcing third-party/rust/reindeer/upstream.lock",
+    );
+  });
+
+  it("requires the pinned Rust toolchain before Cargo-dependent preflight tests", () => {
+    expectFailure(
+      workflow.replace(preflightRustToolchainSetup, "").replace(
+        "      - name: CI preflight contract tests\n        run: node --test scripts/check-ci-preflight.test.mjs",
+        `      - name: CI preflight contract tests
+        run: node --test scripts/check-ci-preflight.test.mjs
+
+${preflightRustToolchainSetup.trimEnd()}`,
+      ),
+      "preflight must install the pinned Rust toolchain before node --test scripts/check-ci-preflight.test.mjs",
     );
   });
 

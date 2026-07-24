@@ -12,6 +12,7 @@ const reindeerToolchainOverride = /^(?:export\s+)?REINDEER_TOOLCHAIN\s*=/;
 const requiredPreflightCommands = [
   "tools/buck/preflight.sh",
   "npm run check:foundation-gates",
+  "node --test scripts/check-ci-preflight.test.mjs",
   "npm run check:ci-preflight",
   "npm run check:root-workspaces",
   "npm run test:root-workspaces",
@@ -146,6 +147,29 @@ function requireReindeerToolchainBefore(steps, command, failures) {
   }
 }
 
+function requirePreflightRustToolchainBefore(steps, failures) {
+  const setupIndex = steps.findIndex((step) =>
+    step.startsWith("name: Install Rust toolchain for Cargo.lock consistency\n"),
+  );
+  if (setupIndex < 0) {
+    failures.push("preflight must install the pinned Rust toolchain before Cargo-dependent CI preflight tests");
+    return;
+  }
+  if (!isUnconditional(steps[setupIndex])) {
+    failures.push("preflight must install the pinned Rust toolchain unconditionally");
+    return;
+  }
+  for (const command of [
+    "node --test scripts/check-ci-preflight.test.mjs",
+    "cargo metadata --manifest-path backend/Cargo.toml --locked --format-version=1 >/dev/null",
+  ]) {
+    const commandIndex = steps.findIndex((step) => runScalar(step) === command);
+    if (commandIndex >= 0 && setupIndex > commandIndex) {
+      failures.push(`preflight must install the pinned Rust toolchain before ${command}`);
+    }
+  }
+}
+
 function requireDotSlashBefore(steps, command, job, failures) {
   const commandIndex = steps.findIndex((step) => runScalar(step) === command);
   const dotSlashIndex = steps.findIndex((step) => runScalar(step) === dotSlashBootstrap);
@@ -194,6 +218,7 @@ export function evaluateCiPreflight(workflow) {
 
   const preflightSteps = stepBlocks(preflight);
   requireDotSlashBefore(preflightSteps, "tools/buck/preflight.sh", "preflight", failures);
+  requirePreflightRustToolchainBefore(preflightSteps, failures);
   for (const command of requiredPreflightCommands) {
     const matchingSteps = preflightSteps.filter((step) => runScalar(step) === command);
     if (matchingSteps.length === 0) {
