@@ -1,6 +1,5 @@
 {
-  "schemaVersion": 2,
-  "purpose": "CI supplies the immutable protected PR parent SHA; ledger admission reads the separately pinned immutable snapshot.",
-  "protectedParentCommit": "61b79707ecf1e27994a09ab73b1eb22509fc81c8",
-  "ledgerSnapshotCommit": "fde4bed1f0477119d834bbe66164a4d8aab177d4"
+  "schemaVersion": 3,
+  "purpose": "Trusted contract and ledger must be read from the immutable protected PR base itself.",
+  "ledgerPath": "scripts/architecture/exception-ledger.json"
 }
