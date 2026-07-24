@@ -53,6 +53,8 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId,
     KernelError, OrgId, TraceContext, UserId,
 };
+use mnt_logistics_adapter_postgres::PgLogisticsStore;
+use mnt_logistics_rest::LogisticsRestState;
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
 use mnt_notices_adapter_postgres::PgNoticeStore;
@@ -2672,6 +2674,7 @@ pub fn build_router(state: AppState) -> Router {
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
             let benefit_store = PgBenefitCatalogStore::new(pool.clone());
+            let logistics_store = PgLogisticsStore::new(pool.clone());
             let leave_store = {
                 let store = mnt_leave_adapter_postgres::PgLeaveStore::new(
                     pool.clone(),
@@ -2712,6 +2715,10 @@ pub fn build_router(state: AppState) -> Router {
                     state.config.dispatch_timers,
                     state.dispatch_job_queue.clone(),
                     state.push_notifier.clone(),
+                )))
+                .merge(mnt_logistics_rest::router(LogisticsRestState::new(
+                    logistics_store,
+                    state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_financial_rest::router(
                     FinancialRestState::new(financial_store, state.jwt_verifier.clone())

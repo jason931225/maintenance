@@ -13646,6 +13646,56 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/logistics/asns:
+    post:
+      tags: [logistics]
+      operationId: createLogisticsAsn
+      summary: Create a pilot ASN for one branch warehouse
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, externalReference, sku, expectedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, externalReference: { type: string }, sku: { type: string }, expectedQuantity: { type: integer, minimum: 1 } } } } } }
+      responses: { '201': { description: ASN created }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/logistics/asns/{asn_id}/receipts:
+    post:
+      tags: [logistics]
+      operationId: receiveLogisticsAsn
+      summary: Record an idempotent full or partial receipt; over-receipt is rejected
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, receivedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, receivedQuantity: { type: integer, minimum: 1 } } } } } }
+      responses: { '200': { description: Receipt recorded or replayed }, '409': { description: Conflicting replay, over-receipt, or illegal state }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/logistics/asns/{asn_id}/putaway:
+    post:
+      tags: [logistics]
+      operationId: putawayLogisticsAsn
+      summary: Put received stock away into the pilot warehouse
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId], properties: { branchId: { $ref: '#/components/schemas/Uuid' } } } } } }
+      responses: { '200': { description: Stock available for fulfillment }, '409': { description: Illegal state } }
+  /api/v1/logistics/fulfillments:
+    post:
+      tags: [logistics]
+      operationId: releaseLogisticsFulfillment
+      summary: Atomically reserve available pilot stock; never oversells
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, sku, requestedQuantity, dueAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, sku: { type: string }, requestedQuantity: { type: integer, minimum: 1 }, dueAt: { type: string, format: date-time } } } } } }
+      responses: { '201': { description: Fulfillment released }, '409': { description: Insufficient available stock } }
+  /api/v1/logistics/fulfillments/{fulfillment_id}/pick:
+    post:
+      tags: [logistics]
+      operationId: pickLogisticsFulfillment
+      summary: Pick reserved stock, recording explicit short-pick when applicable
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Pick outcome }, '409': { description: Illegal state } }
+  /api/v1/logistics/fulfillments/{fulfillment_id}/pack:
+    post:
+      tags: [logistics]
+      operationId: packLogisticsFulfillment
+      summary: Pack a picked or short-picked fulfillment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Fulfillment packed }, '409': { description: Illegal state } }
 components:
   securitySchemes:
     bearerAuth:
