@@ -44,6 +44,8 @@ import com.maintenance.api.client.model.AttendanceWeek52Board
 import com.maintenance.api.client.model.AttendanceWeek52Row
 import com.maintenance.api.client.model.CancelAttendanceSubstitutionRequest
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.OwnAttendanceExceptionPage
+import com.maintenance.api.client.model.OwnAttendanceWeek52Response
 import com.maintenance.api.client.model.RaiseAttendanceExceptionRequest
 import com.maintenance.api.client.model.ResolveAttendanceExceptionRequest
 
@@ -525,6 +527,82 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/attendance/exceptions/{exception_id}".replace("{"+"exception_id"+"}", encodeURIComponent(exceptionId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/attendance/me/week52
+     * Get the signed principal&#39;s linked employee Week-52 projection
+     *
+     * @param weekStart ISO week Monday.
+     * @return OwnAttendanceWeek52Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMyAttendanceWeek52(weekStart: java.time.LocalDate) : OwnAttendanceWeek52Response = withContext(Dispatchers.IO) {
+        val localVarResponse = getMyAttendanceWeek52WithHttpInfo(weekStart = weekStart)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OwnAttendanceWeek52Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/attendance/me/week52
+     * Get the signed principal&#39;s linked employee Week-52 projection
+     *
+     * @param weekStart ISO week Monday.
+     * @return ApiResponse<OwnAttendanceWeek52Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMyAttendanceWeek52WithHttpInfo(weekStart: java.time.LocalDate) : ApiResponse<OwnAttendanceWeek52Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMyAttendanceWeek52RequestConfig(weekStart = weekStart)
+
+        return@withContext request<Unit, OwnAttendanceWeek52Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMyAttendanceWeek52
+     *
+     * @param weekStart ISO week Monday.
+     * @return RequestConfig
+     */
+    fun getMyAttendanceWeek52RequestConfig(weekStart: java.time.LocalDate) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("week_start", listOf(parseDateToQueryString<java.time.LocalDate>(weekStart)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/attendance/me/week52",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1056,6 +1134,137 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/attendance/week52",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter status
+     */
+     enum class StatusListMyAttendanceExceptions(val value: kotlin.String) {
+         @SerialName(value = "OPEN") OPEN("OPEN"),
+         @SerialName(value = "RESOLVED") RESOLVED("RESOLVED");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v1/attendance/me/exceptions
+     * List only the signed principal&#39;s linked employee exceptions
+     *
+     * @param month  (optional)
+     * @param workDate  (optional)
+     * @param fromDate  (optional)
+     * @param toDate  (optional)
+     * @param status  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return OwnAttendanceExceptionPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMyAttendanceExceptions(month: kotlin.String? = null, workDate: java.time.LocalDate? = null, fromDate: java.time.LocalDate? = null, toDate: java.time.LocalDate? = null, status: StatusListMyAttendanceExceptions? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : OwnAttendanceExceptionPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listMyAttendanceExceptionsWithHttpInfo(month = month, workDate = workDate, fromDate = fromDate, toDate = toDate, status = status, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OwnAttendanceExceptionPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/attendance/me/exceptions
+     * List only the signed principal&#39;s linked employee exceptions
+     *
+     * @param month  (optional)
+     * @param workDate  (optional)
+     * @param fromDate  (optional)
+     * @param toDate  (optional)
+     * @param status  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return ApiResponse<OwnAttendanceExceptionPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMyAttendanceExceptionsWithHttpInfo(month: kotlin.String?, workDate: java.time.LocalDate?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, status: StatusListMyAttendanceExceptions?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<OwnAttendanceExceptionPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMyAttendanceExceptionsRequestConfig(month = month, workDate = workDate, fromDate = fromDate, toDate = toDate, status = status, limit = limit, offset = offset)
+
+        return@withContext request<Unit, OwnAttendanceExceptionPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMyAttendanceExceptions
+     *
+     * @param month  (optional)
+     * @param workDate  (optional)
+     * @param fromDate  (optional)
+     * @param toDate  (optional)
+     * @param status  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return RequestConfig
+     */
+    fun listMyAttendanceExceptionsRequestConfig(month: kotlin.String?, workDate: java.time.LocalDate?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, status: StatusListMyAttendanceExceptions?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (month != null) {
+                    put("month", listOf(month.toString()))
+                }
+                if (workDate != null) {
+                    put("work_date", listOf(parseDateToQueryString<java.time.LocalDate>(workDate)))
+                }
+                if (fromDate != null) {
+                    put("from_date", listOf(parseDateToQueryString<java.time.LocalDate>(fromDate)))
+                }
+                if (toDate != null) {
+                    put("to_date", listOf(parseDateToQueryString<java.time.LocalDate>(toDate)))
+                }
+                if (status != null) {
+                    put("status", listOf(status.value))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/attendance/me/exceptions",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

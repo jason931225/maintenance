@@ -624,6 +624,11 @@ src/main/kotlin/com/maintenance/api/client/model/OpsSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/OtpRedeemRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/OtpRedeemResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/OutsourceWorkSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/OwnAttendanceException.kt
+src/main/kotlin/com/maintenance/api/client/model/OwnAttendanceExceptionPage.kt
+src/main/kotlin/com/maintenance/api/client/model/OwnAttendanceExceptionResolution.kt
+src/main/kotlin/com/maintenance/api/client/model/OwnAttendanceWeek52.kt
+src/main/kotlin/com/maintenance/api/client/model/OwnAttendanceWeek52Response.kt
 src/main/kotlin/com/maintenance/api/client/model/OwnershipTransfer.kt
 src/main/kotlin/com/maintenance/api/client/model/OwnershipTransferPage.kt
 src/main/kotlin/com/maintenance/api/client/model/OwnershipTransferStep.kt
