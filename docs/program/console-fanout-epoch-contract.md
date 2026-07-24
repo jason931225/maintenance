@@ -7,7 +7,7 @@ review, and serialization of shared faces.
 
 ## Bind before dispatch
 
-A receipt is bound to a full 40-character Git commit. The CLI reads the
+A receipt is bound across immutable commits. The CLI reads the
 registry and generated-face authority **from that commit**, requires its caller
 worktree to be clean, requires `source_revision` to be a resolvable
 `<ref>@<40-sha>` immutable provenance commit that is an ancestor of the anchor
@@ -58,6 +58,20 @@ state; remote/content caches remain shared. This changes no Buck cells or build
 graph ownership.
 
 ## Review and consolidation
+
+The immutable `epoch_base_sha` contains lane definitions and trusted reviewer
+authority. A later immutable `admission_sha` contains only the canonical
+`docs/evidence/console/fanout-admission.json` manifest, which references each
+review commit and its canonical receipt path
+`docs/evidence/console/fanout-receipts/<sha256(lane-id)>.json`. The chain is
+strictly `epoch base -> leaf -> review -> admission`. The review commit must be
+the direct child of the leaf and may change only its receipt artifact. Its
+receipt's result digest is recomputed from the fixed Git binary diff
+`git diff --no-ext-diff --no-renames --full-index --binary <base> <leaf>`.
+Reviewer identity is accepted only when the review commit author/committer and
+verified signing fingerprint match trusted epoch-base authority. If no trusted
+signer infrastructure is configured, receipts fail closed: source planning can
+continue, but completion and consolidation remain held.
 
 Shared OpenAPI, generated clients, migrations, route/nav, tokens, and generated
 Buck faces are never leaf writes. A consolidation entry remains false until an

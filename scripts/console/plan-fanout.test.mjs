@@ -86,16 +86,21 @@ test('Buck isolation directories include a stable full-lane hash and reject call
 });
 
 test('review receipts fail closed unless an independent reviewer custody-binds the exact leaf result', async () => {
-  const { validateReviewReceiptForAnchor } = await import('./plan-fanout.mjs');
+  const { validateReviewReceiptForAnchor, leafResultDigest } = await import('./plan-fanout.mjs');
   const LEAF = 'b'.repeat(40); const REVIEW = 'c'.repeat(40); const OTHER = 'd'.repeat(40);
   const lane = { laneId: 'A', owner: 'writer-a' };
-  const receipt = { status: 'approved', anchor_sha: SHA, lane_id: 'A', implementer: 'writer-a', reviewer: 'reviewer-b', leaf_commit: LEAF, leaf_result_sha256: 'e'.repeat(64), review_commit: REVIEW };
-  const operations = { hasCommit: (sha) => [SHA, LEAF, REVIEW, OTHER].includes(sha), isAncestor: (ancestor, descendant) => (ancestor === SHA && descendant === LEAF) || (ancestor === LEAF && descendant === REVIEW) || ancestor === descendant };
-  assert.deepEqual(validateReviewReceiptForAnchor(receipt, SHA, lane, operations), receipt);
-  assert.throws(() => validateReviewReceiptForAnchor({ ...receipt, review_commit: 'f'.repeat(40) }, SHA, lane, operations), /does not exist/);
-  assert.throws(() => validateReviewReceiptForAnchor({ ...receipt, reviewer: 'writer-a' }, SHA, lane, operations), /not an exact independent/);
-  assert.throws(() => validateReviewReceiptForAnchor({ ...receipt, review_commit: OTHER }, SHA, lane, operations), /does not custody/);
-  assert.throws(() => validateReviewReceiptForAnchor({ ...receipt, leaf_result_sha256: 'not-a-digest' }, SHA, lane, operations), /not an exact independent/);
+  const authority = { reviewers: [{ id: 'reviewer-b', author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test', signing_fingerprint: 'ABCD' }] };
+  const receipt = { status: 'approved', epoch_base_sha: SHA, lane_id: 'A', implementer: 'writer-a', reviewer: 'reviewer-b', leaf_commit: LEAF, leaf_result_sha256: leafResultDigest('base..leaf'), review_commit: REVIEW };
+  const operations = { hasCommit: (sha) => [LEAF, REVIEW, OTHER].includes(sha), isAncestor: (ancestor, descendant) => ancestor === SHA && descendant === LEAF, parentOf: (sha) => sha === REVIEW ? LEAF : OTHER, changedPaths: () => ['docs/evidence/console/fanout-receipts/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd.json'], readJson: () => receipt, leafDiff: () => 'base..leaf', commitIdentity: () => ({ author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test' }), verifySignature: () => true };
+  assert.deepEqual(validateReviewReceiptForAnchor(receipt, SHA, lane, authority, operations), receipt);
+  const forgedDigest = { ...receipt, leaf_result_sha256: 'e'.repeat(64) };
+  assert.throws(() => validateReviewReceiptForAnchor(forgedDigest, SHA, lane, authority, { ...operations, readJson: () => forgedDigest }), /digest/);
+  assert.throws(() => validateReviewReceiptForAnchor({ ...receipt, implementer: '' }, SHA, lane, authority, operations), /not an exact trusted/);
+  assert.throws(() => validateReviewReceiptForAnchor({ ...receipt, reviewer: 'writer-a' }, SHA, lane, authority, operations), /not an exact trusted/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, readJson: () => null }), /absent/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, changedPaths: () => ['code.js'] }), /mutates/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentOf: () => OTHER }), /direct child/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, isAncestor: () => false }), /anchored/);
 });
 
 test('runtime-ineligible lanes are held before ranking so lower safe lanes fill capacity', () => {
