@@ -679,18 +679,97 @@ fn normalize_path_parameters(path: &str) -> String {
 #[test]
 fn dispatch_read_openapi_operations_match_generated_client_faces() {
     const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
-    const KOTLIN: &str = include_str!("../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt");
-    const SWIFT: &str = include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+    const KOTLIN: &str = include_str!(
+        "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
+    );
+    const SWIFT: &str =
+        include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
     for (path, operation, schema) in [
-        ("/api/v1/console/dispatch/queue", "listConsoleDispatchQueue", "DispatchQueuePage"),
-        ("/api/v1/p1-dispatches/{dispatchId}/candidates", "listP1DispatchCandidates", "DispatchCandidatePage"),
-        ("/api/v1/p1-dispatches/{dispatchId}/responses", "listP1DispatchResponses", "P1DispatchResponsePage"),
+        (
+            "/api/v1/console/dispatch/queue",
+            "listConsoleDispatchQueue",
+            "DispatchQueuePage",
+        ),
+        (
+            "/api/v1/p1-dispatches/{dispatchId}/candidates",
+            "listP1DispatchCandidates",
+            "DispatchCandidatePage",
+        ),
+        (
+            "/api/v1/p1-dispatches/{dispatchId}/responses",
+            "listP1DispatchResponses",
+            "P1DispatchResponsePage",
+        ),
     ] {
-        let start = OPENAPI_YAML.find(&format!("  {path}:\n")).unwrap_or_else(|| panic!("missing {path}"));
+        let start = OPENAPI_YAML
+            .find(&format!("  {path}:\n"))
+            .unwrap_or_else(|| panic!("missing {path}"));
         let operation_yaml = &OPENAPI_YAML[start..];
-        assert!(operation_yaml.contains(&format!("operationId: {operation}")) && operation_yaml.contains(&format!("$ref: '#/components/schemas/{schema}'")));
-        assert!(TS.contains(operation), "TS generated client lacks {operation}");
-        assert!(KOTLIN.contains(operation), "Kotlin generated client lacks {operation}");
-        assert!(SWIFT.contains(operation), "Swift generated client lacks {operation}");
+        assert!(
+            operation_yaml.contains(&format!("operationId: {operation}"))
+                && operation_yaml.contains(&format!("$ref: '#/components/schemas/{schema}'"))
+        );
+        assert!(
+            TS.contains(operation),
+            "TS generated client lacks {operation}"
+        );
+        assert!(
+            KOTLIN.contains(operation),
+            "Kotlin generated client lacks {operation}"
+        );
+        assert!(
+            SWIFT.contains(operation),
+            "Swift generated client lacks {operation}"
+        );
     }
+}
+
+#[test]
+fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
+    const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
+    const KOTLIN: &str = include_str!(
+        "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
+    );
+    const SWIFT: &str =
+        include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+    let queue_start = OPENAPI_YAML
+        .find("  /api/v1/console/dispatch/queue:\n")
+        .expect("queue path");
+    let queue = &OPENAPI_YAML[queue_start
+        ..OPENAPI_YAML
+            .find("  /api/v1/p1-dispatches/{dispatchId}/candidates:")
+            .expect("next dispatch path")];
+    for required in [
+        "type: array",
+        "style: form",
+        "explode: false",
+        "RECEIVED",
+        "UNASSIGNED",
+        "ASSIGNED",
+        "IN_PROGRESS",
+        "PART_WAITING",
+        "DELAYED",
+        "'400': { $ref: '#/components/responses/BadRequest' }",
+    ] {
+        assert!(
+            queue.contains(required),
+            "queue OpenAPI contract lacks {required}"
+        );
+    }
+    assert!(
+        TS.contains("status?: components[\"schemas\"][\"DispatchQueueStatus\"][]")
+            && TS.contains("400: components[\"responses\"][\"BadRequest\"]")
+    );
+    assert!(
+        KOTLIN.contains("kotlin.collections.List<DispatchQueueStatus>")
+            && KOTLIN.contains("toMultiValue(status.toList(), \"csv\")")
+            && KOTLIN.contains("Accept\"] = \"application/json\"")
+    );
+    assert!(
+        SWIFT.contains("style: .form,")
+            && SWIFT.contains("explode: false,")
+            && SWIFT.contains("name: \"status\"")
+            && SWIFT.contains("case 400:")
+            && SWIFT.contains("\"application/json\"")
+    );
 }
