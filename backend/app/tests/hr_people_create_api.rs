@@ -184,7 +184,7 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
 
     let custom_grantee = UserId::new();
     seed_user_with_roles(&pool, org, custom_grantee, &["EXECUTIVE"]).await;
-    seed_manage_grant(&pool, org, custom_grantee, None).await;
+    seed_manage_grant(&pool, org, custom_grantee, None, None).await;
     let custom_created = post(
         service.clone(),
         EMPLOYEES_PATH,
@@ -204,6 +204,62 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         "{:?}",
         custom_created.json
     );
+    let matching_team_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, matching_team_grantee, &["EXECUTIVE"]).await;
+    set_user_team(&pool, org, matching_team_grantee, "정비").await;
+    seed_manage_grant(&pool, org, matching_team_grantee, None, Some("MAINTENANCE")).await;
+    let matching_team_created = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, matching_team_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-TEAM-MATCH",
+            "team-match-key",
+            "010-1234-5678",
+            "Matching team",
+        ),
+    )
+    .await;
+    assert_eq!(
+        matching_team_created.status,
+        StatusCode::CREATED,
+        "{:?}",
+        matching_team_created.json
+    );
+    let before_team_denial = people_write_counts(&pool, org).await;
+
+    let mismatched_team_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, mismatched_team_grantee, &["EXECUTIVE"]).await;
+    set_user_team(&pool, org, mismatched_team_grantee, "정비").await;
+    seed_manage_grant(
+        &pool,
+        org,
+        mismatched_team_grantee,
+        None,
+        Some("PREVENTION"),
+    )
+    .await;
+    let mismatched_team_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, mismatched_team_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-TEAM-MISMATCH",
+            "team-mismatch-key",
+            "010-1234-5678",
+            "Mismatched team",
+        ),
+    )
+    .await;
+    assert_eq!(
+        mismatched_team_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        mismatched_team_denied.json
+    );
+    assert_eq!(people_write_counts(&pool, org).await, before_team_denial);
     let before_denials = people_write_counts(&pool, org).await;
 
     let denied_user = UserId::new();
@@ -230,7 +286,7 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
 
     let branch_grantee = UserId::new();
     seed_user_with_roles(&pool, org, branch_grantee, &["EXECUTIVE"]).await;
-    seed_manage_grant(&pool, org, branch_grantee, Some(branch)).await;
+    seed_manage_grant(&pool, org, branch_grantee, Some(branch), None).await;
     let branch_denied = post(
         service.clone(),
         EMPLOYEES_PATH,
@@ -337,7 +393,23 @@ async fn seed_user_with_roles(pool: &PgPool, org: OrgId, user: UserId, roles: &[
         .unwrap();
 }
 
-async fn seed_manage_grant(pool: &PgPool, org: OrgId, user: UserId, branch: Option<Uuid>) {
+async fn set_user_team(pool: &PgPool, org: OrgId, user: UserId, team: &str) {
+    sqlx::query("UPDATE users SET team = $1 WHERE id = $2 AND org_id = $3")
+        .bind(team)
+        .bind(*user.as_uuid())
+        .bind(*org.as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn seed_manage_grant(
+    pool: &PgPool,
+    org: OrgId,
+    user: UserId,
+    branch: Option<Uuid>,
+    team: Option<&str>,
+) {
     let role_id: Uuid = sqlx::query_scalar(
         "INSERT INTO policy_roles (org_id, role_key, display_name, status) \
          VALUES ($1, $2, $3, 'ACTIVE') RETURNING id",
@@ -366,6 +438,19 @@ async fn seed_manage_grant(pool: &PgPool, org: OrgId, user: UserId, branch: Opti
         .bind(*org.as_uuid())
         .bind(role_id)
         .bind(branch)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    if let Some(team) = team {
+        sqlx::query(
+            "INSERT INTO policy_role_conditions \
+             (org_id, role_id, condition_key, attribute, operator, condition_values) \
+             VALUES ($1, $2, 'team_scope', 'team', 'equals', ARRAY[$3::text])",
+        )
+        .bind(*org.as_uuid())
+        .bind(role_id)
+        .bind(team)
         .execute(pool)
         .await
         .unwrap();
