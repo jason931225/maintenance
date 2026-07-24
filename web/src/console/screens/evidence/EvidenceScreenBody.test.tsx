@@ -41,11 +41,13 @@ const evidenceObjectView = {
   disposed_at: null,
 };
 
-function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>) {
-  const api = createConsoleApiClient("evidence-screen-test-token");
-  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
-  const authValue = {
-    session: { access_token: "evidence-screen-test-token", roles: ["ADMIN"] },
+function authValue(api: ConsoleApiClient, incarnation: string): AuthContextValue {
+  return {
+    session: {
+      access_token: "evidence-screen-test-token",
+      client_session_incarnation: incarnation,
+      roles: ["ADMIN"],
+    },
     restoring: false,
     login: vi.fn(),
     logout: vi.fn(),
@@ -56,13 +58,21 @@ function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>
     viewAs: undefined,
     enterViewAs: vi.fn(),
     exitViewAs: vi.fn(),
-  } as unknown as AuthContextValue;
+  };
+}
 
-  return render(
-    <AuthContext.Provider value={authValue}>
+function screenTree(api: ConsoleApiClient, incarnation: string) {
+  return (
+    <AuthContext.Provider value={authValue(api, incarnation)}>
       <EvidenceScreenBody />
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
+}
+
+function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>) {
+  const api = createConsoleApiClient("evidence-screen-test-token");
+  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
+  return render(screenTree(api, "evidence-screen-test-session"));
 }
 
 
@@ -346,6 +356,62 @@ describe("EvidenceScreenBody", () => {
     });
     unmount();
     expect(listSignal?.aborted).toBe(true);
+  });
+
+  it("fences prior-session evidence, users, lifecycle data, and CSV synchronously", async () => {
+    let resolveLifecycleA: ((value: unknown) => void) | undefined;
+    const lifecycleA = new Promise<unknown>((resolve) => {
+      resolveLifecycleA = resolve;
+    });
+    let resolveEvidenceB: ((value: unknown) => void) | undefined;
+    const evidenceB = new Promise<unknown>((resolve) => {
+      resolveEvidenceB = resolve;
+    });
+    const apiA = createConsoleApiClient("session-a-token");
+    const apiB = createConsoleApiClient("session-b-token");
+    vi.spyOn(apiA, "GET").mockImplementation(((path: unknown) => {
+      if (path === "/api/v1/evidence/objects") {
+        return Promise.resolve({ data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } });
+      }
+      if (path === "/api/v1/users") return Promise.resolve({ data: { items: [{ id: "user-1", display_name: "A 사용자" }] } });
+      if (path === "/api/v1/lifecycles/{objectType}/{objectId}") return lifecycleA;
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
+    }) as never);
+    vi.spyOn(apiB, "GET").mockImplementation(((path: unknown) => {
+      if (path === "/api/v1/evidence/objects") return evidenceB;
+      if (path === "/api/v1/users") return new Promise(() => undefined);
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
+    }) as never);
+
+    const view = render(screenTree(apiA, "session-a"));
+    expect(await screen.findByText("EV-101")).toBeVisible();
+    expect(await screen.findByText("A 사용자")).toBeVisible();
+
+    view.rerender(screenTree(apiB, "session-b"));
+    expect(screen.queryByText("EV-101")).toBeNull();
+    expect(screen.queryByText("A 사용자")).toBeNull();
+    expect(screen.getByText(ko.console.documents.loading)).toBeVisible();
+
+    const createObjectURL = vi.fn().mockReturnValue("blob:session-b");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    await userEvent.click(screen.getByRole("button", { name: ko.console.documents.actions.export }));
+    const [blob] = createObjectURL.mock.calls[0] as [Blob];
+    expect(await blob.text()).not.toContain("EV-101");
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    resolveLifecycleA?.({
+      data: {
+        objectType: "evidence_object",
+        objectId: "ev-1",
+        retentionUntil: "2030-01-01T00:00:00Z",
+      },
+    });
+    await Promise.resolve();
+    expect(screen.queryByText("EV-101")).toBeNull();
+    resolveEvidenceB?.({ data: { items: [], limit: 200, offset: 0, total: 0 } });
   });
 
   it("shows the list-load error state with a working retry", async () => {

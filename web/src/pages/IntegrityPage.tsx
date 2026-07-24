@@ -300,7 +300,11 @@ export function IntegrityPage() {
       {tab === "evidence" ? (
         <Card className="grid gap-4">
           <PolicyGateProvider gate={evidenceGate}>
-            <EvidenceRecords api={api} currentUserId={session?.user_id} />
+            <EvidenceRecords
+              api={api}
+              currentUserId={session?.user_id}
+              sessionIncarnation={session?.client_session_incarnation}
+            />
           </PolicyGateProvider>
         </Card>
       ) : tab === "decisions" ? (

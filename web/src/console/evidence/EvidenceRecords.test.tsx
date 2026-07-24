@@ -117,7 +117,7 @@ function makeApi() {
 describe("EvidenceRecords list (real-wired)", () => {
   it("fetches the real EV- list and renders every row as an objDrag source", async () => {
     const api = makeApi();
-    render(<EvidenceRecords api={api} />);
+    render(<EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />);
     await waitFor(() => {
       expect(screen.getByText(heldWire.code)).toBeTruthy();
     });
@@ -128,7 +128,7 @@ describe("EvidenceRecords list (real-wired)", () => {
 
   it("shows the compact stat bar with per-status counts", async () => {
     const api = makeApi();
-    render(<EvidenceRecords api={api} />);
+    render(<EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />);
     await waitFor(() => {
       expect(screen.getByText(heldWire.code)).toBeTruthy();
     });
@@ -146,7 +146,7 @@ describe("EvidenceRecords list (real-wired)", () => {
       return Promise.resolve({ data: { items: [] }, response: { ok: true, status: 200 } });
     });
     const api = { GET, POST: vi.fn() } as unknown as ConsoleApiClient;
-    const { unmount } = render(<EvidenceRecords api={api} />);
+    const { unmount } = render(<EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />);
 
     await waitFor(() => {
       expect(listSignal).toBeDefined();
@@ -155,10 +155,49 @@ describe("EvidenceRecords list (real-wired)", () => {
     expect(listSignal?.aborted).toBe(true);
   });
 
+  it("synchronously clears prior-session rows while the replacement session is pending", async () => {
+    let resolveB: ((value: ApiResult) => void) | undefined;
+    const pendingB = new Promise<ApiResult>((resolve) => {
+      resolveB = resolve;
+    });
+    const apiA = {
+      GET: vi.fn((path: string) => {
+        if (path === "/api/v1/evidence/objects") {
+          return Promise.resolve({
+            data: { items: [listRow(heldWire)], limit: 200, offset: 0, total: 1 },
+            response: { ok: true, status: 200 },
+          });
+        }
+        return Promise.resolve({ data: { items: [] }, response: { ok: true, status: 200 } });
+      }),
+      POST: vi.fn(),
+    } as unknown as ConsoleApiClient;
+    const apiB = {
+      GET: vi.fn((path: string) =>
+        path === "/api/v1/evidence/objects"
+          ? pendingB
+          : Promise.resolve({ data: { items: [] }, response: { ok: true, status: 200 } }),
+      ),
+      POST: vi.fn(),
+    } as unknown as ConsoleApiClient;
+
+    const view = render(<EvidenceRecords api={apiA} sessionIncarnation="session-a" />);
+    expect(await screen.findByText(heldWire.code)).toBeVisible();
+
+    view.rerender(<EvidenceRecords api={apiB} sessionIncarnation="session-b" />);
+    expect(screen.queryByText(heldWire.code)).toBeNull();
+    expect(screen.getByText(T.records.loading)).toBeVisible();
+
+    resolveB?.({
+      data: { items: [], limit: 200, offset: 0, total: 0 },
+      response: { ok: true, status: 200 },
+    });
+  });
+
   it("shows a retry affordance when the list fails to load", async () => {
     const GET = vi.fn(() => Promise.resolve({ data: undefined, response: { ok: false, status: 500 } }));
     const api = { GET, POST: vi.fn() } as unknown as ConsoleApiClient;
-    render(<EvidenceRecords api={api} />);
+    render(<EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />);
     await waitFor(() => {
       expect(screen.getByText(T.records.loadFailed)).toBeTruthy();
     });
@@ -169,7 +208,7 @@ describe("EvidenceRecords list (real-wired)", () => {
 describe("EvidenceRecords filtering", () => {
   it("filters to legal-hold rows and toggles back to all", async () => {
     const api = makeApi();
-    render(<EvidenceRecords api={api} />);
+    render(<EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />);
     await waitFor(() => {
       expect(screen.getByText(heldWire.code)).toBeTruthy();
     });
@@ -190,7 +229,7 @@ describe("EvidenceRecords detail opening", () => {
     const api = makeApi();
     render(
       <WindowManagerProvider>
-        <EvidenceRecords api={api} />
+        <EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />
       </WindowManagerProvider>,
     );
     await waitFor(() => {
@@ -208,7 +247,7 @@ describe("EvidenceRecords detail opening", () => {
 
   it("opens the EvidenceCard inline when no window shell is mounted", async () => {
     const api = makeApi();
-    render(<EvidenceRecords api={api} />);
+    render(<EvidenceRecords api={api} sessionIncarnation="evidence-records-test" />);
     await waitFor(() => {
       expect(screen.getByText(heldWire.code)).toBeTruthy();
     });

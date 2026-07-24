@@ -12,6 +12,7 @@
 // explicit and retryable; it is never mislabeled as an absent retention rule.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
+import type { ConsoleApiClient } from "../../../api/client";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
@@ -164,7 +165,20 @@ function isExpiringSoon(retentionUntil: string): boolean {
 }
 
 export function EvidenceScreenBody() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
+  return (
+    <EvidenceScreenContent
+      key={session?.client_session_incarnation ?? "evidence-anonymous"}
+      api={api}
+    />
+  );
+}
+
+interface EvidenceScreenContentProps {
+  api: ConsoleApiClient;
+}
+
+function EvidenceScreenContent({ api }: EvidenceScreenContentProps) {
   const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [users, setUsers] = useState<Map<string, string>>(new Map());

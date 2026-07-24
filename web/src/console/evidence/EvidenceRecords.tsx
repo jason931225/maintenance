@@ -185,11 +185,23 @@ function timestampLabel(value: string): string {
 
 export interface EvidenceRecordsProps {
   api: ConsoleApiClient;
+  /** Effective-session boundary; a new incarnation must discard prior data synchronously. */
+  sessionIncarnation: string | undefined;
   /** The signed-in user — blocks a self-decide in the hold-release UI. */
   currentUserId?: string;
 }
 
-export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
+export function EvidenceRecords({ api, currentUserId, sessionIncarnation }: EvidenceRecordsProps) {
+  return (
+    <EvidenceRecordsContent
+      key={sessionIncarnation ?? "evidence-anonymous"}
+      api={api}
+      currentUserId={currentUserId}
+    />
+  );
+}
+
+function EvidenceRecordsContent({ api, currentUserId }: Omit<EvidenceRecordsProps, "sessionIncarnation">) {
   const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [users, setUsers] = useState<Map<string, string>>(new Map());
