@@ -166,6 +166,27 @@ pub enum Feature {
     /// Manage the public sales catalog (#6 지게차 매매): create/update/withdraw
     /// used-forklift listings and triage inbound customer inquiries. ADMIN tier.
     SalesManage,
+    /// Receive an advance shipping notice and record warehouse receipt
+    /// exceptions. Custom-grant only: no built-in role fallback.
+    LogisticsReceive,
+    /// Complete governed putaway into a warehouse stock location. Custom-grant
+    /// only: no built-in role fallback.
+    LogisticsPutaway,
+    /// Release a fulfillment order and reserve available stock. Custom-grant
+    /// only: no built-in role fallback.
+    LogisticsRelease,
+    /// Pick and pack released inventory. Custom-grant only: no built-in role
+    /// fallback.
+    LogisticsPickPack,
+    /// Dispatch a packed shipment through its assigned carrier/vehicle leg.
+    /// Custom-grant only: no built-in role fallback.
+    LogisticsDispatch,
+    /// Record recipient-confirmed proof of delivery with immutable evidence.
+    /// Custom-grant only: no built-in role fallback.
+    LogisticsPod,
+    /// Derive the SLA assessment and operational-cost settlement after delivery.
+    /// Custom-grant only: no built-in role fallback.
+    LogisticsSettle,
     /// Read IV inventory stock objects/events inside the caller's branch scope.
     InventoryRead,
     /// Create/update/archive IV inventory items, locations, and thresholds.
@@ -265,7 +286,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 65] = [
+    pub const ALL: [Self; 72] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -305,6 +326,13 @@ impl Feature {
         Self::ExcelDownload,
         Self::OpsDashboardRead,
         Self::SalesManage,
+        Self::LogisticsReceive,
+        Self::LogisticsPutaway,
+        Self::LogisticsRelease,
+        Self::LogisticsPickPack,
+        Self::LogisticsDispatch,
+        Self::LogisticsPod,
+        Self::LogisticsSettle,
         Self::InventoryRead,
         Self::InventoryManage,
         Self::InventoryConsume,
@@ -375,6 +403,13 @@ impl Feature {
             Self::ExcelDownload => "excel_download",
             Self::OpsDashboardRead => "ops_dashboard_read",
             Self::SalesManage => "sales_manage",
+            Self::LogisticsReceive => "logistics_receive",
+            Self::LogisticsPutaway => "logistics_putaway",
+            Self::LogisticsRelease => "logistics_release",
+            Self::LogisticsPickPack => "logistics_pick_pack",
+            Self::LogisticsDispatch => "logistics_dispatch",
+            Self::LogisticsPod => "logistics_pod",
+            Self::LogisticsSettle => "logistics_settle",
             Self::InventoryRead => "inventory_read",
             Self::InventoryManage => "inventory_manage",
             Self::InventoryConsume => "inventory_consume",
@@ -455,6 +490,16 @@ impl Feature {
             Self::ExcelDownload => [D, A, A, A, A, A],
             Self::OpsDashboardRead => [D, D, D, A, D, A],
             Self::SalesManage => [D, D, D, A, A, A],
+            // Logistics is capability-driven from its first slice. Built-in
+            // roles do not silently widen access; explicit tenant grants are
+            // the only allow path.
+            Self::LogisticsReceive
+            | Self::LogisticsPutaway
+            | Self::LogisticsRelease
+            | Self::LogisticsPickPack
+            | Self::LogisticsDispatch
+            | Self::LogisticsPod
+            | Self::LogisticsSettle => [D, D, D, D, D, D],
             // IV inventory is branch-operational: front-office/mechanics may
             // read stock; mechanics/admins may consume; management/reorder
             // remains the admin tier until purchase integration lands.
@@ -560,6 +605,13 @@ impl FromStr for Feature {
             "excel_download" => Ok(Self::ExcelDownload),
             "ops_dashboard_read" => Ok(Self::OpsDashboardRead),
             "sales_manage" => Ok(Self::SalesManage),
+            "logistics_receive" => Ok(Self::LogisticsReceive),
+            "logistics_putaway" => Ok(Self::LogisticsPutaway),
+            "logistics_release" => Ok(Self::LogisticsRelease),
+            "logistics_pick_pack" => Ok(Self::LogisticsPickPack),
+            "logistics_dispatch" => Ok(Self::LogisticsDispatch),
+            "logistics_pod" => Ok(Self::LogisticsPod),
+            "logistics_settle" => Ok(Self::LogisticsSettle),
             "inventory_read" => Ok(Self::InventoryRead),
             "inventory_manage" => Ok(Self::InventoryManage),
             "inventory_consume" => Ok(Self::InventoryConsume),
