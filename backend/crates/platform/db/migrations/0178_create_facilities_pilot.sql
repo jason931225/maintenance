@@ -1,8 +1,8 @@
 -- CAP-IFM-PILOT: facilities is deliberately separate from equipment-required
 -- legacy work_orders.  Slice 1 is scheduled HVAC preventive maintenance only.
 INSERT INTO feature_catalog (feature_key) VALUES
-    ('facility_manage'), ('facility_dispatch'), ('facility_execute'),
-    ('facility_accept'), ('facility_observe')
+    ('facilities_manage'), ('facilities_dispatch'), ('facilities_execute'),
+    ('facilities_accept'), ('facilities_observe')
 ON CONFLICT (feature_key) DO NOTHING;
 
 CREATE TABLE facilities_spaces (
@@ -51,8 +51,8 @@ CREATE TABLE facilities_cases (
     status TEXT NOT NULL CHECK (status IN ('DUE','TRIAGED','SCHEDULED','ASSIGNED','IN_PROGRESS','SUBMITTED','REWORK_REQUIRED','AWAITING_ACCEPTANCE','CLOSED')),
     assignee_id UUID NULL, scheduled_for TIMESTAMPTZ NULL, safety_acknowledged_at TIMESTAMPTZ NULL,
     response_due_at TIMESTAMPTZ NOT NULL, completion_due_at TIMESTAMPTZ NOT NULL, acceptance_due_at TIMESTAMPTZ NOT NULL,
-    request_hash TEXT NOT NULL, idempotency_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (id, org_id), UNIQUE (org_id, obligation_id, idempotency_key),
+    occurrence_due_at TIMESTAMPTZ NOT NULL, request_hash TEXT NOT NULL, idempotency_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (id, org_id), UNIQUE (org_id, obligation_id, occurrence_due_at), UNIQUE (org_id, obligation_id, idempotency_key),
     FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id), FOREIGN KEY (site_id, org_id) REFERENCES registry_sites(id, org_id),
     FOREIGN KEY (obligation_id, org_id) REFERENCES facilities_obligations(id, org_id),
     FOREIGN KEY (assignee_id, org_id) REFERENCES users(id, org_id)

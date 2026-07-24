@@ -262,10 +262,20 @@ pub enum Feature {
     /// authenticated org member — this feature gates only draft visibility and
     /// the publish/progress mutations.
     NoticeManage,
+    /// Operate the scheduled HVAC preventive-maintenance queue.
+    FacilitiesManage,
+    /// Triage and assign scheduled facilities cases.
+    FacilitiesDispatch,
+    /// Start and submit assigned facilities work.
+    FacilitiesExecute,
+    /// Accept or reject submitted facilities work.
+    FacilitiesAccept,
+    /// Read facilities cases and record metering observations.
+    FacilitiesObserve,
 }
 
 impl Feature {
-    pub const ALL: [Self; 65] = [
+    pub const ALL: [Self; 70] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -331,6 +341,11 @@ impl Feature {
         Self::LifecycleManage,
         Self::PayrollRunRead,
         Self::NoticeManage,
+        Self::FacilitiesManage,
+        Self::FacilitiesDispatch,
+        Self::FacilitiesExecute,
+        Self::FacilitiesAccept,
+        Self::FacilitiesObserve,
     ];
 
     #[must_use]
@@ -401,6 +416,11 @@ impl Feature {
             Self::LifecycleManage => "lifecycle_manage",
             Self::PayrollRunRead => "payroll_run_read",
             Self::NoticeManage => "notice_manage",
+            Self::FacilitiesManage => "facilities_manage",
+            Self::FacilitiesDispatch => "facilities_dispatch",
+            Self::FacilitiesExecute => "facilities_execute",
+            Self::FacilitiesAccept => "facilities_accept",
+            Self::FacilitiesObserve => "facilities_observe",
         }
     }
 
@@ -512,6 +532,11 @@ impl Feature {
             Self::PayrollRunRead => [D, D, D, A, A, A],
             // The HQ/announcement tier: ADMIN + EXECUTIVE + SUPER_ADMIN.
             Self::NoticeManage => [D, D, D, A, A, A],
+            Self::FacilitiesManage => [D, D, D, A, D, A],
+            Self::FacilitiesDispatch => [D, D, D, A, D, A],
+            Self::FacilitiesExecute => [D, D, A, A, D, A],
+            Self::FacilitiesAccept => [D, D, D, A, D, A],
+            Self::FacilitiesObserve => [D, A, A, A, A, A],
         }
     }
 }
@@ -586,6 +611,11 @@ impl FromStr for Feature {
             "lifecycle_manage" => Ok(Self::LifecycleManage),
             "payroll_run_read" => Ok(Self::PayrollRunRead),
             "notice_manage" => Ok(Self::NoticeManage),
+            "facilities_manage" => Ok(Self::FacilitiesManage),
+            "facilities_dispatch" => Ok(Self::FacilitiesDispatch),
+            "facilities_execute" => Ok(Self::FacilitiesExecute),
+            "facilities_accept" => Ok(Self::FacilitiesAccept),
+            "facilities_observe" => Ok(Self::FacilitiesObserve),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),

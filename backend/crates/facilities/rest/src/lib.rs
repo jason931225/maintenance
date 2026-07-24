@@ -9,12 +9,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, OrgId, TraceContext, UserId,
-};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::Principal;
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, resolve_principal};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -144,30 +142,12 @@ async fn principal(s: &FacilitiesRestState, h: &HeaderMap) -> Result<Principal, 
         ),
     })
 }
-async fn require_grant(
-    pool: &PgPool,
-    p: &Principal,
-    key: &str,
-    branch: Option<Uuid>,
-) -> Result<(), RestError> {
-    let ok: bool=sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM user_role_assignments ura JOIN policy_roles r ON r.id=ura.role_id AND r.org_id=ura.org_id JOIN policy_role_permissions p ON p.role_id=r.id AND p.org_id=r.org_id WHERE ura.org_id=$1 AND ura.user_id=$2 AND r.status='ACTIVE' AND NOT r.is_system AND p.feature_key=$3 AND p.permission_level='allow')").bind(*p.org_id.as_uuid()).bind(*p.user_id.as_uuid()).bind(key).fetch_one(pool).await.map_err(RestError::db)?;
-    if !ok {
-        return Err(RestError::new(
-            StatusCode::FORBIDDEN,
-            "forbidden",
-            "required facilities feature grant is absent",
-        ));
-    }
-    if let Some(b) = branch {
-        if !p.branch_scope.allows(BranchId::from_uuid(b)) {
-            return Err(RestError::new(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "facilities case was not found",
-            ));
-        }
-    }
-    Ok(())
+fn require_feature(p: &Principal, feature: Feature, branch: Uuid) -> Result<(), RestError> {
+    authorize(p, Action::new(feature), BranchId::from_uuid(branch)).map_err(RestError::kernel)
+}
+
+fn require_org_feature(p: &Principal, feature: Feature) -> Result<(), RestError> {
+    authorize_org_wide(p, Action::new(feature)).map_err(RestError::kernel)
 }
 fn hash<T: Serialize>(v: &T) -> String {
     let bytes = serde_json::to_vec(v).unwrap_or_default();
@@ -200,7 +180,7 @@ async fn create_due_case(
     Json(b): Json<DueCaseBody>,
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(&s, &h).await?;
-    require_grant(&s.pool, &p, "facility_manage", None).await?;
+    require_org_feature(&p, Feature::FacilitiesManage)?;
     if b.idempotency_key.len() < 16 {
         return Err(RestError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -209,10 +189,27 @@ async fn create_due_case(
         ));
     }
     let req_hash = hash(&b);
-    let row=sqlx::query("SELECT o.branch_id,o.site_id,o.next_due_at,o.response_due_seconds,o.completion_due_seconds,o.acceptance_due_seconds FROM facilities_obligations o WHERE o.id=$1 AND o.org_id=$2 AND o.active").bind(b.obligation_id).bind(*p.org_id.as_uuid()).fetch_optional(&s.pool).await.map_err(RestError::db)?.ok_or_else(||RestError::new(StatusCode::NOT_FOUND,"not_found","active HVAC obligation was not found"))?;
+    let org = p.org_id;
+    let obligation_id = b.obligation_id;
+    let row = with_org_conn::<_, _, RestError>(&s.pool, org, move |tx| Box::pin(async move {
+        sqlx::query("SELECT o.branch_id,o.site_id,o.next_due_at,o.response_due_seconds,o.completion_due_seconds,o.acceptance_due_seconds FROM facilities_obligations o WHERE o.id=$1 AND o.org_id=$2 AND o.active FOR UPDATE")
+            .bind(obligation_id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)
+    })).await?.ok_or_else(||RestError::new(StatusCode::NOT_FOUND,"not_found","active HVAC obligation was not found"))?;
     let branch: Uuid = row.try_get("branch_id").map_err(RestError::db)?;
-    require_grant(&s.pool, &p, "facility_manage", Some(branch)).await?;
-    let existing=sqlx::query("SELECT id,request_hash FROM facilities_cases WHERE org_id=$1 AND obligation_id=$2 AND idempotency_key=$3").bind(*p.org_id.as_uuid()).bind(b.obligation_id).bind(&b.idempotency_key).fetch_optional(&s.pool).await.map_err(RestError::db)?;
+    require_feature(&p, Feature::FacilitiesManage, branch)?;
+    let idempotency_key = b.idempotency_key.clone();
+    let existing = with_org_conn::<_, _, RestError>(&s.pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query("SELECT id,request_hash FROM facilities_cases WHERE org_id=$1 AND obligation_id=$2 AND idempotency_key=$3")
+                .bind(*org.as_uuid())
+                .bind(obligation_id)
+                .bind(idempotency_key)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(RestError::db)
+        })
+    })
+    .await?;
     if let Some(x) = existing {
         let existing_hash: String = x.try_get("request_hash").map_err(RestError::db)?;
         if existing_hash != req_hash {
@@ -254,19 +251,20 @@ async fn list_cases(
     h: HeaderMap,
 ) -> Result<Json<Vec<CaseView>>, RestError> {
     let p = principal(&s, &h).await?;
-    require_grant(&s.pool, &p, "facility_observe", None).await?;
-    let ids = sqlx::query_scalar::<_, Uuid>(
+    require_org_feature(&p, Feature::FacilitiesObserve)?;
+    let org = p.org_id;
+    let ids = with_org_conn::<_, _, RestError>(&s.pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM facilities_cases WHERE org_id=$1 ORDER BY created_at DESC LIMIT 100",
     )
-    .bind(*p.org_id.as_uuid())
-    .fetch_all(&s.pool)
-    .await
-    .map_err(RestError::db)?;
+    .bind(*org.as_uuid()).fetch_all(tx.as_mut()).await.map_err(RestError::db)
+        })
+    })
+    .await?;
     let mut out = Vec::new();
     for id in ids {
-        if let Ok(v) = get_case_view(&s.pool, &p, id).await {
-            out.push(v)
-        }
+        out.push(get_case_view(&s.pool, &p, id).await?);
     }
     Ok(Json(out))
 }
@@ -276,19 +274,14 @@ async fn get_case(
     Path(id): Path<Uuid>,
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(&s, &h).await?;
-    require_grant(&s.pool, &p, "facility_observe", None).await?;
+    require_org_feature(&p, Feature::FacilitiesObserve)?;
     get_case_view(&s.pool, &p, id).await.map(Json)
 }
 async fn get_case_view(pool: &PgPool, p: &Principal, id: Uuid) -> Result<CaseView, RestError> {
-    let r=sqlx::query("SELECT c.id,c.status,c.assignee_id,c.response_due_at,c.completion_due_at,c.acceptance_due_at,c.branch_id, (SELECT post.kwh-pre.kwh FROM facilities_energy_observations pre JOIN facilities_energy_observations post ON post.case_id=pre.case_id AND post.phase='POST' WHERE pre.case_id=c.id AND pre.phase='PRE')::text energy_delta_kwh, COALESCE((SELECT sum(amount_krw) FROM facilities_cost_observations WHERE case_id=c.id),0) total_cost_krw FROM facilities_cases c WHERE c.id=$1 AND c.org_id=$2").bind(id).bind(*p.org_id.as_uuid()).fetch_optional(pool).await.map_err(RestError::db)?.ok_or_else(||RestError::new(StatusCode::NOT_FOUND,"not_found","facilities case was not found"))?;
+    let org = p.org_id;
+    let r = with_org_conn::<_, _, RestError>(pool, org, move |tx| Box::pin(async move { sqlx::query("SELECT c.id,c.status,c.assignee_id,c.response_due_at,c.completion_due_at,c.acceptance_due_at,c.branch_id, (SELECT post.kwh-pre.kwh FROM facilities_energy_observations pre JOIN facilities_energy_observations post ON post.case_id=pre.case_id AND post.phase='POST' WHERE pre.case_id=c.id AND pre.phase='PRE')::text energy_delta_kwh, COALESCE((SELECT sum(amount_krw) FROM facilities_cost_observations WHERE case_id=c.id),0) total_cost_krw FROM facilities_cases c WHERE c.id=$1 AND c.org_id=$2").bind(id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db) })).await?.ok_or_else(||RestError::new(StatusCode::NOT_FOUND,"not_found","facilities case was not found"))?;
     let b: Uuid = r.try_get("branch_id").map_err(RestError::db)?;
-    if !p.branch_scope.allows(BranchId::from_uuid(b)) {
-        return Err(RestError::new(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "facilities case was not found",
-        ));
-    }
+    require_feature(p, Feature::FacilitiesObserve, b)?;
     Ok(CaseView {
         id: r.try_get("id").map_err(RestError::db)?,
         status: r.try_get("status").map_err(RestError::db)?,
@@ -305,21 +298,24 @@ async fn transition(
     s: &FacilitiesRestState,
     h: &HeaderMap,
     id: Uuid,
-    grant: &str,
+    grant: Feature,
     to: &str,
     assignee: Option<Uuid>,
     scheduled: Option<time::OffsetDateTime>,
     require_assignee: bool,
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(s, h).await?;
-    let r = sqlx::query(
+    let org = p.org_id;
+    let r = with_org_conn::<_, _, RestError>(&s.pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query(
         "SELECT status,branch_id,assignee_id FROM facilities_cases WHERE id=$1 AND org_id=$2",
     )
     .bind(id)
-    .bind(*p.org_id.as_uuid())
-    .fetch_optional(&s.pool)
-    .await
-    .map_err(RestError::db)?
+    .bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)
+        })
+    })
+    .await?
     .ok_or_else(|| {
         RestError::new(
             StatusCode::NOT_FOUND,
@@ -328,7 +324,7 @@ async fn transition(
         )
     })?;
     let branch: Uuid = r.try_get("branch_id").map_err(RestError::db)?;
-    require_grant(&s.pool, &p, grant, Some(branch)).await?;
+    require_feature(&p, grant, branch)?;
     let from: String = r.try_get("status").map_err(RestError::db)?;
     let current: Option<Uuid> = r.try_get("assignee_id").map_err(RestError::db)?;
     if require_assignee && current != Some(*p.user_id.as_uuid()) {
@@ -380,7 +376,7 @@ async fn triage(
         &s,
         &h,
         id,
-        "facility_dispatch",
+        Feature::FacilitiesDispatch,
         "TRIAGED",
         None,
         Some(b.scheduled_for),
@@ -391,7 +387,7 @@ async fn triage(
         &s,
         &h,
         id,
-        "facility_dispatch",
+        Feature::FacilitiesDispatch,
         "SCHEDULED",
         None,
         Some(b.scheduled_for),
@@ -409,7 +405,7 @@ async fn assign(
         &s,
         &h,
         id,
-        "facility_dispatch",
+        Feature::FacilitiesDispatch,
         "ASSIGNED",
         Some(b.assignee_id),
         None,
@@ -426,7 +422,7 @@ async fn start(
         &s,
         &h,
         id,
-        "facility_execute",
+        Feature::FacilitiesExecute,
         "IN_PROGRESS",
         None,
         None,
@@ -455,11 +451,11 @@ async fn submit(
         }
         sqlx::query("INSERT INTO facilities_execution_evidence_links(org_id,case_id,evidence_id,evidence_kind,linked_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT (org_id,case_id,evidence_kind) DO NOTHING").bind(*p.org_id.as_uuid()).bind(id).bind(evidence).bind(kind).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
     }
-    let v = transition(
+    transition(
         &s,
         &h,
         id,
-        "facility_execute",
+        Feature::FacilitiesExecute,
         "SUBMITTED",
         None,
         None,
@@ -470,14 +466,13 @@ async fn submit(
         &s,
         &h,
         id,
-        "facility_execute",
+        Feature::FacilitiesExecute,
         "AWAITING_ACCEPTANCE",
         None,
         None,
         true,
     )
     .await
-    .or(Ok(v))
 }
 async fn acceptance(
     State(s): State<FacilitiesRestState>,
@@ -498,7 +493,7 @@ async fn acceptance(
     };
     let p = principal(&s, &h).await?;
     sqlx::query("INSERT INTO facilities_acceptances(org_id,case_id,decision,reason,actor_id) VALUES($1,$2,$3,$4,$5)").bind(*p.org_id.as_uuid()).bind(id).bind(&b.decision).bind(b.reason).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
-    transition(&s, &h, id, "facility_accept", to, None, None, false).await
+    transition(&s, &h, id, Feature::FacilitiesAccept, to, None, None, false).await
 }
 async fn observe(
     State(s): State<FacilitiesRestState>,
@@ -507,7 +502,7 @@ async fn observe(
     Json(b): Json<ObservationBody>,
 ) -> Result<Json<CaseView>, RestError> {
     let p = principal(&s, &h).await?;
-    require_grant(&s.pool, &p, "facility_observe", None).await?;
+    require_org_feature(&p, Feature::FacilitiesObserve)?;
     for (phase, value) in [("PRE", b.pre_kwh), ("POST", b.post_kwh)] {
         if let Some(kwh) = value {
             sqlx::query("INSERT INTO facilities_energy_observations(org_id,case_id,phase,source,observed_at,kwh,recorded_by) VALUES($1,$2,$3,'MANUAL',$4,$5,$6) ON CONFLICT (org_id,case_id,phase) DO NOTHING").bind(*p.org_id.as_uuid()).bind(id).bind(phase).bind(b.observed_at).bind(kwh).bind(*p.user_id.as_uuid()).execute(&s.pool).await.map_err(RestError::db)?;
