@@ -175,6 +175,7 @@ export function Dialog({
           closeOnScrimClick &&
           event.target === event.currentTarget
         ) {
+          event.preventDefault();
           onClose();
         }
       }}
