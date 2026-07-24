@@ -42,9 +42,9 @@ function cargoDependencies(text, workspaceDependencies = new Map()) {
 function resolveImport(source, specifier, web) {
   const base = specifier.startsWith("@/") ? join(web, specifier.slice(2)) : specifier.startsWith(".") ? resolve(dirname(source), specifier) : null;
   if (!base) return null;
-  return [base, ...[".ts", ".tsx", ".js", "/index.ts", "/public.ts"].map((suffix) => `${base}${suffix}`)].find(existsSync) ?? null;
+  return [...["/index.ts", "/public.ts", ".ts", ".tsx", ".js", ""].map((suffix) => `${base}${suffix}`)].find((candidate) => existsSync(candidate) && !(() => { try { return lstatSync(candidate).isDirectory(); } catch { return false; } })()) ?? null;
 }
-function importsIn(text) { return [...text.matchAll(/(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?["']([^"']+)["']/g)].map((match) => match[1]); }
+function importsIn(text) { return [...text.matchAll(/(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?["']([^"']+)["']/g), ...text.matchAll(/export\s+\*\s+(?:as\s+\w+\s+)?from\s+["']([^"']+)["']/g)].map((match) => match[1]); }
 function featurePath(path) { return normal(path).match(/^features\/([^/]+)(?:\/|$)/)?.[1] ?? null; }
 function manifestForSource(source) {
   let directory = dirname(source);
@@ -119,15 +119,30 @@ export function collectViolations(root, changedPaths = []) {
     }
     // REST is transport-only: it delegates to application DTOs/use cases, never
     // persistence nor a component's domain lifecycle model.
-    if (layer.layer === "rest" && (new RegExp(`\\bmnt_${layer.component.replaceAll("-", "_")}_domain::`).test(text) || /\b(?:sqlx|diesel|sea_orm)::|\.(?:execute|fetch_one|fetch_all|fetch_optional)\s*\(|\b(?:INSERT|UPDATE|DELETE)\s+INTO\b/.test(text))) {
+    if (layer.layer === "rest" && (new RegExp(`\\bmnt_${layer.component.replaceAll("-", "_")}_domain::`).test(text) || aliases.some((alias) => new RegExp(`\\b${alias}::`).test(text)) || /\b(?:sqlx|diesel|sea_orm)::|\.(?:execute|fetch_one|fetch_all|fetch_optional)\s*\(|\b(?:INSERT|UPDATE|DELETE)\s+INTO\b/.test(text))) {
       violations.push(violation("rest-application-boundary", source, "direct-persistence-or-domain-model"));
     }
   }
 
   const web = join(absoluteRoot, "web/src");
+  const provenance = new Map();
+  const webModules = walk(web).filter((path) => SOURCE_EXTENSIONS.has(extname(path)));
+  for (const path of webModules) {
+    const text = readFileSync(path, "utf8");
+    provenance.set(normal(path), { tainted: importsIn(text).includes("@maintenance/api-client-ts"), imports: importsIn(text).map((specifier) => resolveImport(path, specifier, web)).filter(Boolean).map(normal) });
+  }
+  // Monotonic worklist converges across cycles/SCCs; never memoizes a temporary false.
+  let changedProvenance = true;
+  while (changedProvenance) {
+    changedProvenance = false;
+    for (const node of provenance.values()) {
+      if (!node.tainted && node.imports.some((target) => provenance.get(target)?.tainted)) { node.tainted = true; changedProvenance = true; }
+    }
+  }
+  const tainted = (path) => provenance.get(normal(path))?.tainted === true;
   const generatedExportModules = new Set(walk(web).filter((path) => {
     const sourceRelative = normal(relative(web, path));
-    return SOURCE_EXTENSIONS.has(extname(path)) && (/^api\//.test(sourceRelative) || /^features\/[^/]+\/(?:adapters|public|index)\//.test(sourceRelative) || /^features\/[^/]+\/(?:public|index)\.(?:ts|tsx)$/.test(sourceRelative)) && isGeneratedApiExport(readFileSync(path, "utf8"));
+    return SOURCE_EXTENSIONS.has(extname(path)) && (/^api\//.test(sourceRelative) || /^features\/[^/]+\/(?:adapters|public|index)\//.test(sourceRelative) || /^features\/[^/]+\/(?:public|index)\.(?:ts|tsx)$/.test(sourceRelative)) && tainted(path);
   }).map((path) => normal(path)));
   for (const source of walk(web).filter((path) => SOURCE_EXTENSIONS.has(extname(path)) && selected(path))) {
     const text = readFileSync(source, "utf8");

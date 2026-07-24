@@ -1,0 +1,11 @@
+name: Architecture admission (base-owned)
+on: pull_request_target
+permissions:
+  contents: read
+jobs:
+  admission:
+    # Bootstrap installs authority only. The enforcement-stage merge activates it.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'true'

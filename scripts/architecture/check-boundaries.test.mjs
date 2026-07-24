@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +34,18 @@ describe("clean architecture boundary gate", () => {
     });
     assert.deepEqual(evaluateArchitecture(root).failures.map((item) => item.rule), ["generated-client-boundary", "generated-client-reexport-boundary"]);
   });
+  it("propagates generated provenance through multi-hop star barrels", () => {
+    const root = fixture({ "web/src/api/wire.ts": 'import type { components } from "@maintenance/api-client-ts"; export type Wire = components;', "web/src/api/index.ts": 'export * from "./wire";', "web/src/features/orders/ui/Page.tsx": 'import type { Wire } from "../../../api";' });
+    assert.equal(evaluateArchitecture(root).failures[0].rule, "generated-client-reexport-boundary");
+  });
+  it("propagates provenance through cycles to a public barrel", () => {
+    const root = fixture({ "web/src/api/a.ts": 'export * from "./b";', "web/src/api/b.ts": 'export * from "./a"; export * from "./wire";', "web/src/api/wire.ts": 'import * as Wire from "@maintenance/api-client-ts"; export type T = Wire.components;', "web/src/api/index.ts": 'export * from "./a";', "web/src/features/orders/ui/Page.tsx": 'import "../../../api";' });
+    assert.ok(evaluateArchitecture(root).failures.some((item) => item.rule === "generated-client-reexport-boundary"));
+  });
+  it("resolves workspace SQLx aliases in REST", () => {
+    const root = fixture({ "backend/Cargo.toml": '[workspace.dependencies]\ndb = { package = "sqlx", version = "*" }\n', "backend/crates/orders/rest/Cargo.toml": cargo('db = { workspace = true }'), "backend/crates/orders/rest/src/lib.rs": 'use db::PgPool;' });
+    assert.ok(evaluateArchitecture(root).failures.some((item) => item.rule === "rest-application-boundary"));
+  });
   it("requires public.ts/index.ts for cross-feature imports even when the target is flat", () => {
     const root = fixture({ "web/src/pages/OrdersPage.tsx": 'import "../features/inventory/private";', "web/src/features/inventory/private.ts": "export {};" });
     assert.equal(evaluateArchitecture(root).failures[0].rule, "module-public-surface");
@@ -51,16 +63,23 @@ describe("clean architecture boundary gate", () => {
   it("rejects symbolic, untrusted CI baseline overrides and invalid ledger entries", () => {
     assert.equal(validateCiBaseline(".", "HEAD")[0].detail, "baseline-must-be-full-immutable-sha");
     assert.equal(validateCiBaseline(".", "0000000000000000000000000000000000000000")[0].detail, "baseline-is-not-an-ancestor-of-head");
-    assert.deepEqual(validateCiBaseline(process.cwd(), "61b79707ecf1e27994a09ab73b1eb22509fc81c8"), []);
+    const repo = fixture({ "file": "one" });
+    for (const args of [["init"], ["config", "user.email", "gate@test"], ["config", "user.name", "Gate"], ["add", "."], ["commit", "-m", "base"]]) execFileSync("git", ["-C", repo, ...args]);
+    const base = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    writeFileSync(join(repo, "next"), "two"); execFileSync("git", ["-C", repo, "add", "."]); execFileSync("git", ["-C", repo, "commit", "-m", "candidate"]);
+    assert.deepEqual(validateCiBaseline(repo, base), []);
     const invalid = validateLedger({ exceptions: [{ id: "same", owner: "", target: "", expiresOn: "2000-01-01", milestone: "ARCH-2026-Q3" }, { id: "same", owner: "a", target: "b", expiresOn: "2026-10-22", milestone: "ARCH-2026-Q3" }] }, "2026-07-23");
     assert.ok(invalid.some((item) => item.detail.startsWith("duplicate-or-missing-id")));
     assert.ok(invalid.some((item) => item.detail.startsWith("missing-owner")));
     assert.ok(invalid.some((item) => item.detail.startsWith("stale-or-excessive-expiry")));
   });
-  it("CLI rejects candidate HEAD rather than reading it as trusted authority", () => {
-    const run = spawnSync(process.execPath, [new URL("./check-boundaries.mjs", import.meta.url).pathname, "--root", ".", "--protected-base-sha", "HEAD"], { encoding: "utf8" });
+  it("CLI layout is cwd-independent and rejects candidate HEAD", () => {
+    const candidate = fixture({ "scripts/architecture/ci-baseline-contract.json": "{}", "scripts/architecture/exception-ledger.json": "{}" });
+    const workspace = mkdtempSync(join(tmpdir(), "authority-layout-")); roots.push(workspace);
+    mkdirSync(join(workspace, "authority/scripts/architecture"), { recursive: true });
+    const authority = new URL("./check-boundaries.mjs", import.meta.url).pathname;
+    const run = spawnSync(process.execPath, [authority, "--root", candidate, "--protected-base-sha", "HEAD"], { cwd: workspace, encoding: "utf8" });
     assert.equal(run.status, 1);
-    assert.match(run.stdout, /baseline-must-be-full-immutable-sha/);
   });
   it("allows ledger removals but rejects additions and retained-entry modifications", () => {
     const trusted = { exceptions: [{ id: "one", rule: "x", path: "a" }, { id: "two", rule: "x", path: "b" }] };

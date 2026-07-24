@@ -4526,6 +4526,18 @@
     {
       "rule": "generated-client-reexport-boundary",
       "path": "web/src/pages/AutomatePage.tsx",
+      "detail": "api/automate.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/AutomatePage.tsx:api/automate.ts",
+      "module": "pages",
+      "owner": "team-pages",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/pages",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/AutomatePage.tsx",
       "detail": "api/types.ts",
       "id": "generated-client-reexport-boundary:web/src/pages/AutomatePage.tsx:api/types.ts",
       "owner": "team-pages",
@@ -6349,6 +6361,18 @@
     },
     {
       "rule": "rest-application-boundary",
+      "path": "backend/crates/equipment/rest/src/lib.rs",
+      "detail": "direct-persistence-or-domain-model",
+      "id": "rest-application-boundary:backend/crates/equipment/rest/src/lib.rs:direct-persistence-or-domain-model",
+      "module": "equipment",
+      "owner": "team-equipment",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/equipment",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
+    },
+    {
+      "rule": "rest-application-boundary",
       "path": "backend/crates/facilities/rest/src/lib.rs",
       "detail": "direct-persistence-or-domain-model",
       "id": "rest-application-boundary:backend/crates/facilities/rest/src/lib.rs:direct-persistence-or-domain-model",
@@ -6433,6 +6457,18 @@
     },
     {
       "rule": "rest-application-boundary",
+      "path": "backend/crates/inbox/rest/src/lib.rs",
+      "detail": "direct-persistence-or-domain-model",
+      "id": "rest-application-boundary:backend/crates/inbox/rest/src/lib.rs:direct-persistence-or-domain-model",
+      "module": "inbox",
+      "owner": "team-inbox",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/inbox",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
+    },
+    {
+      "rule": "rest-application-boundary",
       "path": "backend/crates/inbox/rest/tests/api.rs",
       "detail": "direct-persistence-or-domain-model",
       "id": "rest-application-boundary:backend/crates/inbox/rest/tests/api.rs:direct-persistence-or-domain-model",
@@ -6481,6 +6517,18 @@
     },
     {
       "rule": "rest-application-boundary",
+      "path": "backend/crates/logistics/rest/src/lib.rs",
+      "detail": "direct-persistence-or-domain-model",
+      "id": "rest-application-boundary:backend/crates/logistics/rest/src/lib.rs:direct-persistence-or-domain-model",
+      "module": "logistics",
+      "owner": "team-logistics",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/logistics",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
+    },
+    {
+      "rule": "rest-application-boundary",
       "path": "backend/crates/messenger/rest/src/lib.rs",
       "detail": "direct-persistence-or-domain-model",
       "id": "rest-application-boundary:backend/crates/messenger/rest/src/lib.rs:direct-persistence-or-domain-model",
@@ -6505,6 +6553,18 @@
     },
     {
       "rule": "rest-application-boundary",
+      "path": "backend/crates/notices/rest/src/lib.rs",
+      "detail": "direct-persistence-or-domain-model",
+      "id": "rest-application-boundary:backend/crates/notices/rest/src/lib.rs:direct-persistence-or-domain-model",
+      "module": "notices",
+      "owner": "team-notices",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/notices",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
+    },
+    {
+      "rule": "rest-application-boundary",
       "path": "backend/crates/notices/rest/tests/api.rs",
       "detail": "direct-persistence-or-domain-model",
       "id": "rest-application-boundary:backend/crates/notices/rest/tests/api.rs:direct-persistence-or-domain-model",
@@ -6514,6 +6574,18 @@
       "removal": "Move this existing violation behind the documented architecture boundary.",
       "module": "notices",
       "milestone": "ARCH-2026-Q3"
+    },
+    {
+      "rule": "rest-application-boundary",
+      "path": "backend/crates/notifications/rest/src/lib.rs",
+      "detail": "direct-persistence-or-domain-model",
+      "id": "rest-application-boundary:backend/crates/notifications/rest/src/lib.rs:direct-persistence-or-domain-model",
+      "module": "notifications",
+      "owner": "team-notifications",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/notifications",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
     },
     {
       "rule": "rest-application-boundary",
@@ -6670,6 +6742,18 @@
       "removal": "Move this existing violation behind the documented architecture boundary.",
       "module": "registry",
       "milestone": "ARCH-2026-Q3"
+    },
+    {
+      "rule": "rest-application-boundary",
+      "path": "backend/crates/reporting/rest/src/lib.rs",
+      "detail": "direct-persistence-or-domain-model",
+      "id": "rest-application-boundary:backend/crates/reporting/rest/src/lib.rs:direct-persistence-or-domain-model",
+      "module": "reporting",
+      "owner": "team-reporting",
+      "milestone": "ARCH-2026-Q3",
+      "target": "ARCH-2026-Q3/reporting",
+      "expiresOn": "2026-10-22",
+      "removal": "Bootstrap baseline debt."
     },
     {
       "rule": "rest-application-boundary",
