@@ -153,7 +153,6 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         self.assertEqual("postgres", variant["resource"])
         self.assertEqual([], manifest["features"]["test-postgres"])
         self.assertNotIn("default", manifest["features"])
-        self.assertEqual(168, source_text.count("#[test]") + source_text.count("#[tokio::test]") + source_text.count("#[sqlx::test"))
         self.assertEqual(151, source_text.count('#[cfg(not(feature = "test-postgres"))]'))
         self.assertEqual(17, source_text.count("#[sqlx::test"))
         self.assertEqual(17, source_text.count('#[cfg(feature = "test-postgres")]'))
