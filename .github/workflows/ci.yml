@@ -786,6 +786,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # check:openapi-app is the sole Buck2 producer for this handoff.
           mnt_app_bin="${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"
           test -x "${mnt_app_bin}"
           printf 'MNT_APP_BIN=%s\n' "${mnt_app_bin}" >> "${GITHUB_ENV}"

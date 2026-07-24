@@ -142,6 +142,7 @@ describe("CI preflight contract", () => {
         shell: bash
         run: |
           set -euo pipefail
+          # The prior OpenAPI gate owns the only Buck2 app build.
           mnt_app_bin="$GITHUB_WORKSPACE/.tmp/buck2/api-contract/mnt-app"
           [ -x "$mnt_app_bin" ]
           echo "MNT_APP_BIN=$mnt_app_bin" >> "$GITHUB_ENV"
@@ -158,6 +159,37 @@ describe("CI preflight contract", () => {
 
 `;
     assert.deepEqual(evaluateCiPreflight(workflow.replace(currentCapture, equivalentCapture)).failures, []);
+  });
+
+  it("rejects shell-spelling bypasses for API contract producers and environment writes", () => {
+    expectFailure(
+      workflow.replace(
+        "      - name: Capture Buck2-built app for contract test\n",
+        "      - name: Duplicate OpenAPI producer\n        run: |\n          # This still produces the Buck app.\n          CI=1 npm \\\n            run check:openapi-app; :\n\n      - name: Capture Buck2-built app for contract test\n",
+      ),
+      "api-contract must run exactly one npm run check:openapi-app producer",
+    );
+    expectFailure(
+      workflow.replace(
+        "      - name: Capture Buck2-built app for contract test\n",
+        "      - name: Duplicate direct Buck2 app build\n        run: |\n          command ./tools/buck2 --isolation-dir .tmp \\\n            build --out .tmp/duplicate //backend/app:mnt-app # direct producer\n\n      - name: Capture Buck2-built app for contract test\n",
+      ),
+      "api-contract must not directly build //backend/app:mnt-app",
+    );
+    expectFailure(
+      workflow.replace(
+        "      - name: Employee import replay contract\n",
+        "      - name: Late redirected override\n        run: |\n          echo \"MNT_APP_BIN=/tmp/other-mnt-app\" >> \"$GITHUB_ENV\" # still a write\n          :\n\n      - name: Employee import replay contract\n",
+      ),
+      "api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once",
+    );
+    expectFailure(
+      workflow.replace(
+        "      - name: Employee import replay contract\n",
+        "      - name: Late tee override\n        run: printf 'MNT_APP_BIN=/tmp/other-mnt-app\\n' | tee -a \"$GITHUB_ENV\"\n\n      - name: Employee import replay contract\n",
+      ),
+      "api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once",
+    );
   });
 
   it("rejects a generated-face authority job without the complete closure", () => {
