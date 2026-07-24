@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { useAuth } = vi.hoisted(() => ({ useAuth: vi.fn() }));
 vi.mock("../../context/auth", () => ({ useAuth }));
@@ -11,12 +11,29 @@ const caseId = "11111111-1111-1111-1111-111111111111";
 const techId = "22222222-2222-2222-2222-222222222222";
 const evidenceA = "33333333-3333-3333-3333-333333333333";
 const evidenceB = "44444444-4444-4444-4444-444444444444";
+const actorId = techId;
+
+const allFacilitiesCapabilities = [
+  "facilities_manage",
+  "facilities_dispatch",
+  "facilities_execute",
+  "facilities_accept",
+  "facilities_observe",
+];
+
+function authzResponse(features = allFacilitiesCapabilities) {
+  return new Response(JSON.stringify({
+    roles: ["OPERATOR"],
+    branch_scope: { kind: "all" },
+    capabilities: features.map((feature) => ({ feature, permission: "allow", branch_scope: { kind: "all" } })),
+  }), { status: 200, headers: { "content-type": "application/json" } });
+}
 
 function caseView(status: string, overrides = {}) {
   return { id: caseId, status, assigneeId: status === "DUE" || status === "SCHEDULED" ? null : techId, responseDueAt: "2030-01-01T09:00:00Z", completionDueAt: "2030-01-01T12:00:00Z", acceptanceDueAt: "2030-01-02T12:00:00Z", energyDeltaKwh: null, totalCostKrw: 0, ...overrides };
 }
 
-function setupApi(initial = "DUE") {
+function setupApi(initial = "DUE", userId = actorId) {
   let status = initial;
   let value = caseView(status);
   const GET = vi.fn((path: string) => {
@@ -33,12 +50,16 @@ function setupApi(initial = "DUE") {
     value = { ...value, ...caseView(status), ...(path.endsWith("/observations") ? { energyDeltaKwh: "-8.500", totalCostKrw: options?.body?.costKrw ?? 0 } : {}) };
     return Promise.resolve({ data: path === "/api/v1/facilities/cases" ? value : {}, response: new Response() });
   });
-  useAuth.mockReturnValue({ api: { GET, POST }, session: { org_id: "org", user_id: "user", client_session_incarnation: "session" } });
+  useAuth.mockReturnValue({ api: { GET, POST }, session: { access_token: "token", org_id: "org", user_id: userId, client_session_incarnation: "session" } });
   return { GET, POST };
 }
 
 describe("FacilitiesWorkflowPage", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(authzResponse()));
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("executes the real lifecycle commands and renders only server-read state", async () => {
     const { POST } = setupApi();
@@ -110,6 +131,36 @@ describe("FacilitiesWorkflowPage", () => {
       "/api/v1/facilities/cases/{case_id}/observations",
       "/api/v1/facilities/cases/{case_id}/submit",
     ]);
+  });
+
+  it("keeps observation-only operators read-only except for observations", async () => {
+    const { POST } = setupApi("IN_PROGRESS");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(authzResponse(["facilities_observe"])));
+    render(<FacilitiesWorkflowPage />);
+
+    expect(await screen.findByRole("button", { name: "관측 기록" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "인수 요청 제출" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "사례 접수" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "작업 진행" })).toBeInTheDocument();
+    expect(POST).not.toHaveBeenCalled();
+  });
+
+  it("omits execute controls for a non-assignee even with the execute capability", async () => {
+    setupApi("ASSIGNED", "another-operator");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(authzResponse(["facilities_execute"])));
+    render(<FacilitiesWorkflowPage />);
+
+    expect(await screen.findByRole("heading", { name: "담당 배정" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "작업 시작" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "인수 요청 제출" })).not.toBeInTheDocument();
+  });
+
+  it("marks the selected case with semantic pressed state", async () => {
+    setupApi();
+    render(<FacilitiesWorkflowPage />);
+
+    await screen.findByRole("heading", { name: "접수 대기" });
+    expect(screen.getByRole("button", { name: `사례 ${caseId}` })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("does not send a submission without both mandatory evidence records", async () => {

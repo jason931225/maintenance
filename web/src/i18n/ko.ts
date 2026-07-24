@@ -130,6 +130,10 @@ export const ko = {
     },
   },
   facilities: {
+    workbenchEyebrow: "통합 시설 관리",
+    caseLabel: "사례",
+    energyUnit: "kWh",
+    currencyUnit: "KRW",
     statuses: {
       DUE: "접수 대기",
       TRIAGED: "분류됨",
