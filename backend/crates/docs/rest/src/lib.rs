@@ -198,18 +198,55 @@ fn decode_register_cursor(raw: &str) -> Result<EvidenceObjectCursor, KernelError
     serde_json::from_slice(&bytes).map_err(|_| KernelError::validation("cursor payload is invalid"))
 }
 
+fn encode_register_cursor(cursor: &EvidenceObjectCursor) -> Result<String, KernelError> {
+    use base64::Engine as _;
+    let bytes = serde_json::to_vec(cursor)
+        .map_err(|_| KernelError::internal("EV cursor serialization failed"))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceObjectPageResponse {
+    items: Vec<mnt_docs_application::EvidenceObjectView>,
+    limit: i64,
+    offset: i64,
+    total: i64,
+    #[serde(with = "time::serde::rfc3339")]
+    snapshot_at: time::OffsetDateTime,
+    next_cursor: Option<String>,
+}
+
+impl TryFrom<EvidenceObjectPage> for EvidenceObjectPageResponse {
+    type Error = KernelError;
+
+    fn try_from(page: EvidenceObjectPage) -> Result<Self, Self::Error> {
+        Ok(Self {
+            items: page.items,
+            limit: page.limit,
+            offset: page.offset,
+            total: page.total,
+            snapshot_at: page.snapshot_at,
+            next_cursor: page
+                .next_cursor
+                .as_ref()
+                .map(encode_register_cursor)
+                .transpose()?,
+        })
+    }
+}
+
 async fn list_objects(
     State(state): State<DocsRestState>,
     headers: HeaderMap,
     Query(query): Query<ListQuery>,
-) -> Result<Json<EvidenceObjectPage>, RestError> {
+) -> Result<Json<EvidenceObjectPageResponse>, RestError> {
     authorize(&state, &headers, Feature::EvidenceAttach).await?;
     let page = state
         .docs
         .list_objects(query.try_into().map_err(RestError::from_kernel)?)
         .await
         .map_err(RestError::from_docs)?;
-    Ok(Json(page))
+    Ok(Json(page.try_into().map_err(RestError::from_kernel)?))
 }
 
 async fn get_object(
