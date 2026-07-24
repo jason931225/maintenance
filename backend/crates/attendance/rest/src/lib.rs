@@ -13,8 +13,8 @@ use axum::{
 use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
-    CallerScope, CancelSubstitution, CloseMonth, ListSubstitutions, RaiseException,
-    ResolveException, validate_week52_start, week52_tone,
+    AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ListSubstitutions,
+    RaiseException, ResolveException, validate_week52_start, week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -248,20 +248,89 @@ fn list_range(q: &ListQuery) -> Result<AttendanceDateRange, RestError> {
         ))),
     }
 }
+#[derive(Serialize)]
+struct SubstitutionDto {
+    id: String,
+    site: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_id: Option<String>,
+    role: String,
+    cover_date: String,
+    from_minutes: i32,
+    to_minutes: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    covered_employee_id: Option<String>,
+    covered_name: String,
+    reason_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker_employee_id: Option<String>,
+    worker_name: String,
+    worker_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker_rate: Option<String>,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exception_id: Option<String>,
+    created_by: String,
+    created_at: String,
+}
+impl From<AttendanceSubstitutionRead> for SubstitutionDto {
+    fn from(v: AttendanceSubstitutionRead) -> Self {
+        Self {
+            id: v.id.to_string(),
+            site: v.site,
+            branch_id: v.branch_id.map(|id| id.to_string()),
+            role: v.role,
+            cover_date: v.cover_date.to_string(),
+            from_minutes: v.from_minutes,
+            to_minutes: v.to_minutes,
+            covered_employee_id: Some(v.covered_employee_id.to_string()),
+            covered_name: v.covered_name,
+            reason_kind: v.reason_kind,
+            reason_detail: v.reason_detail,
+            worker_employee_id: v.worker_employee_id.map(|id| id.to_string()),
+            worker_name: v.worker_name,
+            worker_type: v.worker_type,
+            worker_rate: v.worker_rate,
+            status: v.status,
+            exception_id: v.exception_id.map(|id| id.to_string()),
+            created_by: v.created_by.to_string(),
+            created_at: v
+                .created_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| v.created_at.to_string()),
+        }
+    }
+}
+#[derive(Serialize)]
+struct SubstitutionPageDto {
+    items: Vec<SubstitutionDto>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
 async fn list_substitutions(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Query(q): Query<ListQuery>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<SubstitutionPageDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
     let query = ListSubstitutions::new(list_range(&q)?, q.branch_id, q.limit, q.offset);
-    let (items, total) = state
+    let page = state
         .store
         .list_substitutions(&scope(&p), query)
         .await
         .map_err(RestError::store)?;
-    Ok(Json(json!({"items":items,"total":total})))
+    Ok(Json(SubstitutionPageDto {
+        items: page.items.into_iter().map(SubstitutionDto::from).collect(),
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+    }))
 }
 #[derive(Serialize)]
 struct ExceptionEvidenceDto {
@@ -500,7 +569,7 @@ async fn resolve_exception(
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct AssignBody {
     site: String,
     branch_id: Option<Uuid>,
@@ -521,7 +590,7 @@ async fn assign_substitute(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<AssignBody>,
-) -> Result<(StatusCode, Json<Value>), RestError> {
+) -> Result<(StatusCode, Json<SubstitutionDto>), RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, SUBSTITUTION_MANAGE, body.branch_id)?;
     let command = AssignSubstitute {
@@ -555,11 +624,11 @@ async fn assign_substitute(
         .assign_substitute(&scope(&p), command)
         .await
         .map_err(RestError::store)?;
-    Ok((StatusCode::CREATED, Json(v)))
+    Ok((StatusCode::CREATED, Json(SubstitutionDto::from(v))))
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct CancelBody {
     reason: String,
 }
@@ -568,7 +637,7 @@ async fn cancel_substitution(
     headers: HeaderMap,
     axum::extract::Path(substitution_id): axum::extract::Path<Uuid>,
     Json(body): Json<CancelBody>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<SubstitutionDto>, RestError> {
     let p = principal(&state, &headers).await?;
     let branch = state
         .store
@@ -589,6 +658,7 @@ async fn cancel_substitution(
             },
         )
         .await
+        .map(SubstitutionDto::from)
         .map(Json)
         .map_err(RestError::store)
 }

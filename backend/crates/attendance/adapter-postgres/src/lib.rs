@@ -54,16 +54,16 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         query: ListSubstitutions,
-    ) -> Result<(Vec<Value>, i64), AttendanceStoreError> {
+    ) -> Result<AttendancePage<AttendanceSubstitutionRead>, AttendanceStoreError> {
         app::ensure_scope(caller, query.branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let rows = sqlx::query("SELECT s.id,s.site,s.branch_id,s.role,s.cover_date,s.from_minutes,s.to_minutes,s.covered_employee_id,cov.name AS covered_name,s.reason_kind,s.reason_detail,s.worker_employee_id,s.worker_name,s.worker_type,s.worker_rate,s.status,s.exception_id,s.created_at FROM attendance_substitutions s JOIN employees cov ON cov.id=s.covered_employee_id AND cov.org_id=s.org_id WHERE s.cover_date >= $1 AND s.cover_date < $2 AND ($3::uuid IS NULL OR s.branch_id=$3) ORDER BY s.cover_date,s.from_minutes,s.created_at LIMIT $4 OFFSET $5")
+            let rows = sqlx::query("SELECT s.id,s.site,s.branch_id,s.role,s.cover_date,s.from_minutes,s.to_minutes,s.covered_employee_id,cov.name AS covered_name,s.reason_kind,s.reason_detail,s.worker_employee_id,s.worker_name,s.worker_type,s.worker_rate,s.status,s.exception_id,s.created_by,s.created_at FROM attendance_substitutions s JOIN employees cov ON cov.id=s.covered_employee_id AND cov.org_id=s.org_id WHERE s.cover_date >= $1 AND s.cover_date < $2 AND ($3::uuid IS NULL OR s.branch_id=$3) ORDER BY s.cover_date,s.from_minutes,s.created_at LIMIT $4 OFFSET $5")
                 .bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(query.limit).bind(query.offset).fetch_all(tx.as_mut()).await?;
             let total: i64 = sqlx::query_scalar("SELECT count(*) FROM attendance_substitutions WHERE cover_date >= $1 AND cover_date < $2 AND ($3::uuid IS NULL OR branch_id=$3)")
                 .bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).fetch_one(tx.as_mut()).await?;
-            let items = rows.iter().map(substitution_json).collect::<Result<Vec<_>, _>>()?;
-            Ok((items, total))
+            let items = rows.iter().map(substitution_read).collect::<Result<Vec<_>, _>>()?;
+            Ok(AttendancePage { items, total, limit: query.limit, offset: query.offset })
         })).await
     }
 
@@ -186,7 +186,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         command: AssignSubstitute,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<AttendanceSubstitutionRead, AttendanceStoreError> {
         let key = app::validate_idempotency_key(&command.idempotency_key)?;
         let mut command = command;
         command.site = app::validate_text(&command.site, "site", 120)?;
@@ -249,7 +249,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         command: CancelSubstitution,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<AttendanceSubstitutionRead, AttendanceStoreError> {
         let reason = app::validate_text(&command.reason, "reason", 2000)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
@@ -807,18 +807,43 @@ fn exception_read(
 async fn substitution_by_id(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
-) -> Result<Value, AttendanceStoreError> {
-    let r=sqlx::query("SELECT id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,worker_employee_id,worker_name,worker_type,status,created_at FROM attendance_substitutions WHERE id=$1").bind(id).fetch_one(tx.as_mut()).await?;
-    substitution_json(&r)
+) -> Result<AttendanceSubstitutionRead, AttendanceStoreError> {
+    let r=sqlx::query("SELECT s.id,s.site,s.branch_id,s.role,s.cover_date,s.from_minutes,s.to_minutes,s.covered_employee_id,cov.name AS covered_name,s.reason_kind,s.reason_detail,s.worker_employee_id,s.worker_name,s.worker_type,s.worker_rate,s.status,s.exception_id,s.created_by,s.created_at FROM attendance_substitutions s JOIN employees cov ON cov.id=s.covered_employee_id AND cov.org_id=s.org_id WHERE s.id=$1").bind(id).fetch_one(tx.as_mut()).await?;
+    substitution_read(&r)
+}
+fn substitution_read(
+    r: &sqlx::postgres::PgRow,
+) -> Result<AttendanceSubstitutionRead, AttendanceStoreError> {
+    let status: String = r.try_get("status")?;
+    Ok(AttendanceSubstitutionRead {
+        id: r.try_get("id")?,
+        site: r.try_get("site")?,
+        branch_id: r.try_get("branch_id")?,
+        role: r.try_get("role")?,
+        cover_date: r.try_get("cover_date")?,
+        from_minutes: r.try_get("from_minutes")?,
+        to_minutes: r.try_get("to_minutes")?,
+        covered_employee_id: r.try_get("covered_employee_id")?,
+        covered_name: r.try_get("covered_name")?,
+        reason_kind: r.try_get("reason_kind")?,
+        reason_detail: r.try_get("reason_detail")?,
+        worker_employee_id: r.try_get("worker_employee_id")?,
+        worker_name: r.try_get("worker_name")?,
+        worker_type: r.try_get("worker_type")?,
+        worker_rate: r.try_get("worker_rate")?,
+        status: if status == "OPEN" {
+            "ASSIGNED".into()
+        } else {
+            status
+        },
+        exception_id: r.try_get("exception_id")?,
+        created_by: r.try_get("created_by")?,
+        created_at: r.try_get("created_at")?,
+    })
 }
 fn close_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {
     Ok(
         json!({"id":r.try_get::<Uuid,_>("id")?,"month":r.try_get::<Date,_>("month")?.to_string(),"branchScope":r.try_get::<String,_>("branch_scope")?,"checks":r.try_get::<Value,_>("checks")?,"attestedBy":r.try_get::<Uuid,_>("attested_by")?,"periodLockId":r.try_get::<Option<Uuid>,_>("period_lock_id")?}),
-    )
-}
-fn substitution_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {
-    Ok(
-        json!({"id":r.try_get::<Uuid,_>("id")?,"site":r.try_get::<String,_>("site")?,"branchId":r.try_get::<Option<Uuid>,_>("branch_id")?,"role":r.try_get::<String,_>("role")?,"coverDate":r.try_get::<Date,_>("cover_date")?.to_string(),"fromMinutes":r.try_get::<i32,_>("from_minutes")?,"toMinutes":r.try_get::<i32,_>("to_minutes")?,"coveredEmployeeId":r.try_get::<Uuid,_>("covered_employee_id")?,"reasonKind":r.try_get::<String,_>("reason_kind")?,"workerEmployeeId":r.try_get::<Option<Uuid>,_>("worker_employee_id")?,"workerName":r.try_get::<String,_>("worker_name")?,"workerType":r.try_get::<String,_>("worker_type")?,"status":r.try_get::<String,_>("status")?,"createdAt":r.try_get::<OffsetDateTime,_>("created_at")?.to_string()}),
     )
 }
 

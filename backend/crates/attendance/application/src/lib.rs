@@ -161,6 +161,28 @@ pub struct AttendanceExceptionRead {
     pub created_at: OffsetDateTime,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceSubstitutionRead {
+    pub id: Uuid,
+    pub site: String,
+    pub branch_id: Option<Uuid>,
+    pub role: String,
+    pub cover_date: Date,
+    pub from_minutes: i32,
+    pub to_minutes: i32,
+    pub covered_employee_id: Uuid,
+    pub covered_name: String,
+    pub reason_kind: String,
+    pub reason_detail: Option<String>,
+    pub worker_employee_id: Option<Uuid>,
+    pub worker_name: String,
+    pub worker_type: String,
+    pub worker_rate: Option<String>,
+    pub status: String,
+    pub exception_id: Option<Uuid>,
+    pub created_by: Uuid,
+    pub created_at: OffsetDateTime,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttendancePage<T> {
     pub items: Vec<T>,
     pub total: i64,
