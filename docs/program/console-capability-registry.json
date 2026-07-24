@@ -1,876 +1,939 @@
 {
-  "schema_version": "console-capability-registry-v1",
-  "last_refreshed": "2026-07-23",
-  "authority": "docs/program/console-enterprise-roadmap.md",
-  "source_revision": "origin/main@8e42b9a2ea42c4d79ed498044a9f50f623299f7f",
-  "dispatch_rule": "A row may enter in_progress only with one writer, an exact isolated worktree, disjoint ownership roots, a signature story, evidence paths, and executable leaf gates.",
-  "hold_rule": "Unassigned worktrees, overlapping ownership, missing backend contracts, empty Buck2 target sets, stale reference digests, or missing jurisdiction and independent-review receipts fail closed.",
-  "priority_formula": {
-    "user_workflow_value": 0.25,
-    "dependency_unlock": 0.2,
-    "correctness_and_risk_reduction": 0.2,
-    "visual_or_functional_parity_gap": 0.15,
-    "business_coverage_gain": 0.1,
-    "verification_readiness": 0.1,
-    "collision_probability": -0.15,
-    "unpriced_dependency_cost": -0.1
+ "schema_version": "console-capability-registry-v1",
+ "last_refreshed": "2026-07-23",
+ "authority": "docs/program/console-enterprise-roadmap.md",
+ "source_revision": "origin/main@8e42b9a2ea42c4d79ed498044a9f50f623299f7f",
+ "dispatch_rule": "A row may enter in_progress only with one writer, an exact isolated worktree, disjoint ownership roots, a signature story, evidence paths, and executable leaf gates.",
+ "hold_rule": "Unassigned worktrees, overlapping ownership, missing backend contracts, empty Buck2 target sets, stale reference digests, or missing jurisdiction and independent-review receipts fail closed.",
+ "priority_formula": {
+  "user_workflow_value": 0.25,
+  "dependency_unlock": 0.2,
+  "correctness_and_risk_reduction": 0.2,
+  "visual_or_functional_parity_gap": 0.15,
+  "business_coverage_gain": 0.1,
+  "verification_readiness": 0.1,
+  "collision_probability": -0.15,
+  "unpriced_dependency_cost": -0.1
+ },
+ "shared_collision_roots": {
+  "owner": "console-consolidation",
+  "paths": [
+   "web/src/i18n/ko.ts",
+   "web/src/console/shell/nav.ts",
+   "web/src/console/screens/registry.ts",
+   "backend/openapi.yaml",
+   "clients/generated/**",
+   "backend/migrations/**",
+   "docs/program/console-enterprise-roadmap.md",
+   "docs/program/console-capability-registry.json"
+  ]
+ },
+ "capabilities": [
+  {
+   "id": "CAP-CONSOLE-SHELL",
+   "label": "Responsive left-main-right console shell",
+   "evidence_basis": [
+    "design_reference",
+    "repository_contract",
+    "dated_audit"
+   ],
+   "frontier": 0,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 1,
+     "correctness_and_risk_reduction": 0.85,
+     "visual_or_functional_parity_gap": 1,
+     "business_coverage_gain": 0.3,
+     "verification_readiness": 0.8,
+     "collision_probability": 0.7,
+     "unpriced_dependency_cost": 0.2
+    },
+    "score": 0.73
+   },
+   "dependencies": [],
+   "owner": "console-shell",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-shell-parity-20260723",
+   "branch": "codex/console-shell-parity-20260723",
+   "commits": [
+    "38a53bdd"
+   ],
+   "integration_commits": [
+    "397e1e59"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/shell/ConsoleShell.tsx",
+     "web/src/console/shell/Sidebar.tsx",
+     "web/src/console/shell/Topbar.tsx",
+     "web/src/console/tokens.css",
+     "web/src/console/shell/ConsoleShell.test.tsx"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": "not_applicable",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/*"
+   ],
+   "signature_story": {
+    "id": "STORY-SHELL-001",
+    "outcome": "An authenticated operator preserves route, selected work, and communication context while moving between persistent, compact, and mutually exclusive drawer layouts using keyboard or touch."
+   },
+   "evidence_path": "docs/evidence/console/CAP-CONSOLE-SHELL/",
+   "tests": {
+    "files": [
+     "web/src/console/shell/ConsoleShell.test.tsx"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/shell/ConsoleShell.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "pinned",
+    "backend": "not_applicable",
+    "frontend": "integrated_on_local_train",
+    "e2e": "component_matrix_passed",
+    "runtime": "dev_auth_live_at_localhost_5173",
+    "independent_review": "i1_non_independent_approved",
+    "production_exposure": "dark"
+   }
   },
-  "shared_collision_roots": {
-    "owner": "console-consolidation",
-    "paths": [
+  {
+   "id": "CAP-OVERVIEW-WORKSPACE",
+   "label": "Overview action queue, agenda, and keyboard workflow",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference",
+    "dated_audit"
+   ],
+   "frontier": 0,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.85,
+     "dependency_unlock": 0.65,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 0.45,
+     "verification_readiness": 0.85,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.2
+    },
+    "score": 0.65
+   },
+   "dependencies": [
+    "CAP-CONSOLE-SHELL"
+   ],
+   "owner": "console-overview",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-overview-polish-20260723",
+   "branch": "codex/console-overview-polish-20260723",
+   "commits": [
+    "3a04a2b4"
+   ],
+   "integration_commits": [
+    "6381a1d2"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/screens/overview/OverviewBody.tsx",
+     "web/src/console/screens/overview/OverviewBody.test.tsx"
+    ],
+    "backend_roots": [
+     "backend action-inbox read surfaces"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "not_applicable",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/overview",
+    "/api/v1/me/action-inbox"
+   ],
+   "signature_story": {
+    "id": "STORY-OVERVIEW-001",
+    "outcome": "An authenticated operator scans the real action queue and agenda, moves through authorized work with J/K or arrows, opens the selected item with Enter, and retains usable layout at narrow widths."
+   },
+   "evidence_path": "docs/evidence/console/CAP-OVERVIEW-WORKSPACE/",
+   "tests": {
+    "files": [
+     "web/src/console/screens/overview/OverviewBody.test.tsx"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/screens/overview/OverviewBody.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "bounded_improvement_not_full_parity",
+    "backend": "existing_real_action_inbox",
+    "frontend": "integrated_on_local_train",
+    "e2e": "component_passed",
+    "runtime": "live_preview_hmr_available",
+    "independent_review": "i1_non_independent_approved",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-BENEFITS-CATALOG",
+   "label": "Benefits catalog and lifecycle",
+   "evidence_basis": [
+    "repository_contract",
+    "dated_audit"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.8,
+     "visual_or_functional_parity_gap": 0.55,
+     "business_coverage_gain": 0.4,
+     "verification_readiness": 0.8,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.25
+    },
+    "score": 0.57
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "console-benefits",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-benefit-20260723",
+   "branch": "codex/console-benefit-20260723",
+   "commits": [
+    "af1b1c85",
+    "adfd064f",
+    "aeda54e8",
+    "3e3af675"
+   ],
+   "integration_commits": [
+    "e77ff843",
+    "ee9c9457",
+    "90990a52",
+    "9f1c12ef"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/screens/benefit/**"
+    ],
+    "backend_roots": [
+     "backend/crates/benefit/**",
+     "backend/app/tests/benefit_catalog_api.rs"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "console-benefits",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/benefit",
+    "/api/v1/benefits/catalog/**"
+   ],
+   "signature_story": {
+    "id": "STORY-BENEFITS-001",
+    "outcome": "An authorized benefits administrator creates and updates a catalog item and its children, transitions lifecycle, observes audit evidence, and a MEMBER receives a non-leaking denial."
+   },
+   "evidence_path": "docs/evidence/console/CAP-BENEFITS-CATALOG/",
+   "tests": {
+    "files": [
+     "web/src/console/screens/benefit/BenefitBody.test.tsx",
+     "backend/app/tests/benefit_catalog_api.rs"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/screens/benefit/BenefitBody.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "implemented_contract",
+    "backend": "implemented_but_buck2_unregistered",
+    "frontend": "integrated_on_local_train",
+    "e2e": "component_and_app_router_passed",
+    "runtime": "dev_auth_empty_state_verified_on_restarted_backend",
+    "independent_review": "i1_non_independent_approved",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-COMPLIANCE-CATALOG",
+   "label": "Compliance obligation, regulation, framework, control, and evidence catalog",
+   "evidence_basis": [
+    "repository_contract",
+    "dated_audit"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.85,
+     "dependency_unlock": 0.8,
+     "correctness_and_risk_reduction": 0.9,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.55,
+     "unpriced_dependency_cost": 0.45
+    },
+    "score": 0.67
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "console-compliance",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "integration_commits": [],
+   "lane_assignments": {
+    "backend": {
+     "owner": "compliance-backend",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-backend-20260723",
+     "branch": "codex/console-compliance-backend-20260723",
+     "roots": [
+      "backend/crates/compliance/rest/src/lib.rs",
+      "backend/app/tests/compliance_catalog_api.rs",
+      "backend/crates/platform/authz/src/lib.rs"
+     ],
+     "must_not_touch": [
+      "backend/openapi.yaml",
+      "clients/generated/**",
+      "web/**"
+     ]
+    },
+    "frontend": {
+     "owner": "compliance-frontend",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-frontend-20260723",
+     "branch": "codex/console-compliance-frontend-20260723",
+     "roots": [
+      "web/src/console/compliance/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
       "web/src/i18n/ko.ts",
       "web/src/console/shell/nav.ts",
       "web/src/console/screens/registry.ts",
+      "clients/generated/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-integration-20260723",
+     "branch": "codex/console-integration-20260723",
+     "roots": [
       "backend/openapi.yaml",
       "clients/generated/**",
-      "backend/migrations/**",
-      "docs/program/console-enterprise-roadmap.md",
-      "docs/program/console-capability-registry.json"
-    ]
-  },
-  "capabilities": [
-    {
-      "id": "CAP-CONSOLE-SHELL",
-      "label": "Responsive left-main-right console shell",
-      "evidence_basis": [
-        "design_reference",
-        "repository_contract",
-        "dated_audit"
-      ],
-      "frontier": 0,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.9,
-          "dependency_unlock": 1,
-          "correctness_and_risk_reduction": 0.85,
-          "visual_or_functional_parity_gap": 1,
-          "business_coverage_gain": 0.3,
-          "verification_readiness": 0.8,
-          "collision_probability": 0.7,
-          "unpriced_dependency_cost": 0.2
-        },
-        "score": 0.73
-      },
-      "dependencies": [],
-      "owner": "console-shell",
-      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-shell-parity-20260723",
-      "branch": "codex/console-shell-parity-20260723",
-      "commits": [
-        "38a53bdd"
-      ],
-      "integration_commits": [
-        "397e1e59"
-      ],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/shell/ConsoleShell.tsx",
-          "web/src/console/shell/Sidebar.tsx",
-          "web/src/console/shell/Topbar.tsx",
-          "web/src/console/tokens.css",
-          "web/src/console/shell/ConsoleShell.test.tsx"
-        ],
-        "backend_roots": [],
-        "api_schema_roots": [],
-        "migration_owner": "not_applicable",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/*"
-      ],
-      "signature_story": {
-        "id": "STORY-SHELL-001",
-        "outcome": "An authenticated operator preserves route, selected work, and communication context while moving between persistent, compact, and mutually exclusive drawer layouts using keyboard or touch."
-      },
-      "evidence_path": "docs/evidence/console/CAP-CONSOLE-SHELL/",
-      "tests": {
-        "files": [
-          "web/src/console/shell/ConsoleShell.test.tsx"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/shell/ConsoleShell.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "pinned",
-        "backend": "not_applicable",
-        "frontend": "integrated_on_local_train",
-        "e2e": "component_matrix_passed",
-        "runtime": "dev_auth_live_at_localhost_5173",
-        "independent_review": "i1_non_independent_approved",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-OVERVIEW-WORKSPACE",
-      "label": "Overview action queue, agenda, and keyboard workflow",
-      "evidence_basis": [
-        "repository_contract",
-        "design_reference",
-        "dated_audit"
-      ],
-      "frontier": 0,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.85,
-          "dependency_unlock": 0.65,
-          "correctness_and_risk_reduction": 0.7,
-          "visual_or_functional_parity_gap": 0.7,
-          "business_coverage_gain": 0.45,
-          "verification_readiness": 0.85,
-          "collision_probability": 0.3,
-          "unpriced_dependency_cost": 0.2
-        },
-        "score": 0.65
-      },
-      "dependencies": [
-        "CAP-CONSOLE-SHELL"
-      ],
-      "owner": "console-overview",
-      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-overview-polish-20260723",
-      "branch": "codex/console-overview-polish-20260723",
-      "commits": [
-        "3a04a2b4"
-      ],
-      "integration_commits": [
-        "6381a1d2"
-      ],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/screens/overview/OverviewBody.tsx",
-          "web/src/console/screens/overview/OverviewBody.test.tsx"
-        ],
-        "backend_roots": [
-          "backend action-inbox read surfaces"
-        ],
-        "api_schema_roots": [],
-        "migration_owner": "not_applicable",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/overview",
-        "/api/v1/me/action-inbox"
-      ],
-      "signature_story": {
-        "id": "STORY-OVERVIEW-001",
-        "outcome": "An authenticated operator scans the real action queue and agenda, moves through authorized work with J/K or arrows, opens the selected item with Enter, and retains usable layout at narrow widths."
-      },
-      "evidence_path": "docs/evidence/console/CAP-OVERVIEW-WORKSPACE/",
-      "tests": {
-        "files": [
-          "web/src/console/screens/overview/OverviewBody.test.tsx"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/screens/overview/OverviewBody.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "bounded_improvement_not_full_parity",
-        "backend": "existing_real_action_inbox",
-        "frontend": "integrated_on_local_train",
-        "e2e": "component_passed",
-        "runtime": "live_preview_hmr_available",
-        "independent_review": "i1_non_independent_approved",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-BENEFITS-CATALOG",
-      "label": "Benefits catalog and lifecycle",
-      "evidence_basis": [
-        "repository_contract",
-        "dated_audit"
-      ],
-      "frontier": 1,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.7,
-          "dependency_unlock": 0.55,
-          "correctness_and_risk_reduction": 0.8,
-          "visual_or_functional_parity_gap": 0.55,
-          "business_coverage_gain": 0.4,
-          "verification_readiness": 0.8,
-          "collision_probability": 0.35,
-          "unpriced_dependency_cost": 0.25
-        },
-        "score": 0.57
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "console-benefits",
-      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-benefit-20260723",
-      "branch": "codex/console-benefit-20260723",
-      "commits": [
-        "af1b1c85",
-        "adfd064f",
-        "aeda54e8",
-        "3e3af675"
-      ],
-      "integration_commits": [
-        "e77ff843",
-        "ee9c9457",
-        "90990a52",
-        "9f1c12ef"
-      ],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/screens/benefit/**"
-        ],
-        "backend_roots": [
-          "backend/crates/benefit/**",
-          "backend/app/tests/benefit_catalog_api.rs"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "console-benefits",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/benefit",
-        "/api/v1/benefits/catalog/**"
-      ],
-      "signature_story": {
-        "id": "STORY-BENEFITS-001",
-        "outcome": "An authorized benefits administrator creates and updates a catalog item and its children, transitions lifecycle, observes audit evidence, and a MEMBER receives a non-leaking denial."
-      },
-      "evidence_path": "docs/evidence/console/CAP-BENEFITS-CATALOG/",
-      "tests": {
-        "files": [
-          "web/src/console/screens/benefit/BenefitBody.test.tsx",
-          "backend/app/tests/benefit_catalog_api.rs"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/screens/benefit/BenefitBody.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "implemented_contract",
-        "backend": "implemented_but_buck2_unregistered",
-        "frontend": "integrated_on_local_train",
-        "e2e": "component_and_app_router_passed",
-        "runtime": "dev_auth_empty_state_verified_on_restarted_backend",
-        "independent_review": "i1_non_independent_approved",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-COMPLIANCE-CATALOG",
-      "label": "Compliance obligation, regulation, framework, control, and evidence catalog",
-      "evidence_basis": [
-        "repository_contract",
-        "dated_audit"
-      ],
-      "frontier": 1,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.85,
-          "dependency_unlock": 0.8,
-          "correctness_and_risk_reduction": 0.9,
-          "visual_or_functional_parity_gap": 0.8,
-          "business_coverage_gain": 0.7,
-          "verification_readiness": 0.55,
-          "collision_probability": 0.55,
-          "unpriced_dependency_cost": 0.45
-        },
-        "score": 0.67
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "console-compliance",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "integration_commits": [],
-      "lane_assignments": {
-        "backend": {
-          "owner": "compliance-backend",
-          "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-backend-20260723",
-          "branch": "codex/console-compliance-backend-20260723",
-          "roots": [
-            "backend/crates/compliance/rest/src/lib.rs",
-            "backend/app/tests/compliance_catalog_api.rs",
-            "backend/crates/platform/authz/src/lib.rs"
-          ],
-          "must_not_touch": [
-            "backend/openapi.yaml",
-            "clients/generated/**",
-            "web/**"
-          ]
-        },
-        "frontend": {
-          "owner": "compliance-frontend",
-          "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-frontend-20260723",
-          "branch": "codex/console-compliance-frontend-20260723",
-          "roots": [
-            "web/src/console/compliance/**"
-          ],
-          "must_not_touch": [
-            "backend/**",
-            "web/src/i18n/ko.ts",
-            "web/src/console/shell/nav.ts",
-            "web/src/console/screens/registry.ts",
-            "clients/generated/**"
-          ]
-        },
-        "consolidation": {
-          "owner": "console-consolidation",
-          "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-integration-20260723",
-          "branch": "codex/console-integration-20260723",
-          "roots": [
-            "backend/openapi.yaml",
-            "clients/generated/**",
-            "web/src/i18n/ko.ts",
-            "web/src/console/shell/nav.ts",
-            "web/src/console/screens/registry.ts",
-            "docs/program/**"
-          ]
-        }
-      },
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/compliance/**"
-        ],
-        "backend_roots": [
-          "backend/crates/compliance/domain/**",
-          "backend/crates/compliance/application/**",
-          "backend/crates/compliance/adapter-postgres/**",
-          "backend/crates/compliance/rest/**",
-          "backend/app/tests/compliance_catalog_api.rs"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "compliance-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/compliance",
-        "/api/v1/compliance/obligations",
-        "/api/v1/compliance/regulations",
-        "/api/v1/compliance/frameworks",
-        "/api/v1/compliance/controls",
-        "/api/v1/compliance/evidence-bindings"
-      ],
-      "signature_story": {
-        "id": "STORY-COMPLIANCE-001",
-        "outcome": "A qualified compliance owner traces a regulation to obligations, controls, and accepted evidence, transitions governed lifecycle with audit, while unauthorized and cross-tenant reads reveal neither rows nor counts."
-      },
-      "evidence_path": "docs/evidence/console/CAP-COMPLIANCE-CATALOG/",
-      "tests": {
-        "files": [
-          "web/src/console/compliance/ComplianceModuleScreenBody.test.tsx",
-          "backend/app/tests/compliance_catalog_api.rs"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/compliance/ComplianceModuleScreenBody.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_mapped",
-        "backend": "writer_assigned_store_exists_rest_missing",
-        "frontend": "writer_assigned_production_stubs_present",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-SHARED-ONTOLOGY-WORKFLOW",
-      "label": "Shared governed ontology, action, workflow, history, and audit substrate",
-      "evidence_basis": [
-        "repository_contract",
-        "design_reference",
-        "dated_audit"
-      ],
-      "frontier": 1,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.95,
-          "dependency_unlock": 1,
-          "correctness_and_risk_reduction": 0.95,
-          "visual_or_functional_parity_gap": 0.8,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.4,
-          "collision_probability": 0.8,
-          "unpriced_dependency_cost": 0.7
-        },
-        "score": 0.7
-      },
-      "dependencies": [],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/ontology/**",
-          "web/src/console/modules/**",
-          "web/src/console/workflows/**"
-        ],
-        "backend_roots": [
-          "backend/crates/ontology/**",
-          "backend/app/src/lifecycle.rs",
-          "backend/app/src/workflow_studio.rs",
-          "backend/crates/governance/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "ontology-platform",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/objectExplorer",
-        "/console/ontologyManager",
-        "/console/workflow",
-        "/api/v1/ontology/**"
-      ],
-      "signature_story": {
-        "id": "STORY-ONTOLOGY-001",
-        "outcome": "An authorized user defines or consumes a typed object, traverses governed links, preflights and executes an action, and reads lifecycle, history, lineage, and audit consistently in every consuming module."
-      },
-      "evidence_path": "docs/evidence/console/CAP-SHARED-ONTOLOGY-WORKFLOW/",
-      "tests": {
-        "files": [
-          "web/src/console/ontology/**",
-          "backend/app/tests/object_resolve_api.rs",
-          "backend/app/tests/workflow_runtime_instance_api.rs"
-        ],
-        "leaf_commands": [
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "partial",
-        "backend": "substantial_partial",
-        "frontend": "substantial_partial",
-        "e2e": "fragmented",
-        "runtime": "partial",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-PRODUCTION-PILOT",
-      "label": "Production subcontracting signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.9,
-          "dependency_unlock": 0.65,
-          "correctness_and_risk_reduction": 0.75,
-          "visual_or_functional_parity_gap": 0.75,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.3,
-          "collision_probability": 0.45,
-          "unpriced_dependency_cost": 0.7
-        },
-        "score": 0.61
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/production/**"
-        ],
-        "backend_roots": [
-          "backend/crates/production/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "production-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/production"
-      ],
-      "signature_story": {
-        "id": "STORY-PRODUCTION-001",
-        "outcome": "Customer demand becomes a capacity- and material-checked staffed plan, executed operations and quality evidence, finished delivery, settlement, and margin."
-      },
-      "evidence_path": "docs/evidence/console/CAP-PRODUCTION-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-LOGISTICS-PILOT",
-      "label": "Logistics subcontracting signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.85,
-          "dependency_unlock": 0.55,
-          "correctness_and_risk_reduction": 0.7,
-          "visual_or_functional_parity_gap": 0.65,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.3,
-          "collision_probability": 0.4,
-          "unpriced_dependency_cost": 0.65
-        },
-        "score": 0.57
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/logistics/**"
-        ],
-        "backend_roots": [
-          "backend/crates/logistics/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "logistics-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/logistics"
-      ],
-      "signature_story": {
-        "id": "STORY-LOGISTICS-001",
-        "outcome": "An inbound notice proceeds through receiving, putaway, replenishment, pick and pack, dispatch, delivery evidence, SLA evaluation, and cost settlement."
-      },
-      "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-IFM-PILOT",
-      "label": "Integrated facility management signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.9,
-          "dependency_unlock": 0.6,
-          "correctness_and_risk_reduction": 0.75,
-          "visual_or_functional_parity_gap": 0.7,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.3,
-          "collision_probability": 0.4,
-          "unpriced_dependency_cost": 0.65
-        },
-        "score": 0.61
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/facilities/**"
-        ],
-        "backend_roots": [
-          "backend/crates/facilities/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "facilities-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/facilities"
-      ],
-      "signature_story": {
-        "id": "STORY-IFM-001",
-        "outcome": "A service obligation or request is triaged, safely scheduled and assigned, executed with evidence, accepted by the customer, and reflected in SLA, energy, and cost reporting."
-      },
-      "evidence_path": "docs/evidence/console/CAP-IFM-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-EQUIPMENT-3R-PILOT",
-      "label": "Equipment rental, repair, refurbishment, and resale signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.8,
-          "dependency_unlock": 0.5,
-          "correctness_and_risk_reduction": 0.65,
-          "visual_or_functional_parity_gap": 0.7,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.25,
-          "collision_probability": 0.35,
-          "unpriced_dependency_cost": 0.65
-        },
-        "score": 0.54
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/equipment/**"
-        ],
-        "backend_roots": [
-          "backend/crates/equipment/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "equipment-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/equipment"
-      ],
-      "signature_story": {
-        "id": "STORY-EQUIPMENT-3R-001",
-        "outcome": "Availability and suitability lead to quote and approval, dispatch and handover, inspection and maintenance, return assessment, then repair, refurbishment, resale, or redeployment."
-      },
-      "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-CONSULTING-PILOT",
-      "label": "Consulting engagement and realized-benefit signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.7,
-          "dependency_unlock": 0.45,
-          "correctness_and_risk_reduction": 0.6,
-          "visual_or_functional_parity_gap": 0.65,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.25,
-          "collision_probability": 0.3,
-          "unpriced_dependency_cost": 0.6
-        },
-        "score": 0.5
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/consulting/**"
-        ],
-        "backend_roots": [
-          "backend/crates/consulting/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "consulting-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/consulting"
-      ],
-      "signature_story": {
-        "id": "STORY-CONSULTING-001",
-        "outcome": "A diagnostic produces evidence-backed findings and initiatives, approval and implementation, measured benefit, and a sustain-or-correct decision."
-      },
-      "evidence_path": "docs/evidence/console/CAP-CONSULTING-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-OWNED-PLANTS-PILOT",
-      "label": "Owned-plant production configuration",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.75,
-          "dependency_unlock": 0.4,
-          "correctness_and_risk_reduction": 0.65,
-          "visual_or_functional_parity_gap": 0.65,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.25,
-          "collision_probability": 0.3,
-          "unpriced_dependency_cost": 0.6
-        },
-        "score": 0.52
-      },
-      "dependencies": [
-        "CAP-PRODUCTION-PILOT"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/production/plants/**"
-        ],
-        "backend_roots": [
-          "backend/crates/production/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "production-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/production/plants"
-      ],
-      "signature_story": {
-        "id": "STORY-OWNED-PLANTS-001",
-        "outcome": "Miryang, Changwon, and Ulsan configure plant-specific routing, quality, equipment, workforce, and cost without forking the shared production ontology or application."
-      },
-      "evidence_path": "docs/evidence/console/CAP-OWNED-PLANTS-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "blocked_by_production_pilot",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "docs/program/**"
+     ]
     }
-  ]
+   },
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/compliance/**"
+    ],
+    "backend_roots": [
+     "backend/crates/compliance/domain/**",
+     "backend/crates/compliance/application/**",
+     "backend/crates/compliance/adapter-postgres/**",
+     "backend/crates/compliance/rest/**",
+     "backend/app/tests/compliance_catalog_api.rs"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "compliance-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/compliance",
+    "/api/v1/compliance/obligations",
+    "/api/v1/compliance/regulations",
+    "/api/v1/compliance/frameworks",
+    "/api/v1/compliance/controls",
+    "/api/v1/compliance/evidence-bindings"
+   ],
+   "signature_story": {
+    "id": "STORY-COMPLIANCE-001",
+    "outcome": "A qualified compliance owner traces a regulation to obligations, controls, and accepted evidence, transitions governed lifecycle with audit, while unauthorized and cross-tenant reads reveal neither rows nor counts."
+   },
+   "evidence_path": "docs/evidence/console/CAP-COMPLIANCE-CATALOG/",
+   "tests": {
+    "files": [
+     "web/src/console/compliance/ComplianceModuleScreenBody.test.tsx",
+     "backend/app/tests/compliance_catalog_api.rs"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/compliance/ComplianceModuleScreenBody.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_mapped",
+    "backend": "writer_assigned_store_exists_rest_missing",
+    "frontend": "writer_assigned_production_stubs_present",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-SHARED-ONTOLOGY-WORKFLOW",
+   "label": "Shared governed ontology, action, workflow, history, and audit substrate",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference",
+    "dated_audit"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.95,
+     "dependency_unlock": 1,
+     "correctness_and_risk_reduction": 0.95,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.4,
+     "collision_probability": 0.8,
+     "unpriced_dependency_cost": 0.7
+    },
+    "score": 0.7
+   },
+   "dependencies": [],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/ontology/**",
+     "web/src/console/modules/**",
+     "web/src/console/workflows/**"
+    ],
+    "backend_roots": [
+     "backend/crates/ontology/**",
+     "backend/app/src/lifecycle.rs",
+     "backend/app/src/workflow_studio.rs",
+     "backend/crates/governance/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "ontology-platform",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/objectExplorer",
+    "/console/ontologyManager",
+    "/console/workflow",
+    "/api/v1/ontology/**"
+   ],
+   "signature_story": {
+    "id": "STORY-ONTOLOGY-001",
+    "outcome": "An authorized user defines or consumes a typed object, traverses governed links, preflights and executes an action, and reads lifecycle, history, lineage, and audit consistently in every consuming module."
+   },
+   "evidence_path": "docs/evidence/console/CAP-SHARED-ONTOLOGY-WORKFLOW/",
+   "tests": {
+    "files": [
+     "web/src/console/ontology/**",
+     "backend/app/tests/object_resolve_api.rs",
+     "backend/app/tests/workflow_runtime_instance_api.rs"
+    ],
+    "leaf_commands": [
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "partial",
+    "backend": "substantial_partial",
+    "frontend": "substantial_partial",
+    "e2e": "fragmented",
+    "runtime": "partial",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-PRODUCTION-PILOT",
+   "label": "Production subcontracting signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.65,
+     "correctness_and_risk_reduction": 0.75,
+     "visual_or_functional_parity_gap": 0.75,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.45,
+     "unpriced_dependency_cost": 0.7
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/production/**"
+    ],
+    "backend_roots": [
+     "backend/crates/production/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "production-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/production"
+   ],
+   "signature_story": {
+    "id": "STORY-PRODUCTION-001",
+    "outcome": "Customer demand becomes a capacity- and material-checked staffed plan, executed operations and quality evidence, finished delivery, settlement, and margin."
+   },
+   "evidence_path": "docs/evidence/console/CAP-PRODUCTION-PILOT/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-LOGISTICS-PILOT",
+   "label": "Logistics subcontracting signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.85,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.65,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.4,
+     "unpriced_dependency_cost": 0.65
+    },
+    "score": 0.57
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/logistics/**"
+    ],
+    "backend_roots": [
+     "backend/crates/logistics/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "logistics-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/logistics"
+   ],
+   "signature_story": {
+    "id": "STORY-LOGISTICS-001",
+    "outcome": "An inbound notice proceeds through receiving, putaway, replenishment, pick and pack, dispatch, delivery evidence, SLA evaluation, and cost settlement."
+   },
+   "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-logistics-frontend-20260724",
+     "branch": "claude/console-logistics-frontend-20260724",
+     "roots": [
+      "web/src/console/logistics/**",
+      "docs/evidence/console/CAP-LOGISTICS-PILOT/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   }
+  },
+  {
+   "id": "CAP-IFM-PILOT",
+   "label": "Integrated facility management signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.6,
+     "correctness_and_risk_reduction": 0.75,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.4,
+     "unpriced_dependency_cost": 0.65
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/facilities/**"
+    ],
+    "backend_roots": [
+     "backend/crates/facilities/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "facilities-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/facilities"
+   ],
+   "signature_story": {
+    "id": "STORY-IFM-001",
+    "outcome": "A service obligation or request is triaged, safely scheduled and assigned, executed with evidence, accepted by the customer, and reflected in SLA, energy, and cost reporting."
+   },
+   "evidence_path": "docs/evidence/console/CAP-IFM-PILOT/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-EQUIPMENT-3R-PILOT",
+   "label": "Equipment rental, repair, refurbishment, and resale signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.65,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.25,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.65
+    },
+    "score": 0.54
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/equipment/**"
+    ],
+    "backend_roots": [
+     "backend/crates/equipment/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "equipment-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/equipment"
+   ],
+   "signature_story": {
+    "id": "STORY-EQUIPMENT-3R-001",
+    "outcome": "Availability and suitability lead to quote and approval, dispatch and handover, inspection and maintenance, return assessment, then repair, refurbishment, resale, or redeployment."
+   },
+   "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_analysis_in_progress",
+    "frontend": "writer_assigned",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "lane_assignments": {
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-equipment-backend-20260724",
+     "branch": "claude/console-equipment-backend-20260724",
+     "roots": [
+      "backend/crates/equipment/**",
+      "backend/app/tests/equipment_3r_api.rs",
+      "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/**",
+      "backend/crates/platform/db/migrations/0185_create_equipment_3r.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0185"
+     ]
+    },
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-equipment-frontend-20260724",
+     "branch": "claude/console-equipment-frontend-20260724",
+     "roots": [
+      "web/src/console/equipment/**",
+      "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/frontend/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   }
+  },
+  {
+   "id": "CAP-CONSULTING-PILOT",
+   "label": "Consulting engagement and realized-benefit signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.45,
+     "correctness_and_risk_reduction": 0.6,
+     "visual_or_functional_parity_gap": 0.65,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.25,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.5
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/consulting/**"
+    ],
+    "backend_roots": [
+     "backend/crates/consulting/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "consulting-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/consulting"
+   ],
+   "signature_story": {
+    "id": "STORY-CONSULTING-001",
+    "outcome": "A diagnostic produces evidence-backed findings and initiatives, approval and implementation, measured benefit, and a sustain-or-correct decision."
+   },
+   "evidence_path": "docs/evidence/console/CAP-CONSULTING-PILOT/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-OWNED-PLANTS-PILOT",
+   "label": "Owned-plant production configuration",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.4,
+     "correctness_and_risk_reduction": 0.65,
+     "visual_or_functional_parity_gap": 0.65,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.25,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.52
+   },
+   "dependencies": [
+    "CAP-PRODUCTION-PILOT"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/production/plants/**"
+    ],
+    "backend_roots": [
+     "backend/crates/production/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi.yaml"
+    ],
+    "migration_owner": "production-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/production/plants"
+   ],
+   "signature_story": {
+    "id": "STORY-OWNED-PLANTS-001",
+    "outcome": "Miryang, Changwon, and Ulsan configure plant-specific routing, quality, equipment, workforce, and cost without forking the shared production ontology or application."
+   },
+   "evidence_path": "docs/evidence/console/CAP-OWNED-PLANTS-PILOT/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "blocked_by_production_pilot",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  }
+ ]
 }
