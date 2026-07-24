@@ -106,6 +106,8 @@ export const MOUNTED_SCREEN_KEYS = [
   "scheduled",
   "messenger",
   "mail",
+  "logistics",
+  "equipment",
 ] as const;
 
 export type MountedScreenKey = (typeof MOUNTED_SCREEN_KEYS)[number];
@@ -233,6 +235,28 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
         labelKey: "console.shell.nav.field",
         icon: "mapPin",
         gate: g(OPERATIONAL_ROLES, [FEATURES.WORK_ORDER_READ_ALL]),
+      },
+      {
+        screen: "logistics",
+        labelKey: "console.shell.nav.logistics",
+        icon: "truck",
+        // grant-only PBAC module: built-in role matrix denies every logistics
+        // feature, so the gate lists features only — roles cannot widen it.
+        gate: g(undefined, [
+          "logistics_receive",
+          "logistics_putaway",
+          "logistics_release",
+          "logistics_pick_pack",
+          "logistics_dispatch",
+          "logistics_pod",
+          "logistics_settle",
+        ]),
+      },
+      {
+        screen: "equipment",
+        labelKey: "console.shell.nav.equipment",
+        icon: "box",
+        gate: g(OPERATIONAL_ROLES, ["equipment_3r_observe"]),
       },
     ],
   },

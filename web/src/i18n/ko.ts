@@ -982,6 +982,8 @@ export const ko = {
         dispatch: "배차",
         maintenance: "정비",
         field: "고객·현장",
+        logistics: "물류",
+        equipment: "장비 운용",
         appr: "전자결재",
         docs: "문서·기록물",
         policy: "권한·정책",
