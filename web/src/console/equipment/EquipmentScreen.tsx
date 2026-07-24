@@ -258,7 +258,9 @@ function EquipmentScreenLayout({ api, branchId, actorId, capabilities, sessionKe
             <section aria-label={text.unitSection}>
               <h2>{text.unitSection}</h2>
               <ul className="equipment__stats" aria-label={text.availabilityFilter}>
-                {AVAILABILITY_ORDER.filter((availability) => (unitCounts.get(availability) ?? 0) > 0).map((availability) => (
+                {AVAILABILITY_ORDER.filter((availability) =>
+                  (unitCounts.get(availability) ?? 0) > 0 || unitFilter === availability,
+                ).map((availability) => (
                   <li key={availability}>
                     <button
                       className="equipment__stat"
@@ -273,7 +275,7 @@ function EquipmentScreenLayout({ api, branchId, actorId, capabilities, sessionKe
                 ))}
               </ul>
               {visibleUnits.length === 0 ? (
-                <p role="status">{text.unitsEmpty}</p>
+                <p role="status">{unitFilter ? text.unitsFilteredEmpty : text.unitsEmpty}</p>
               ) : (
                 <ul className="equipment__list" aria-label={text.unitList}>
                   {visibleUnits.map((unit) => (
@@ -303,7 +305,9 @@ function EquipmentScreenLayout({ api, branchId, actorId, capabilities, sessionKe
             <section aria-label={text.caseSection}>
               <h2>{text.caseSection}</h2>
               <ul className="equipment__stats" aria-label={text.statusFilter}>
-                {CASE_STATUS_ORDER.filter((status) => (caseCounts.get(status) ?? 0) > 0).map((status) => (
+                {CASE_STATUS_ORDER.filter((status) =>
+                  (caseCounts.get(status) ?? 0) > 0 || caseFilter === status,
+                ).map((status) => (
                   <li key={status}>
                     <button
                       className="equipment__stat"
@@ -318,7 +322,7 @@ function EquipmentScreenLayout({ api, branchId, actorId, capabilities, sessionKe
                 ))}
               </ul>
               {visibleCases.length === 0 ? (
-                <p role="status">{text.casesEmpty}</p>
+                <p role="status">{caseFilter ? text.casesFilteredEmpty : text.casesEmpty}</p>
               ) : (
                 <ul className="equipment__list" aria-label={text.caseList}>
                   {visibleCases.map((rentalCase) => (
