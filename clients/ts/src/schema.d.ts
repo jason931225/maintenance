@@ -17257,6 +17257,7 @@ export interface operations {
     listHrAttendanceSummary: {
         parameters: {
             query?: {
+                branch_id?: components["schemas"]["Uuid"];
                 limit?: number;
                 offset?: number;
             };
@@ -17622,6 +17623,7 @@ export interface operations {
         parameters: {
             query?: {
                 employee_id?: components["schemas"]["Uuid"];
+                branch_id?: components["schemas"]["Uuid"];
                 limit?: number;
                 offset?: number;
             };

@@ -7417,6 +7417,13 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
+                    name: "branch_id",
+                    value: input.query.branchId
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
                     name: "limit",
                     value: input.query.limit
                 )
@@ -9235,6 +9242,13 @@ public struct Client: APIProtocol {
                     explode: true,
                     name: "employee_id",
                     value: input.query.employeeId
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "branch_id",
+                    value: input.query.branchId
                 )
                 try converter.setQueryItemAsURI(
                     in: &request,

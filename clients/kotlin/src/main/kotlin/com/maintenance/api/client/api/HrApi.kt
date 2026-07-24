@@ -768,6 +768,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * List employee attendance records for HR/payroll review
      * Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
      * @param employeeId  (optional)
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return EmployeeAttendanceRecordPage
@@ -779,8 +780,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEmployeeAttendanceRecords(employeeId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeeAttendanceRecordPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listEmployeeAttendanceRecordsWithHttpInfo(employeeId = employeeId, limit = limit, offset = offset)
+    suspend fun listEmployeeAttendanceRecords(employeeId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeeAttendanceRecordPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeeAttendanceRecordsWithHttpInfo(employeeId = employeeId, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeAttendanceRecordPage
@@ -802,6 +803,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * List employee attendance records for HR/payroll review
      * Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
      * @param employeeId  (optional)
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<EmployeeAttendanceRecordPage?>
@@ -810,8 +812,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listEmployeeAttendanceRecordsWithHttpInfo(employeeId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeeAttendanceRecordPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listEmployeeAttendanceRecordsRequestConfig(employeeId = employeeId, limit = limit, offset = offset)
+    suspend fun listEmployeeAttendanceRecordsWithHttpInfo(employeeId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeeAttendanceRecordPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeeAttendanceRecordsRequestConfig(employeeId = employeeId, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext request<Unit, EmployeeAttendanceRecordPage>(
             localVariableConfig
@@ -822,16 +824,20 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * To obtain the request config of the operation listEmployeeAttendanceRecords
      *
      * @param employeeId  (optional)
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listEmployeeAttendanceRecordsRequestConfig(employeeId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listEmployeeAttendanceRecordsRequestConfig(employeeId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (employeeId != null) {
                     put("employee_id", listOf(employeeId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
                 }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))
@@ -857,6 +863,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * GET /api/v1/hr/attendance-summary
      * List branch-scoped attendance summaries
      * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return AttendanceSummaryPage
@@ -868,8 +875,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listHrAttendanceSummary(limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : AttendanceSummaryPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listHrAttendanceSummaryWithHttpInfo(limit = limit, offset = offset)
+    suspend fun listHrAttendanceSummary(branchId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : AttendanceSummaryPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listHrAttendanceSummaryWithHttpInfo(branchId = branchId, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceSummaryPage
@@ -890,6 +897,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * GET /api/v1/hr/attendance-summary
      * List branch-scoped attendance summaries
      * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<AttendanceSummaryPage?>
@@ -898,8 +906,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listHrAttendanceSummaryWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AttendanceSummaryPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listHrAttendanceSummaryRequestConfig(limit = limit, offset = offset)
+    suspend fun listHrAttendanceSummaryWithHttpInfo(branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AttendanceSummaryPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listHrAttendanceSummaryRequestConfig(branchId = branchId, limit = limit, offset = offset)
 
         return@withContext request<Unit, AttendanceSummaryPage>(
             localVariableConfig
@@ -909,14 +917,18 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * To obtain the request config of the operation listHrAttendanceSummary
      *
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listHrAttendanceSummaryRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listHrAttendanceSummaryRequestConfig(branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))
                 }
