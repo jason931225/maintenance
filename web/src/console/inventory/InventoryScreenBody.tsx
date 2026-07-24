@@ -759,7 +759,7 @@ function InventoryOperations({
 
   async function openCount() {
     const generation = mutationEpoch.current;
-    countSelectionEpoch.current += 1;
+    const countGeneration = ++countSelectionEpoch.current;
     setBusy(true);
     try {
       const next = await openCycleCount(
@@ -767,11 +767,18 @@ function InventoryOperations({
         item.branch_id,
         item.stock_location.id,
       );
-      if (generation !== mutationEpoch.current) return;
+      if (
+        generation !== mutationEpoch.current ||
+        countGeneration !== countSelectionEpoch.current
+      )
+        return;
       setCount(next);
       await load();
     } catch (error) {
-      if (generation === mutationEpoch.current) {
+      if (
+        generation === mutationEpoch.current &&
+        countGeneration === countSelectionEpoch.current
+      ) {
         setMessage(
           isAccessDenied(error)
             ? "실사 개설 권한이 없습니다."
@@ -801,6 +808,7 @@ function InventoryOperations({
       return;
     }
     const generation = mutationEpoch.current;
+    const countGeneration = ++countSelectionEpoch.current;
     setBusy(true);
     try {
       const next = await upsertCycleLine(api, count.count.id, {
@@ -810,10 +818,17 @@ function InventoryOperations({
         reason: reason || undefined,
         note: memo.trim() || undefined,
       });
-      if (generation !== mutationEpoch.current) return;
+      if (
+        generation !== mutationEpoch.current ||
+        countGeneration !== countSelectionEpoch.current
+      )
+        return;
       setCount(next);
     } catch (error) {
-      if (generation === mutationEpoch.current) {
+      if (
+        generation === mutationEpoch.current &&
+        countGeneration === countSelectionEpoch.current
+      ) {
         setMessage(
           isAccessDenied(error)
             ? "실사 라인을 변경할 권한이 없습니다."
@@ -830,6 +845,7 @@ function InventoryOperations({
   ) {
     if (!count) return;
     const generation = mutationEpoch.current;
+    const countGeneration = ++countSelectionEpoch.current;
     const approvalPayload =
       action === "approve"
         ? JSON.stringify([
@@ -872,8 +888,11 @@ function InventoryOperations({
                     ? approvalAttempt.current?.key
                     : undefined,
               });
-      if (generation !== mutationEpoch.current) return;
-      countSelectionEpoch.current += 1;
+      if (
+        generation !== mutationEpoch.current ||
+        countGeneration !== countSelectionEpoch.current
+      )
+        return;
       if (
         approvalPayload &&
         approvalAttempt.current?.payload === approvalPayload
@@ -883,7 +902,10 @@ function InventoryOperations({
       setCount(next);
       await load();
     } catch (error) {
-      if (generation === mutationEpoch.current) {
+      if (
+        generation === mutationEpoch.current &&
+        countGeneration === countSelectionEpoch.current
+      ) {
         setMessage(
           isAccessDenied(error)
             ? "이 전환을 수행할 권한이 없습니다."

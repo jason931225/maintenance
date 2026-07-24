@@ -610,6 +610,74 @@ describe("InventoryScreenBody", () => {
     );
   });
 
+  it("does not let a deferred approval overwrite a newer count selection", async () => {
+    let resolveApproval: ((value: unknown) => void) | undefined;
+    const GET = vi.fn(
+      (
+        path: string,
+        options?: {
+          params?: { path?: { item_id?: string; count_id?: string } };
+        },
+      ) => {
+        if (path === "/api/v1/inventory/cycle-counts") {
+          return {
+            data: {
+              items: [submittedCycleCount, secondCycleCount],
+              total: 2,
+              limit: 50,
+              offset: 0,
+            },
+            response: new Response(),
+          };
+        }
+        if (path === "/api/v1/inventory/cycle-counts/{count_id}") {
+          return options?.params?.path?.count_id === secondCycleCount.id
+            ? {
+                data: {
+                  count: secondCycleCount,
+                  lines: [],
+                  appliedMovementIds: [],
+                },
+                response: new Response(),
+              }
+            : { data: submittedCycleDetail, response: new Response() };
+        }
+        return operationalGet(path, options);
+      },
+    );
+    const POST = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+    renderScreen(GET, POST);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "IV-031 상세 열기" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "CC-1 · SUBMITTED" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "별도 검토자 승인" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "CC-2 · DRAFT" }),
+    );
+    expect(await screen.findByText("CC-2 · DRAFT · 버전 1")).toBeVisible();
+    resolveApproval?.({
+      data: approvedCycleDetail,
+      response: new Response(),
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "이 위치 실사 개설" }),
+      ).not.toBeDisabled();
+    });
+    expect(screen.getByText("CC-2 · DRAFT · 버전 1")).toBeVisible();
+    expect(screen.queryByText("CC-1 · APPROVED · 버전 3")).toBeNull();
+  });
+
   it("keeps the latest cycle-count selection when details resolve out of order", async () => {
     const detailResolvers = new Map<string, (value: unknown) => void>();
     const GET = vi.fn(
