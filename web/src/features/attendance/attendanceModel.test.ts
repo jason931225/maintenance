@@ -15,6 +15,7 @@ import {
   isoDate,
   isoMonth,
   monthSheetRows,
+  monthOperationalRange,
   weekStart,
 } from "./attendanceModel";
 
@@ -79,6 +80,23 @@ function substitution(overrides: Partial<Substitution>): Substitution {
     ...overrides,
   };
 }
+
+describe("monthOperationalRange", () => {
+  it("covers every selected-month date plus the following seven operational days", () => {
+    expect(monthOperationalRange("2026-07")).toEqual({
+      from_date: "2026-07-01",
+      to_date: "2026-08-07",
+    });
+    expect(monthOperationalRange("2026-12")).toEqual({
+      from_date: "2026-12-01",
+      to_date: "2027-01-07",
+    });
+  });
+
+  it("rejects a malformed selected month rather than querying an invented window", () => {
+    expect(() => monthOperationalRange("2026-13")).toThrow(RangeError);
+  });
+});
 
 describe("daySegments", () => {
   it("folds the clock FSM into work/away spans and keeps the open span running to now", () => {

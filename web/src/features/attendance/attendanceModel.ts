@@ -393,6 +393,26 @@ export function isoMonth(at: Date): string {
   return isoDate(at).slice(0, 7);
 }
 
+/**
+ * Attendance coverage must include every day in the selected month and the
+ * seven following operational days. This prevents an older covered NO_SHOW
+ * from being presented as an assignable gap when the month board is viewed.
+ */
+export function monthOperationalRange(month: string): {
+  from_date: string;
+  to_date: string;
+} {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+  if (!match) throw new RangeError(`Invalid attendance month: ${month}`);
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const lastOperationalDay = new Date(Date.UTC(year, monthIndex + 1, 7));
+  const to_date = `${String(lastOperationalDay.getUTCFullYear())}-${String(
+    lastOperationalDay.getUTCMonth() + 1,
+  ).padStart(2, "0")}-${String(lastOperationalDay.getUTCDate()).padStart(2, "0")}`;
+  return { from_date: `${month}-01`, to_date };
+}
+
 /** Monday of the KST week containing `at` (Korean labor-week convention). */
 export function weekStart(at: Date): string {
   const [year, month, day] = isoDate(at).split("-").map(Number);

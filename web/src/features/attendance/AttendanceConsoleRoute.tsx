@@ -1,24 +1,39 @@
-import { useAuth, useActiveBranchId } from "../../context/auth";
+import { useActiveBranchId, useAuth } from "../../context/auth";
+
 import { AttendanceScreen } from "./AttendanceScreen";
 import { deriveAttendanceCapabilities } from "./attendanceCapabilities";
+import type { AttendanceTransport } from "./attendanceApi";
 import { useAttendanceConsoleAuthz } from "./useAttendanceConsoleAuthz";
 
 /**
- * Module-owned route/body adapter. It consumes the console policy authz
- * projection, while shared registration remains intentionally outside this module.
+ * Module-owned body adapter. Shared router/generated-client integration supplies
+ * the authenticated Attendance transport explicitly; this leaf never guesses
+ * at missing generated paths or falls back to an untyped client.
  */
-export function AttendanceConsoleRoute({ branchId }: { branchId: string }) {
-  return <AttendanceConsoleBody branchId={branchId} />;
+export function AttendanceConsoleRoute({
+  branchId,
+  transport,
+}: {
+  branchId: string;
+  transport: AttendanceTransport;
+}) {
+  return <AttendanceConsoleBody branchId={branchId} transport={transport} />;
 }
 
-export function AttendanceConsoleBody({ branchId }: { branchId: string }) {
-  const { api, session } = useAuth();
+export function AttendanceConsoleBody({
+  branchId,
+  transport,
+}: {
+  branchId: string;
+  transport: AttendanceTransport;
+}) {
+  const { session } = useAuth();
   const authz = useAttendanceConsoleAuthz();
   const capabilities = deriveAttendanceCapabilities(authz, branchId);
 
   return (
     <AttendanceScreen
-      api={api}
+      transport={transport}
       branchId={branchId}
       actorId={session?.user_id}
       capabilities={capabilities}
@@ -28,11 +43,14 @@ export function AttendanceConsoleBody({ branchId }: { branchId: string }) {
 }
 
 /**
- * Propless registry body (SCREEN_REGISTRY mounts bodies without props). The
- * active branch comes from the JWT `branches` claim; without one the screen
- * renders its truthful denied state via fail-closed capabilities.
+ * Shared registry adapter. Its caller owns the generated-client binding and
+ * provides the current active branch; a missing transport cannot be masked.
  */
-export function AttendanceScreenBody() {
+export function AttendanceScreenBody({
+  transport,
+}: {
+  transport: AttendanceTransport;
+}) {
   const branchId = useActiveBranchId();
-  return <AttendanceConsoleBody branchId={branchId ?? ""} />;
+  return <AttendanceConsoleBody branchId={branchId ?? ""} transport={transport} />;
 }

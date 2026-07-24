@@ -8,13 +8,12 @@ import {
   type ReactElement,
 } from "react";
 
-import type { ConsoleApiClient } from "../../api/client";
 import { attendanceStrings as text } from "./attendanceStrings";
 import { consoleScreenPath } from "../../console/shell/nav";
+import { Dialog } from "../../components/ui/dialog";
 import {
-  AttendanceApiError,
-  createAttendanceApi,
-  type AttendanceApi,
+  AttendanceTransportError,
+  type AttendanceTransport,
   type AttendanceException,
   type AttendanceSummaryItem,
   type ClosePreflight,
@@ -34,6 +33,7 @@ import {
   formatWindow,
   isoDate,
   isoMonth,
+  monthOperationalRange,
   minutesOfDay,
   monthSheetRows,
   weekStart,
@@ -42,7 +42,7 @@ import {
 import "./attendance.css";
 
 type Props = {
-  api: ConsoleApiClient;
+  transport: AttendanceTransport;
   branchId: string;
   actorId: string | undefined;
   capabilities: AttendanceCapabilities;
@@ -52,15 +52,15 @@ type Props = {
   now?: () => Date;
 };
 
-const apiFenceIds = new WeakMap<object, number>();
-let nextApiFenceId = 1;
+const transportFenceIds = new WeakMap<object, number>();
+let nextTransportFenceId = 1;
 
-function apiFenceKey(api: ConsoleApiClient): number {
-  const reference = api as object;
-  const existing = apiFenceIds.get(reference);
+function transportFenceKey(transport: AttendanceTransport): number {
+  const reference = transport as object;
+  const existing = transportFenceIds.get(reference);
   if (existing) return existing;
-  const id = nextApiFenceId++;
-  apiFenceIds.set(reference, id);
+  const id = nextTransportFenceId++;
+  transportFenceIds.set(reference, id);
   return id;
 }
 
@@ -73,7 +73,7 @@ type Res<T> =
 function resolveError(
   cause: unknown,
 ): { s: "denied" } | { s: "error"; message: string } {
-  if (cause instanceof AttendanceApiError && cause.status === 403)
+  if (cause instanceof AttendanceTransportError && cause.status === 403)
     return { s: "denied" };
   return {
     s: "error",
@@ -139,14 +139,14 @@ export function AttendanceScreen(props: Props) {
     props.sessionKey ?? "no-session",
     props.branchId,
     props.actorId ?? "no-actor",
-    apiFenceKey(props.api),
+    transportFenceKey(props.transport),
     capabilityKey,
   ].join(":");
   return <AttendanceScreenBodyInner key={sessionFence} {...props} />;
 }
 
 function AttendanceScreenBodyInner({
-  api,
+  transport,
   capabilities,
   sessionKey,
   now,
@@ -159,9 +159,13 @@ function AttendanceScreenBodyInner({
   const [view, setView] = useState<"day" | "month">(() =>
     storageGet("attendance:view") === "month" ? "month" : "day",
   );
-  const [month, setMonth] = useState<string>(
-    () => storageGet("attendance:month") ?? isoMonth(clock()),
-  );
+  const [month, setMonth] = useState<string>(() => {
+    const stored = storageGet("attendance:month");
+    return stored && /^\d{4}-(0[1-9]|1[0-2])$/.test(stored)
+      ? stored
+      : isoMonth(clock());
+  });
+  const substitutionWindow = useMemo(() => monthOperationalRange(month), [month]);
   const [exceptions, setExceptions] = useState<Res<Page<AttendanceException>>>({
     s: "loading",
   });
@@ -192,7 +196,6 @@ function AttendanceScreenBodyInner({
   const exceptionsRef = useRef<HTMLElement | null>(null);
   const w52Ref = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLElement | null>(null);
-  const attendanceApi = useMemo(() => createAttendanceApi(api), [api]);
   const isCurrent = useCallback(
     (token: number) => generation.current === token,
     [],
@@ -218,11 +221,11 @@ function AttendanceScreenBodyInner({
         else apply(resolveError(settled.reason));
       };
     const [ex, subs, close, w52, recs] = await Promise.allSettled([
-      attendanceApi.listExceptions({ month, limit: 200 }, controller.signal),
-      attendanceApi.listSubstitutions({ cover_date: today }, controller.signal),
-      attendanceApi.listCloses(month, controller.signal),
-      attendanceApi.listWeek52(currentWeek, controller.signal),
-      attendanceApi.listAttendanceRecords(200, controller.signal),
+      transport.listExceptions({ month, limit: 200 }, controller.signal),
+      transport.listSubstitutions(substitutionWindow, controller.signal),
+      transport.listCloses(month, controller.signal),
+      transport.listWeek52(currentWeek, controller.signal),
+      transport.listAttendanceRecords(200, controller.signal),
     ]);
     guard<Page<AttendanceException>>(setExceptions)(ex);
     guard<Page<Substitution>>(setSubstitutions)(subs);
@@ -230,12 +233,12 @@ function AttendanceScreenBodyInner({
     guard<Week52Board>(setWeek52)(w52);
     guard<{ items: EmployeeAttendanceRecord[] }>(setRecords)(recs);
   }, [
-    attendanceApi,
+    transport,
     capabilities.canRead,
     currentWeek,
     isCurrent,
     month,
-    today,
+    substitutionWindow,
   ]);
 
   useEffect(() => {
@@ -298,12 +301,12 @@ function AttendanceScreenBodyInner({
 
   const refreshCloses = useCallback(async () => {
     try {
-      const board = await attendanceApi.listCloses(month);
+      const board = await transport.listCloses(month);
       setCloses({ s: "ready", data: board });
     } catch (cause) {
       setCloses(resolveError(cause));
     }
-  }, [attendanceApi, month]);
+  }, [transport, month]);
 
   const exceptionItems = exceptions.s === "ready" ? exceptions.data.items : [];
   const substitutionItems =
@@ -668,7 +671,7 @@ function AttendanceScreenBodyInner({
                       busy={busy}
                       onAck={() =>
                         void mutate(async (signal) => {
-                          const next = await attendanceApi.ackWeek52(
+                          const next = await transport.ackWeek52(
                             row.employee_id,
                             row.week_start,
                             signal,
@@ -825,7 +828,7 @@ function AttendanceScreenBodyInner({
                       }}
                       onConfirm={(scope) =>
                         void mutate(async (signal) => {
-                          const result = await attendanceApi.preflightClose(
+                          const result = await transport.preflightClose(
                             month,
                             scope,
                             signal,
@@ -855,7 +858,7 @@ function AttendanceScreenBodyInner({
           }}
           onResolve={(input) =>
             void mutate(async (signal) => {
-              const next = await attendanceApi.resolveException(
+              const next = await transport.resolveException(
                 exOpen.id,
                 input,
                 signal,
@@ -872,18 +875,18 @@ function AttendanceScreenBodyInner({
       {subGap && (
         <SubModal
           gap={subGap}
-          api={attendanceApi}
+          transport={transport}
           busy={busy}
           onClose={() => {
             setSubGap(undefined);
           }}
           onAssign={(input) =>
             void mutate(async (signal) => {
-              await attendanceApi.createSubstitution(input, signal);
+              await transport.createSubstitution(input, signal);
               setSubGap(undefined);
               const [subs, ex] = await Promise.all([
-                attendanceApi.listSubstitutions({ cover_date: today }),
-                attendanceApi.listExceptions({ month, limit: 200 }),
+                transport.listSubstitutions(substitutionWindow),
+                transport.listExceptions({ month, limit: 200 }),
               ]);
               setSubstitutions({ s: "ready", data: subs });
               setExceptions({ s: "ready", data: ex });
@@ -903,7 +906,7 @@ function AttendanceScreenBodyInner({
           onConfirm={() =>
             void mutate(async (signal) => {
               try {
-                await attendanceApi.confirmClose(
+                await transport.confirmClose(
                   month,
                   preflight.scope,
                   signal,
@@ -1642,10 +1645,6 @@ function ExceptionModal({
   const reasonId = useId();
   const workRefId = useId();
   const otHoursId = useId();
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
   const isOvertime = exception.kind === "UNAPPROVED_OVERTIME";
   const submit = () => {
     const trimmed = reason.trim();
@@ -1668,23 +1667,12 @@ function ExceptionModal({
     });
   };
   return (
-    <div
-      className="attendance__backdrop"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <Dialog
+      open
+      onClose={onClose}
+      label={text.exceptions.detailTitle}
+      className="attendance__modal"
     >
-      <div
-        className="attendance__modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={text.exceptions.detailTitle}
-        ref={dialogRef}
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
         <div className="attendance__modalhead">
           <span className={exceptionToneClass(exception.kind)}>
             {text.exceptions.kind[exception.kind]}
@@ -1810,8 +1798,7 @@ function ExceptionModal({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1830,29 +1817,14 @@ function PreflightModal({
 }) {
   const [attest, setAttest] = useState(false);
   const attestId = useId();
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
   const hardFail = preflight.checks.some((check) => !check.ok && !check.warn);
   return (
-    <div
-      className="attendance__backdrop"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <Dialog
+      open
+      onClose={onClose}
+      label={text.closePanel.preflightTitle}
+      className="attendance__modal"
     >
-      <div
-        className="attendance__modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={text.closePanel.preflightTitle}
-        ref={dialogRef}
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
         <div className="attendance__modalhead">
           <span className="attendance__modaltitle">
             {text.closePanel.preflightTitle}
@@ -1923,20 +1895,19 @@ function PreflightModal({
             {scope} {text.closePanel.confirmCta}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
 function SubModal({
   gap,
-  api,
+  transport,
   busy,
   onClose,
   onAssign,
 }: {
   gap: AttendanceException;
-  api: AttendanceApi;
+  transport: AttendanceTransport;
   busy: boolean;
   onClose: () => void;
   onAssign: (input: {
@@ -1968,13 +1939,9 @@ function SubModal({
   const fromId = useId();
   const toId = useId();
   const searchId = useId();
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
   useEffect(() => {
     const controller = new AbortController();
-    api
+    transport
       .listAttendanceSummary(100, controller.signal)
       .then((page) => {
         if (!controller.signal.aborted)
@@ -1986,7 +1953,7 @@ function SubModal({
     return () => {
       controller.abort();
     };
-  }, [api]);
+  }, [transport]);
   const parseMinutes = (value: string): number | undefined => {
     const match = /^(\d{2}):(\d{2})$/.exec(value);
     if (!match) return undefined;
@@ -2028,23 +1995,12 @@ function SubModal({
         )
       : [];
   return (
-    <div
-      className="attendance__backdrop"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <Dialog
+      open
+      onClose={onClose}
+      label={text.sub.title}
+      className="attendance__modal"
     >
-      <div
-        className="attendance__modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={text.sub.title}
-        ref={dialogRef}
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
         <div className="attendance__modalhead">
           <span className="attendance__modaltitle">{text.sub.title}</span>
           <span className="attendance__chip attendance__chip--danger">
@@ -2169,7 +2125,6 @@ function SubModal({
             {text.sub.cancel}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

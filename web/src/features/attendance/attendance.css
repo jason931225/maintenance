@@ -966,17 +966,6 @@
   color: var(--danger-tx);
 }
 
-.attendance__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  background: rgba(10, 14, 19, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
 .attendance__modal {
   width: min(560px, 94vw);
   max-height: 88vh;
