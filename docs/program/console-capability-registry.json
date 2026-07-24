@@ -1312,6 +1312,755 @@
     "independent_review": "missing",
     "production_exposure": "dark"
    }
+  },
+  {
+   "id": "CAP-EVALUATION-CONSOLE",
+   "label": "Performance review cycles: goals, self/manager evaluation, calibration, person-ledger finalization",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.4,
+     "correctness_and_risk_reduction": 0.6,
+     "visual_or_functional_parity_gap": 0.85,
+     "business_coverage_gain": 0.6,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.25,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.5
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/evaluation/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/evaluation"
+   ],
+   "signature_story": {
+    "id": "STORY-EVALUATION-001",
+    "outcome": "A review cycle opens with goals, gathers self and manager evaluations with evidence links, calibrates, and finalizes into the person ledger with audit."
+   },
+   "evidence_path": "docs/evidence/console/CAP-EVALUATION-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-evaluation-frontend-20260724",
+     "branch": "claude/console-evaluation-frontend-20260724",
+     "roots": [
+      "web/src/console/evaluation/**",
+      "docs/evidence/console/CAP-EVALUATION-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "backend_missing_contract_first",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-INVENTORY-CONSOLE",
+   "label": "Movement-derived stock, cycle counts, variance reconciliation",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.75,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.53
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/inventory/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/inventory"
+   ],
+   "signature_story": {
+    "id": "STORY-INVENTORY-001",
+    "outcome": "Stock levels derive from movement documents; a cycle count reconciles variances through approval into adjusted stock with audit lineage."
+   },
+   "evidence_path": "docs/evidence/console/CAP-INVENTORY-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-inventory-frontend-20260724",
+     "branch": "claude/console-inventory-frontend-20260724",
+     "roots": [
+      "web/src/console/inventory/**",
+      "docs/evidence/console/CAP-INVENTORY-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "backend_dark_contract_first",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-DISPATCH-CONSOLE",
+   "label": "Dispatch queue, crew/vehicle assignment, tracking to completion",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.6
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/dispatch/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/dispatch"
+   ],
+   "signature_story": {
+    "id": "STORY-DISPATCH-001",
+    "outcome": "A dispatch request is scheduled to a crew and vehicle, tracked to completion, and its outcome feeds work-order and cost records."
+   },
+   "evidence_path": "docs/evidence/console/CAP-DISPATCH-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-dispatch-frontend-20260724",
+     "branch": "claude/console-dispatch-frontend-20260724",
+     "roots": [
+      "web/src/console/dispatch/**",
+      "docs/evidence/console/CAP-DISPATCH-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-MAINTENANCE-CONSOLE",
+   "label": "Maintenance request to scheduled work order, execution evidence, asset-history close",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.6
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/maintenance/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/maintenance"
+   ],
+   "signature_story": {
+    "id": "STORY-MAINTENANCE-001",
+    "outcome": "A maintenance request becomes a scheduled work order, executes with evidence, and closes into asset history and cost."
+   },
+   "evidence_path": "docs/evidence/console/CAP-MAINTENANCE-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-maintenance-frontend-20260724",
+     "branch": "claude/console-maintenance-frontend-20260724",
+     "roots": [
+      "web/src/console/maintenance/**",
+      "docs/evidence/console/CAP-MAINTENANCE-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-FIELD-CONSOLE",
+   "label": "Customer-site intake to field visit, check-in, work log, acceptance",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.45,
+     "correctness_and_risk_reduction": 0.65,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.5,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.45
+    },
+    "score": 0.56
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/field/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/field"
+   ],
+   "signature_story": {
+    "id": "STORY-FIELD-001",
+    "outcome": "A customer site intake becomes a field visit with check-in, work log, and customer acceptance reflected in SLA and billing."
+   },
+   "evidence_path": "docs/evidence/console/CAP-FIELD-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-field-frontend-20260724",
+     "branch": "claude/console-field-frontend-20260724",
+     "roots": [
+      "web/src/console/field/**",
+      "docs/evidence/console/CAP-FIELD-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-DOCS-EVIDENCE-CONSOLE",
+   "label": "Records registration, classification/retention, WORM evidence chain, verified retrieval",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.85,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.65,
+     "verification_readiness": 0.5,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.45
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/docs/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/docs"
+   ],
+   "signature_story": {
+    "id": "STORY-DOCS-001",
+    "outcome": "A record registers with classification and retention, seals into the WORM evidence chain, and is retrievable with verified integrity."
+   },
+   "evidence_path": "docs/evidence/console/CAP-DOCS-EVIDENCE-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-docs-frontend-20260724",
+     "branch": "claude/console-docs-frontend-20260724",
+     "roots": [
+      "web/src/console/docs/**",
+      "web/src/console/evidence/**",
+      "docs/evidence/console/CAP-DOCS-EVIDENCE-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-NOTIF-CONSOLE",
+   "label": "Notification full view: aggregate by object/channel, resolve to source, ack/mute/route",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.45,
+     "correctness_and_risk_reduction": 0.6,
+     "visual_or_functional_parity_gap": 0.75,
+     "business_coverage_gain": 0.55,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.35
+    },
+    "score": 0.53
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/notif/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/notif"
+   ],
+   "signature_story": {
+    "id": "STORY-NOTIF-001",
+    "outcome": "Notifications aggregate by object and channel, resolve to their source objects, and are acknowledged, muted, or routed per user policy."
+   },
+   "evidence_path": "docs/evidence/console/CAP-NOTIF-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-notif-frontend-20260724",
+     "branch": "claude/console-notif-frontend-20260724",
+     "roots": [
+      "web/src/console/notif/**",
+      "docs/evidence/console/CAP-NOTIF-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**",
+      "web/src/console/comms-rail/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-BOARD-CONSOLE",
+   "label": "Scoped notice publishing with acknowledgment tracking",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.6,
+     "dependency_unlock": 0.35,
+     "correctness_and_risk_reduction": 0.55,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 0.55,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.25,
+     "unpriced_dependency_cost": 0.35
+    },
+    "score": 0.48
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/board/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/board"
+   ],
+   "signature_story": {
+    "id": "STORY-BOARD-001",
+    "outcome": "A notice publishes to scoped audiences with acknowledgment tracking to completion."
+   },
+   "evidence_path": "docs/evidence/console/CAP-BOARD-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-board-frontend-20260724",
+     "branch": "claude/console-board-frontend-20260724",
+     "roots": [
+      "web/src/console/board/**",
+      "docs/evidence/console/CAP-BOARD-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
+  },
+  {
+   "id": "CAP-DIRECTORY-CONSOLE",
+   "label": "People/team directory: live org placement, contact channels, object links, PBAC-scoped search",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.65,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.55,
+     "visual_or_functional_parity_gap": 0.75,
+     "business_coverage_gain": 0.55,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.35
+    },
+    "score": 0.52
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/directory/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/directory"
+   ],
+   "signature_story": {
+    "id": "STORY-DIRECTORY-001",
+    "outcome": "Every person and team resolves to a card with live org placement, contact channels, and object links, searchable and PBAC-scoped."
+   },
+   "evidence_path": "docs/evidence/console/CAP-DIRECTORY-CONSOLE/",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-directory-frontend-20260724",
+     "branch": "claude/console-directory-frontend-20260724",
+     "roots": [
+      "web/src/console/directory/**",
+      "docs/evidence/console/CAP-DIRECTORY-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_gap_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   }
   }
  ]
 }
