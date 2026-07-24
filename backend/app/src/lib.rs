@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::{ConnectInfo, MatchedPath, Query, State};
+use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Request, Response, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::IntoResponse;

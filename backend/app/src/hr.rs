@@ -7825,7 +7825,9 @@ fn push_attendance_branch_filter(builder: &mut QueryBuilder<Postgres>, branch_id
             builder.push_bind(branch_id);
             builder.push(" ");
         }
-        None => builder.push(" TRUE "),
+        None => {
+            builder.push(" TRUE ");
+        }
     }
 }
 
