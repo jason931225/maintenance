@@ -661,16 +661,18 @@ async fn assert_terminal_owner_deletes_rejected(
         ("consulting_initiatives", initiative_id),
         ("consulting_benefit_observations", observation_id),
     ] {
-        let error = sqlx::query(&format!("DELETE FROM {table} WHERE id=$1"))
-            .bind(id)
-            .execute(pool)
-            .await
-            .expect_err("terminal trigger must reject owner delete");
+        let error = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE id=$1"
+        )))
+        .bind(id)
+        .execute(pool)
+        .await
+        .expect_err("terminal trigger must reject owner delete");
         assert_terminal_database_error(&error, &format!("owner DELETE on {table}"));
     }
 }
 
-async fn assert_terminal_trigger(pool: &PgPool, org: OrgId, statement: &str, id: Uuid) {
+async fn assert_terminal_trigger(pool: &PgPool, org: OrgId, statement: &'static str, id: Uuid) {
     let error = execute_as_org(pool, org, statement, id)
         .await
         .expect_err("terminal trigger must reject write");
@@ -701,7 +703,7 @@ fn assert_terminal_database_error(error: &sqlx::Error, operation: &str) {
 async fn execute_as_org(
     pool: &PgPool,
     org: OrgId,
-    statement: &str,
+    statement: &'static str,
     id: Uuid,
 ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
     let mut tx = pool.begin().await?;

@@ -3656,12 +3656,13 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 mod tests {
     use super::{
         RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW, RateLimitEndpoint, authorizable_target_branches,
-        build_enroll_url, client_ip, has_group_admin_role_hint, load_group_admin_groups,
-        rate_limit, resolve_group_admin_target_org,
+        build_enroll_url, has_group_admin_role_hint, load_group_admin_groups, rate_limit,
+        resolve_group_admin_target_org,
     };
     use axum::http::HeaderMap;
     use axum::http::StatusCode;
     use mnt_kernel_core::{BranchId, BranchScope, OrgId, UserId};
+    use mnt_platform_request_context::TrustedClientIp;
     use sqlx::PgPool;
     use sqlx::postgres::PgPoolOptions;
     use std::collections::BTreeSet;

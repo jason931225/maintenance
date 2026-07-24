@@ -18,7 +18,7 @@ use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext};
 use mnt_platform_db::{DbError, issue_code, with_audits, with_org_conn};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction, error::DatabaseError};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
@@ -475,8 +475,8 @@ impl PgAttendanceStore {
             if inserted.rows_affected() != 1 { return Err(AttendanceStoreError::Conflict); }
             let view = MonthCloseRead { id, month, branch_id: close.branch_scope, checks: close_checks_read(&checks), attested_by: caller.user_id, attested_at: OffsetDateTime::now_utc(), period_lock_id: lock_id, closed_at: OffsetDateTime::now_utc(), amendments: Vec::new() };
             let mut audits = vec![event(&caller,"attendance.close.confirm","attendance_month_close",id,close.branch_scope,Some(json!({"periodLockId":lock_id})))?];
-            if created_period_lock {
-                audits.push(event(&caller,"period_lock.create","period_lock",lock_id.expect("created lock id"),None,Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})))?);
+            if let Some(lock_id) = lock_id.filter(|_| created_period_lock) {
+                audits.push(event(&caller,"period_lock.create","period_lock",lock_id,None,Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})))?);
             }
             Ok((view, audits))
         })).await
@@ -739,10 +739,9 @@ fn week52_acknowledgement_response(
 
 fn month_after(month: Date) -> Date {
     if month.month() == time::Month::December {
-        Date::from_calendar_date(month.year() + 1, time::Month::January, 1)
-            .expect("valid next January")
+        Date::from_calendar_date(month.year() + 1, time::Month::January, 1).unwrap_or(month)
     } else {
-        Date::from_calendar_date(month.year(), month.month().next(), 1).expect("valid next month")
+        Date::from_calendar_date(month.year(), month.month().next(), 1).unwrap_or(month)
     }
 }
 
