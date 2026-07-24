@@ -68,8 +68,17 @@ async fn dispatch_queue_is_authenticated_authorized_and_scope_closed(pool: PgPoo
         &admin_token,
     )
     .await;
-    assert_eq!(validation.0, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", validation.1);
-    assert!(validation.1["error"]["code"].is_string(), "{:?}", validation.1);
+    assert_eq!(
+        validation.0,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        validation.1
+    );
+    assert!(
+        validation.1["error"]["code"].is_string(),
+        "{:?}",
+        validation.1
+    );
 
     for uri in [
         "/api/v1/console/dispatch/queue?branch_id=all",
@@ -77,8 +86,17 @@ async fn dispatch_queue_is_authenticated_authorized_and_scope_closed(pool: PgPoo
         "/api/v1/p1-dispatches/not-a-uuid/responses",
     ] {
         let malformed = get_json(service.clone(), uri, &admin_token).await;
-        assert_eq!(malformed.0, StatusCode::BAD_REQUEST, "{uri}: {:?}", malformed.1);
-        assert_eq!(malformed.1["error"]["code"], "bad_request", "{uri}: {:?}", malformed.1);
+        assert_eq!(
+            malformed.0,
+            StatusCode::BAD_REQUEST,
+            "{uri}: {:?}",
+            malformed.1
+        );
+        assert_eq!(
+            malformed.1["error"]["code"], "bad_request",
+            "{uri}: {:?}",
+            malformed.1
+        );
     }
 
     let scope_escalation = get_json(
@@ -109,7 +127,11 @@ async fn get_json(service: axum::Router, uri: &str, token: &str) -> (StatusCode,
         .unwrap();
     let status = response.status();
     assert!(
-        response.headers().get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).is_some_and(|value| value.starts_with("application/json")),
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("application/json")),
         "{uri} must return application/json"
     );
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
