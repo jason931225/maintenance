@@ -67,6 +67,26 @@ const dispatchSummary = {
   manual_call_required: false,
 };
 
+function pendingOffer(overrides: Record<string, unknown> = {}) {
+  return {
+    dispatch_id: DISPATCH_ID,
+    work_order_id: workOrderListItems[0].id,
+    branch_id: branchId,
+    request_no: workOrderListItems[0].request_no,
+    accept_window_started_at: "2026-06-12T09:00:00Z",
+    accept_window_ends_at: "2026-06-12T09:05:00Z",
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function makeAuthContext(session: AuthSession): AuthContextValue {
   const api = createConsoleApiClient(session.access_token);
   return {
@@ -461,18 +481,10 @@ describe("DispatchPage mechanic accept/decline", () => {
   it("lists the authenticated mechanic's pending offer and accepts it without a pasted code", async () => {
     const user = userEvent.setup();
     const responded = vi.fn();
-    const pendingOffer = {
-      dispatch_id: DISPATCH_ID,
-      work_order_id: workOrderListItems[0].id,
-      branch_id: branchId,
-      request_no: workOrderListItems[0].request_no,
-      accept_window_started_at: "2026-06-12T09:00:00Z",
-      accept_window_ends_at: "2026-06-12T09:05:00Z",
-    };
     server.use(
       workOrdersHandler(),
       http.get("*/api/v1/me/dispatch-offers", () =>
-        HttpResponse.json({ items: [pendingOffer] }),
+        HttpResponse.json({ items: [pendingOffer()] }),
       ),
       http.post(
         "*/api/v1/p1-dispatches/:id/responses",
@@ -518,5 +530,194 @@ describe("DispatchPage mechanic accept/decline", () => {
     expect(
       screen.queryByRole("button", { name: "20260612-001 배차 제어" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders an empty pending-offer queue", async () => {
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/me/dispatch-offers", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+    );
+
+    renderApp(makeAuthContext(mechanicSession));
+
+    expect(
+      await screen.findByText("현재 수락 대기 중인 긴급 배차가 없습니다."),
+    ).toBeVisible();
+  });
+
+  it("shows loading, then retries a transient offer-list failure", async () => {
+    const user = userEvent.setup();
+    let requests = 0;
+    const firstResponse = deferred<undefined>();
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/me/dispatch-offers", async () => {
+        requests += 1;
+        if (requests === 1) {
+          await firstResponse.promise;
+          return HttpResponse.json({}, { status: 503 });
+        }
+        return HttpResponse.json({ items: [pendingOffer()] });
+      }),
+    );
+
+    renderApp(makeAuthContext(mechanicSession));
+
+    expect(
+      await screen.findByText("수락 대기 배차를 불러오는 중입니다."),
+    ).toBeVisible();
+    firstResponse.resolve(undefined);
+
+    expect(
+      await screen.findByText("수락 대기 배차를 불러오지 못했습니다."),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    const offerQueue = await screen.findByRole("region", {
+      name: "P1 배차 대기 목록",
+    });
+    expect(
+      within(offerQueue).getByText(workOrderListItems[0].request_no),
+    ).toBeVisible();
+    expect(requests).toBe(2);
+  });
+
+  it("declines a pending offer and removes it from the queue", async () => {
+    const user = userEvent.setup();
+    const responded = vi.fn();
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/me/dispatch-offers", () =>
+        HttpResponse.json({ items: [pendingOffer()] }),
+      ),
+      http.post(
+        "*/api/v1/p1-dispatches/:id/responses",
+        async ({ request }) => {
+          responded(await request.json());
+          return HttpResponse.json({ ...dispatchSummary, declined_count: 1 });
+        },
+      ),
+    );
+
+    renderApp(makeAuthContext(mechanicSession));
+
+    const offerQueue = await screen.findByRole("region", {
+      name: "P1 배차 대기 목록",
+    });
+    await user.click(within(offerQueue).getByRole("button", { name: "거절" }));
+
+    await waitFor(() => {
+      expect(responded).toHaveBeenCalledWith({ response: "DECLINE" });
+    });
+    expect(await screen.findByText("배차를 거절했습니다.")).toBeVisible();
+    expect(
+      within(offerQueue).queryByText(workOrderListItems[0].request_no),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps an offer visible when its response fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/me/dispatch-offers", () =>
+        HttpResponse.json({ items: [pendingOffer()] }),
+      ),
+      http.post("*/api/v1/p1-dispatches/:id/responses", () =>
+        HttpResponse.json({}, { status: 503 }),
+      ),
+    );
+
+    renderApp(makeAuthContext(mechanicSession));
+
+    const offerQueue = await screen.findByRole("region", {
+      name: "P1 배차 대기 목록",
+    });
+    await user.click(within(offerQueue).getByRole("button", { name: "수락" }));
+
+    expect(
+      await screen.findByText("처리하지 못했습니다. 다시 시도하세요."),
+    ).toBeVisible();
+    expect(
+      within(offerQueue).getByText(workOrderListItems[0].request_no),
+    ).toBeVisible();
+  });
+
+  it("keeps pure managers on the read-only known-ID lookup without listing mechanic offers", async () => {
+    const user = userEvent.setup();
+    const offerListRequested = vi.fn();
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
+      http.get("*/api/v1/me/dispatch-offers", () => {
+        offerListRequested();
+        return HttpResponse.json({ items: [pendingOffer()] });
+      }),
+      http.get("*/api/v1/p1-dispatches/:id", () =>
+        HttpResponse.json(dispatchSummary),
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    const dispatchCode = await screen.findByLabelText("배차 코드");
+    await user.type(dispatchCode, DISPATCH_ID);
+    await user.click(screen.getByRole("button", { name: "조회" }));
+
+    expect(await screen.findByText("수락 대기")).toBeVisible();
+    expect(offerListRequested).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "수락" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "거절" })).not.toBeInTheDocument();
+  });
+
+  it("never renders a stale offer after the client session incarnation changes", async () => {
+    const firstResponse = deferred<undefined>();
+    const staleRequestNo = "WO-STALE-001";
+    const freshRequestNo = "WO-FRESH-002";
+    let requests = 0;
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/me/dispatch-offers", async () => {
+        requests += 1;
+        if (requests === 1) {
+          await firstResponse.promise;
+          return HttpResponse.json({
+            items: [pendingOffer({ request_no: staleRequestNo })],
+          });
+        }
+        return HttpResponse.json({
+          items: [pendingOffer({ request_no: freshRequestNo })],
+        });
+      }),
+    );
+
+    const priorSession = {
+      ...mechanicSession,
+      client_session_incarnation: "dispatch-before",
+    };
+    const nextSession = {
+      ...mechanicSession,
+      client_session_incarnation: "dispatch-after",
+    };
+    const rendered = renderApp(makeAuthContext(priorSession));
+
+    await waitFor(() => {
+      expect(requests).toBe(1);
+    });
+    rendered.rerender(
+      <AuthContext.Provider value={makeAuthContext(nextSession)}>
+        <MemoryRouter initialEntries={["/dispatch"]}>
+          <AppRouter />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    expect(await screen.findByText(freshRequestNo)).toBeVisible();
+    firstResponse.resolve(undefined);
+
+    await waitFor(() => {
+      expect(screen.queryByText(staleRequestNo)).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(freshRequestNo)).toBeVisible();
   });
 });
