@@ -75,3 +75,20 @@ test('Buck isolation directories are stable, unique, and reject caller-controlle
   assert.match(buckIsolationDir(SHA, 'A#backend'), /^\.buck2\/console-epochs\/[a-f0-9]{12}\/[a-z0-9-]+$/);
   assert.throws(() => buckIsolationDir(SHA, '../escape'));
 });
+
+test('source revision syntax requires a full immutable baseline SHA', async () => {
+  const { parseSourceRevision } = await import('./plan-fanout.mjs');
+  assert.deepEqual(parseSourceRevision(`origin/main@${SHA}`), { ref: 'origin/main', sha: SHA });
+  for (const bad of ['origin/main@abcdef', `origin/main@${'A'.repeat(40)}`, `origin/main@${SHA} trailing`, `@${SHA}`]) assert.throws(() => parseSourceRevision(bad));
+});
+
+test('source provenance admits only an existing immutable ancestor and non-conflicting ref', async () => {
+  const { validateSourceRevisionForAnchor } = await import('./plan-fanout.mjs');
+  const BASE = 'b'.repeat(40); const ANCHOR = 'c'.repeat(40); const OTHER = 'd'.repeat(40);
+  const operations = { hasCommit: (sha) => [BASE, ANCHOR, OTHER].includes(sha), isAncestor: (a, b) => a === b || (a === BASE && b === ANCHOR), resolveRef: (ref) => ref === 'origin/main' ? ANCHOR : null };
+  assert.deepEqual(validateSourceRevisionForAnchor(`origin/main@${BASE}`, ANCHOR, operations), { ref: 'origin/main', sha: BASE });
+  assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${'e'.repeat(40)}`, ANCHOR, operations), /does not exist/);
+  assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${OTHER}`, ANCHOR, operations), /not an ancestor/);
+  assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${'abcdef'}`, ANCHOR, operations));
+  assert.throws(() => validateSourceRevisionForAnchor(`origin/main@${OTHER}`, OTHER, { ...operations, resolveRef: () => BASE }), /behind or conflicts/);
+});
