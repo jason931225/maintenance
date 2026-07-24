@@ -44,8 +44,22 @@ const DATABASE_URL =
 const runId = randomUUID();
 const blockedEmployeeId = randomUUID();
 const riskEmployeeId = randomUUID();
+const eligibleCandidateId = randomUUID();
+const wrongBranchCandidateId = randomUUID();
+const inactiveCandidateId = randomUUID();
+const approvedLeaveCandidateId = randomUUID();
+const openNoShowCandidateId = randomUUID();
+const overlapCandidateId = randomUUID();
+const otherBranchId = randomUUID();
+const leaveDeciderId = randomUUID();
 const blockedEmployeeName = `E2E 근태 결원 ${runId.slice(0, 8)}`;
 const riskEmployeeName = `E2E 주52시간 ${runId.slice(0, 8)}`;
+const eligibleCandidateName = `E2E 후보 가능 ${runId.slice(0, 8)}`;
+const wrongBranchCandidateName = `E2E 후보 타지점 ${runId.slice(0, 8)}`;
+const inactiveCandidateName = `E2E 후보 비활성 ${runId.slice(0, 8)}`;
+const approvedLeaveCandidateName = `E2E 후보 휴가 ${runId.slice(0, 8)}`;
+const openNoShowCandidateName = `E2E 후보 결원 ${runId.slice(0, 8)}`;
+const overlapCandidateName = `E2E 후보 중복 ${runId.slice(0, 8)}`;
 const coverExceptionCode = `AT-E2E-COVER-${runId.slice(0, 8).toUpperCase()}`;
 const closeExceptionCode = `AT-E2E-CLOSE-${runId.slice(0, 8).toUpperCase()}`;
 const reason = `e2e 근태 확인 ${runId}`;
@@ -131,20 +145,48 @@ function seedAttendanceStory(): void {
       ];
     })
     .join(",\n");
+  const employeeRows = [
+    [blockedEmployeeId, blockedEmployeeName, BRANCH_ID, "ACTIVE"],
+    [riskEmployeeId, riskEmployeeName, BRANCH_ID, "ACTIVE"],
+    [eligibleCandidateId, eligibleCandidateName, BRANCH_ID, "ACTIVE"],
+    [wrongBranchCandidateId, wrongBranchCandidateName, otherBranchId, "ACTIVE"],
+    [inactiveCandidateId, inactiveCandidateName, BRANCH_ID, "EXITED"],
+    [approvedLeaveCandidateId, approvedLeaveCandidateName, BRANCH_ID, "ACTIVE"],
+    [openNoShowCandidateId, openNoShowCandidateName, BRANCH_ID, "ACTIVE"],
+    [overlapCandidateId, overlapCandidateName, BRANCH_ID, "ACTIVE"],
+  ] as const;
+  const employees = employeeRows
+    .map(
+      ([id, name, homeBranchId, employmentStatus], index) =>
+        `(${sqlLiteral(id)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(name)}, 'attendance-live-e2e', 'attendance', ${index + 1}, ${sqlLiteral(`attendance-live-e2e-${runId}-${index}`)}, ${sqlLiteral(employmentStatus)}, 'E2E 근태', ${sqlLiteral(homeBranchId)}::uuid)`,
+    )
+    .join(",\n");
+  const profiles = employeeRows
+    .map(
+      ([id], index) =>
+        `(${sqlLiteral(id)}::uuid, ${sqlLiteral(ORG_ID)}::uuid, 'REGULAR', ${sqlLiteral(`+821055${String(index).padStart(4, "0")}`)}, 1000000, 'KRW', ${sqlLiteral(`attendance-live-e2e-profile-${runId}-${index}`)}, repeat('c', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid)`,
+    )
+    .join(",\n");
 
   const sql = `
     BEGIN;
     SET LOCAL app.current_org = ${sqlLiteral(ORG_ID)};
-    INSERT INTO branches (id, region_id, name, org_id) VALUES (
-      ${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(REGION_ID)}, ${sqlLiteral(branchName)}, ${sqlLiteral(ORG_ID)}
-    );
+    INSERT INTO branches (id, region_id, name, org_id) VALUES
+      (${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(REGION_ID)}, ${sqlLiteral(branchName)}, ${sqlLiteral(ORG_ID)}),
+      (${sqlLiteral(otherBranchId)}, ${sqlLiteral(REGION_ID)}, ${sqlLiteral(`E2E 타지점 ${runId.slice(0, 8)}`)}, ${sqlLiteral(ORG_ID)});
+
+    INSERT INTO users (id, display_name, roles, org_id) VALUES
+      (${sqlLiteral(leaveDeciderId)}, ${sqlLiteral(`E2E 휴가 결재자 ${runId.slice(0, 8)}`)}, ARRAY['ADMIN'], ${sqlLiteral(ORG_ID)});
 
     INSERT INTO employees (
       id, org_id, company, name, source_filename, source_sheet, source_row,
-      source_key, employment_status, org_unit
-    ) VALUES
-      (${sqlLiteral(blockedEmployeeId)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(blockedEmployeeName)}, 'attendance-live-e2e', 'attendance', 1, ${sqlLiteral(`attendance-live-e2e-blocked-${runId}`)}, 'ACTIVE', 'E2E 근태'),
-      (${sqlLiteral(riskEmployeeId)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(riskEmployeeName)}, 'attendance-live-e2e', 'attendance', 2, ${sqlLiteral(`attendance-live-e2e-risk-${runId}`)}, 'ACTIVE', 'E2E 근태');
+      source_key, employment_status, org_unit, home_branch_id
+    ) VALUES ${employees};
+
+    INSERT INTO employee_employment_profiles (
+      employee_id, org_id, employment_type, phone_e164, base_pay, currency,
+      idempotency_key, request_hash, created_by
+    ) VALUES ${profiles};
 
     INSERT INTO attendance_exceptions (
       id, org_id, code, kind, status, employee_id, branch_id, work_date,
@@ -161,13 +203,46 @@ function seedAttendanceStory(): void {
         ${sqlLiteral(blockedEmployeeId)}, ${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(coverDate)}::date,
         ${sqlLiteral(`e2e future close blocker ${runId}`)}, '[]'::jsonb, '[]'::jsonb,
         ${sqlLiteral(`attendance-live-e2e-close-${runId}`)}, repeat('b', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid
+      ),
+      (
+        ${sqlLiteral(randomUUID())}, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(`AT-E2E-NOSHOW-${runId.slice(0, 8).toUpperCase()}`)}, 'NO_SHOW', 'OPEN',
+        ${sqlLiteral(openNoShowCandidateId)}, ${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(todayValue)}::date,
+        ${sqlLiteral(`e2e candidate open no-show ${runId}`)}, '[]'::jsonb, '[]'::jsonb,
+        ${sqlLiteral(`attendance-live-e2e-no-show-${runId}`)}, repeat('d', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid
       );
+
+    INSERT INTO leave_requests (
+      id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type,
+      days, start_date, end_date, reason
+    ) VALUES (
+      ${sqlLiteral(randomUUID())}, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(BRANCH_ID)},
+      ${sqlLiteral(SEED_ACTOR_ID)}, ${sqlLiteral(approvedLeaveCandidateId)}, 'annual',
+      1, ${sqlLiteral(todayValue)}::date, ${sqlLiteral(todayValue)}::date,
+      ${sqlLiteral(`e2e candidate approved leave ${runId}`)}
+    );
+    UPDATE leave_requests
+      SET status = 'approved', charge_state = 'legacy_unverified',
+          charge_review_reasons = ARRAY[]::text[], charge_units = 1,
+          decided_by = ${sqlLiteral(leaveDeciderId)}::uuid, decided_at = now()
+      WHERE org_id = ${sqlLiteral(ORG_ID)}
+        AND subject_employee_id = ${sqlLiteral(approvedLeaveCandidateId)}::uuid;
+
+    INSERT INTO attendance_substitutions (
+      id, org_id, site, branch_id, role, cover_date, from_minutes, to_minutes,
+      covered_employee_id, reason_kind, reason_detail, worker_employee_id,
+      worker_name, worker_type, status, idempotency_key, request_fingerprint, created_by
+    ) VALUES (
+      ${sqlLiteral(randomUUID())}, ${sqlLiteral(ORG_ID)}, 'E2E 현장', ${sqlLiteral(BRANCH_ID)}, '현장 지원',
+      ${sqlLiteral(todayValue)}::date, 540, 1080, ${sqlLiteral(blockedEmployeeId)}, 'NO_SHOW',
+      ${sqlLiteral(`e2e overlapping candidate ${runId}`)}, ${sqlLiteral(overlapCandidateId)},
+      ${sqlLiteral(overlapCandidateName)}, 'REGULAR', 'ASSIGNED',
+      ${sqlLiteral(`attendance-live-e2e-overlap-${runId}`)}, repeat('e', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid
+    );
 
     INSERT INTO employee_attendance_records (
       id, org_id, employee_id, actor_user_id, kind, occurred_at, work_date,
       state_after, idempotency_key
-    ) VALUES
-      ${clockRows};
+    ) VALUES ${clockRows};
     COMMIT;
   `;
   execSql(sql);
@@ -211,9 +286,10 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
     page.getByRole("heading", { name: "근태", level: 1 }),
   ).toBeVisible({ timeout: 15_000 });
 
-  // Assignment is driven through the current-day product UI and its real
-  // attendance pool. The current-day exception is distinct from the later
-  // future-month close blocker so each assertion has exactly one cause.
+  // Every candidate comes from the real server-derived picker. The seed has
+  // exactly one eligible employee and five same-name-family exclusions: another
+  // branch, inactive employment, approved leave, open NO_SHOW, and an assigned
+  // overlap. This exercises actual eligibility semantics without mocked transport.
   const dayGap = page
     .locator(".attendance__dayrow")
     .filter({ hasText: blockedEmployeeName });
@@ -225,44 +301,87 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   await substitutionDialog.getByLabel("역할").fill("현장 지원");
   await substitutionDialog.getByLabel("시작").fill("09:00");
   await substitutionDialog.getByLabel("종료").fill("18:00");
-  await substitutionDialog.getByLabel("이름 검색").fill("김정비");
+  await substitutionDialog.getByLabel("이름 검색").fill("E2E 후보");
   await expect(
-    substitutionDialog.getByText("김정비", { exact: true }),
+    substitutionDialog.getByText(eligibleCandidateName, { exact: true }),
   ).toBeVisible({ timeout: 15_000 });
-  await substitutionDialog.getByRole("button", { name: "배정" }).click();
+  for (const excludedName of [
+    wrongBranchCandidateName,
+    inactiveCandidateName,
+    approvedLeaveCandidateName,
+    openNoShowCandidateName,
+    overlapCandidateName,
+  ]) {
+    await expect(
+      substitutionDialog.getByText(excludedName, { exact: true }),
+    ).toHaveCount(0);
+  }
+  await substitutionDialog
+    .getByLabel("이름 검색")
+    .fill(eligibleCandidateName);
+  const eligibleCandidate = substitutionDialog.getByRole("listitem", {
+    name: new RegExp(eligibleCandidateName),
+  });
+  await expect(eligibleCandidate).toBeVisible({ timeout: 15_000 });
+  await eligibleCandidate.getByRole("button", { name: "배정" }).click();
   await expect(substitutionDialog).toHaveCount(0, { timeout: 15_000 });
 
   const substitutionId = scalar(
     `SELECT id FROM attendance_substitutions WHERE org_id = ${sqlLiteral(ORG_ID)} AND exception_id = (SELECT id FROM attendance_exceptions WHERE org_id = ${sqlLiteral(ORG_ID)} AND code = ${sqlLiteral(coverExceptionCode)})`,
   );
   expect(substitutionId).toMatch(/^[0-9a-f-]{36}$/i);
+  await expect
+    .poll(() =>
+      scalar(
+        `SELECT concat_ws('|', status, worker_employee_id::text, worker_name, worker_type, coalesce(worker_rate, 'NULL')) FROM attendance_substitutions WHERE id = ${sqlLiteral(substitutionId)}`,
+      ),
+    )
+    .toBe(
+      `ASSIGNED|${eligibleCandidateId}|${eligibleCandidateName}|REGULAR|NULL`,
+    );
+  await expect
+    .poll(() =>
+      scalar(
+        `SELECT count(*) FROM audit_events WHERE action = 'attendance.substitution.assign' AND target_id = ${sqlLiteral(substitutionId)}`,
+      ),
+    )
+    .toBe("1");
 
-  // Cancellation is a real screen workflow: the operator records its reason
-  // in the dialog and the persisted result must become CANCELLED.
+  // Cancellation is a visible screen workflow, not a REST call; persist both
+  // state and its corresponding immutable audit event.
   const cancellationButton = page.getByRole("button", { name: "대근 취소" });
   await expect(cancellationButton).toBeVisible({ timeout: 15_000 });
   await cancellationButton.click();
-  const cancellationDialog = page.getByRole("dialog", { name: "대근 편성 취소" });
+  const cancellationDialog = page.getByRole("dialog", {
+    name: "대근 편성 취소",
+  });
   await expect(cancellationDialog).toBeVisible();
   await cancellationDialog
     .getByLabel("취소 사유")
     .fill(`e2e coverage no longer required ${runId}`);
   await cancellationDialog.getByRole("button", { name: "대근 취소" }).click();
   await expect(cancellationDialog).toHaveCount(0, { timeout: 15_000 });
-  expect(
-    scalar(
-      `SELECT status FROM attendance_substitutions WHERE id = ${sqlLiteral(substitutionId)}`,
-    ),
-  ).toBe("CANCELLED");
+  await expect
+    .poll(() =>
+      scalar(
+        `SELECT status FROM attendance_substitutions WHERE id = ${sqlLiteral(substitutionId)}`,
+      ),
+    )
+    .toBe("CANCELLED");
+  await expect
+    .poll(() =>
+      scalar(
+        `SELECT count(*) FROM audit_events WHERE action = 'attendance.substitution.cancel' AND target_id = ${sqlLiteral(substitutionId)}`,
+      ),
+    )
+    .toBe("1");
 
   // Move to the isolated future month. This avoids unrelated current-month
   // leave data while exercising the same server-derived close preflight.
   await page.getByRole("button", { name: "월간" }).click();
   await page.getByRole("button", { name: "다음 달" }).click();
   await expect(
-    page.getByText(
-      `${closeYear}년 ${closeMonthNumber}월`,
-    ),
+    page.getByText(`${closeYear}년 ${closeMonthNumber}월`),
   ).toBeVisible();
   const exceptionRow = page
     .getByRole("button")
@@ -279,7 +398,9 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   // Resolve the future-month close blocker through the visible UI, preserving
   // the close gate's causal sequence instead of mutating its DB state in test.
   await exceptionRow.click();
-  const exceptionDialog = page.getByRole("dialog", { name: "근태 예외 상세" });
+  const exceptionDialog = page.getByRole("dialog", {
+    name: "근태 예외 상세",
+  });
   await expect(exceptionDialog).toBeVisible();
   await exceptionDialog.getByLabel("처리 사유").fill(reason);
   await exceptionDialog.getByRole("button", { name: "확인 처리" }).click();
@@ -340,9 +461,13 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   const amendmentButton = page.getByRole("button", { name: "소급 보정" });
   await expect(amendmentButton).toBeVisible({ timeout: 15_000 });
   await amendmentButton.click();
-  const amendmentDialog = page.getByRole("dialog", { name: "마감 소급 보정" });
+  const amendmentDialog = page.getByRole("dialog", {
+    name: "마감 소급 보정",
+  });
   await expect(amendmentDialog).toBeVisible();
-  await amendmentDialog.getByLabel("보정 사유").fill("e2e verified late evidence");
+  await amendmentDialog
+    .getByLabel("보정 사유")
+    .fill("e2e verified late evidence");
   await amendmentDialog
     .getByLabel("보정 내용")
     .fill(`post-close evidence receipt ${runId}`);
@@ -362,43 +487,46 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   consoleGuard.assertClean();
 });
 
-test("ATTENDANCE-31 MEMBER direct route falls back to the canonical overview", async ({
-  page,
-}) => {
-  const attendanceRequests: string[] = [];
-  page.on("request", (request) => {
-    const path = new URL(request.url()).pathname;
-    if (
-      path.startsWith("/api/v1/attendance") ||
-      path === "/api/v1/hr/attendance-summary"
-    ) {
-      attendanceRequests.push(path);
-    }
-  });
-  await loginAs(page, "일반 멤버");
-  await page.goto("/console/attendance");
+  test("ATTENDANCE-31 MEMBER direct route falls back to the canonical overview", async ({
+    page,
+  }) => {
+    const attendanceRequests: string[] = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (
+        path.startsWith("/api/v1/attendance") ||
+        path === "/api/v1/hr/attendance-summary"
+      ) {
+        attendanceRequests.push(path);
+      }
+    });
+    await loginAs(page, "일반 멤버");
+    await page.goto("/console/attendance");
 
-  // A bare MEMBER has no console nav grant. ConsoleShell canonicalizes an
-  // inaccessible or unshipped direct destination to the working console
-  // overview instead of rendering a misleading in-surface denial.
-  await expect(page).toHaveURL(/\/console\/overview(?:$|[?#])/, {
-    timeout: 15_000,
+    // A bare MEMBER has no console nav grant. ConsoleShell canonicalizes an
+    // inaccessible or unshipped direct destination to the working console
+    // overview instead of rendering a misleading in-surface denial.
+    await expect(page).toHaveURL(/\/console\/overview(?:$|[?#])/, {
+      timeout: 15_000,
+    });
+    const overviewBody = page.getByLabel("화면 본문");
+    await expect(overviewBody).toBeVisible();
+    await expect(overviewBody).toHaveAttribute(
+      "data-cshell-screen",
+      "overview",
+    );
+    await expect(
+      overviewBody.getByRole("heading", { name: "업무·운영 개요", level: 1 }),
+    ).toBeVisible();
+    await page.waitForLoadState("networkidle", { timeout: 15_000 });
+    await expect(page.getByLabel("근태")).toHaveCount(0);
+    expect(attendanceRequests).toEqual([]);
+    await expect(
+      page.getByRole("heading", { name: "근태", level: 1 }),
+    ).toHaveCount(0);
+    await assertNoRawI18nKeys(page);
+    await assertNoAxeViolations(page, {
+      context: "attendance MEMBER direct-route canonical fallback",
+    });
   });
-  const overviewBody = page.getByLabel("화면 본문");
-  await expect(overviewBody).toBeVisible();
-  await expect(overviewBody).toHaveAttribute("data-cshell-screen", "overview");
-  await expect(
-    overviewBody.getByRole("heading", { name: "업무·운영 개요", level: 1 }),
-  ).toBeVisible();
-  await page.waitForLoadState("networkidle", { timeout: 15_000 });
-  await expect(page.getByLabel("근태")).toHaveCount(0);
-  expect(attendanceRequests).toEqual([]);
-  await expect(
-    page.getByRole("heading", { name: "근태", level: 1 }),
-  ).toHaveCount(0);
-  await assertNoRawI18nKeys(page);
-  await assertNoAxeViolations(page, {
-    context: "attendance MEMBER direct-route canonical fallback",
-  });
-});
 });
