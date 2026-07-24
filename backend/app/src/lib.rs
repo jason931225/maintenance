@@ -766,25 +766,25 @@ impl AppConfig {
         };
         let office = office::office_config_from_vars(|key| non_empty(vars.get(key)))
             .map_err(AppError::Config)?;
-        let production_service_principal_hmac_key = non_empty(
-            vars.get("MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY"),
-        )
-        .map(|encoded| {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|_| {
-                    AppError::Config(
-                        "MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY must be base64".to_owned(),
-                    )
-                })?;
-            bytes.try_into().map_err(|_: Vec<u8>| {
-                AppError::Config(
+        let production_service_principal_hmac_key =
+            non_empty(vars.get("MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY"))
+                .map(|encoded| {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(encoded)
+                        .map_err(|_| {
+                            AppError::Config(
+                                "MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY must be base64"
+                                    .to_owned(),
+                            )
+                        })?;
+                    bytes.try_into().map_err(|_: Vec<u8>| {
+                        AppError::Config(
                     "MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY must decode to exactly 32 bytes"
                         .to_owned(),
                 )
-            })
-        })
-        .transpose()?;
+                    })
+                })
+                .transpose()?;
 
         Ok(Self {
             role,

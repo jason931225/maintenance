@@ -12,6 +12,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine as _;
 use mnt_kernel_core::{BranchId, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{
@@ -163,13 +164,15 @@ enum SourceIngress {
 #[derive(Deserialize)]
 struct RegisterSourceSystem {
     branch_id: BranchId,
-    principal_id: Uuid,
     source_system: String,
-    credential: String,
 }
 #[derive(Deserialize)]
 struct RotateSourceSystem {
-    credential: String,
+    expected_generation: i32,
+}
+#[derive(Deserialize)]
+struct DisableSourceSystem {
+    expected_generation: i32,
 }
 #[derive(Deserialize, Serialize)]
 struct RecordOperation {
@@ -301,7 +304,9 @@ async fn register_source_system(
             "source_system is required and must be at most 80 characters",
         ));
     }
-    valid_source_credential(&request.credential)?;
+    let hmac_key = state
+        .service_principal_hmac_key
+        .ok_or_else(|| RestError::unavailable("production source authentication is unavailable"))?;
     let principal = principal(&state, &headers).await?;
     authorize(
         &principal,
@@ -313,13 +318,24 @@ async fn register_source_system(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let id: Uuid = sqlx::query_scalar("INSERT INTO production_source_systems (org_id,branch_id,principal_id,source_system,credential_hash,registered_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id")
-        .bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.principal_id).bind(request.source_system.trim()).bind(hash_credential(&request.credential)).bind(*principal.user_id.as_uuid()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+    let id = Uuid::new_v4();
+    let secret = generated_secret();
+    let verifier = service_auth::verifier(
+        &hmac_key,
+        &secret,
+        org,
+        mnt_kernel_core::ServicePrincipalId::from_uuid(id),
+        request.branch_id,
+        1,
+    );
+    sqlx::query("INSERT INTO service_principals (id,org_id,branch_id,feature,display_name,verifier,created_by) VALUES ($1,$2,$3,'production_source_ingest',$4,$5,$6)")
+        .bind(id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.source_system.trim()).bind(verifier.as_slice()).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(RestError::db)?;
+    sqlx::query("INSERT INTO service_principal_audit_events (org_id,service_principal_id,event_type,actor_id,resulting_generation) VALUES ($1,$2,'REGISTERED',$3,1)").bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok((
         StatusCode::CREATED,
         Json(
-            serde_json::json!({"id":id,"source_system":request.source_system.trim(),"enabled":true,"credential_generation":1}),
+            serde_json::json!({"id":id,"source_system":request.source_system.trim(),"enabled":true,"credential_generation":1,"secret":base64::engine::general_purpose::STANDARD.encode(secret)}),
         ),
     ))
 }
@@ -329,12 +345,13 @@ async fn rotate_source_system(
     Path(id): Path<Uuid>,
     Json(request): Json<RotateSourceSystem>,
 ) -> Result<Json<serde_json::Value>, RestError> {
-    source_system_lifecycle(&state, &headers, id, Some(request.credential)).await
+    source_system_lifecycle(&state, &headers, id, Some(request.expected_generation)).await
 }
 async fn disable_source_system(
     State(state): State<ProductionRestState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Json(request): Json<DisableSourceSystem>,
 ) -> Result<Json<serde_json::Value>, RestError> {
     source_system_lifecycle(&state, &headers, id, None).await
 }
@@ -342,37 +359,40 @@ async fn source_system_lifecycle(
     state: &ProductionRestState,
     headers: &HeaderMap,
     id: Uuid,
-    new_credential: Option<String>,
+    expected_generation: Option<i32>,
 ) -> Result<Json<serde_json::Value>, RestError> {
     let principal = principal(state, headers).await?;
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let branch_id: Uuid = sqlx::query_scalar(
-        "SELECT branch_id FROM production_source_systems WHERE id=$1 FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(RestError::db)?;
+    let source =
+        sqlx::query("SELECT branch_id,generation FROM service_principals WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(RestError::db)?
+            .ok_or_else(|| RestError::not_found("production service principal not found"))?;
+    let branch_id: Uuid = source.try_get("branch_id").map_err(RestError::db)?;
+    let generation: i32 = source.try_get("generation").map_err(RestError::db)?;
     authorize(
         &principal,
         Action::limited(Feature::RoleManage),
         BranchId::from_uuid(branch_id),
     )
     .map_err(RestError::kernel)?;
-    let row = if let Some(credential) = new_credential {
-        valid_source_credential(&credential)?;
-        sqlx::query("UPDATE production_source_systems SET credential_hash=$1, credential_generation=credential_generation+1, rotated_by=$2, rotated_at=now() WHERE id=$3 AND enabled=true RETURNING enabled,credential_generation").bind(hash_credential(&credential)).bind(*principal.user_id.as_uuid()).bind(id)
+    let row = if let Some(expected_generation) = expected_generation {
+        if expected_generation != generation { return Err(RestError::conflict("service principal generation changed")); }
+        let hmac_key = state.service_principal_hmac_key.ok_or_else(|| RestError::unavailable("production source authentication is unavailable"))?;
+        let secret = generated_secret();
+        let verifier = service_auth::verifier(&hmac_key, &secret, org, mnt_kernel_core::ServicePrincipalId::from_uuid(id), BranchId::from_uuid(branch_id), generation + 1);
+        sqlx::query("UPDATE service_principals SET verifier=$1,generation=generation+1,rotated_by=$2,rotated_at=now() WHERE id=$3 AND state='ACTIVE' AND generation=$4 RETURNING state,generation").bind(verifier.as_slice()).bind(*principal.user_id.as_uuid()).bind(id).bind(expected_generation)
     } else {
-        sqlx::query("UPDATE production_source_systems SET enabled=false, disabled_by=$1, disabled_at=now() WHERE id=$2 AND enabled=true RETURNING enabled,credential_generation").bind(*principal.user_id.as_uuid()).bind(id)
+        sqlx::query("UPDATE service_principals SET state='DISABLED',disabled_by=$1,disabled_at=now() WHERE id=$2 AND state='ACTIVE' RETURNING state,generation").bind(*principal.user_id.as_uuid()).bind(id)
     }.fetch_optional(&mut *tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::conflict("source system is already disabled"))?;
-    let enabled: bool = row.try_get("enabled").map_err(RestError::db)?;
-    let generation: i32 = row
-        .try_get("credential_generation")
-        .map_err(RestError::db)?;
+    let enabled = row.try_get::<String, _>("state").map_err(RestError::db)? == "ACTIVE";
+    let generation: i32 = row.try_get("generation").map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok(Json(
         serde_json::json!({"id":id,"enabled":enabled,"credential_generation":generation}),
@@ -1109,6 +1129,15 @@ fn hash_credential(credential: &str) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn generated_secret() -> [u8; 32] {
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    let mut secret = [0_u8; 32];
+    secret[..16].copy_from_slice(first.as_bytes());
+    secret[16..].copy_from_slice(second.as_bytes());
+    secret
 }
 fn valid_source_credential(credential: &str) -> Result<(), RestError> {
     if credential.len() < 32 || credential.len() > 512 {
