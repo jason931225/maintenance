@@ -5,6 +5,7 @@ private typealias LegacyLeaveRequestView = Components.Schemas.LeaveRequestView
 private typealias LeaveRequestV2View = Components.Schemas.LeaveRequestV2View
 private typealias LeaveRequestV2Page = Components.Schemas.LeaveRequestV2Page
 private typealias ActionInboxResponse = Components.Schemas.ActionInboxResponse
+private typealias FacilitiesCase = Components.Schemas.FacilitiesCase
 
 @main
 private enum GeneratedClientContractTests {
@@ -22,6 +23,7 @@ private enum GeneratedClientContractTests {
             ("decodes required null action next_cursor", decodesRequiredNullActionNextCursor),
             ("re-encodes null action next_cursor as an explicit field", reencodesNullActionNextCursorAsExplicitField),
             ("rejects an action page without next_cursor", rejectsActionPageWithoutNextCursor),
+            ("keeps facilities transition outputs and request bodies typed", keepsFacilitiesTransitionOutputsTyped),
         ]
         let failures: [String] = tests.compactMap { name, test -> String? in
             if test() {
@@ -108,6 +110,35 @@ private enum GeneratedClientContractTests {
 
     private static func rejectsActionPageWithoutNextCursor() -> Bool {
         rejectsPayloadWithoutRequiredKey("next_cursor", payload: validActionPage, as: ActionInboxResponse.self)
+    }
+
+    private static func keepsFacilitiesTransitionOutputsTyped() -> Bool {
+        func caseFromTriage(_ body: Operations.TriageFacilitiesCase.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromAssign(_ body: Operations.AssignFacilitiesCase.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromStart(_ body: Operations.StartFacilitiesCase.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromSubmit(_ body: Operations.SubmitFacilitiesExecution.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromAcceptance(_ body: Operations.DecideFacilitiesAcceptance.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromObservation(_ body: Operations.RecordFacilitiesObservation.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func typedTriageRequest(_ body: Operations.TriageFacilitiesCase.Input.Body) {}
+        func typedAssignRequest(_ body: Operations.AssignFacilitiesCase.Input.Body) {}
+        func typedSubmitRequest(_ body: Operations.SubmitFacilitiesExecution.Input.Body) {}
+        func typedAcceptanceRequest(_ body: Operations.DecideFacilitiesAcceptance.Input.Body) {}
+        func typedObservationRequest(_ body: Operations.RecordFacilitiesObservation.Input.Body) {}
+        _ = [caseFromTriage, caseFromAssign, caseFromStart, caseFromSubmit, caseFromAcceptance, caseFromObservation]
+        _ = [typedTriageRequest, typedAssignRequest, typedSubmitRequest, typedAcceptanceRequest, typedObservationRequest]
+        return true
     }
 
     private static func explicitNullRoundTrips<Model: Codable>(

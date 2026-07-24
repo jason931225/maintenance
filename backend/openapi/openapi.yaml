@@ -13844,68 +13844,147 @@ paths:
     get:
       tags: [facilities]
       operationId: listFacilitiesCases
+      summary: List the facilities cases the caller may observe
       security: [{ bearerAuth: [] }]
-      responses: { '200': { description: Cases, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FacilitiesCase' } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+      responses:
+        '200': { description: Facilities cases ordered by creation time, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FacilitiesCase' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     post:
       tags: [facilities]
       operationId: createDueFacilitiesCase
+      summary: Create or replay an idempotent due facilities case
       security: [{ bearerAuth: [] }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesDueCaseRequest' } } } }
-      responses: { '200': { description: Idempotent case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }, '409': { description: Idempotency payload mismatch }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses:
+        '200': { description: Newly created case or the prior idempotent result, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}:
     get:
       tags: [facilities]
       operationId: getFacilitiesCase
+      summary: Get one facilities case with its derived service readback
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Case including derived SLA and energy delta, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+      responses:
+        '200': { description: Case including derived SLA and energy delta, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}/triage:
     post:
       tags: [facilities]
       operationId: triageFacilitiesCase
+      summary: Schedule a due facilities case for service
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesTriageRequest' } } } }
-      responses: { '200': { description: Scheduled case }, '409': { description: Illegal transition }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses:
+        '200': { description: Scheduled case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}/assign:
     post:
       tags: [facilities]
       operationId: assignFacilitiesCase
+      summary: Assign a scheduled facilities case to a technician
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesAssignRequest' } } } }
-      responses: { '200': { description: Assigned case }, '409': { description: Illegal transition } }
+      responses:
+        '200': { description: Assigned case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}/start:
     post:
       tags: [facilities]
       operationId: startFacilitiesCase
+      summary: Start assigned facilities execution after safety acknowledgement
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Safety-acknowledged execution started }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { description: Illegal transition } }
+      responses:
+        '200': { description: Safety-acknowledged case in progress, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}/submit:
     post:
       tags: [facilities]
       operationId: submitFacilitiesExecution
+      summary: Submit execution evidence and await customer acceptance
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesSubmitRequest' } } } }
-      responses: { '200': { description: Awaiting customer acceptance }, '412': { description: Required evidence is not confirmed }, '409': { description: Illegal transition } }
+      responses:
+        '200': { description: Case awaiting customer acceptance, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { description: Required execution evidence is not confirmed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}/acceptance:
     post:
       tags: [facilities]
       operationId: decideFacilitiesAcceptance
+      summary: Record customer acceptance or rejection of completed facilities work
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesAcceptanceRequest' } } } }
-      responses: { '200': { description: CLOSED or REWORK_REQUIRED }, '409': { description: Illegal transition }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses:
+        '200': { description: Closed or rework-required case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/facilities/cases/{case_id}/observations:
     post:
       tags: [facilities]
       operationId: recordFacilitiesObservation
+      summary: Record facilities energy or cost observations and return the case readback
       security: [{ bearerAuth: [] }]
       parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesObservationRequest' } } } }
-      responses: { '200': { description: Case with derived energy/cost readback }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses:
+        '200': { description: Case with derived energy and cost readback, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/logistics/asns:
     post:
       tags: [logistics]
@@ -28928,7 +29007,15 @@ components:
     FacilitiesCase:
       type: object
       required: [id, status, responseDueAt, completionDueAt, acceptanceDueAt, totalCostKrw]
-      properties: { id: { $ref: '#/components/schemas/Uuid' }, status: { type: string, enum: [DUE, TRIAGED, SCHEDULED, ASSIGNED, IN_PROGRESS, SUBMITTED, REWORK_REQUIRED, AWAITING_ACCEPTANCE, CLOSED] }, assigneeId: { allOf: [{ $ref: '#/components/schemas/Uuid' }], nullable: true }, responseDueAt: { type: string, format: date-time }, completionDueAt: { type: string, format: date-time }, acceptanceDueAt: { type: string, format: date-time }, energyDeltaKwh: { type: string, nullable: true }, totalCostKrw: { type: integer, format: int64 } }
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [DUE, TRIAGED, SCHEDULED, ASSIGNED, IN_PROGRESS, SUBMITTED, REWORK_REQUIRED, AWAITING_ACCEPTANCE, CLOSED] }
+        assigneeId: { type: [string, 'null'], format: uuid }
+        responseDueAt: { type: string, format: date-time }
+        completionDueAt: { type: string, format: date-time }
+        acceptanceDueAt: { type: string, format: date-time }
+        energyDeltaKwh: { type: [string, 'null'] }
+        totalCostKrw: { type: integer, format: int64 }
     ProductionPlan:
       type: object
       required: [id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at, plan_digest]
