@@ -33,7 +33,11 @@ CREATE INDEX idx_docs_evidence_copies_evidentiary_status
 -- Without all of those facts an EV copy is durably PENDING, regardless of
 -- caller-provided `worm_status` or `verified_at` values.
 CREATE OR REPLACE FUNCTION docs_evidence_copy_bind_storage_attestation()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
 DECLARE
     attested_at TIMESTAMPTZ;
 BEGIN
@@ -68,12 +72,41 @@ CREATE TRIGGER docs_evidence_copies_bind_storage_attestation
 -- command that registers it. Complete register scans therefore use this
 -- database-assigned identity instead: a post-snapshot insertion cannot claim a
 -- sequence at or below an already-issued cursor boundary.
+--
+-- This migration is deliberately expand/backfill/contract rather than a direct
+-- NOT NULL identity addition. Production databases can already contain EV rows:
+-- give those rows a deterministic, global registration order first, then enforce
+-- non-nullability (required by PostgreSQL identity columns), attach the identity
+-- sequence, and reseed it above the backfill. `created_at, id` is stable and
+-- total for legacy rows.
 ALTER TABLE docs_evidence_objects
-    ADD COLUMN register_sequence BIGINT GENERATED ALWAYS AS IDENTITY;
+    ADD COLUMN register_sequence BIGINT;
+
+WITH ordered_legacy_rows AS (
+    SELECT id,
+           row_number() OVER (ORDER BY created_at ASC, id ASC)::BIGINT AS sequence_value
+    FROM docs_evidence_objects
+)
+UPDATE docs_evidence_objects AS evidence
+SET register_sequence = ordered_legacy_rows.sequence_value
+FROM ordered_legacy_rows
+WHERE evidence.id = ordered_legacy_rows.id;
+
+ALTER TABLE docs_evidence_objects
+    ALTER COLUMN register_sequence SET NOT NULL;
+
+ALTER TABLE docs_evidence_objects
+    ALTER COLUMN register_sequence ADD GENERATED ALWAYS AS IDENTITY;
+
+SELECT setval(
+    pg_get_serial_sequence('docs_evidence_objects', 'register_sequence'),
+    COALESCE((SELECT MAX(register_sequence) FROM docs_evidence_objects), 1),
+    EXISTS (SELECT 1 FROM docs_evidence_objects)
+);
 
 ALTER TABLE docs_evidence_objects
     ADD CONSTRAINT docs_evidence_objects_register_sequence_positive
-    CHECK (register_sequence > 0);
+        CHECK (register_sequence > 0);
 
 CREATE UNIQUE INDEX docs_evidence_objects_org_register_sequence
     ON docs_evidence_objects (org_id, register_sequence);
@@ -91,3 +124,11 @@ $$;
 CREATE TRIGGER docs_evidence_objects_register_sequence_immutable
     BEFORE UPDATE OF register_sequence ON docs_evidence_objects
     FOR EACH ROW EXECUTE FUNCTION docs_evidence_object_register_sequence_guard();
+
+
+-- EV copies are append-only. Runtime code only registers copies; a direct
+-- UPDATE would let an authenticated tenant forge PENDING -> VERIFIED outside
+-- the storage-attestation insert path above. Keep the trigger function private
+-- as defence in depth and remove the unused table UPDATE capability.
+REVOKE ALL ON FUNCTION docs_evidence_copy_bind_storage_attestation() FROM PUBLIC, mnt_rt;
+REVOKE UPDATE ON docs_evidence_copies FROM mnt_rt;

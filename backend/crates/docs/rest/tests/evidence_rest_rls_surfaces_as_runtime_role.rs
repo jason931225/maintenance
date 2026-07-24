@@ -46,6 +46,7 @@ use uuid::Uuid;
 const WORM_BUCKET: &str = "mnt-worm";
 const ORG_A: Uuid = Uuid::from_u128(0xA1A1_A1A1_A1A1_A1A1_A1A1_A1A1_A1A1_A1A1);
 const ORG_B: Uuid = Uuid::from_u128(0xB2B2_B2B2_B2B2_B2B2_B2B2_B2B2_B2B2_B2B2);
+const MIGRATION_0195: &str = include_str!("../../../platform/db/migrations/0195_docs_gaps.sql");
 
 // ---------------------------------------------------------------------------
 // A stub WORM object store: HEAD returns a preconfigured checksum per key, so a
@@ -168,6 +169,68 @@ fn state(pool: PgPool, stub: StubWormStore) -> DocsRestState {
 
 fn now() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(1_760_000_000).unwrap()
+}
+
+/// Reconstruct the populated pre-0195 shape inside this isolated sqlx database,
+/// so the real migration text—not a hand-copied approximation—upgrades legacy
+/// EV rows in the regression below.
+async fn restore_pre_0195_docs_shape(owner_pool: &PgPool) {
+    sqlx::raw_sql(
+        r#"
+        DROP TRIGGER IF EXISTS docs_evidence_objects_register_sequence_immutable
+            ON docs_evidence_objects;
+        DROP FUNCTION IF EXISTS docs_evidence_object_register_sequence_guard();
+        DROP INDEX IF EXISTS docs_evidence_objects_org_register_sequence;
+        ALTER TABLE docs_evidence_objects
+            DROP CONSTRAINT IF EXISTS docs_evidence_objects_register_sequence_positive;
+        ALTER TABLE docs_evidence_objects
+            ALTER COLUMN register_sequence DROP IDENTITY IF EXISTS;
+        ALTER TABLE docs_evidence_objects
+            DROP COLUMN IF EXISTS register_sequence;
+
+        DROP TRIGGER IF EXISTS docs_evidence_copies_bind_storage_attestation
+            ON docs_evidence_copies;
+        DROP FUNCTION IF EXISTS docs_evidence_copy_bind_storage_attestation();
+        DROP INDEX IF EXISTS idx_docs_evidence_copies_evidentiary_status;
+        ALTER TABLE docs_evidence_copies
+            DROP CONSTRAINT IF EXISTS docs_evidence_copies_evidentiary_status_check;
+        ALTER TABLE docs_evidence_copies
+            DROP COLUMN IF EXISTS evidentiary_status;
+
+        GRANT UPDATE ON docs_evidence_copies TO mnt_rt;
+        "#,
+    )
+    .execute(owner_pool)
+    .await
+    .expect("restore populated pre-0195 docs shape");
+}
+
+async fn seed_legacy_object(
+    owner_pool: &PgPool,
+    org: Uuid,
+    actor: UserId,
+    id: Uuid,
+    code: &str,
+    created_at: OffsetDateTime,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO docs_evidence_objects (
+            id, org_id, code, title, source_type, source_id, classification,
+            created_by, updated_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, 'external_document', $3, 'INTERNAL',
+                  $5, $5, $6, $6)
+        "#,
+    )
+    .bind(id)
+    .bind(org)
+    .bind(code)
+    .bind(format!("Legacy {code}"))
+    .bind(*actor.as_uuid())
+    .bind(created_at)
+    .execute(owner_pool)
+    .await
+    .expect("seed pre-0195 EV row");
 }
 
 /// Register an EV object with a WORM-verified original copy whose stored digest
@@ -393,6 +456,68 @@ async fn list_is_rls_scoped_and_detail_carries_custody_chain(owner_pool: PgPool)
         "the custody chain is surfaced in the detail payload"
     );
     assert_eq!(detail.copies.len(), 1, "the original copy is present");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0195_backfills_legacy_register_order_and_reseeds_identity(owner_pool: PgPool) {
+    restore_pre_0195_docs_shape(&owner_pool).await;
+    seed_org_rls_off(&owner_pool, ORG_A, "A").await;
+    let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
+    let oldest = Uuid::from_u128(0x1905_0000_0000_0000_0000_0000_0000_0001);
+    let newest = Uuid::from_u128(0x1905_0000_0000_0000_0000_0000_0000_0002);
+
+    // These rows exist before the real migration runs. Their IDs intentionally
+    // sort opposite to their creation times so the deterministic legacy order is
+    // proved to be `created_at, id`, not accidental heap or UUID order.
+    seed_legacy_object(&owner_pool, ORG_A, actor, newest, "EV-LEGACY-002", now()).await;
+    seed_legacy_object(
+        &owner_pool,
+        ORG_A,
+        actor,
+        oldest,
+        "EV-LEGACY-001",
+        now() - time::Duration::days(1),
+    )
+    .await;
+
+    sqlx::raw_sql(MIGRATION_0195)
+        .execute(&owner_pool)
+        .await
+        .expect("0195 upgrades a populated pre-0195 EV register");
+
+    let legacy_rows: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT id, register_sequence FROM docs_evidence_objects ORDER BY register_sequence ASC",
+    )
+    .fetch_all(&owner_pool)
+    .await
+    .expect("read deterministic legacy registration order");
+    assert_eq!(legacy_rows, vec![(oldest, 1), (newest, 2)]);
+
+    let next_sequence: i64 = sqlx::query_scalar(
+        r#"
+        INSERT INTO docs_evidence_objects (
+            id, org_id, code, title, source_type, source_id, classification,
+            created_by, updated_by
+        ) VALUES ($1, $2, 'EV-LEGACY-003', 'Post migration',
+                  'external_document', 'EV-LEGACY-003', 'INTERNAL', $3, $3)
+        RETURNING register_sequence
+        "#,
+    )
+    .bind(Uuid::from_u128(0x1905_0000_0000_0000_0000_0000_0000_0003))
+    .bind(ORG_A)
+    .bind(*actor.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .expect("identity sequence is reseeded above legacy rows");
+    assert_eq!(next_sequence, 3);
+
+    let rt = rt_pool(&owner_pool).await;
+    let listed = mnt_platform_request_context::scope_org(OrgId::from_uuid(ORG_A), async {
+        PgDocsStore::new(rt).list_objects(list_all()).await
+    })
+    .await
+    .expect("legacy rows remain listable through the runtime adapter");
+    assert_eq!(listed.total, 3);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -664,7 +789,7 @@ async fn storage_attestation_controls_original_verification_and_derivative_meani
     let rt = rt_pool(&owner_pool).await;
     seed_org_rls_off(&owner_pool, ORG_A, "A").await;
     let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
-    let st = state(rt, StubWormStore::default());
+    let st = state(rt.clone(), StubWormStore::default());
     let org = OrgId::from_uuid(ORG_A);
 
     // RED regression: command-provided VERIFIED + verified_at without an
@@ -697,6 +822,69 @@ async fn storage_attestation_controls_original_verification_and_derivative_meani
     assert_eq!(
         unproven.evidentiary_status,
         EvidenceCopyEvidentiaryStatus::OriginalUnverified
+    );
+
+    // The caller has the same authenticated runtime role and tenant GUC as a
+    // normal request, but cannot forge the status transition with direct SQL.
+    // The storage-attestation trigger remains available only on INSERT.
+    let mut forged_update_tx = rt.begin().await.expect("begin runtime transaction");
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(&mut *forged_update_tx)
+        .await
+        .expect("arm runtime tenant GUC");
+    let forged_update = sqlx::query(
+        "UPDATE docs_evidence_copies SET worm_status = 'VERIFIED', verified_at = now() WHERE id = $1",
+    )
+    .bind(*unproven.id.as_uuid())
+    .execute(&mut *forged_update_tx)
+    .await
+    .expect_err("mnt_rt must not be able to forge PENDING to VERIFIED");
+    assert!(
+        forged_update.to_string().contains("permission denied"),
+        "direct runtime UPDATE must fail by privilege before a mutable status can be forged: {forged_update}"
+    );
+    drop(forged_update_tx);
+
+    let has_update: bool = sqlx::query_scalar(
+        "SELECT has_table_privilege('mnt_rt', 'docs_evidence_copies', 'UPDATE')",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .expect("inspect runtime copy-update privilege");
+    assert!(!has_update, "0195 revokes direct runtime copy UPDATE");
+
+    let (security_definer, function_config, runtime_can_execute): (
+        bool,
+        Option<Vec<String>>,
+        bool,
+    ) = sqlx::query_as(
+        r#"
+            SELECT p.prosecdef,
+                   p.proconfig,
+                   has_function_privilege('mnt_rt', p.oid, 'EXECUTE')
+            FROM pg_proc AS p
+            WHERE p.oid = 'docs_evidence_copy_bind_storage_attestation()'::regprocedure
+            "#,
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .expect("inspect storage-attestation trigger function hardening");
+    assert!(
+        security_definer,
+        "attestation reads run through the owner-only server path"
+    );
+    assert!(
+        function_config
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .any(|setting| setting == "search_path=pg_catalog, public"),
+        "SECURITY DEFINER trigger function pins a safe search_path"
+    );
+    assert!(
+        !runtime_can_execute,
+        "mnt_rt has no direct EXECUTE capability on the attestation trigger function"
     );
 
     // Existing storage-service proof path: replicate_once writes a VERIFIED
