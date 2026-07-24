@@ -92,12 +92,16 @@ impl PgAttendanceStore {
         let actor = caller.user_id;
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
+            idempotency_lock(tx, caller.org_id, &key).await?;
+            let existing = sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_exceptions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await?;
+            if let Some((_, _, existing_branch)) = existing.as_ref() {
+                app::ensure_scope(&caller, *existing_branch)?;
+            }
             let branch = active_employee_branch(tx, command.employee_id).await?;
             if command.branch_id != Some(branch) { return Err(AttendanceStoreError::Conflict); }
             app::ensure_scope(&caller, Some(branch))?;
             let request=json!({"kind":command.kind,"employeeId":command.employee_id,"branchId":branch,"workDate":command.work_date,"detail":detail,"evidence":command.evidence}); let fp=fingerprint(&request);
-            idempotency_lock(tx, caller.org_id, &key).await?;
-            if let Some((existing, stored, existing_branch))=sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_exceptions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { app::ensure_scope(&caller, existing_branch)?; return Ok((exception_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
+            if let Some((existing, stored, _)) = existing { if stored==fp { return Ok((exception_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             let code=issue_code(tx, OrgId::from_uuid(caller.org_id), "attendance_exception").await?;
             sqlx::query("INSERT INTO attendance_exceptions (id,org_id,code,kind,employee_id,branch_id,work_date,detail,evidence,links,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'[]'::jsonb,$10,$11,$12)")
                 .bind(id).bind(caller.org_id).bind(&code).bind(command.kind.as_db()).bind(command.employee_id).bind(branch).bind(command.work_date).bind(&detail).bind(command.evidence).bind(&key).bind(&fp).bind(actor).execute(tx.as_mut()).await?;
@@ -191,6 +195,11 @@ impl PgAttendanceStore {
         let caller = caller.clone();
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move {
+            idempotency_lock(tx, caller.org_id, &key).await?;
+            let existing = sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_substitutions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await?;
+            if let Some((_, _, existing_branch)) = existing.as_ref() {
+                app::ensure_scope(&caller, *existing_branch)?;
+            }
             let branch = active_employee_branch(tx, command.covered_employee_id).await?;
             if command.branch_id != Some(branch) { return Err(AttendanceStoreError::Conflict); }
             if let Some(worker_employee_id) = command.worker_employee_id {
@@ -201,8 +210,7 @@ impl PgAttendanceStore {
             app::ensure_scope(&caller, Some(branch))?;
             command.branch_id = Some(branch);
             let request = substitution_fingerprint(&caller, &command); let fp=fingerprint(&request);
-            idempotency_lock(tx, caller.org_id, &key).await?;
-            if let Some((existing,stored,existing_branch))=sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_substitutions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { app::ensure_scope(&caller, existing_branch)?; return Ok((substitution_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
+            if let Some((existing,stored,_)) = existing { if stored==fp { return Ok((substitution_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             ensure_historical_coverage(tx,command.covered_employee_id,&command.window,command.exception_id).await?;
             sqlx::query("INSERT INTO attendance_substitutions (id,org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,reason_detail,worker_employee_id,worker_name,worker_type,worker_rate,exception_id,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
                 .bind(id).bind(caller.org_id).bind(&command.site).bind(command.branch_id).bind(&command.role).bind(command.window.cover_date).bind(command.window.from_minutes).bind(command.window.to_minutes).bind(command.covered_employee_id).bind(&command.reason_kind).bind(&command.reason_detail).bind(command.worker_employee_id).bind(&command.worker_name).bind(&command.worker_type).bind(&command.worker_rate).bind(command.exception_id).bind(&key).bind(&fp).bind(caller.user_id).execute(tx.as_mut()).await?;
