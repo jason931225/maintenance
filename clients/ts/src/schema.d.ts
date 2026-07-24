@@ -8114,6 +8114,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/attendance/substitution-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List eligible substitute candidates for one covered shift */
+        get: operations["listAttendanceSubstitutionCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/attendance/substitutions/{substitution_id}/cancel": {
         parameters: {
             query?: never;
@@ -15238,6 +15255,20 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        AttendanceSubstitutionCandidate: {
+            employee_id: components["schemas"]["Uuid"];
+            employee_name: string;
+            branch_id: components["schemas"]["Uuid"];
+        };
+        AttendanceSubstitutionCandidatePage: {
+            items: components["schemas"]["AttendanceSubstitutionCandidate"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
         AssignAttendanceSubstituteRequest: {
             site: string;
             branch_id?: components["schemas"]["Uuid"] | null;
@@ -15249,10 +15280,7 @@ export interface components {
             covered_employee_id: components["schemas"]["Uuid"];
             reason_kind: string;
             reason_detail?: string | null;
-            worker_employee_id?: components["schemas"]["Uuid"] | null;
-            worker_name: string;
-            worker_type: string;
-            worker_rate?: string | null;
+            worker_employee_id: components["schemas"]["Uuid"];
             exception_id?: components["schemas"]["Uuid"] | null;
         };
         CancelAttendanceSubstitutionRequest: {
@@ -29923,6 +29951,40 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAttendanceSubstitutionCandidates: {
+        parameters: {
+            query: {
+                /** @description Required even for organization-wide principals. */
+                branch_id: components["schemas"]["Uuid"];
+                covered_employee_id: components["schemas"]["Uuid"];
+                cover_date: string;
+                from_minutes: number;
+                to_minutes: number;
+                search?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eligible substitute candidate page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceSubstitutionCandidatePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
         };
     };

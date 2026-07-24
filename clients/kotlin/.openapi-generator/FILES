@@ -167,6 +167,8 @@ src/main/kotlin/com/maintenance/api/client/model/AttendanceMonthClose.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceMonthCloseItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceRecordKind.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitution.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitutionCandidate.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitutionCandidatePage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitutionPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt

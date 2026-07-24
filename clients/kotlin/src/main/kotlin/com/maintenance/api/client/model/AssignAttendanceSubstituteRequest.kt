@@ -38,12 +38,9 @@ import kotlinx.serialization.Contextual
  * @param toMinutes
  * @param coveredEmployeeId
  * @param reasonKind
- * @param workerName
- * @param workerType
+ * @param workerEmployeeId
  * @param branchId
  * @param reasonDetail
- * @param workerEmployeeId
- * @param workerRate
  * @param exceptionId
  */
 @Serializable
@@ -71,23 +68,14 @@ data class AssignAttendanceSubstituteRequest (
     @SerialName(value = "reason_kind")
     val reasonKind: kotlin.String,
 
-    @SerialName(value = "worker_name")
-    val workerName: kotlin.String,
-
-    @SerialName(value = "worker_type")
-    val workerType: kotlin.String,
+    @Contextual @SerialName(value = "worker_employee_id")
+    val workerEmployeeId: java.util.UUID,
 
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID? = null,
 
     @SerialName(value = "reason_detail")
     val reasonDetail: kotlin.String? = null,
-
-    @Contextual @SerialName(value = "worker_employee_id")
-    val workerEmployeeId: java.util.UUID? = null,
-
-    @SerialName(value = "worker_rate")
-    val workerRate: kotlin.String? = null,
 
     @Contextual @SerialName(value = "exception_id")
     val exceptionId: java.util.UUID? = null

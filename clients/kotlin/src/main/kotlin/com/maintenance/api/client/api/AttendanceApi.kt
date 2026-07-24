@@ -37,6 +37,7 @@ import com.maintenance.api.client.model.AttendanceException
 import com.maintenance.api.client.model.AttendanceExceptionPage
 import com.maintenance.api.client.model.AttendanceMonthClose
 import com.maintenance.api.client.model.AttendanceSubstitution
+import com.maintenance.api.client.model.AttendanceSubstitutionCandidatePage
 import com.maintenance.api.client.model.AttendanceSubstitutionPage
 import com.maintenance.api.client.model.AttendanceWeek52AckRequest
 import com.maintenance.api.client.model.AttendanceWeek52Board
@@ -749,6 +750,116 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/attendance/exceptions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/attendance/substitution-candidates
+     * List eligible substitute candidates for one covered shift
+     *
+     * @param branchId Required even for organization-wide principals.
+     * @param coveredEmployeeId
+     * @param coverDate
+     * @param fromMinutes
+     * @param toMinutes
+     * @param search  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return AttendanceSubstitutionCandidatePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listAttendanceSubstitutionCandidates(branchId: java.util.UUID, coveredEmployeeId: java.util.UUID, coverDate: java.time.LocalDate, fromMinutes: kotlin.Int, toMinutes: kotlin.Int, search: kotlin.String? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : AttendanceSubstitutionCandidatePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listAttendanceSubstitutionCandidatesWithHttpInfo(branchId = branchId, coveredEmployeeId = coveredEmployeeId, coverDate = coverDate, fromMinutes = fromMinutes, toMinutes = toMinutes, search = search, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceSubstitutionCandidatePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/attendance/substitution-candidates
+     * List eligible substitute candidates for one covered shift
+     *
+     * @param branchId Required even for organization-wide principals.
+     * @param coveredEmployeeId
+     * @param coverDate
+     * @param fromMinutes
+     * @param toMinutes
+     * @param search  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return ApiResponse<AttendanceSubstitutionCandidatePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listAttendanceSubstitutionCandidatesWithHttpInfo(branchId: java.util.UUID, coveredEmployeeId: java.util.UUID, coverDate: java.time.LocalDate, fromMinutes: kotlin.Int, toMinutes: kotlin.Int, search: kotlin.String?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<AttendanceSubstitutionCandidatePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listAttendanceSubstitutionCandidatesRequestConfig(branchId = branchId, coveredEmployeeId = coveredEmployeeId, coverDate = coverDate, fromMinutes = fromMinutes, toMinutes = toMinutes, search = search, limit = limit, offset = offset)
+
+        return@withContext request<Unit, AttendanceSubstitutionCandidatePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listAttendanceSubstitutionCandidates
+     *
+     * @param branchId Required even for organization-wide principals.
+     * @param coveredEmployeeId
+     * @param coverDate
+     * @param fromMinutes
+     * @param toMinutes
+     * @param search  (optional)
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @return RequestConfig
+     */
+    fun listAttendanceSubstitutionCandidatesRequestConfig(branchId: java.util.UUID, coveredEmployeeId: java.util.UUID, coverDate: java.time.LocalDate, fromMinutes: kotlin.Int, toMinutes: kotlin.Int, search: kotlin.String?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branch_id", listOf(branchId.toString()))
+                put("covered_employee_id", listOf(coveredEmployeeId.toString()))
+                put("cover_date", listOf(parseDateToQueryString<java.time.LocalDate>(coverDate)))
+                put("from_minutes", listOf(fromMinutes.toString()))
+                put("to_minutes", listOf(toMinutes.toString()))
+                if (search != null) {
+                    put("search", listOf(search.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/attendance/substitution-candidates",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
