@@ -43,6 +43,7 @@ async fn concurrent_branch_month_closes_commit_one_snapshot_and_one_audit(owner_
         )
         .await;
         let gate_session = transaction_session(&mut gate).await;
+        assert_distinct_sessions(&gate_session, &first, &second);
 
         let first_task = spawn_close(PgAttendanceStore::new(first_pool), caller.clone(), command.clone());
         let second_task = spawn_close(PgAttendanceStore::new(second_pool), caller, command);
@@ -121,6 +122,7 @@ async fn concurrent_identical_substitutions_replay_once_and_changed_immutable_pa
         )
         .await;
         let gate_session = transaction_session(&mut gate).await;
+        assert_distinct_sessions(&gate_session, &first, &second);
 
         let first_task = spawn_substitution(PgAttendanceStore::new(first_pool), caller.clone(), command.clone());
         let second_task = spawn_substitution(PgAttendanceStore::new(second_pool), caller.clone(), command.clone());
@@ -204,6 +206,37 @@ fn branch_caller(actor: UserId, branch: BranchId) -> CallerScope {
 struct DatabaseSession {
     backend_pid: i32,
     application_name: String,
+}
+
+fn assert_distinct_sessions(
+    gate: &DatabaseSession,
+    first_contender: &DatabaseSession,
+    second_contender: &DatabaseSession,
+) {
+    assert_ne!(
+        gate.backend_pid, first_contender.backend_pid,
+        "gate and first contender must use distinct PostgreSQL backends"
+    );
+    assert_ne!(
+        gate.backend_pid, second_contender.backend_pid,
+        "gate and second contender must use distinct PostgreSQL backends"
+    );
+    assert_ne!(
+        first_contender.backend_pid, second_contender.backend_pid,
+        "the contenders must use distinct PostgreSQL backends"
+    );
+    assert_ne!(
+        gate.application_name, first_contender.application_name,
+        "gate and first contender must have distinct application names"
+    );
+    assert_ne!(
+        gate.application_name, second_contender.application_name,
+        "gate and second contender must have distinct application names"
+    );
+    assert_ne!(
+        first_contender.application_name, second_contender.application_name,
+        "the contenders must have distinct application names"
+    );
 }
 
 async fn one_connection_runtime_pool(owner_pool: &PgPool, application_name: &str) -> PgPool {
