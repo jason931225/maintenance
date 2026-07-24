@@ -35,7 +35,6 @@ impl PgLogisticsStore {
         &self,
         actor: UserId,
         fulfillment: Uuid,
-        branch: BranchId,
         carrier: String,
         vehicle: String,
     ) -> Result<Value, PgLogisticsError> {
@@ -44,13 +43,24 @@ impl PgLogisticsStore {
         let org = current_org().map_err(KernelError::from)?;
         let now = OffsetDateTime::now_utc();
         let shipment = Uuid::new_v4();
-        with_audits(&self.pool,org,|tx|Box::pin(async move { let row=sqlx::query("SELECT branch_id,status FROM logistics_fulfillments WHERE id=$1 AND branch_id=$2 FOR UPDATE").bind(fulfillment).bind(*branch.as_uuid()).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("packed fulfillment was not found in branch"))?;let status:String=row.try_get("status")?;if status!="PACKED"{return Err(KernelError::conflict("only packed fulfillment may be dispatched").into())}sqlx::query("INSERT INTO logistics_shipments (id,org_id,branch_id,fulfillment_id,carrier_name,vehicle_reference,dispatched_at) VALUES ($1,$2,$3,$4,$5,$6,$7)").bind(shipment).bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(fulfillment).bind(&carrier).bind(&vehicle).bind(now).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_fulfillments SET status='DISPATCHED',updated_at=$1 WHERE id=$2").bind(now).bind(fulfillment).execute(tx.as_mut()).await?;history(tx,org,branch,fulfillment,"fulfillment","DISPATCHED",actor,now).await?;Ok((json!({"id":shipment,"fulfillmentId":fulfillment,"status":"DISPATCHED"}),vec![audit(org,actor,branch,"logistics.shipment.dispatch","logistics_shipment",shipment,now)]))})).await
+        with_audits(&self.pool,org,|tx|Box::pin(async move {
+            let row = sqlx::query("SELECT branch_id,status FROM logistics_fulfillments WHERE id=$1 FOR UPDATE")
+                .bind(fulfillment).fetch_optional(tx.as_mut()).await?
+                .ok_or_else(|| KernelError::not_found("packed fulfillment was not found"))?;
+            let branch = BranchId::from_uuid(row.try_get("branch_id")?);
+            let status: String = row.try_get("status")?;
+            if status != "PACKED" { return Err(KernelError::conflict("only packed fulfillment may be dispatched").into()); }
+            sqlx::query("INSERT INTO logistics_shipments (id,org_id,branch_id,fulfillment_id,carrier_name,vehicle_reference,dispatched_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+                .bind(shipment).bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(fulfillment).bind(&carrier).bind(&vehicle).bind(now).execute(tx.as_mut()).await?;
+            sqlx::query("UPDATE logistics_fulfillments SET status='DISPATCHED',updated_at=$1 WHERE id=$2").bind(now).bind(fulfillment).execute(tx.as_mut()).await?;
+            history(tx,org,branch,fulfillment,"fulfillment","DISPATCHED",actor,now).await?;
+            Ok((json!({"id":shipment,"fulfillmentId":fulfillment,"status":"DISPATCHED"}),vec![audit(org,actor,branch,"logistics.shipment.dispatch","logistics_shipment",shipment,now)]))
+        })).await
     }
     pub async fn pod(
         &self,
         actor: UserId,
         shipment: Uuid,
-        branch: BranchId,
         recipient: String,
         evidence: String,
         confirmed_at: OffsetDateTime,
@@ -64,13 +74,12 @@ impl PgLogisticsStore {
         }
         let org = current_org().map_err(KernelError::from)?;
         let now = OffsetDateTime::now_utc();
-        with_audits(&self.pool,org,|tx|Box::pin(async move {let row=sqlx::query("SELECT fulfillment_id,status FROM logistics_shipments WHERE id=$1 AND branch_id=$2 FOR UPDATE").bind(shipment).bind(*branch.as_uuid()).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("shipment was not found in branch"))?;let status:String=row.try_get("status")?;if status!="DISPATCHED"{return Err(KernelError::conflict("only dispatched shipment accepts proof of delivery").into())}let fulfillment:Uuid=row.try_get("fulfillment_id")?;sqlx::query("INSERT INTO logistics_pod_evidence (org_id,branch_id,shipment_id,recipient_name,evidence_reference,confirmed_at) VALUES ($1,$2,$3,$4,$5,$6)").bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(shipment).bind(&recipient).bind(&evidence).bind(confirmed_at).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_shipments SET status='DELIVERED' WHERE id=$1").bind(shipment).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_fulfillments SET status='DELIVERED',updated_at=$1 WHERE id=$2").bind(now).bind(fulfillment).execute(tx.as_mut()).await?;let due:OffsetDateTime=sqlx::query_scalar("SELECT due_at FROM logistics_fulfillments WHERE id=$1").bind(fulfillment).fetch_one(tx.as_mut()).await?;history(tx,org,branch,shipment,"shipment","DELIVERED",actor,now).await?;Ok((json!({"id":shipment,"status":"DELIVERED","recipientConfirmedEvidenceReference":evidence,"slaAssessment":if confirmed_at<=due{"MET"}else{"BREACHED"}}),vec![audit(org,actor,branch,"logistics.shipment.pod","logistics_shipment",shipment,now)]))})).await
+        with_audits(&self.pool,org,|tx|Box::pin(async move {let row=sqlx::query("SELECT branch_id,fulfillment_id,status FROM logistics_shipments WHERE id=$1 FOR UPDATE").bind(shipment).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("shipment was not found in branch"))?;let branch=BranchId::from_uuid(row.try_get("branch_id")?);let status:String=row.try_get("status")?;if status!="DISPATCHED"{return Err(KernelError::conflict("only dispatched shipment accepts proof of delivery").into())}let fulfillment:Uuid=row.try_get("fulfillment_id")?;sqlx::query("INSERT INTO logistics_pod_evidence (org_id,branch_id,shipment_id,recipient_name,evidence_reference,confirmed_at) VALUES ($1,$2,$3,$4,$5,$6)").bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(shipment).bind(&recipient).bind(&evidence).bind(confirmed_at).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_shipments SET status='DELIVERED' WHERE id=$1").bind(shipment).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_fulfillments SET status='DELIVERED',updated_at=$1 WHERE id=$2").bind(now).bind(fulfillment).execute(tx.as_mut()).await?;let due:OffsetDateTime=sqlx::query_scalar("SELECT due_at FROM logistics_fulfillments WHERE id=$1").bind(fulfillment).fetch_one(tx.as_mut()).await?;history(tx,org,branch,shipment,"shipment","DELIVERED",actor,now).await?;Ok((json!({"id":shipment,"status":"DELIVERED","recipientConfirmedEvidenceReference":evidence,"slaAssessment":if confirmed_at<=due{"MET"}else{"BREACHED"}}),vec![audit(org,actor,branch,"logistics.shipment.pod","logistics_shipment",shipment,now)]))})).await
     }
     pub async fn settle(
         &self,
         actor: UserId,
         shipment: Uuid,
-        branch: BranchId,
         amount: i64,
         currency: String,
         settled_at: OffsetDateTime,
@@ -83,7 +92,7 @@ impl PgLogisticsStore {
         }
         let org = current_org().map_err(KernelError::from)?;
         let now = OffsetDateTime::now_utc();
-        with_audits(&self.pool,org,|tx|Box::pin(async move {let row=sqlx::query("SELECT fulfillment_id,status FROM logistics_shipments WHERE id=$1 AND branch_id=$2 FOR UPDATE").bind(shipment).bind(*branch.as_uuid()).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("delivered shipment was not found in branch"))?;let status:String=row.try_get("status")?;if status!="DELIVERED"{return Err(KernelError::conflict("operational cost settles only after verified POD").into())}let fulfillment:Uuid=row.try_get("fulfillment_id")?;sqlx::query("INSERT INTO logistics_operational_cost_settlements (org_id,branch_id,shipment_id,currency_code,amount_minor,settled_at) VALUES ($1,$2,$3,'KRW',$4,$5)").bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(shipment).bind(amount).bind(settled_at).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_shipments SET status='SETTLED' WHERE id=$1").bind(shipment).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_fulfillments SET status='SETTLED',updated_at=$1 WHERE id=$2").bind(now).bind(fulfillment).execute(tx.as_mut()).await?;history(tx,org,branch,shipment,"shipment","SETTLED",actor,now).await?;Ok((json!({"id":shipment,"status":"SETTLED","operationalCost":{"currency":"KRW","amountMinor":amount},"financeGlPosting":null}),vec![audit(org,actor,branch,"logistics.shipment.settle","logistics_shipment",shipment,now)]))})).await
+        with_audits(&self.pool,org,|tx|Box::pin(async move {let row=sqlx::query("SELECT branch_id,fulfillment_id,status FROM logistics_shipments WHERE id=$1 FOR UPDATE").bind(shipment).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("delivered shipment was not found in branch"))?;let branch=BranchId::from_uuid(row.try_get("branch_id")?);let status:String=row.try_get("status")?;if status!="DELIVERED"{return Err(KernelError::conflict("operational cost settles only after verified POD").into())}let fulfillment:Uuid=row.try_get("fulfillment_id")?;sqlx::query("INSERT INTO logistics_operational_cost_settlements (org_id,branch_id,shipment_id,currency_code,amount_minor,settled_at) VALUES ($1,$2,$3,'KRW',$4,$5)").bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(shipment).bind(amount).bind(settled_at).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_shipments SET status='SETTLED' WHERE id=$1").bind(shipment).execute(tx.as_mut()).await?;sqlx::query("UPDATE logistics_fulfillments SET status='SETTLED',updated_at=$1 WHERE id=$2").bind(now).bind(fulfillment).execute(tx.as_mut()).await?;history(tx,org,branch,shipment,"shipment","SETTLED",actor,now).await?;Ok((json!({"id":shipment,"status":"SETTLED","operationalCost":{"currency":"KRW","amountMinor":amount},"financeGlPosting":null}),vec![audit(org,actor,branch,"logistics.shipment.settle","logistics_shipment",shipment,now)]))})).await
     }
 }
 impl PgLogisticsError {
@@ -133,7 +142,6 @@ impl PgLogisticsStore {
         &self,
         actor: UserId,
         asn: Uuid,
-        expected_branch: BranchId,
         quantity: i64,
         key: String,
         fingerprint_input: &Value,
@@ -146,18 +154,18 @@ impl PgLogisticsStore {
         let now = OffsetDateTime::now_utc();
         let fp = fingerprint(fingerprint_input);
         with_audits(&self.pool, org, |tx| Box::pin(async move {
-            if let Some(row)=sqlx::query("SELECT r.request_fingerprint,a.id,a.status,a.branch_id,a.received_quantity,a.expected_quantity FROM logistics_receipts r JOIN logistics_asns a ON a.id=r.asn_id AND a.org_id=r.org_id WHERE r.org_id=$1 AND r.idempotency_key=$2").bind(*org.as_uuid()).bind(&key).fetch_optional(tx.as_mut()).await? { let prior:String=row.try_get("request_fingerprint")?; if prior != fp { return Err(KernelError::conflict("idempotency key was reused with a different request").into()); } return Ok((json!({"id":asn,"status":row.try_get::<String,_>("status")?,"replayed":true}),vec![])); }
+            if let Some(row)=sqlx::query("SELECT r.request_fingerprint,a.id,a.status,a.branch_id FROM logistics_receipts r JOIN logistics_asns a ON a.id=r.asn_id AND a.org_id=r.org_id WHERE r.org_id=$1 AND r.idempotency_key=$2").bind(*org.as_uuid()).bind(&key).fetch_optional(tx.as_mut()).await? {
+                let replay_asn: Uuid = row.try_get("id")?;
+                let prior: String = row.try_get("request_fingerprint")?;
+                if replay_asn != asn || prior != fp { return Err(KernelError::conflict("idempotency key was reused with a different request").into()); }
+                return Ok((json!({"id":asn,"status":row.try_get::<String,_>("status")?,"replayed":true}),vec![]));
+            }
             let row=sqlx::query("SELECT branch_id, expected_quantity, received_quantity, status FROM logistics_asns WHERE id=$1 FOR UPDATE").bind(asn).fetch_optional(tx.as_mut()).await?.ok_or_else(|| KernelError::not_found("ASN was not found"))?; let branch=BranchId::from_uuid(row.try_get("branch_id")?); let expected:i64=row.try_get("expected_quantity")?; let prior:i64=row.try_get("received_quantity")?; let status:String=row.try_get("status")?; if status != "EXPECTED" && status != "PARTIAL_RECEIVED" { return Err(KernelError::conflict("ASN cannot receive in its current state").into()); } let total=prior.checked_add(quantity).ok_or_else(|| KernelError::validation("receipt quantity overflow"))?; if total>expected { return Err(KernelError::conflict("receipt exceeds ASN expected quantity").into()); } let next=if total==expected {"RECEIVED"} else {"PARTIAL_RECEIVED"};
             sqlx::query("UPDATE logistics_asns SET received_quantity=$1,status=$2,updated_at=$3 WHERE id=$4").bind(total).bind(next).bind(now).bind(asn).execute(tx.as_mut()).await?; sqlx::query("INSERT INTO logistics_receipts (org_id,branch_id,asn_id,received_quantity,exception_code,received_by,received_at,idempotency_key,request_fingerprint) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(asn).bind(quantity).bind((total<expected).then_some("PARTIAL_RECEIPT")).bind(*actor.as_uuid()).bind(now).bind(&key).bind(&fp).execute(tx.as_mut()).await?;
             Ok((json!({"id":asn,"status":next,"receivedQuantity":total}),vec![audit(org,actor,branch,"logistics.asn.receive","logistics_asn",asn,now)])) })).await
     }
 
-    pub async fn putaway(
-        &self,
-        actor: UserId,
-        asn: Uuid,
-        _expected_branch: BranchId,
-    ) -> Result<Value, PgLogisticsError> {
+    pub async fn putaway(&self, actor: UserId, asn: Uuid) -> Result<Value, PgLogisticsError> {
         let org = current_org().map_err(KernelError::from)?;
         let now = OffsetDateTime::now_utc();
         with_audits(&self.pool,org,|tx|Box::pin(async move { let row=sqlx::query("SELECT branch_id,warehouse_code,sku,received_quantity,status FROM logistics_asns WHERE id=$1 FOR UPDATE").bind(asn).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("ASN was not found"))?; let branch=BranchId::from_uuid(row.try_get("branch_id")?); let status:String=row.try_get("status")?; if status!="RECEIVED" && status!="PARTIAL_RECEIVED" { return Err(KernelError::conflict("only received ASN may be put away").into()); } let warehouse:String=row.try_get("warehouse_code")?; let sku:String=row.try_get("sku")?; let qty:i64=row.try_get("received_quantity")?; sqlx::query("INSERT INTO logistics_stock (org_id,branch_id,warehouse_code,sku,quantity_on_hand,quantity_reserved,updated_at) VALUES ($1,$2,$3,$4,$5,0,$6) ON CONFLICT (org_id,branch_id,warehouse_code,sku) DO UPDATE SET quantity_on_hand=logistics_stock.quantity_on_hand+EXCLUDED.quantity_on_hand,updated_at=EXCLUDED.updated_at").bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(&warehouse).bind(&sku).bind(qty).bind(now).execute(tx.as_mut()).await?; sqlx::query("UPDATE logistics_asns SET status='PUTAWAY',updated_at=$1 WHERE id=$2").bind(now).bind(asn).execute(tx.as_mut()).await?; Ok((json!({"id":asn,"status":"PUTAWAY"}),vec![audit(org,actor,branch,"logistics.asn.putaway","logistics_asn",asn,now)]))})).await
@@ -185,7 +193,6 @@ impl PgLogisticsStore {
         &self,
         actor: UserId,
         fulfillment: Uuid,
-        _expected_branch: BranchId,
         picked: Option<i64>,
         pack: bool,
     ) -> Result<Value, PgLogisticsError> {
@@ -194,6 +201,59 @@ impl PgLogisticsStore {
         with_audits(&self.pool,org,|tx|Box::pin(async move {let row=sqlx::query("SELECT branch_id,reserved_quantity,picked_quantity,status FROM logistics_fulfillments WHERE id=$1 FOR UPDATE").bind(fulfillment).fetch_optional(tx.as_mut()).await?.ok_or_else(||KernelError::not_found("fulfillment was not found"))?;let branch=BranchId::from_uuid(row.try_get("branch_id")?);let state:String=row.try_get("status")?;let reserved:i64=row.try_get("reserved_quantity")?;let (next,picked_qty)=if pack {if state!="PICKED"&&state!="SHORT_PICK" {return Err(KernelError::conflict("only picked fulfillment may be packed").into())}("PACKED",row.try_get("picked_quantity")?)} else {if state!="RELEASED" {return Err(KernelError::conflict("only released fulfillment may be picked").into())}let p=picked.ok_or_else(||KernelError::validation("pickedQuantity is required"))?;if p<0||p>reserved{return Err(KernelError::validation("pickedQuantity is outside reserved stock").into())}(if p==reserved{"PICKED"}else{"SHORT_PICK"},p)};sqlx::query("UPDATE logistics_fulfillments SET status=$1,picked_quantity=$2,updated_at=$3 WHERE id=$4").bind(next).bind(picked_qty).bind(now).bind(fulfillment).execute(tx.as_mut()).await?;history(tx,org,branch,fulfillment,"fulfillment",next,actor,now).await?;Ok((json!({"id":fulfillment,"status":next,"pickedQuantity":picked_qty}),vec![audit(org,actor,branch,if pack{"logistics.fulfillment.pack"}else{"logistics.fulfillment.pick"},"logistics_fulfillment",fulfillment,now)]))})).await
     }
 }
+
+impl PgLogisticsStore {
+    /// Resolve aggregate ownership under the request tenant before authorization.
+    /// Mutations re-read and lock the same aggregate, so this lookup never supplies
+    /// persistence data and caller JSON cannot redirect a transition across branches.
+    pub async fn asn_branch(&self, asn: Uuid) -> Result<BranchId, PgLogisticsError> {
+        self.aggregate_branch("logistics_asns", asn).await
+    }
+
+    pub async fn fulfillment_branch(
+        &self,
+        fulfillment: Uuid,
+    ) -> Result<BranchId, PgLogisticsError> {
+        self.aggregate_branch("logistics_fulfillments", fulfillment)
+            .await
+    }
+
+    pub async fn shipment_branch(&self, shipment: Uuid) -> Result<BranchId, PgLogisticsError> {
+        self.aggregate_branch("logistics_shipments", shipment).await
+    }
+
+    async fn aggregate_branch(
+        &self,
+        table: &'static str,
+        id: Uuid,
+    ) -> Result<BranchId, PgLogisticsError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let query = match table {
+                    "logistics_asns" => "SELECT branch_id FROM logistics_asns WHERE id=$1",
+                    "logistics_fulfillments" => {
+                        "SELECT branch_id FROM logistics_fulfillments WHERE id=$1"
+                    }
+                    "logistics_shipments" => {
+                        "SELECT branch_id FROM logistics_shipments WHERE id=$1"
+                    }
+                    _ => {
+                        return Err(KernelError::internal("unsupported logistics aggregate").into());
+                    }
+                };
+                let branch = sqlx::query_scalar::<_, Uuid>(query)
+                    .bind(id)
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("logistics aggregate was not found"))?;
+                Ok(BranchId::from_uuid(branch))
+            })
+        })
+        .await
+    }
+}
+
 fn required(value: &str, name: &str, max: usize) -> Result<(), PgLogisticsError> {
     if value.trim().is_empty() || value.chars().count() > max {
         Err(KernelError::validation(format!("{name} is required and bounded")).into())

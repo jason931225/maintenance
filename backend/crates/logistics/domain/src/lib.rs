@@ -72,8 +72,25 @@ mod tests {
             (FulfillmentState::Dispatched, FulfillmentState::Delivered),
             (FulfillmentState::Delivered, FulfillmentState::Settled),
         ] {
-            from.can_transition_to(to).expect("listed transition is legal");
+            from.can_transition_to(to)
+                .expect("listed transition is legal");
         }
+    }
+
+    #[test]
+    fn database_state_round_trips_to_the_same_transition_vocabulary() {
+        for state in [
+            FulfillmentState::Released,
+            FulfillmentState::Picked,
+            FulfillmentState::ShortPick,
+            FulfillmentState::Packed,
+            FulfillmentState::Dispatched,
+            FulfillmentState::Delivered,
+            FulfillmentState::Settled,
+        ] {
+            assert_eq!(FulfillmentState::from_db(state.as_db()).unwrap(), state);
+        }
+        assert!(FulfillmentState::from_db("UNKNOWN").is_err());
     }
 
     #[test]

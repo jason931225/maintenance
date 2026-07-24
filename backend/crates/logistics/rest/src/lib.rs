@@ -107,7 +107,10 @@ async fn create_asn(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReceiptBody {
-    branch_id: Uuid,
+    /// Legacy client hint; authorization and persistence derive branch ownership
+    /// from the locked ASN, never from request JSON.
+    #[serde(default, rename = "branchId")]
+    _branch_hint: Option<Uuid>,
     received_quantity: i64,
 }
 async fn receive(
@@ -117,23 +120,13 @@ async fn receive(
     Json(b): Json<ReceiptBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    allow(
-        &p,
-        Feature::LogisticsReceive,
-        BranchId::from_uuid(b.branch_id),
-    )?;
+    let branch = s.store.asn_branch(id).await.map_err(RestError::store)?;
+    allow(&p, Feature::LogisticsReceive, branch)?;
     let key = idem_header(&h)?;
     let fingerprint = json!({"asnId":id,"receivedQuantity":b.received_quantity});
     Ok(Json(
         s.store
-            .receive(
-                p.user_id,
-                id,
-                BranchId::from_uuid(b.branch_id),
-                b.received_quantity,
-                key,
-                &fingerprint,
-            )
+            .receive(p.user_id, id, b.received_quantity, key, &fingerprint)
             .await
             .map_err(RestError::store)?,
     ))
@@ -141,23 +134,22 @@ async fn receive(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BranchBody {
-    branch_id: Uuid,
+    /// Legacy client hint; aggregate ownership is authoritative.
+    #[serde(default, rename = "branchId")]
+    _branch_hint: Option<Uuid>,
 }
 async fn putaway(
     State(s): State<LogisticsRestState>,
     h: HeaderMap,
     Path(id): Path<Uuid>,
-    Json(b): Json<BranchBody>,
+    Json(_b): Json<BranchBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    allow(
-        &p,
-        Feature::LogisticsPutaway,
-        BranchId::from_uuid(b.branch_id),
-    )?;
+    let branch = s.store.asn_branch(id).await.map_err(RestError::store)?;
+    allow(&p, Feature::LogisticsPutaway, branch)?;
     Ok(Json(
         s.store
-            .putaway(p.user_id, id, BranchId::from_uuid(b.branch_id))
+            .putaway(p.user_id, id)
             .await
             .map_err(RestError::store)?,
     ))
@@ -202,7 +194,9 @@ async fn release(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PickBody {
-    branch_id: Uuid,
+    /// Legacy client hint; aggregate ownership is authoritative.
+    #[serde(default, rename = "branchId")]
+    _branch_hint: Option<Uuid>,
     picked_quantity: i64,
 }
 async fn pick(
@@ -212,20 +206,15 @@ async fn pick(
     Json(b): Json<PickBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    allow(
-        &p,
-        Feature::LogisticsPickPack,
-        BranchId::from_uuid(b.branch_id),
-    )?;
+    let branch = s
+        .store
+        .fulfillment_branch(id)
+        .await
+        .map_err(RestError::store)?;
+    allow(&p, Feature::LogisticsPickPack, branch)?;
     Ok(Json(
         s.store
-            .pick_pack(
-                p.user_id,
-                id,
-                BranchId::from_uuid(b.branch_id),
-                Some(b.picked_quantity),
-                false,
-            )
+            .pick_pack(p.user_id, id, Some(b.picked_quantity), false)
             .await
             .map_err(RestError::store)?,
     ))
@@ -234,17 +223,18 @@ async fn pack(
     State(s): State<LogisticsRestState>,
     h: HeaderMap,
     Path(id): Path<Uuid>,
-    Json(b): Json<BranchBody>,
+    Json(_b): Json<BranchBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    allow(
-        &p,
-        Feature::LogisticsPickPack,
-        BranchId::from_uuid(b.branch_id),
-    )?;
+    let branch = s
+        .store
+        .fulfillment_branch(id)
+        .await
+        .map_err(RestError::store)?;
+    allow(&p, Feature::LogisticsPickPack, branch)?;
     Ok(Json(
         s.store
-            .pick_pack(p.user_id, id, BranchId::from_uuid(b.branch_id), None, true)
+            .pick_pack(p.user_id, id, None, true)
             .await
             .map_err(RestError::store)?,
     ))
@@ -252,7 +242,9 @@ async fn pack(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DispatchBody {
-    branch_id: Uuid,
+    /// Legacy client hint; aggregate ownership is authoritative.
+    #[serde(default, rename = "branchId")]
+    _branch_hint: Option<Uuid>,
     carrier_name: String,
     vehicle_reference: String,
 }
@@ -263,13 +255,17 @@ async fn dispatch(
     Json(b): Json<DispatchBody>,
 ) -> Result<(StatusCode, Json<Value>), RestError> {
     let p = principal(&s, &h).await?;
-    let branch = BranchId::from_uuid(b.branch_id);
+    let branch = s
+        .store
+        .fulfillment_branch(id)
+        .await
+        .map_err(RestError::store)?;
     allow(&p, Feature::LogisticsDispatch, branch)?;
     Ok((
         StatusCode::CREATED,
         Json(
             s.store
-                .dispatch(p.user_id, id, branch, b.carrier_name, b.vehicle_reference)
+                .dispatch(p.user_id, id, b.carrier_name, b.vehicle_reference)
                 .await
                 .map_err(RestError::store)?,
         ),
@@ -278,7 +274,9 @@ async fn dispatch(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PodBody {
-    branch_id: Uuid,
+    /// Legacy client hint; aggregate ownership is authoritative.
+    #[serde(default, rename = "branchId")]
+    _branch_hint: Option<Uuid>,
     recipient_name: String,
     evidence_reference: String,
     confirmed_at: OffsetDateTime,
@@ -290,14 +288,17 @@ async fn pod(
     Json(b): Json<PodBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    let branch = BranchId::from_uuid(b.branch_id);
+    let branch = s
+        .store
+        .shipment_branch(id)
+        .await
+        .map_err(RestError::store)?;
     allow(&p, Feature::LogisticsPod, branch)?;
     Ok(Json(
         s.store
             .pod(
                 p.user_id,
                 id,
-                branch,
                 b.recipient_name,
                 b.evidence_reference,
                 b.confirmed_at,
@@ -309,7 +310,9 @@ async fn pod(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SettleBody {
-    branch_id: Uuid,
+    /// Legacy client hint; aggregate ownership is authoritative.
+    #[serde(default, rename = "branchId")]
+    _branch_hint: Option<Uuid>,
     currency_code: String,
     amount_minor: i64,
     settled_at: OffsetDateTime,
@@ -321,18 +324,15 @@ async fn settle(
     Json(b): Json<SettleBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    let branch = BranchId::from_uuid(b.branch_id);
+    let branch = s
+        .store
+        .shipment_branch(id)
+        .await
+        .map_err(RestError::store)?;
     allow(&p, Feature::LogisticsSettle, branch)?;
     Ok(Json(
         s.store
-            .settle(
-                p.user_id,
-                id,
-                branch,
-                b.amount_minor,
-                b.currency_code,
-                b.settled_at,
-            )
+            .settle(p.user_id, id, b.amount_minor, b.currency_code, b.settled_at)
             .await
             .map_err(RestError::store)?,
     ))
