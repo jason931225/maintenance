@@ -679,6 +679,10 @@ src/main/kotlin/com/maintenance/api/client/model/ProductionPlan.kt
 src/main/kotlin/com/maintenance/api/client/model/ProductionPlanDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/ProductionPlanDetailAllOfEvents.kt
 src/main/kotlin/com/maintenance/api/client/model/ProductionSourceIngress.kt
+src/main/kotlin/com/maintenance/api/client/model/ProductionSourceIngressReceipt.kt
+src/main/kotlin/com/maintenance/api/client/model/ProductionSourceSystemCredential.kt
+src/main/kotlin/com/maintenance/api/client/model/ProductionSourceSystemGenerationRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ProductionSourceSystemReceipt.kt
 src/main/kotlin/com/maintenance/api/client/model/ProjectionAssumptions.kt
 src/main/kotlin/com/maintenance/api/client/model/ProjectionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ProjectionResult.kt

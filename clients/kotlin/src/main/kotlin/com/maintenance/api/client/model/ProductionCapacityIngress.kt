@@ -64,7 +64,8 @@ data class ProductionCapacityIngress (
     @SerialName(value = "source_version")
     val sourceVersion: kotlin.String
 
-) {
+) :
+    ProductionSourceIngress {
 
     /**
      *

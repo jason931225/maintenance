@@ -15,6 +15,7 @@ const kotlinKeywords = new Set([
 // This is deliberately an explicit, narrow compatibility seam. Unmapped oneOf
 // schemas (including EvidenceHoldRequest) remain generator-owned unchanged.
 export const supportedWorkbenchUnionNames = Object.freeze([
+  "ProductionSourceIngress",
   "WorkbenchActionSourceEnvelope",
   "WorkbenchCalendarSourceEnvelope",
   "WorkbenchEffectiveScope",

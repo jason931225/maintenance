@@ -34,6 +34,10 @@ import com.maintenance.api.client.model.ProductionOperation
 import com.maintenance.api.client.model.ProductionPlan
 import com.maintenance.api.client.model.ProductionPlanDetail
 import com.maintenance.api.client.model.ProductionSourceIngress
+import com.maintenance.api.client.model.ProductionSourceIngressReceipt
+import com.maintenance.api.client.model.ProductionSourceSystemCredential
+import com.maintenance.api.client.model.ProductionSourceSystemGenerationRequest
+import com.maintenance.api.client.model.ProductionSourceSystemReceipt
 import com.maintenance.api.client.model.RecordProductionOperation
 import com.maintenance.api.client.model.RegisterProductionSourceSystem
 import com.maintenance.api.client.model.ReleaseProductionPlan
@@ -142,22 +146,24 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-systems/{source_system_id}/disable
-     *
+     * Disable a production source system at the expected generation
      *
      * @param sourceSystemId
-     * @return void
+     * @param productionSourceSystemGenerationRequest
+     * @return ProductionSourceSystemReceipt
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun disableProductionSourceSystem(sourceSystemId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = disableProductionSourceSystemWithHttpInfo(sourceSystemId = sourceSystemId)
+    suspend fun disableProductionSourceSystem(sourceSystemId: java.util.UUID, productionSourceSystemGenerationRequest: ProductionSourceSystemGenerationRequest) : ProductionSourceSystemReceipt = withContext(Dispatchers.IO) {
+        val localVarResponse = disableProductionSourceSystemWithHttpInfo(sourceSystemId = sourceSystemId, productionSourceSystemGenerationRequest = productionSourceSystemGenerationRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ProductionSourceSystemReceipt
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -173,18 +179,20 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-systems/{source_system_id}/disable
-     *
+     * Disable a production source system at the expected generation
      *
      * @param sourceSystemId
-     * @return ApiResponse<Unit?>
+     * @param productionSourceSystemGenerationRequest
+     * @return ApiResponse<ProductionSourceSystemReceipt?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun disableProductionSourceSystemWithHttpInfo(sourceSystemId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = disableProductionSourceSystemRequestConfig(sourceSystemId = sourceSystemId)
+    suspend fun disableProductionSourceSystemWithHttpInfo(sourceSystemId: java.util.UUID, productionSourceSystemGenerationRequest: ProductionSourceSystemGenerationRequest) : ApiResponse<ProductionSourceSystemReceipt?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = disableProductionSourceSystemRequestConfig(sourceSystemId = sourceSystemId, productionSourceSystemGenerationRequest = productionSourceSystemGenerationRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<ProductionSourceSystemGenerationRequest, ProductionSourceSystemReceipt>(
             localVariableConfig
         )
     }
@@ -193,12 +201,14 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
      * To obtain the request config of the operation disableProductionSourceSystem
      *
      * @param sourceSystemId
+     * @param productionSourceSystemGenerationRequest
      * @return RequestConfig
      */
-    fun disableProductionSourceSystemRequestConfig(sourceSystemId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun disableProductionSourceSystemRequestConfig(sourceSystemId: java.util.UUID, productionSourceSystemGenerationRequest: ProductionSourceSystemGenerationRequest) : RequestConfig<ProductionSourceSystemGenerationRequest> {
+        val localVariableBody = productionSourceSystemGenerationRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
@@ -286,10 +296,10 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-ingress
-     *
+     * Ingest one idempotent machine-owned production source fact
      * Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent.
      * @param productionSourceIngress
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @return ProductionSourceIngressReceipt
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -298,11 +308,11 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun ingestProductionSource(productionSourceIngress: ProductionSourceIngress) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+    suspend fun ingestProductionSource(productionSourceIngress: ProductionSourceIngress) : ProductionSourceIngressReceipt = withContext(Dispatchers.IO) {
         val localVarResponse = ingestProductionSourceWithHttpInfo(productionSourceIngress = productionSourceIngress)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ProductionSourceIngressReceipt
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -318,19 +328,19 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-ingress
-     *
+     * Ingest one idempotent machine-owned production source fact
      * Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent.
      * @param productionSourceIngress
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @return ApiResponse<ProductionSourceIngressReceipt?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun ingestProductionSourceWithHttpInfo(productionSourceIngress: ProductionSourceIngress) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+    suspend fun ingestProductionSourceWithHttpInfo(productionSourceIngress: ProductionSourceIngress) : ApiResponse<ProductionSourceIngressReceipt?> = withContext(Dispatchers.IO) {
         val localVariableConfig = ingestProductionSourceRequestConfig(productionSourceIngress = productionSourceIngress)
 
-        return@withContext request<ProductionSourceIngress, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<ProductionSourceIngress, ProductionSourceIngressReceipt>(
             localVariableConfig
         )
     }
@@ -608,22 +618,23 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-systems
-     *
+     * Register a production source system and disclose its first credential once
      * RoleManage-only registration of a tenant-scoped non-human source principal. Registration, rotation, and disable actions are audited server-side.
      * @param registerProductionSourceSystem
-     * @return void
+     * @return ProductionSourceSystemCredential
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun registerProductionSourceSystem(registerProductionSourceSystem: RegisterProductionSourceSystem) : Unit = withContext(Dispatchers.IO) {
+    suspend fun registerProductionSourceSystem(registerProductionSourceSystem: RegisterProductionSourceSystem) : ProductionSourceSystemCredential = withContext(Dispatchers.IO) {
         val localVarResponse = registerProductionSourceSystemWithHttpInfo(registerProductionSourceSystem = registerProductionSourceSystem)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ProductionSourceSystemCredential
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -639,18 +650,19 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-systems
-     *
+     * Register a production source system and disclose its first credential once
      * RoleManage-only registration of a tenant-scoped non-human source principal. Registration, rotation, and disable actions are audited server-side.
      * @param registerProductionSourceSystem
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<ProductionSourceSystemCredential?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun registerProductionSourceSystemWithHttpInfo(registerProductionSourceSystem: RegisterProductionSourceSystem) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun registerProductionSourceSystemWithHttpInfo(registerProductionSourceSystem: RegisterProductionSourceSystem) : ApiResponse<ProductionSourceSystemCredential?> = withContext(Dispatchers.IO) {
         val localVariableConfig = registerProductionSourceSystemRequestConfig(registerProductionSourceSystem = registerProductionSourceSystem)
 
-        return@withContext request<RegisterProductionSourceSystem, Unit>(
+        return@withContext request<RegisterProductionSourceSystem, ProductionSourceSystemCredential>(
             localVariableConfig
         )
     }
@@ -757,22 +769,24 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-systems/{source_system_id}/rotate
-     *
+     * Rotate a production source system credential at the expected generation
      *
      * @param sourceSystemId
-     * @return void
+     * @param productionSourceSystemGenerationRequest
+     * @return ProductionSourceSystemCredential
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun rotateProductionSourceSystem(sourceSystemId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = rotateProductionSourceSystemWithHttpInfo(sourceSystemId = sourceSystemId)
+    suspend fun rotateProductionSourceSystem(sourceSystemId: java.util.UUID, productionSourceSystemGenerationRequest: ProductionSourceSystemGenerationRequest) : ProductionSourceSystemCredential = withContext(Dispatchers.IO) {
+        val localVarResponse = rotateProductionSourceSystemWithHttpInfo(sourceSystemId = sourceSystemId, productionSourceSystemGenerationRequest = productionSourceSystemGenerationRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ProductionSourceSystemCredential
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -788,18 +802,20 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/production/source-systems/{source_system_id}/rotate
-     *
+     * Rotate a production source system credential at the expected generation
      *
      * @param sourceSystemId
-     * @return ApiResponse<Unit?>
+     * @param productionSourceSystemGenerationRequest
+     * @return ApiResponse<ProductionSourceSystemCredential?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun rotateProductionSourceSystemWithHttpInfo(sourceSystemId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = rotateProductionSourceSystemRequestConfig(sourceSystemId = sourceSystemId)
+    suspend fun rotateProductionSourceSystemWithHttpInfo(sourceSystemId: java.util.UUID, productionSourceSystemGenerationRequest: ProductionSourceSystemGenerationRequest) : ApiResponse<ProductionSourceSystemCredential?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = rotateProductionSourceSystemRequestConfig(sourceSystemId = sourceSystemId, productionSourceSystemGenerationRequest = productionSourceSystemGenerationRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<ProductionSourceSystemGenerationRequest, ProductionSourceSystemCredential>(
             localVariableConfig
         )
     }
@@ -808,12 +824,14 @@ open class ProductionApi(basePath: kotlin.String = defaultBasePath, client: Call
      * To obtain the request config of the operation rotateProductionSourceSystem
      *
      * @param sourceSystemId
+     * @param productionSourceSystemGenerationRequest
      * @return RequestConfig
      */
-    fun rotateProductionSourceSystemRequestConfig(sourceSystemId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun rotateProductionSourceSystemRequestConfig(sourceSystemId: java.util.UUID, productionSourceSystemGenerationRequest: ProductionSourceSystemGenerationRequest) : RequestConfig<ProductionSourceSystemGenerationRequest> {
+        val localVariableBody = productionSourceSystemGenerationRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(

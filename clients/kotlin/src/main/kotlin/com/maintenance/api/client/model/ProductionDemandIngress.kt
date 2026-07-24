@@ -68,7 +68,8 @@ data class ProductionDemandIngress (
     @SerialName(value = "source_version")
     val sourceVersion: kotlin.String
 
-) {
+) :
+    ProductionSourceIngress {
 
     /**
      *
