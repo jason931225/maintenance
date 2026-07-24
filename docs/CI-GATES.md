@@ -234,7 +234,7 @@ names only, not incidental workflow prose or runner setup text.
   `npm run gen:api:portable`, `git diff --exit-code -- clients/ts
   clients/kotlin`, `npm run check:ts`, and `npm run check:kotlin`. The local
   wrapper for the generation+diff check is `npm run check:api-drift:portable`.
-- **Web console — lint / test / build**: ADR governance scripts `test:adrs`
+- **Web console — lint / test / production artifact isolation**: ADR governance scripts `test:adrs`
   and `check:adrs`, followed by root product-maturity scripts
   `check:foundation-gates`, `check:enterprise-ux-parity`,
   `check:browser-persona-matrix`, `check:ios-ui-test-fail-closed`,
@@ -517,9 +517,9 @@ to confirm request/response shapes round-trip against the real handlers (needs
 
 ## Web console and product-maturity gates
 
-The web job runs root-level product maturity scripts before the normal web
-workspace lint/test/build trio. These scripts are local Node gates, not Playwright
-runtime tests:
+The web job runs root-level product maturity scripts before its exact web
+verification sequence. These scripts are local Node gates, not Playwright runtime
+tests:
 
 - `npm run check:foundation-gates`
 - `npm run check:enterprise-ux-parity`
@@ -541,14 +541,21 @@ runtime tests:
 - `npm run check:cx-reporting-maturity`
 - `npm run check:operations-intelligence-maturity`
 
-The workspace checks map to `web/package.json`:
+### Exact web CI verification sequence
 
-- `npm run lint --workspace @console/web` (`npm run web:lint`) runs
-  ESLint and `web/scripts/check-ui-strings.mjs`.
-- `npm run test --workspace @console/web` (`npm run web:test`) runs
-  Vitest.
-- `npm run build --workspace @console/web` (`npm run web:build`) runs
-  `tsc -b` and `vite build`.
+The workflow runs these commands in order against `web/package.json`:
+
+1. `npm run lint --workspace @console/web` runs ESLint and
+   `web/scripts/check-ui-strings.mjs`.
+2. `npm run test --workspace @console/web` runs Vitest.
+3. `npm run test:production-dev-auth-guards --workspace @console/web` verifies
+   production dev-auth entrypoint guards.
+4. `npm run check:production-dev-auth-absence --workspace @console/web` owns the
+   production build (`tsc -b` plus `vite build`) and proves dev-auth entrypoints
+   are absent from the emitted artifact.
+
+Root shortcuts `web:lint` and `web:test` reproduce only the first two commands;
+the production artifact proof is intentionally the explicit workspace sequence.
 
 ---
 
