@@ -132,6 +132,9 @@ const MailPage = lazy(() =>
 const SupportPage = lazy(() =>
   import("./pages/SupportPage").then((m) => ({ default: m.SupportPage })),
 );
+const FacilitiesPage = lazy(() =>
+  import("./pages/FacilitiesPage").then((m) => ({ default: m.FacilitiesPage })),
+);
 const EquipmentPage = lazy(() =>
   import("./pages/EquipmentPage").then((m) => ({ default: m.EquipmentPage })),
 );
@@ -575,6 +578,7 @@ export function AppRouter() {
             {/* Legacy equipment page: kept at /equipment/legacy during transition */}
             <Route path="/equipment/legacy" element={<EquipmentPage />} />
           </Route>
+          <Route path="/facilities" element={<FacilitiesPage />} />
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<FinancialPage />} />
           </Route>
