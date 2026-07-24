@@ -69548,15 +69548,15 @@ public struct Client: APIProtocol {
     }
     /// Append an idempotent post-close amendment
     ///
-    /// - Remark: HTTP `POST /api/v1/attendance/closes/{close_id}/amend`.
-    /// - Remark: Generated from `#/paths//api/v1/attendance/closes/{close_id}/amend/post(amendAttendanceClose)`.
+    /// - Remark: HTTP `POST /api/v1/attendance/closes/{close_id}/amendments`.
+    /// - Remark: Generated from `#/paths//api/v1/attendance/closes/{close_id}/amendments/post(amendAttendanceClose)`.
     public func amendAttendanceClose(_ input: Operations.AmendAttendanceClose.Input) async throws -> Operations.AmendAttendanceClose.Output {
         try await client.send(
             input: input,
             forOperation: Operations.AmendAttendanceClose.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/v1/attendance/closes/{}/amend",
+                    template: "/api/v1/attendance/closes/{}/amendments",
                     parameters: [
                         input.path.closeId
                     ]
@@ -69852,15 +69852,15 @@ public struct Client: APIProtocol {
     }
     /// Idempotently acknowledge a week-52 adjustment
     ///
-    /// - Remark: HTTP `POST /api/v1/attendance/week52/ack`.
-    /// - Remark: Generated from `#/paths//api/v1/attendance/week52/ack/post(acknowledgeAttendanceWeek52)`.
+    /// - Remark: HTTP `POST /api/v1/attendance/week52/acks`.
+    /// - Remark: Generated from `#/paths//api/v1/attendance/week52/acks/post(acknowledgeAttendanceWeek52)`.
     public func acknowledgeAttendanceWeek52(_ input: Operations.AcknowledgeAttendanceWeek52.Input) async throws -> Operations.AcknowledgeAttendanceWeek52.Output {
         try await client.send(
             input: input,
             forOperation: Operations.AcknowledgeAttendanceWeek52.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/v1/attendance/week52/ack",
+                    template: "/api/v1/attendance/week52/acks",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(

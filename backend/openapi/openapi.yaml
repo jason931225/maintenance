@@ -14724,7 +14724,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /api/v1/attendance/closes/{close_id}/amend:
+  /api/v1/attendance/closes/{close_id}/amendments:
     post:
       tags: [attendance]
       operationId: amendAttendanceClose
@@ -14754,7 +14754,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /api/v1/attendance/week52/ack:
+  /api/v1/attendance/week52/acks:
     post:
       tags: [attendance]
       operationId: acknowledgeAttendanceWeek52

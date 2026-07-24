@@ -12,7 +12,7 @@ function client() {
   return {
     GET: vi.fn(() => Promise.resolve(response())),
     POST: vi.fn((path: string) => Promise.resolve(response(
-      path === "/api/v1/attendance/week52/ack"
+      path === "/api/v1/attendance/week52/acks"
         ? {
             employee_id: "employee-a",
             name: "Kim",
@@ -112,14 +112,14 @@ describe("createAttendanceApiTransport", () => {
     expect(api.POST).toHaveBeenNthCalledWith(6, "/api/v1/attendance/closes", {
       body: { month: "2026-07", branch_scope: "branch-a", attest: true }, signal: undefined,
     });
-    expect(api.POST).toHaveBeenNthCalledWith(7, "/api/v1/attendance/closes/{close_id}/amend", {
+    expect(api.POST).toHaveBeenNthCalledWith(7, "/api/v1/attendance/closes/{close_id}/amendments", {
       params: { path: { close_id: "close-a" }, header: { "Idempotency-Key": "idem-1" } },
       body: { reason: "Correct verified attendance", detail: "Corrected approved record", ref: "AT-0701-01" }, signal: undefined,
     });
     expect(api.GET).toHaveBeenNthCalledWith(5, "/api/v1/attendance/week52", {
       params: { query: { week_start: "2026-06-29", branch_id: "branch-a" } }, signal: undefined,
     });
-    expect(api.POST).toHaveBeenNthCalledWith(8, "/api/v1/attendance/week52/ack", {
+    expect(api.POST).toHaveBeenNthCalledWith(8, "/api/v1/attendance/week52/acks", {
       body: { employee_id: "employee-a", week_start: "2026-06-29" }, signal: undefined,
     });
     expect(uuid).toHaveBeenCalledTimes(3);

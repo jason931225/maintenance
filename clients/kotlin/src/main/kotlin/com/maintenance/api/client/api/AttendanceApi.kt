@@ -75,7 +75,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
     }
 
     /**
-     * POST /api/v1/attendance/week52/ack
+     * POST /api/v1/attendance/week52/acks
      * Idempotently acknowledge a week-52 adjustment
      *
      * @param attendanceWeek52AckRequest
@@ -107,7 +107,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
     }
 
     /**
-     * POST /api/v1/attendance/week52/ack
+     * POST /api/v1/attendance/week52/acks
      * Idempotently acknowledge a week-52 adjustment
      *
      * @param attendanceWeek52AckRequest
@@ -140,7 +140,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/v1/attendance/week52/ack",
+            path = "/api/v1/attendance/week52/acks",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -149,7 +149,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
     }
 
     /**
-     * POST /api/v1/attendance/closes/{close_id}/amend
+     * POST /api/v1/attendance/closes/{close_id}/amendments
      * Append an idempotent post-close amendment
      *
      * @param closeId
@@ -183,7 +183,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
     }
 
     /**
-     * POST /api/v1/attendance/closes/{close_id}/amend
+     * POST /api/v1/attendance/closes/{close_id}/amendments
      * Append an idempotent post-close amendment
      *
      * @param closeId
@@ -221,7 +221,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/v1/attendance/closes/{close_id}/amend".replace("{"+"close_id"+"}", encodeURIComponent(closeId.toString())),
+            path = "/api/v1/attendance/closes/{close_id}/amendments".replace("{"+"close_id"+"}", encodeURIComponent(closeId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

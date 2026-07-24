@@ -180,7 +180,7 @@ export function createAttendanceApiTransport(
     },
 
     async addCloseAmendment(closeId, input, signal) {
-      const result = await api.POST("/api/v1/attendance/closes/{close_id}/amend", {
+      const result = await api.POST("/api/v1/attendance/closes/{close_id}/amendments", {
         params: {
           path: { close_id: closeId },
           header: { "Idempotency-Key": idempotencyKey() },
@@ -200,7 +200,7 @@ export function createAttendanceApiTransport(
     },
 
     async ackWeek52(employeeId, weekStart, signal) {
-      const result = await api.POST("/api/v1/attendance/week52/ack", {
+      const result = await api.POST("/api/v1/attendance/week52/acks", {
         body: { employee_id: employeeId, week_start: weekStart },
         signal,
       });

@@ -8166,7 +8166,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/attendance/closes/{close_id}/amend": {
+    "/api/v1/attendance/closes/{close_id}/amendments": {
         parameters: {
             query?: never;
             header?: never;
@@ -8200,7 +8200,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/attendance/week52/ack": {
+    "/api/v1/attendance/week52/acks": {
         parameters: {
             query?: never;
             header?: never;

@@ -38,9 +38,9 @@ pub const ATTENDANCE_SUBSTITUTION_CANCEL_PATH: &str =
     "/api/v1/attendance/substitutions/{substitution_id}/cancel";
 pub const ATTENDANCE_CLOSES_PATH: &str = "/api/v1/attendance/closes";
 pub const ATTENDANCE_CLOSE_PREFLIGHT_PATH: &str = "/api/v1/attendance/closes/preflight";
-pub const ATTENDANCE_CLOSE_AMEND_PATH: &str = "/api/v1/attendance/closes/{close_id}/amend";
+pub const ATTENDANCE_CLOSE_AMEND_PATH: &str = "/api/v1/attendance/closes/{close_id}/amendments";
 pub const ATTENDANCE_WEEK52_PATH: &str = "/api/v1/attendance/week52";
-pub const ATTENDANCE_WEEK52_ACK_PATH: &str = "/api/v1/attendance/week52/ack";
+pub const ATTENDANCE_WEEK52_ACK_PATH: &str = "/api/v1/attendance/week52/acks";
 pub const ATTENDANCE_ROUTE_PATHS: &[&str] = &[
     ATTENDANCE_EXCEPTIONS_PATH,
     ATTENDANCE_EXCEPTION_DETAIL_PATH,
@@ -1294,6 +1294,19 @@ mod tests {
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_SUBSTITUTION_CANCEL_PATH));
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_CLOSE_AMEND_PATH));
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_WEEK52_ACK_PATH));
+        assert_eq!(
+            ATTENDANCE_CLOSE_AMEND_PATH,
+            "/api/v1/attendance/closes/{close_id}/amendments"
+        );
+        assert_eq!(ATTENDANCE_WEEK52_ACK_PATH, "/api/v1/attendance/week52/acks");
+        assert!(
+            !ATTENDANCE_ROUTE_PATHS.contains(&"/api/v1/attendance/closes/{close_id}/amend"),
+            "the legacy singular amendment route must not remain mounted"
+        );
+        assert!(
+            !ATTENDANCE_ROUTE_PATHS.contains(&"/api/v1/attendance/week52/ack"),
+            "the legacy singular acknowledgement route must not remain mounted"
+        );
         assert_eq!(BRANCH_BOUND_ENDPOINT_FAMILIES.len(), 13);
     }
 
