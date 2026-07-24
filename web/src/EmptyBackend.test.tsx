@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -70,6 +70,20 @@ const emptyOpsSummary = {
 const emptyDispatchQueue = {
   items: [],
   stats: { unassigned_count: 0, sla_due_count: 0 },
+};
+
+const emptyConsoleRollout = {
+  flag_key: "console_carbon_copy",
+  org_enabled: false,
+  org_rollout_enabled: false,
+  user_opted_in: false,
+  legacy_kill_switch_enabled: false,
+  kill_switch_active: false,
+  effective_new_console: false,
+  effective_route: "legacy",
+  effective_route_for_opted_in_user: "legacy",
+  effective_route_for_opted_out_user: "legacy",
+  overrides_individual_toggles: false,
 };
 
 const emptyConsentStatus = {
@@ -186,6 +200,12 @@ const server = setupServer(
     dispatchQueueReads += 1;
     return HttpResponse.json(emptyDispatchQueue);
   }),
+  // Profile settings mounts these self-service reads after its identity fetch.
+  // Fixture them explicitly so handler reset cannot hide a late unhandled call.
+  http.get("*/api/v1/auth/passkeys", () => HttpResponse.json([])),
+  http.get("*/api/v1/console/rollout", () =>
+    HttpResponse.json(emptyConsoleRollout),
+  ),
   // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
   // /overview and /attendance. Empty backend => empty layout object.
   http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
@@ -335,17 +355,23 @@ async function waitForLateMountEffects() {
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
-afterEach(() => {
+afterEach(async () => {
+  // Do not clear the request ledger: handler isolation must not erase evidence
+  // of a late route fetch. Require the app to become quiescent before swapping
+  // handlers so delayed effects fail this test instead of leaking into the
+  // next one.
+  cleanup();
+  await waitForNetworkIdle();
   attendanceRecordReads = 0;
   ownAttendanceReads = 0;
   managerAttendanceReads = 0;
   attendanceAuthzReads = 0;
   payrollRunReads = 0;
   dispatchQueueReads = 0;
-  inFlightHttpRequests.clear();
   server.resetHandlers();
 });
 afterAll(() => {
+  expect(Array.from(inFlightHttpRequests.values())).toEqual([]);
   server.close();
 });
 
@@ -419,6 +445,7 @@ describe("every page renders cleanly against an empty backend", () => {
       expect(
         (await screen.findAllByText(page.empty, undefined, ROUTE_LOAD_OPTIONS))[0],
       ).toBeVisible();
+      await waitForNetworkIdle();
 
       // The per-route error boundary fallback must never appear.
       expect(
@@ -435,6 +462,35 @@ describe("every page renders cleanly against an empty backend", () => {
       }
     });
   }
+
+  it("keeps a delayed Dispatch queue response visible until it settles", async () => {
+    let releaseResponse: (() => void) | undefined;
+    const responseReleased = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/console/dispatch/queue", async () => {
+        dispatchQueueReads += 1;
+        await responseReleased;
+        return HttpResponse.json(emptyDispatchQueue);
+      }),
+    );
+
+    renderAt("/dispatch");
+    try {
+      await waitFor(() => {
+        expect(dispatchQueueReads).toBe(1);
+      });
+      expect(Array.from(inFlightHttpRequests.values())).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/\/api\/v1\/console\/dispatch\/queue/),
+        ]),
+      );
+    } finally {
+      releaseResponse?.();
+    }
+    await waitForNetworkIdle();
+  });
 
   it("keeps hidden attendance composition completely inert while Overview is active", async () => {
     renderAt("/overview");
