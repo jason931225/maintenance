@@ -4,6 +4,7 @@
 //! not inferred from DDL text alone.
 
 use sqlx::{PgPool, Row};
+use tokio::time::{timeout, Duration};
 use uuid::Uuid;
 
 const ORG_A: Uuid = Uuid::from_u128(0x1880_0000_0000_0000_0000_0000_0000_0001);
@@ -511,19 +512,76 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
             .contains("attendance-substitution-eligibility-v1|"),
         "the lock material is a cross-domain compatibility contract"
     );
+    assert!(
+        lock.get::<String, _>("definition").contains("to_char(p_work_date, 'YYYY-MM-DD')")
+            && lock.get::<String, _>("definition").contains(" 0\n"),
+        "the lock material must preserve the legacy seed-zero YYYY-MM-DD bytes"
+    );
 
-    let trigger_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_trigger t \
+    let lock_material = format!(
+        "attendance-substitution-eligibility-v1|{ORG_A}|{}|2026-07-02",
+        a.employee
+    );
+    let mut lock_tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL DateStyle TO 'SQL, DMY'")
+        .execute(&mut *lock_tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT public.mnt_employee_day_eligibility_lock($1, $2, DATE '2026-07-02')")
+        .bind(ORG_A)
+        .bind(a.employee)
+        .execute(&mut *lock_tx)
+        .await
+        .unwrap();
+    let legacy_key_available: bool = sqlx::query_scalar(
+        "SELECT pg_try_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))",
+    )
+    .bind(lock_material)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        !legacy_key_available,
+        "alternate DateStyle must still lock the exact legacy Rust key"
+    );
+    lock_tx.rollback().await.unwrap();
+
+    let triggers = sqlx::query(
+        "SELECT c.relname AS table_name, t.tgname, t.tgtype::integer AS trigger_type, \
+                t.tgenabled::text AS enabled, p.proname AS function_name \
+         FROM pg_trigger t \
+         JOIN pg_class c ON c.oid = t.tgrelid \
+         JOIN pg_proc p ON p.oid = t.tgfoid \
          WHERE NOT t.tgisinternal AND t.tgname IN ( \
              'trg_attendance_exceptions_eligibility_lock', \
              'trg_attendance_substitutions_eligibility_guard', \
              'trg_leave_requests_eligibility_lock' \
-         )",
+         ) ORDER BY t.tgname",
     )
-    .fetch_one(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(trigger_count, 3, "all cross-domain transitions must serialize");
+    let trigger_shape: Vec<(String, String, i32, String, String)> = triggers
+        .iter()
+        .map(|row| {
+            (
+                row.get("table_name"),
+                row.get("tgname"),
+                row.get("trigger_type"),
+                row.get("enabled"),
+                row.get("function_name"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        trigger_shape,
+        vec![
+            ("attendance_exceptions".into(), "trg_attendance_exceptions_eligibility_lock".into(), 23, "O".into(), "mnt_attendance_exception_eligibility_lock".into()),
+            ("attendance_substitutions".into(), "trg_attendance_substitutions_eligibility_guard".into(), 23, "O".into(), "mnt_attendance_substitution_eligibility_guard".into()),
+            ("leave_requests".into(), "trg_leave_requests_eligibility_lock".into(), 19, "O".into(), "mnt_leave_request_eligibility_lock".into()),
+        ],
+        "all transition triggers must retain their exact table, event, timing, function, and enabled metadata"
+    );
 
     let decide_definition: String = sqlx::query_scalar(
         "SELECT pg_get_functiondef('leave_api.decide_request(uuid,uuid,uuid,bigint,text,text,text,text)'::regprocedure)",
@@ -587,5 +645,144 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
         guarded.as_database_error().unwrap().message(),
         "attendance_substitutions_worker_eligibility_guard"
     );
+    tx.rollback().await.unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transitions(pool: PgPool) {
+    let a = seed_org(&pool, ORG_A, "coordination").await;
+    let decider = Uuid::new_v4();
+    let leave_request = Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, 'Leave decider', $2, $3)")
+        .bind(decider)
+        .bind(vec!["MECHANIC".to_owned()])
+        .bind(ORG_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mut create_leave = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *create_leave)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(&mut *create_leave)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO leave_requests \
+         (id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, start_date, end_date, reason) \
+         VALUES ($1, $2, $3, $4, $5, 'annual', 1, DATE '2026-07-03', DATE '2026-07-03', 'coordination proof')",
+    )
+    .bind(leave_request)
+    .bind(ORG_A)
+    .bind(a.branch)
+    .bind(a.user)
+    .bind(a.employee)
+    .execute(&mut *create_leave)
+    .await
+    .unwrap();
+    create_leave.commit().await.unwrap();
+
+    let mut approve_leave = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *approve_leave)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(&mut *approve_leave)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE leave_requests SET status = 'approved', charge_state = 'legacy_unverified', charge_review_reasons = ARRAY[]::text[], charge_units = 1, decided_by = $1, decided_at = now() \
+         WHERE id = $2 AND org_id = $3",
+    )
+    .bind(decider)
+    .bind(leave_request)
+    .bind(ORG_A)
+    .execute(&mut *approve_leave)
+    .await
+    .unwrap();
+
+    let assignment_pool = pool.clone();
+    let mut assignment = tokio::spawn(async move {
+        let mut tx = runtime_tx(&assignment_pool, ORG_A).await;
+        let result = sqlx::query(
+            "INSERT INTO attendance_substitutions \
+             (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
+             VALUES ($1, 'A site', $2, 'mechanic', DATE '2026-07-03', 540, 1020, $3, 'APPROVED_LEAVE', $3, 'Known cover', 'part_time', $4, 'substitution-concurrent-leave-1', $5)",
+        )
+        .bind(ORG_A)
+        .bind(a.branch)
+        .bind(a.employee)
+        .bind(a.user)
+        .bind(FINGERPRINT)
+        .execute(&mut *tx)
+        .await;
+        tx.rollback().await.unwrap();
+        result
+    });
+    assert!(
+        timeout(Duration::from_millis(200), &mut assignment).await.is_err(),
+        "the assignment must wait on the uncommitted leave approval lock"
+    );
+    approve_leave.commit().await.unwrap();
+    let blocked = assignment.await.unwrap().expect_err("leave approval wins after its lock commits");
+    assert_eq!(blocked.as_database_error().unwrap().code().as_deref(), Some("23514"));
+
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    let rejected = sqlx::query(
+        "INSERT INTO attendance_substitutions \
+         (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'A site', $2, 'mechanic', DATE '2026-07-03', 540, 1020, $3, 'APPROVED_LEAVE', $3, 'Known cover', 'part_time', $4, 'substitution-after-leave-1', $5)",
+    )
+    .bind(ORG_A)
+    .bind(a.branch)
+    .bind(a.employee)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await
+    .expect_err("a completed leave approval must reject the queued assignment");
+    assert_eq!(rejected.as_database_error().unwrap().code().as_deref(), Some("23514"));
+    tx.rollback().await.unwrap();
+
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    sqlx::query(
+        "INSERT INTO attendance_substitutions \
+         (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'A site', $2, 'mechanic', DATE '2026-07-04', 540, 1020, $3, 'OTHER', $3, 'First cover', 'part_time', $4, 'substitution-cancelled-1', $5)",
+    )
+    .bind(ORG_A)
+    .bind(a.branch)
+    .bind(a.employee)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE attendance_substitutions SET status = 'CANCELLED', cancel_reason = 'released' WHERE idempotency_key = 'substitution-cancelled-1'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    let replacement = sqlx::query(
+        "INSERT INTO attendance_substitutions \
+         (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'A site', $2, 'mechanic', DATE '2026-07-04', 540, 1020, $3, 'OTHER', $3, 'Replacement cover', 'part_time', $4, 'substitution-replacement-1', $5)",
+    )
+    .bind(ORG_A)
+    .bind(a.branch)
+    .bind(a.employee)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await;
+    assert!(replacement.is_ok(), "cancelling an assignment releases that eligibility");
     tx.rollback().await.unwrap();
 }

@@ -14,8 +14,8 @@ BEGIN
     PERFORM pg_catalog.pg_advisory_xact_lock(
         pg_catalog.hashtextextended(
             'attendance-substitution-eligibility-v1|' || p_org_id::TEXT || '|' ||
-            p_employee_id::TEXT || '|' || p_work_date::TEXT,
-            166
+            p_employee_id::TEXT || '|' || pg_catalog.to_char(p_work_date, 'YYYY-MM-DD'),
+            0
         )
     );
 END;
