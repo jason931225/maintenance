@@ -28,6 +28,14 @@ const executiveSession: AuthSession = {
   roles: ["EXECUTIVE"],
 };
 
+const customPayrollReaderSession: AuthSession = {
+  ...adminSession,
+  access_token: "custom-payroll-reader-token",
+  user_id: "custom-payroll-reader",
+  roles: ["ADMIN"],
+  feature_grants: ["payroll_run_read"],
+};
+
 const readinessSummary = {
   imports: {
     runs: 1,
@@ -231,6 +239,20 @@ describe("PayrollPage audited close integration", () => {
     await waitFor(() => {
       expect(runRequests).toBe(0);
     });
+  });
+
+  it("renders the audited close workspace for a signed custom PayrollRunRead hint", async () => {
+    mockPayrollEndpoints(makeDashboard("CERTIFIED"));
+    server.use(
+      http.get("*/api/v1/payroll/runs", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
+
+    renderPage(customPayrollReaderSession);
+    expect(
+      await screen.findByRole("heading", { name: "급여 마감 명부" }),
+    ).toBeVisible();
   });
 
   it("renders the audited close workspace only for an org-wide payroll reader", async () => {

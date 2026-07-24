@@ -37,6 +37,11 @@ const RUN_STATUSES = new Set([
   "ISSUED",
   "VOID",
 ]);
+const TAX_ROW_STATUSES = new Set([
+  "REQUIRED_NOT_SUPPLIED",
+  "SUPPLIED_UNVERIFIED",
+  "VERIFIED_SOURCE_ROW",
+]);
 const LINE_STATUSES = new Set([
   "BLOCKED_LEGAL_GATE",
   "READY_FOR_REVIEW",
@@ -76,6 +81,11 @@ function validRun(value: unknown): value is Run {
     RUN_STATUSES.has(r.status)
   );
 }
+function nullableFiniteNumber(value: unknown): value is number | null {
+  return (
+    value === null || (typeof value === "number" && Number.isFinite(value))
+  );
+}
 function validLine(value: unknown): value is Line {
   if (typeof value !== "object" || value === null) return false;
   const l = value as Partial<Line>;
@@ -87,7 +97,11 @@ function validLine(value: unknown): value is Line {
     typeof l.calculation_status === "string" &&
     LINE_STATUSES.has(l.calculation_status) &&
     typeof l.gross_pay_source_present === "boolean" &&
-    typeof l.net_pay_source_present === "boolean"
+    typeof l.net_pay_source_present === "boolean" &&
+    typeof l.nts_tax_row_status === "string" &&
+    TAX_ROW_STATUSES.has(l.nts_tax_row_status) &&
+    nullableFiniteNumber(l.regular_hours) &&
+    nullableFiniteNumber(l.overtime_hours)
   );
 }
 function validPage(
@@ -116,15 +130,39 @@ function validPage(
     (offset >= total || items.length > 0) &&
     (kind === "runs"
       ? items.every(validRun)
-      : !!v.run && validRun(v.run) && v.run.id === id && items.every(validLine))
+      : !!v.run &&
+        validRun(v.run) &&
+        v.run.id === id &&
+        items.every(validLine)) &&
+    new Set(
+      items.map((item) =>
+        typeof item === "object" && item !== null
+          ? (item as { id?: unknown }).id
+          : undefined,
+      ),
+    ).size === items.length
   );
 }
-export function PayrollCloseWorkspace({ api }: { api: ConsoleApiClient }) {
+function appendsWithoutDuplicateIds<T extends { id: string }>(
+  existing: readonly T[],
+  page: readonly T[],
+): boolean {
+  const known = new Set(existing.map((item) => item.id));
+  return page.every((item) => !known.has(item.id));
+}
+export function PayrollCloseWorkspace({
+  api,
+  authorityKey,
+}: {
+  api: ConsoleApiClient;
+  authorityKey: string;
+}) {
   const [runs, setRuns] = useState<Run[]>([]),
     [total, setTotal] = useState(0),
     [runsState, setRunsState] = useState<State>("loading"),
     [detail, setDetail] = useState<DetailState>({ kind: "idle" });
   const runsRef = useRef<Run[]>([]),
+    totalRef = useRef<number | null>(null),
     listReq = useRef<AbortController | null>(null),
     detailReq = useRef<AbortController | null>(null),
     listGen = useRef(0),
@@ -143,6 +181,7 @@ export function PayrollCloseWorkspace({ api }: { api: ConsoleApiClient }) {
       const offset = more ? runsRef.current.length : 0;
       if (!more) {
         runsRef.current = [];
+        totalRef.current = null;
         setRuns([]);
         setTotal(0);
         setDetail({ kind: "idle" });
@@ -156,7 +195,12 @@ export function PayrollCloseWorkspace({ api }: { api: ConsoleApiClient }) {
         if (controller.signal.aborted || generation !== listGen.current) return;
         if (
           !response.data ||
-          !validPage(response.data, offset, RUN_LIMIT, "runs")
+          !validPage(response.data, offset, RUN_LIMIT, "runs") ||
+          (more && response.data.total !== totalRef.current) ||
+          !appendsWithoutDuplicateIds(
+            more ? runsRef.current : [],
+            response.data.items,
+          )
         ) {
           setRunsState(denied(response.response) ? "denied" : "error");
           return;
@@ -164,6 +208,7 @@ export function PayrollCloseWorkspace({ api }: { api: ConsoleApiClient }) {
         const page = response.data;
         const next = more ? [...runsRef.current, ...page.items] : page.items;
         runsRef.current = next;
+        totalRef.current = page.total;
         setRuns(next);
         setTotal(page.total);
         setRunsState("ready");
@@ -197,7 +242,12 @@ export function PayrollCloseWorkspace({ api }: { api: ConsoleApiClient }) {
           return;
         if (
           !response.data ||
-          !validPage(response.data, offset, LINE_LIMIT, "lines", run.id)
+          !validPage(response.data, offset, LINE_LIMIT, "lines", run.id) ||
+          (more && response.data.lines_total !== priorReady?.total) ||
+          !appendsWithoutDuplicateIds(
+            more && priorReady ? priorReady.lines : [],
+            response.data.lines,
+          )
         ) {
           setDetail({
             kind: denied(response.response) ? "denied" : "error",
@@ -228,7 +278,7 @@ export function PayrollCloseWorkspace({ api }: { api: ConsoleApiClient }) {
       listReq.current?.abort();
       cancelDetail();
     };
-  }, [api, cancelDetail, loadRuns]);
+  }, [api, authorityKey, cancelDetail, loadRuns]);
   const cols = useMemo<Array<DataTableColumn<Run>>>(
     () => [
       {

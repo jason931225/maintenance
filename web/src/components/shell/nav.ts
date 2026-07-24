@@ -92,6 +92,7 @@ export const FEATURES = {
   MAIL_ACCOUNT_MANAGE: "mail_account_manage",
   MAIL_USE: "mail_use",
   EMPLOYEE_DIRECTORY_READ: "employee_directory_read",
+  PAYROLL_RUN_READ: "payroll_run_read",
   FACILITIES_OBSERVE: "facilities_observe",
 } as const;
 

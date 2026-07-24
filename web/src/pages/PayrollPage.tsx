@@ -13,7 +13,12 @@ import type {
 import { PayrollCloseWorkspace } from "../console/payroll/PayrollCloseWorkspace";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import { isNavItemVisible, ROLES } from "../components/shell/nav";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  isNavItemVisible,
+  ROLES,
+} from "../components/shell/nav";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
@@ -55,12 +60,17 @@ const copy = ko.payroll;
 export function PayrollPage() {
   const { api, session } = useAuth();
   const payrollApi = api as PayrollApi;
-  // The payroll REST adapter grants organization-wide PayrollRunRead to these
-  // built-in roles. This prevents a weaker navigation-only role from prefetching
-  // audited payroll data; the backend remains the authoritative 401/403 guard.
-  const canReadOrganizationPayrollRuns = session?.roles?.some(
-    (role) => role === ROLES.EXECUTIVE || role === ROLES.SUPER_ADMIN,
-  ) ?? false;
+  // `payroll_run_read` is the backend PayrollRunRead feature. Roles and signed
+  // feature grants are client-side prefetch hints only; each read remains
+  // authoritatively re-checked by the API.
+  const canReadOrganizationPayrollRuns =
+    (session?.roles?.some(
+      (role) => role === ROLES.EXECUTIVE || role === ROLES.SUPER_ADMIN,
+    ) ?? false) ||
+    hasAnyFeatureGrant(session?.feature_grants, [FEATURES.PAYROLL_RUN_READ]);
+  // Token plus provider incarnation partitions retained UI reads across tenant,
+  // view-as, and token-refresh boundaries. The React key tears down old effects.
+  const payrollAuthorityKey = `${session?.access_token ?? ""}:${session?.client_session_incarnation ?? ""}`;
   const [state, setState] = useState<LoadState>("loading");
   const [readiness, setReadiness] = useState<HrReadinessSummary>();
   const [attendance, setAttendance] = useState<AttendanceSummaryPage>();
@@ -149,7 +159,13 @@ export function PayrollPage() {
         ) : null}
         {state === "idle" && readiness ? (
           <>
-            {canReadOrganizationPayrollRuns ? <PayrollCloseWorkspace api={api} /> : null}
+            {canReadOrganizationPayrollRuns ? (
+              <PayrollCloseWorkspace
+                key={payrollAuthorityKey}
+                api={api}
+                authorityKey={payrollAuthorityKey}
+              />
+            ) : null}
             <PayrollReadinessPanel
               readiness={readiness}
               attendance={attendance}

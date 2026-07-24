@@ -60,8 +60,13 @@ function apiFor(get: ReturnType<typeof vi.fn>) {
   return { GET: get } as unknown as ConsoleApiClient;
 }
 
-function renderWorkspace(api: ConsoleApiClient) {
-  return render(<PayrollCloseWorkspace api={api} />);
+function renderWorkspace(
+  api: ConsoleApiClient,
+  authorityKey = "token-a:incarnation-a",
+) {
+  return render(
+    <PayrollCloseWorkspace api={api} authorityKey={authorityKey} />,
+  );
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -256,6 +261,223 @@ describe("PayrollCloseWorkspace transport integrity", () => {
     renderWorkspace(apiFor(get));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "급여 회차 명부를 불러오지 못했습니다.",
+    );
+  });
+
+  it("partitions pending reads by authority token and incarnation", async () => {
+    let resolveOld!: (value: ReturnType<typeof response>) => void;
+    const oldRead = new Promise<ReturnType<typeof response>>((resolve) => {
+      resolveOld = resolve;
+    });
+    const oldApi = apiFor(vi.fn(() => oldRead));
+    const newerRun = { ...run, source_label: "새 권한 회차" };
+    const newApi = apiFor(
+      vi.fn(() =>
+        Promise.resolve(
+          response({ items: [newerRun], total: 1, limit: 50, offset: 0 }),
+        ),
+      ),
+    );
+    const view = renderWorkspace(oldApi, "token-a:incarnation-a");
+    view.rerender(
+      <PayrollCloseWorkspace
+        api={newApi}
+        authorityKey="token-b:incarnation-b"
+      />,
+    );
+    expect(await screen.findByText("새 권한 회차")).toBeVisible();
+    resolveOld(response({ items: [run], total: 1, limit: 50, offset: 0 }));
+    await Promise.resolve();
+    expect(screen.queryByText("2026년 6월 정기 지급")).not.toBeInTheDocument();
+  });
+
+  it("fails closed when a later run page drifts in total or repeats an id", async () => {
+    const get = vi.fn(
+      (path: string, options?: { params?: { query?: { offset?: number } } }) =>
+        Promise.resolve(
+          response(
+            path === "/api/v1/payroll/runs" &&
+              options?.params?.query?.offset === 0
+              ? { items: [run], total: 2, limit: 50, offset: 0 }
+              : { items: [run], total: 3, limit: 50, offset: 1 },
+          ),
+        ),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: "회차 더 불러오기" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 명부를 불러오지 못했습니다.",
+    );
+  });
+
+  it("fails closed when a later detail page drifts in total or repeats an id", async () => {
+    const get = vi.fn(
+      (
+        path: string,
+        options?: { params?: { query?: { offset?: number } } },
+      ) => {
+        if (path === "/api/v1/payroll/runs") {
+          return Promise.resolve(
+            response({ items: [run], total: 1, limit: 50, offset: 0 }),
+          );
+        }
+        return Promise.resolve(
+          response(
+            options?.params?.query?.offset === 0
+              ? { ...detail(), lines_total: 2 }
+              : { ...detail(), lines_total: 3, lines_offset: 1 },
+          ),
+        );
+      },
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: /2026년 6월 정기 지급/i }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "직원 행 더 불러오기" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 상세를 불러오지 못했습니다.",
+    );
+  });
+
+  it("fails closed when a later run page repeats an id without changing total", async () => {
+    const get = vi.fn(
+      (path: string, options?: { params?: { query?: { offset?: number } } }) =>
+        Promise.resolve(
+          response(
+            path === "/api/v1/payroll/runs" &&
+              options?.params?.query?.offset === 0
+              ? { items: [run], total: 2, limit: 50, offset: 0 }
+              : { items: [run], total: 2, limit: 50, offset: 1 },
+          ),
+        ),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: "회차 더 불러오기" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 명부를 불러오지 못했습니다.",
+    );
+  });
+
+  it("fails closed when a later detail page repeats an id without changing total", async () => {
+    const get = vi.fn(
+      (
+        path: string,
+        options?: { params?: { query?: { offset?: number } } },
+      ) => {
+        if (path === "/api/v1/payroll/runs")
+          return Promise.resolve(
+            response({ items: [run], total: 1, limit: 50, offset: 0 }),
+          );
+        return Promise.resolve(
+          response(
+            options?.params?.query?.offset === 0
+              ? { ...detail(), lines_total: 2 }
+              : { ...detail(), lines_total: 2, lines_offset: 1 },
+          ),
+        );
+      },
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: /2026년 6월 정기 지급/i }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "직원 행 더 불러오기" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 상세를 불러오지 못했습니다.",
+    );
+  });
+
+  it("fails closed when a later run page makes no progress", async () => {
+    const get = vi.fn(
+      (path: string, options?: { params?: { query?: { offset?: number } } }) =>
+        Promise.resolve(
+          response(
+            path === "/api/v1/payroll/runs" &&
+              options?.params?.query?.offset === 0
+              ? { items: [run], total: 2, limit: 50, offset: 0 }
+              : { items: [], total: 2, limit: 50, offset: 1 },
+          ),
+        ),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: "회차 더 불러오기" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 명부를 불러오지 못했습니다.",
+    );
+  });
+
+  it("fails closed when a later detail page makes no progress", async () => {
+    const get = vi.fn(
+      (
+        path: string,
+        options?: { params?: { query?: { offset?: number } } },
+      ) => {
+        if (path === "/api/v1/payroll/runs")
+          return Promise.resolve(
+            response({ items: [run], total: 1, limit: 50, offset: 0 }),
+          );
+        return Promise.resolve(
+          response(
+            options?.params?.query?.offset === 0
+              ? { ...detail(), lines_total: 2 }
+              : { ...detail([]), lines_total: 2, lines_offset: 1 },
+          ),
+        );
+      },
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: /2026년 6월 정기 지급/i }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "직원 행 더 불러오기" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 상세를 불러오지 못했습니다.",
+    );
+  });
+
+  it("rejects non-progress pages and malformed rendered tax or hour fields", async () => {
+    const malformed = {
+      ...detail([
+        {
+          ...detail().lines[0],
+          nts_tax_row_status: "UNKNOWN",
+          regular_hours: Infinity,
+        },
+      ]),
+    };
+    const get = vi.fn((path: string) =>
+      Promise.resolve(
+        path === "/api/v1/payroll/runs"
+          ? response({ items: [run], total: 1, limit: 50, offset: 0 })
+          : response(malformed),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: /2026년 6월 정기 지급/i }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "급여 회차 상세를 불러오지 못했습니다.",
     );
   });
 
