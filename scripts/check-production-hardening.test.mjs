@@ -493,6 +493,7 @@ const validPr473Files = {
           RT_PASSWORD="$(openssl rand -hex 32)"
           LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
@@ -501,6 +502,7 @@ const validPr473Files = {
             -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
             -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
 
@@ -681,6 +683,24 @@ describe("production hardening PR 473 typed operational gate", () => {
       ),
     });
     assertHasFailure(fakeTopology, "must invoke the exact reconcile command");
+
+    const missingPlatformForceTopology = evaluatePr473({
+      ".github/workflows/ci.yml": validPr473Files[
+        ".github/workflows/ci.yml"
+      ]
+        .replace(
+          '          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"\n',
+          "",
+        )
+        .replace(
+          '            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \\\n',
+          "",
+        ),
+    });
+    assertHasFailure(
+      missingPlatformForceTopology,
+      "must invoke the exact reconcile command",
+    );
   });
 
   it("rejects shell-control topology command bypasses", () => {
