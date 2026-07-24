@@ -131,8 +131,10 @@ planner discovers the consolidation worktree through `git worktree list
 --porcelain`, verifies its exact branch, cleanliness, anchor-descendant HEAD,
 and that its resource demand fits the epoch capacity before it can be ready.
 Each leaf receipt names its exact lane and implementer, a distinct reviewer, the
-reviewed leaf commit, the SHA-256 leaf-result digest, and a review commit that
-exists and descends from that leaf commit. Review fans out per leaf;
+reviewed leaf commit, and the SHA-256 leaf-result digest. The admission manifest
+binds that immutable receipt artifact to its review commit, avoiding an
+impossible self-referential review-commit hash inside the signed receipt blob.
+Review fans out per leaf;
 rejections return only to the leaf owner. The consolidated exact tip then runs
 cheap admission, affected Buck targets, resource-class shards, browser stories,
 and the full backstop.
@@ -140,3 +142,11 @@ and the full backstop.
 The receipt is planning evidence, not a completion claim. A capability is done
 only after its roadmap stories, real backend wiring, independent review,
 shared-face consolidation, and exact-tip verification all pass.
+
+The exported in-memory planner never accepts caller-provided receipt objects as
+completion authority. Only the CLI runtime may mint its private attestation
+after complete immutable Git receipt, path, ancestry, identity, and signature
+validation succeeds. Selected source lanes create no expensive verification jobs.
+Verification jobs arise only from runtime-validated review attestations and use
+the actual reviewed `leaf_commit` SHA for grouping/cache affinity (or a
+separately verified consolidated tip), never the epoch anchor SHA.

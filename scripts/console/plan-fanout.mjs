@@ -11,6 +11,7 @@ const QUALITY_BIAS_DEFAULT = 0.6;
 const RESOURCE_KEYS = ['writer', 'postgres', 'browser', 'ios', 'graph', 'cas'];
 const COLD_RUST_COMPILE_LANES = 2;
 const COLD_RUST_COMPILE_JOBS = 6;
+const validatedAttestationTokens = new WeakSet();
 
 function compareText(a, b) { return a.localeCompare(b, 'en'); }
 function arrays(value) { return Array.isArray(value) ? value : []; }
@@ -123,6 +124,7 @@ function exactIdentity(value) { return typeof value === 'string' && value !== ''
 function canonicalFingerprint(value) { return typeof value === 'string' && /^[A-F0-9]{40,64}$/.test(value); }
 function sshFingerprint(value) { return typeof value === 'string' && /^SHA256:[A-Za-z0-9+/]+={0,2}$/.test(value); }
 function canonicalReceiptDigest(receipt) { return createHash('sha256').update(stableJson(receipt)).digest('hex'); }
+function receiptContentDigest(receipt) { const { review_commit: _reviewCommit, ...content } = receipt; return canonicalReceiptDigest(content); }
 function signingAuthority(reviewer) {
   if (reviewer?.signing === undefined) return reviewer?.signing_fingerprint ? { format: 'gpg', fingerprint: reviewer.signing_fingerprint } : null;
   const signing = reviewer.signing;
@@ -155,7 +157,12 @@ function staticReviewReceipt(receipt, epochBaseSha, lane, trustedReviewer) {
   return receipt;
 }
 function trustedReviewer(authority, id) { return validateReviewAuthority(authority).find((entry) => entry.id === id) ?? null; }
-function reviewReceipt(options, lane) { const receipt = options.admissionReceipts?.[lane.laneId]; return staticReviewReceipt(receipt, options.anchorSha, lane, trustedReviewer(options.registry.review_authority, receipt?.reviewer)) ? receipt : null; }
+function runtimeReceipt(options, lane) {
+  const attestations = options.validatedAttestations;
+  if (!attestations || typeof attestations !== 'object' || !validatedAttestationTokens.has(attestations)) return null;
+  const receipt = attestations.receipts?.[lane.laneId];
+  return staticReviewReceipt(receipt, options.anchorSha, lane, trustedReviewer(options.registry.review_authority, receipt?.reviewer)) ? receipt : null;
+}
 export function leafResultDigest(diff) { return createHash('sha256').update(diff).digest('hex'); }
 export function signatureMatchesFingerprint(rawStatus, fingerprint) {
   if (typeof rawStatus !== 'string' || !canonicalFingerprint(fingerprint)) return false;
@@ -185,7 +192,7 @@ export function validateReviewReceiptForAnchor(receipt, anchor, lane, authority,
   if (operations.changedPaths(valid.review_commit).length !== 1 || operations.changedPaths(valid.review_commit)[0] !== receiptPath(lane.laneId)) throw new Error('review commit mutates outside its canonical receipt artifact');
   let immutableReceipt;
   try { immutableReceipt = operations.readJson(valid.review_commit, receiptPath(lane.laneId)); } catch { throw new Error('review receipt artifact is absent or malformed'); }
-  if (!immutableReceipt || canonicalReceiptDigest(immutableReceipt) !== canonicalReceiptDigest(receipt)) throw new Error('review receipt artifact is absent or differs from the admitted receipt');
+  if (!immutableReceipt || receiptContentDigest(immutableReceipt) !== receiptContentDigest(receipt)) throw new Error('review receipt artifact is absent or differs from the admitted receipt');
   if (leafResultDigest(operations.leafDiff(anchor, valid.leaf_commit)) !== valid.leaf_result_sha256) throw new Error('review receipt leaf result digest does not match immutable Git data');
   const identity = operations.commitIdentity(valid.review_commit);
   if (!identity || identity.author_name !== trusted.author_name || identity.author_email !== trusted.author_email || identity.committer_name !== trusted.committer_name || identity.committer_email !== trusted.committer_email) throw new Error('review commit identity is not trusted at epoch base');
@@ -242,7 +249,7 @@ export function buildFanoutPlan(registry, options) {
     normalizePattern(capability.evidence_path);
   }
 
-  const held = [], admitted = [], completed = [], completedLeafLanes = [], reviewReady = [];
+  const held = [], admitted = [], completed = [], completedLeafLanes = [], reviewReady = [], verifiedReviewLanes = [];
   const sharedByCapability = new Map(), laneIdsByCapability = new Map(), unassignedByCapability = new Map();
   for (const capability of [...registry.capabilities].sort((a, b) => compareText(a.id, b.id))) {
     const classes = classifyRoots(capabilityRoots(capability), sharedPatterns, migrationRoots);
@@ -257,14 +264,25 @@ export function buildFanoutPlan(registry, options) {
       if (unassigned.length) held.push({ capability_id: capability.id, lane_id: `${capability.id}#unowned-roots`, reasons: ['unassigned_private_ownership_roots'], unassigned_roots: unassigned });
       else if (lanes.some((lane) => laneReasons.get(lane.laneId).length)) held.push({ capability_id: capability.id, lane_id: `${capability.id}#invalid-lane-ownership`, reasons: [...new Set(lanes.flatMap((lane) => laneReasons.get(lane.laneId)))] });
       else if (normalizedLanes && lanes.some((lane) => !normalizedLanes.has(lane.laneId))) held.push({ capability_id: capability.id, lane_id: `${capability.id}#legacy-lane`, reasons: ['legacy_lane_not_normalized_for_epoch'] });
-      else if (!lanes.every((lane) => reviewReceipt(options, lane) && !options.runtimeReviewEligibility?.[lane.laneId])) held.push({ capability_id: capability.id, lane_id: `${capability.id}#completed-review`, reasons: ['completed_source_missing_exact_leaf_review_receipts'] });
-      else completed.push(capability.id);
+      else if (!lanes.every((lane) => runtimeReceipt(options, lane))) held.push({ capability_id: capability.id, lane_id: `${capability.id}#completed-review`, reasons: ['completed_source_missing_exact_leaf_review_receipts'] });
+      else {
+        completed.push(capability.id);
+        for (const lane of lanes) {
+          const resources = validResources(lane.resources); const receipt = runtimeReceipt(options, lane);
+          if (resources && receipt) verifiedReviewLanes.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, resources, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), receipt_leaf_commit: receipt.leaf_commit });
+        }
+      }
       continue;
     }
     if (unassigned.length) held.push({ capability_id: capability.id, lane_id: `${capability.id}#unowned-roots`, reasons: ['unassigned_private_ownership_roots'], unassigned_roots: unassigned });
     const incomplete = [];
     for (const lane of lanes) {
-      if (laneSourceComplete(capability, lane.kind)) { completedLeafLanes.push(lane.laneId); if (!reviewReceipt(options, lane) || options.runtimeReviewEligibility?.[lane.laneId]) reviewReady.push({ capability_id: capability.id, lane_id: lane.laneId, reason: 'source_lane_complete_exact_independent_review_required' }); continue; }
+      const trustedReceipt = runtimeReceipt(options, lane);
+      if (trustedReceipt && !laneReasons.get(lane.laneId).length && (!normalizedLanes || normalizedLanes.has(lane.laneId))) {
+        const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots); const resources = validResources(lane.resources);
+        if (resources) verifiedReviewLanes.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, resources, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), receipt_leaf_commit: trustedReceipt.leaf_commit });
+      }
+      if (laneSourceComplete(capability, lane.kind)) { completedLeafLanes.push(lane.laneId); if (!trustedReceipt) reviewReady.push({ capability_id: capability.id, lane_id: lane.laneId, reason: 'source_lane_complete_exact_independent_review_required' }); continue; }
       incomplete.push(lane);
       const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
       const reasons = [];
@@ -302,7 +320,7 @@ export function buildFanoutPlan(registry, options) {
     selected.push(lane);
   }
   const verificationAllocated = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])); let coldRustCompileLanes = 0;
-  const verificationQueue = selected.map((lane) => ({ ...lane, cache_affinity: options.anchorSha, execution: 'canonical_shared_daemon_combined_targets' })).sort((a, b) => b.selection_density - a.selection_density || compareText(a.lane_id, b.lane_id)).map((lane) => {
+  const verificationQueue = verifiedReviewLanes.map((lane) => ({ ...lane, verification_sha: lane.receipt_leaf_commit, cache_affinity: lane.receipt_leaf_commit, execution: 'canonical_shared_daemon_combined_targets' })).sort((a, b) => b.quality_utility - a.quality_utility || compareText(a.lane_id, b.lane_id)).map((lane) => {
     const exceeded = RESOURCE_KEYS.filter((key) => verificationAllocated[key] + lane.resources[key] > budgets[key]);
     const coldBlocked = lane.buck2_targets.length && coldRustCompileLanes >= COLD_RUST_COMPILE_LANES;
     if (exceeded.length || coldBlocked) return { ...lane, scheduled: false, hold_reason: coldBlocked ? 'cold_rust_compile_capacity_exhausted' : 'verification_resource_capacity_exhausted', constrained_resources: exceeded };
@@ -313,7 +331,7 @@ export function buildFanoutPlan(registry, options) {
   const selectedCapabilities = [...new Set(selected.map((lane) => lane.capability_id))].sort(compareText);
   const mergeDependencyHolds = selectedCapabilities.map((id) => ({ capability_id: id, unresolved_dependencies: selected.find((lane) => lane.capability_id === id).dependencies.filter((dependency) => !byId.has(dependency) || !sourceComplete(byId.get(dependency))) })).filter((entry) => entry.unresolved_dependencies.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
   const consolidationQueue = selectedCapabilities.map((id) => {
-    const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set(selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const lanes = sourceLaneDefinitions(capability); const hasReviews = lanes.every((lane) => reviewReceipt(options, lane) && !options.runtimeReviewEligibility?.[lane.laneId]); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
+    const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set(selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const lanes = sourceLaneDefinitions(capability); const hasReviews = lanes.every((lane) => runtimeReceipt(options, lane)); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
     const prerequisites = [];
     if (!hasReviews) prerequisites.push('exact_leaf_review_receipts_required');
     if (!consolidation?.owner || consolidation.owner !== registry.shared_collision_roots.owner) prerequisites.push('invalid_consolidation_owner');
@@ -428,7 +446,7 @@ export function validateAdmissionManifest(manifest, epochBaseSha, admissionSha, 
     if (!operations.isAncestor(entry.review_commit, admissionSha)) throw new Error('admission review commit is not an ancestor of admission');
     let receipt;
     try { receipt = operations.readJson(entry.review_commit, entry.receipt_path); } catch { throw new Error('admission receipt reference does not bind its review artifact'); }
-    if (receipt?.lane_id !== entry.lane_id || receipt.review_commit !== entry.review_commit) throw new Error('admission receipt reference does not bind its review artifact');
+    if (receipt?.lane_id !== entry.lane_id) throw new Error('admission receipt reference does not bind its review artifact');
     lanes.add(entry.lane_id); reviews.add(entry.review_commit); paths.add(entry.receipt_path);
   }
   return manifest.receipts;
@@ -470,17 +488,17 @@ function admissionReceipts(repoRoot, epochBaseSha, admissionSha) {
     parentOf: (sha) => git(repoRoot, ['rev-parse', `${sha}^`]),
   });
   const result = {};
-  for (const entry of manifest.receipts) result[entry.lane_id] = readAnchorJson(repoRoot, entry.review_commit, entry.receipt_path);
+  for (const entry of manifest.receipts) result[entry.lane_id] = { ...readAnchorJson(repoRoot, entry.review_commit, entry.receipt_path), review_commit: entry.review_commit };
   return result;
 }
 function verifyGitCommitSignature(repoRoot, sha) {
   const result = spawnSync('git', ['-C', repoRoot, 'verify-commit', '--raw', sha], { encoding: 'utf8' });
   if (result.error) throw new Error(`git verify-commit unavailable: ${result.error.message}`);
-  if (result.status !== 0 || typeof result.stderr !== 'string') throw new Error('git verify-commit rejected the review commit');
-  return result.stderr;
+  if (result.status !== 0 || typeof result.stdout !== 'string' || typeof result.stderr !== 'string') throw new Error('git verify-commit rejected the review commit');
+  return `${result.stdout}${result.stderr}`;
 }
 function runtimeEligibility(repoRoot, registry, anchor, receipts) {
-  const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry]));
+  const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry])); const validatedReceipts = {};
   const runtimeLaneEligibility = {}, runtimeConsolidationEligibility = {}, runtimeReviewEligibility = {};
   const generated = readAnchorJson(repoRoot, anchor, registry.shared_collision_roots.generated_face_registry);
   const { sharedPatterns, migrationRoots } = validateAuthority(registry, generated);
@@ -492,7 +510,7 @@ function runtimeEligibility(repoRoot, registry, anchor, receipts) {
       if (receipt) {
         try {
           const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
-          validateReviewReceiptForAnchor(receipt, anchor, { ...lane, privateRoots: roots.privateRoots, protectedRoots: [...sharedPatterns, ...migrationRoots] }, {
+          validateReviewReceiptForAnchor(receipt, anchor, { ...lane, privateRoots: roots.privateRoots, protectedRoots: [...sharedPatterns, ...migrationRoots] }, registry.review_authority, {
             hasCommit: (sha) => gitSucceeds(repoRoot, ['cat-file', '-e', `${sha}^{commit}`]),
             isAncestor: (ancestor, descendant) => gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', ancestor, descendant]),
             parentOf: (sha) => git(repoRoot, ['rev-parse', `${sha}^`]),
@@ -503,6 +521,7 @@ function runtimeEligibility(repoRoot, registry, anchor, receipts) {
             commitIdentity: (sha) => { const [author_name, author_email, committer_name, committer_email] = git(repoRoot, ['show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', sha]).split('\0'); return { author_name, author_email, committer_name, committer_email }; },
             verifySignature: (sha) => verifyGitCommitSignature(repoRoot, sha),
           });
+          validatedReceipts[lane.laneId] = receipt;
         } catch {
           runtimeReviewEligibility[lane.laneId] = 'invalid_exact_leaf_review_receipt';
         }
@@ -514,8 +533,10 @@ function runtimeEligibility(repoRoot, registry, anchor, receipts) {
       if (reason) runtimeConsolidationEligibility[capability.id] = reason;
     }
   }
-  return { runtimeLaneEligibility, runtimeConsolidationEligibility, runtimeReviewEligibility };
+  const validatedAttestations = { receipts: validatedReceipts };
+  validatedAttestationTokens.add(validatedAttestations);
+  return { runtimeLaneEligibility, runtimeConsolidationEligibility, runtimeReviewEligibility, validatedAttestations };
 }
-function main() { const args = parseArgs(process.argv.slice(2)); const repoRoot = process.cwd(); const registry = readAnchorJson(repoRoot, args.epochBaseSha, args.registryPath); const generatedPath = registry.shared_collision_roots?.generated_face_registry; if (typeof generatedPath !== 'string') throw new Error('missing generated-face authority path'); const generated = readAnchorJson(repoRoot, args.epochBaseSha, generatedPath); assertAnchorAuthority(repoRoot, args.epochBaseSha, args.registryPath, registry, generatedPath, generated); const receipts = admissionReceipts(repoRoot, args.epochBaseSha, args.admissionSha); const runtime = runtimeEligibility(repoRoot, registry, args.epochBaseSha, receipts); const plan = buildFanoutPlan(registry, { anchorSha: args.epochBaseSha, admissionSha: args.admissionSha, admissionReceipts: receipts, maxWriters: args.maxWriters, qualityBias: args.qualityBias, generatedFaces: generated, ...runtime }); process.stdout.write(`${JSON.stringify({ ...plan, epoch_base_sha: args.epochBaseSha, admission_sha: args.admissionSha }, null, 2)}\n`); }
+function main() { const args = parseArgs(process.argv.slice(2)); const repoRoot = process.cwd(); const registry = readAnchorJson(repoRoot, args.epochBaseSha, args.registryPath); const generatedPath = registry.shared_collision_roots?.generated_face_registry; if (typeof generatedPath !== 'string') throw new Error('missing generated-face authority path'); const generated = readAnchorJson(repoRoot, args.epochBaseSha, generatedPath); assertAnchorAuthority(repoRoot, args.epochBaseSha, args.registryPath, registry, generatedPath, generated); const receipts = admissionReceipts(repoRoot, args.epochBaseSha, args.admissionSha); const runtime = runtimeEligibility(repoRoot, registry, args.epochBaseSha, receipts); const plan = buildFanoutPlan(registry, { anchorSha: args.epochBaseSha, admissionSha: args.admissionSha, maxWriters: args.maxWriters, qualityBias: args.qualityBias, generatedFaces: generated, ...runtime }); process.stdout.write(`${JSON.stringify({ ...plan, epoch_base_sha: args.epochBaseSha, admission_sha: args.admissionSha }, null, 2)}\n`); }
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) { try { main(); } catch (error) { process.stderr.write(`console-fanout-plan: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; } }
