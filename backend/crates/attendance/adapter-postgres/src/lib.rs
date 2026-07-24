@@ -71,6 +71,8 @@ pub enum AttendanceStoreError {
     Conflict,
     #[error("close is blocked")]
     CloseBlocked,
+    #[error("invalid close month")]
+    InvalidCloseMonth,
 }
 
 #[derive(Debug, Clone)]
@@ -432,7 +434,7 @@ impl PgAttendanceStore {
         let month = AttendanceDateRange::selected_month_with_buffer(&close.month)
             .map_err(app::AttendanceApplicationError::from)?
             .from;
-        let next = month_after(month);
+        let next = month_after(month)?;
         let last = next - Duration::days(1);
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
@@ -475,8 +477,14 @@ impl PgAttendanceStore {
             if inserted.rows_affected() != 1 { return Err(AttendanceStoreError::Conflict); }
             let view = MonthCloseRead { id, month, branch_id: close.branch_scope, checks: close_checks_read(&checks), attested_by: caller.user_id, attested_at: OffsetDateTime::now_utc(), period_lock_id: lock_id, closed_at: OffsetDateTime::now_utc(), amendments: Vec::new() };
             let mut audits = vec![event(&caller,"attendance.close.confirm","attendance_month_close",id,close.branch_scope,Some(json!({"periodLockId":lock_id})))?];
-            if let Some(lock_id) = lock_id.filter(|_| created_period_lock) {
-                audits.push(event(&caller,"period_lock.create","period_lock",lock_id,None,Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})))?);
+            if let Some(audit) = created_period_lock_audit(
+                &caller,
+                created_period_lock,
+                lock_id,
+                month,
+                last,
+            )? {
+                audits.push(audit);
             }
             Ok((view, audits))
         })).await
@@ -737,12 +745,39 @@ fn week52_acknowledgement_response(
     ))
 }
 
-fn month_after(month: Date) -> Date {
+fn month_after(month: Date) -> Result<Date, AttendanceStoreError> {
     if month.month() == time::Month::December {
-        Date::from_calendar_date(month.year() + 1, time::Month::January, 1).unwrap_or(month)
+        let year = month
+            .year()
+            .checked_add(1)
+            .ok_or(AttendanceStoreError::InvalidCloseMonth)?;
+        Date::from_calendar_date(year, time::Month::January, 1)
+            .map_err(|_| AttendanceStoreError::InvalidCloseMonth)
     } else {
-        Date::from_calendar_date(month.year(), month.month().next(), 1).unwrap_or(month)
+        Date::from_calendar_date(month.year(), month.month().next(), 1)
+            .map_err(|_| AttendanceStoreError::InvalidCloseMonth)
     }
+}
+
+fn created_period_lock_audit(
+    caller: &CallerScope,
+    created_period_lock: bool,
+    lock_id: Option<Uuid>,
+    month: Date,
+    last: Date,
+) -> Result<Option<AuditEvent>, AttendanceStoreError> {
+    if !created_period_lock {
+        return Ok(None);
+    }
+    let lock_id = lock_id.ok_or(AttendanceStoreError::Conflict)?;
+    Ok(Some(event(
+        caller,
+        "period_lock.create",
+        "period_lock",
+        lock_id,
+        None,
+        Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})),
+    )?))
 }
 
 fn fingerprint(value: &Value) -> String {
@@ -993,7 +1028,7 @@ async fn close_checks(
     month: Date,
     branch: Option<Uuid>,
 ) -> Result<CloseChecks, AttendanceStoreError> {
-    let next = month_after(month);
+    let next = month_after(month)?;
     let open:i64=sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions WHERE status='OPEN' AND work_date >= $1 AND work_date < $2 AND ($3::uuid IS NULL OR branch_id=$3)").bind(month).bind(next).bind(branch).fetch_one(tx.as_mut()).await?;
     let pending:i64=sqlx::query_scalar("SELECT count(*) FROM leave_requests WHERE status IN ('pending','PENDING') AND start_date < $2 AND end_date >= $1 AND ($3::uuid IS NULL OR branch_id=$3)").bind(month).bind(next).bind(branch).fetch_one(tx.as_mut()).await?;
     let closed: bool = sqlx::query_scalar(
@@ -1266,6 +1301,47 @@ mod tests {
                 &json!({"open_exceptions": -1, "pending_leave": 0, "already_closed": false})
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn month_after_advances_december_and_rejects_an_unrepresentable_next_month() {
+        let december = Date::from_calendar_date(2026, Month::December, 1).unwrap();
+        assert_eq!(
+            month_after(december).unwrap(),
+            Date::from_calendar_date(2027, Month::January, 1).unwrap()
+        );
+        assert!(matches!(
+            month_after(Date::MAX),
+            Err(AttendanceStoreError::InvalidCloseMonth)
+        ));
+    }
+
+    #[test]
+    fn created_period_lock_requires_and_emits_its_audit_receipt() {
+        let caller = scope();
+        let lock_id = Uuid::new_v4();
+        let month = Date::from_calendar_date(2026, Month::July, 1).unwrap();
+        let last = Date::from_calendar_date(2026, Month::July, 31).unwrap();
+
+        let audit = created_period_lock_audit(&caller, true, Some(lock_id), month, last)
+            .unwrap()
+            .expect("created period lock requires an audit receipt");
+        assert_eq!(audit.action.as_str(), "period_lock.create");
+        assert_eq!(audit.target_type, "period_lock");
+        assert_eq!(audit.target_id, lock_id.to_string());
+        assert_eq!(
+            audit.after,
+            Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last}))
+        );
+        assert!(matches!(
+            created_period_lock_audit(&caller, true, None, month, last),
+            Err(AttendanceStoreError::Conflict)
+        ));
+        assert!(
+            created_period_lock_audit(&caller, false, None, month, last)
+                .unwrap()
+                .is_none()
         );
     }
 
