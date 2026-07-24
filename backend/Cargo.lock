@@ -4785,6 +4785,7 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-platform-auth",
  "mnt-platform-authz",
+ "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-platform-test-support",
  "p256",
