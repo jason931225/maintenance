@@ -282,6 +282,7 @@ export function buildFanoutPlan(registry, options) {
         const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots); const resources = validResources(lane.resources);
         if (resources) verifiedReviewLanes.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, resources, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), receipt_leaf_commit: trustedReceipt.leaf_commit });
       }
+      if (trustedReceipt) { completedLeafLanes.push(lane.laneId); continue; }
       if (laneSourceComplete(capability, lane.kind)) { completedLeafLanes.push(lane.laneId); if (!trustedReceipt) reviewReady.push({ capability_id: capability.id, lane_id: lane.laneId, reason: 'source_lane_complete_exact_independent_review_required' }); continue; }
       incomplete.push(lane);
       const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
@@ -320,18 +321,18 @@ export function buildFanoutPlan(registry, options) {
     selected.push(lane);
   }
   const verificationAllocated = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])); let coldRustCompileLanes = 0;
-  const verificationQueue = verifiedReviewLanes.map((lane) => ({ ...lane, verification_sha: lane.receipt_leaf_commit, cache_affinity: lane.receipt_leaf_commit, execution: 'canonical_shared_daemon_combined_targets' })).sort((a, b) => b.quality_utility - a.quality_utility || compareText(a.lane_id, b.lane_id)).map((lane) => {
-    const exceeded = RESOURCE_KEYS.filter((key) => verificationAllocated[key] + lane.resources[key] > budgets[key]);
-    const coldBlocked = lane.buck2_targets.length && coldRustCompileLanes >= COLD_RUST_COMPILE_LANES;
-    if (exceeded.length || coldBlocked) return { ...lane, scheduled: false, hold_reason: coldBlocked ? 'cold_rust_compile_capacity_exhausted' : 'verification_resource_capacity_exhausted', constrained_resources: exceeded };
-    for (const key of RESOURCE_KEYS) verificationAllocated[key] += lane.resources[key]; if (lane.buck2_targets.length) coldRustCompileLanes += 1;
-    return { ...lane, scheduled: true };
+  const verificationQueue = groupVerificationEntries(verifiedReviewLanes).map((group) => {
+    const exceeded = RESOURCE_KEYS.filter((key) => verificationAllocated[key] + group.resources[key] > budgets[key]);
+    const coldBlocked = group.buck2_targets.length && coldRustCompileLanes >= COLD_RUST_COMPILE_LANES;
+    if (exceeded.length || coldBlocked) return { ...group, scheduled: false, hold_reason: coldBlocked ? 'cold_rust_compile_capacity_exhausted' : 'verification_resource_capacity_exhausted', constrained_resources: exceeded };
+    for (const key of RESOURCE_KEYS) verificationAllocated[key] += group.resources[key]; if (group.buck2_targets.length) coldRustCompileLanes += 1;
+    return { ...group, scheduled: true };
   });
   const byId = new Map(registry.capabilities.map((capability) => [capability.id, capability]));
-  const selectedCapabilities = [...new Set(selected.map((lane) => lane.capability_id))].sort(compareText);
+  const selectedCapabilities = [...new Set([...selected.map((lane) => lane.capability_id), ...verifiedReviewLanes.map((lane) => lane.capability_id)])].sort(compareText);
   const mergeDependencyHolds = selectedCapabilities.map((id) => ({ capability_id: id, unresolved_dependencies: selected.find((lane) => lane.capability_id === id).dependencies.filter((dependency) => !byId.has(dependency) || !sourceComplete(byId.get(dependency))) })).filter((entry) => entry.unresolved_dependencies.length).sort((a,b) => compareText(a.capability_id,b.capability_id));
   const consolidationQueue = selectedCapabilities.map((id) => {
-    const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set(selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const lanes = sourceLaneDefinitions(capability); const hasReviews = lanes.every((lane) => runtimeReceipt(options, lane)); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
+    const capability = byId.get(id); const consolidation = capability.lane_assignments?.consolidation; const selectedIds = new Set([...selected.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id), ...verifiedReviewLanes.filter((lane) => lane.capability_id === id).map((lane) => lane.lane_id)]); const awaiting = (laneIdsByCapability.get(id) ?? []).filter((laneId) => !selectedIds.has(laneId)).sort(compareText); const lanes = sourceLaneDefinitions(capability); const hasReviews = lanes.every((lane) => runtimeReceipt(options, lane)); const consolidationResources = validResources(consolidation?.resources ?? capability.consolidation_resources);
     const prerequisites = [];
     if (!hasReviews) prerequisites.push('exact_leaf_review_receipts_required');
     if (!consolidation?.owner || consolidation.owner !== registry.shared_collision_roots.owner) prerequisites.push('invalid_consolidation_owner');
