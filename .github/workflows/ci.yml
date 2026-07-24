@@ -429,13 +429,12 @@ jobs:
         # `dev-auth` is NOT in default features (proven above) — build/test it
         # explicitly so its code path still compiles and its own tests
         # (including the route-present-under-the-feature session tests) run.
-        # `set -e` would abort on the first failing invocation and hide the rest;
-        # run all three, recording failure, then propagate the real exit code so
-        # one run reports every failing suite (no exit-code masking).
+        # The mnt-app dev-auth suite runs through its Buck feature variant below.
+        # Keep these two direct-Cargo commands until equivalent Buck feature
+        # variants exist for their non-app packages; aggregate failures here.
         run: |
           rc=0
           SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast -- --test-threads=1 || rc=1
-          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast -- --test-threads=1 || rc=1
           SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast -- --test-threads=1 || rc=1
           exit $rc
 
