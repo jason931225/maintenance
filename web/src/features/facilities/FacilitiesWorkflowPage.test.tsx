@@ -1,0 +1,104 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { useAuth } = vi.hoisted(() => ({ useAuth: vi.fn() }));
+vi.mock("../../context/auth", () => ({ useAuth }));
+
+import { FacilitiesWorkflowPage } from "./FacilitiesWorkflowPage";
+
+const caseId = "11111111-1111-1111-1111-111111111111";
+const techId = "22222222-2222-2222-2222-222222222222";
+const evidenceA = "33333333-3333-3333-3333-333333333333";
+const evidenceB = "44444444-4444-4444-4444-444444444444";
+
+function caseView(status: string, overrides = {}) {
+  return { id: caseId, status, assigneeId: status === "DUE" || status === "SCHEDULED" ? null : techId, responseDueAt: "2030-01-01T09:00:00Z", completionDueAt: "2030-01-01T12:00:00Z", acceptanceDueAt: "2030-01-02T12:00:00Z", energyDeltaKwh: null, totalCostKrw: 0, ...overrides };
+}
+
+function setupApi(initial = "DUE") {
+  let status = initial;
+  let value = caseView(status);
+  const GET = vi.fn((path: string) => {
+    if (path === "/api/v1/facilities/cases") return Promise.resolve({ data: [value], response: new Response() });
+    return Promise.resolve({ data: value, response: new Response() });
+  });
+  const POST = vi.fn((path: string, options?: { body?: Record<string, unknown> }) => {
+    if (path.endsWith("/triage")) status = "SCHEDULED";
+    else if (path.endsWith("/assign")) status = "ASSIGNED";
+    else if (path.endsWith("/start")) status = "IN_PROGRESS";
+    else if (path.endsWith("/observations")) value = caseView(status, { energyDeltaKwh: "-8.500", totalCostKrw: options?.body?.costKrw ?? 0 });
+    else if (path.endsWith("/submit")) status = "AWAITING_ACCEPTANCE";
+    else if (path.endsWith("/acceptance")) status = options?.body?.decision === "ACCEPTED" ? "CLOSED" : "REWORK_REQUIRED";
+    value = { ...value, ...caseView(status), ...(path.endsWith("/observations") ? { energyDeltaKwh: "-8.500", totalCostKrw: options?.body?.costKrw ?? 0 } : {}) };
+    return Promise.resolve({ data: path === "/api/v1/facilities/cases" ? value : {}, response: new Response() });
+  });
+  useAuth.mockReturnValue({ api: { GET, POST }, session: { org_id: "org", user_id: "user", client_session_incarnation: "session" } });
+  return { GET, POST };
+}
+
+describe("FacilitiesWorkflowPage", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("executes the real lifecycle commands and renders only server-read state", async () => {
+    const { POST } = setupApi();
+    const user = userEvent.setup();
+    render(<FacilitiesWorkflowPage />);
+    await screen.findByRole("heading", { name: "접수 대기" });
+
+    await user.clear(screen.getByLabelText("현장 예정 시각"));
+    await user.type(screen.getByLabelText("현장 예정 시각"), "2030-01-01T10:00");
+    await user.click(screen.getByRole("button", { name: "일정 확정" }));
+    await screen.findByRole("heading", { name: "일정 확정" });
+
+    await user.type(screen.getByLabelText("담당 사용자 ID"), techId);
+    await user.click(screen.getByRole("button", { name: "담당 배정" }));
+    await screen.findByRole("heading", { name: "담당 배정" });
+    await user.click(screen.getByRole("button", { name: "작업 시작" }));
+    await screen.findByRole("heading", { name: "작업 진행" });
+
+    await user.type(screen.getByLabelText("작업 전 kWh"), "100.000");
+    await user.type(screen.getByLabelText("작업 후 kWh"), "91.500");
+    await user.type(screen.getByLabelText("비용 (KRW)"), "42000");
+    await user.click(screen.getByRole("button", { name: "관측 기록" }));
+    await screen.findByText("-8.500 kWh");
+    expect(screen.getByText("42,000 KRW")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("안전 점검 증빙 ID"), evidenceA);
+    await user.type(screen.getByLabelText("서비스 보고 증빙 ID"), evidenceB);
+    await user.click(screen.getByRole("button", { name: "인수 요청 제출" }));
+    await screen.findByRole("heading", { name: "인수 확인 대기" });
+    await user.click(screen.getByRole("button", { name: "인수 및 종결" }));
+    await screen.findByRole("heading", { name: "종결" });
+    expect(screen.getByText("종결된 사례")).toBeInTheDocument();
+
+    expect(POST.mock.calls.map(([path]) => path)).toEqual([
+      "/api/v1/facilities/cases/{case_id}/triage",
+      "/api/v1/facilities/cases/{case_id}/assign",
+      "/api/v1/facilities/cases/{case_id}/start",
+      "/api/v1/facilities/cases/{case_id}/observations",
+      "/api/v1/facilities/cases/{case_id}/submit",
+      "/api/v1/facilities/cases/{case_id}/acceptance",
+    ]);
+  });
+
+  it("does not send a submission without both mandatory evidence records", async () => {
+    const { POST } = setupApi("IN_PROGRESS");
+    render(<FacilitiesWorkflowPage />);
+    await screen.findByRole("heading", { name: "작업 진행" });
+    fireEvent.submit(screen.getByRole("button", { name: "인수 요청 제출" }).closest("form")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("안전 점검과 서비스 보고 증빙 ID가 모두 필요합니다.");
+    expect(POST).not.toHaveBeenCalled();
+  });
+
+  it("renders the backend failure rather than inventing a transition", async () => {
+    const { POST } = setupApi();
+    POST.mockResolvedValueOnce({ error: new Error("illegal transition"), response: new Response("", { status: 409 }) });
+    const user = userEvent.setup();
+    render(<FacilitiesWorkflowPage />);
+    await screen.findByRole("heading", { name: "접수 대기" });
+    await user.click(screen.getByRole("button", { name: "일정 확정" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("illegal transition");
+    expect(screen.getByRole("heading", { name: "접수 대기" })).toBeInTheDocument();
+  });
+});
