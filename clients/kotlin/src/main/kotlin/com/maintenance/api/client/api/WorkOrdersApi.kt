@@ -607,12 +607,13 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
     /**
      * GET /api/v1/work-orders
      * List branch-scoped work orders
-     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values. &#x60;around_work_order_id&#x60; searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
+     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values. &#x60;branch_id&#x60; narrows results within the caller&#39;s existing branch/RLS scope. &#x60;around_work_order_id&#x60; searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
      * @param status  (optional)
      * @param priority  (optional)
      * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
      * @param customerId  (optional)
      * @param siteId  (optional)
+     * @param branchId Narrows results to one branch already visible to the caller; it never expands branch/RLS visibility. (optional)
      * @param aroundWorkOrderId Search around this seed work order; returns branch/RLS-visible orders sharing the seed&#39;s customer, site, or equipment, including the seed. (optional)
      * @param targetDueFrom  (optional)
      * @param targetDueTo  (optional)
@@ -627,8 +628,8 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listWorkOrders(status: kotlin.collections.List<WorkOrderStatus>? = null, priority: kotlin.collections.List<PriorityLevel>? = null, assignedTo: kotlin.String? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, aroundWorkOrderId: java.util.UUID? = null, targetDueFrom: java.time.OffsetDateTime? = null, targetDueTo: java.time.OffsetDateTime? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : WorkOrderListPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listWorkOrdersWithHttpInfo(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, aroundWorkOrderId = aroundWorkOrderId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
+    suspend fun listWorkOrders(status: kotlin.collections.List<WorkOrderStatus>? = null, priority: kotlin.collections.List<PriorityLevel>? = null, assignedTo: kotlin.String? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, branchId: java.util.UUID? = null, aroundWorkOrderId: java.util.UUID? = null, targetDueFrom: java.time.OffsetDateTime? = null, targetDueTo: java.time.OffsetDateTime? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : WorkOrderListPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkOrdersWithHttpInfo(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, branchId = branchId, aroundWorkOrderId = aroundWorkOrderId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderListPage
@@ -648,12 +649,13 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
     /**
      * GET /api/v1/work-orders
      * List branch-scoped work orders
-     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values. &#x60;around_work_order_id&#x60; searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
+     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values. &#x60;branch_id&#x60; narrows results within the caller&#39;s existing branch/RLS scope. &#x60;around_work_order_id&#x60; searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
      * @param status  (optional)
      * @param priority  (optional)
      * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
      * @param customerId  (optional)
      * @param siteId  (optional)
+     * @param branchId Narrows results to one branch already visible to the caller; it never expands branch/RLS visibility. (optional)
      * @param aroundWorkOrderId Search around this seed work order; returns branch/RLS-visible orders sharing the seed&#39;s customer, site, or equipment, including the seed. (optional)
      * @param targetDueFrom  (optional)
      * @param targetDueTo  (optional)
@@ -665,8 +667,8 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listWorkOrdersWithHttpInfo(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, aroundWorkOrderId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<WorkOrderListPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listWorkOrdersRequestConfig(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, aroundWorkOrderId = aroundWorkOrderId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
+    suspend fun listWorkOrdersWithHttpInfo(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, branchId: java.util.UUID?, aroundWorkOrderId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<WorkOrderListPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkOrdersRequestConfig(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, branchId = branchId, aroundWorkOrderId = aroundWorkOrderId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
 
         return@withContext request<Unit, WorkOrderListPage>(
             localVariableConfig
@@ -681,6 +683,7 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
      * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
      * @param customerId  (optional)
      * @param siteId  (optional)
+     * @param branchId Narrows results to one branch already visible to the caller; it never expands branch/RLS visibility. (optional)
      * @param aroundWorkOrderId Search around this seed work order; returns branch/RLS-visible orders sharing the seed&#39;s customer, site, or equipment, including the seed. (optional)
      * @param targetDueFrom  (optional)
      * @param targetDueTo  (optional)
@@ -688,7 +691,7 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listWorkOrdersRequestConfig(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, aroundWorkOrderId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listWorkOrdersRequestConfig(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, branchId: java.util.UUID?, aroundWorkOrderId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -706,6 +709,9 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
                 }
                 if (siteId != null) {
                     put("site_id", listOf(siteId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
                 }
                 if (aroundWorkOrderId != null) {
                     put("around_work_order_id", listOf(aroundWorkOrderId.toString()))

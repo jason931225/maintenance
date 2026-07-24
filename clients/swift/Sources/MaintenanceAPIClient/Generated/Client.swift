@@ -2813,7 +2813,7 @@ public struct Client: APIProtocol {
     }
     /// List branch-scoped work orders
     ///
-    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `branch_id` narrows results within the caller's existing branch/RLS scope. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
     ///
     /// - Remark: HTTP `GET /api/v1/work-orders`.
     /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
@@ -2865,6 +2865,13 @@ public struct Client: APIProtocol {
                     explode: true,
                     name: "site_id",
                     value: input.query.siteId
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "branch_id",
+                    value: input.query.branchId
                 )
                 try converter.setQueryItemAsURI(
                     in: &request,

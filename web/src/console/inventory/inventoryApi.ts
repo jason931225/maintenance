@@ -215,14 +215,14 @@ export async function listOpenWorkOrders(
   const page = requireData(
     "work-order list",
     await api.GET("/api/v1/work-orders", {
-      params: { query: { limit: 100, offset: 0 } },
+      params: { query: { branch_id: branchId, limit: 100, offset: 0 } },
       signal,
     }),
     isWorkOrderPage,
   );
-  // The current generated endpoint is RLS branch-scoped but does not expose a
-  // branch_id query parameter. Retain only the selected item's branch as a
-  // defense-in-depth fence until the contract adds an explicit branch query.
+  // The server narrows within the caller's RLS-derived scope. Retain the
+  // selected item's branch as a defense-in-depth fence for malformed or stale
+  // responses.
   return page.items.filter((order) => order.branch_id === branchId);
 }
 

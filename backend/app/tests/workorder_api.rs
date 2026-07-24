@@ -149,15 +149,26 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         .unwrap();
     let branch_id = seed_branch(&pool, "Read Region", "Read Branch").await;
     let other_branch_id = seed_branch(&pool, "Read Other Region", "Read Other Branch").await;
+    let second_visible_branch_id =
+        seed_branch(&pool, "Read Second Visible Region", "Read Second Visible Branch").await;
     let mechanic = UserId::new();
     let receptionist = UserId::new();
     let admin = UserId::new();
     seed_user_with_branch(&pool, mechanic, "MECHANIC", branch_id).await;
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(*mechanic.as_uuid())
+        .bind(*second_visible_branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
     seed_user_with_branch(&pool, receptionist, "RECEPTIONIST", branch_id).await;
     seed_user_with_branch(&pool, admin, "ADMIN", branch_id).await;
     let equipment_290 = seed_equipment_record(&pool, branch_id, "290", "GTS25DE").await;
     let equipment_291 = seed_equipment_record(&pool, branch_id, "291", "GTS30DE").await;
     let other_equipment = seed_equipment_record(&pool, other_branch_id, "777", "OTHER").await;
+    let second_visible_equipment =
+        seed_equipment_record(&pool, second_visible_branch_id, "292", "VISIBLE").await;
     let due_anchor = OffsetDateTime::now_utc();
 
     let p1 = seed_read_work_order(
@@ -199,6 +210,19 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         },
     )
     .await;
+    let second_visible = seed_read_work_order(
+        &pool,
+        ReadWorkOrderFixture {
+            branch_id: second_visible_branch_id,
+            equipment: second_visible_equipment,
+            receptionist,
+            mechanic,
+            request_no: "20260612-904",
+            priority: "P1",
+            target_due_at: due_anchor + Duration::hours(1),
+        },
+    )
+    .await;
     assert_ne!(hidden, p1);
 
     let token = issue_token(
@@ -206,7 +230,7 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         public_key_pem.as_bytes(),
         mechanic,
         vec!["MECHANIC".to_owned()],
-        vec![branch_id],
+        vec![branch_id, second_visible_branch_id],
     )
     .unwrap();
     let service = build_router(app_state(pool.clone(), public_key_pem).unwrap());
@@ -218,13 +242,13 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
     )
     .await;
     assert_eq!(first_page.status, StatusCode::OK, "{:?}", first_page.json);
-    assert_eq!(first_page.json["total"], 2);
+    assert_eq!(first_page.json["total"], 3);
     assert_eq!(first_page.json["items"].as_array().unwrap().len(), 1);
-    assert_eq!(first_page.json["items"][0]["id"], p1.to_string());
+    assert_eq!(first_page.json["items"][0]["id"], second_visible.to_string());
     assert_eq!(first_page.json["items"][0]["priority"], "P1");
     assert_eq!(first_page.json["lens"]["object_type"], "work_order");
-    assert_eq!(first_page.json["lens"]["aggregates"]["total_count"], 2);
-    assert_eq!(first_page.json["lens"]["aggregates"]["p1_count"], 1);
+    assert_eq!(first_page.json["lens"]["aggregates"]["total_count"], 3);
+    assert_eq!(first_page.json["lens"]["aggregates"]["p1_count"], 2);
     assert_eq!(first_page.json["lens"]["aggregates"]["unassigned_count"], 0);
     assert!(
         first_page.json["lens"]["facets"]["status"]
@@ -232,7 +256,7 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
             .unwrap()
             .iter()
             .any(|bucket| bucket["value"] == "ASSIGNED"
-                && bucket["count"] == 2
+                && bucket["count"] == 3
                 && bucket["filters"]["status"] == "ASSIGNED"),
         "status facet should describe the full branch-scoped object set: {:?}",
         first_page.json["lens"]
@@ -243,7 +267,7 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
             .unwrap()
             .iter()
             .any(|bucket| bucket["value"] == "P1"
-                && bucket["count"] == 1
+                && bucket["count"] == 2
                 && bucket["filters"]["priority"] == "P1"),
         "priority facet should expose drill filters: {:?}",
         first_page.json["lens"]
@@ -254,7 +278,7 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         .iter()
         .map(|bucket| bucket["count"].as_i64().unwrap())
         .sum();
-    assert_eq!(due_histogram_total, 2);
+    assert_eq!(due_histogram_total, 3);
     assert!(
         first_page.json["lens"]["listograms"]["customers"]
             .as_array()
@@ -278,12 +302,45 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
 
     let second_page = get_json(
         service.clone(),
-        "/api/v1/work-orders?status=ASSIGNED&assigned_to=me&limit=1&offset=1",
+        &format!(
+            "/api/v1/work-orders?branch_id={branch_id}&status=ASSIGNED&assigned_to=me&limit=1&offset=1"
+        ),
         &token,
     )
     .await;
     assert_eq!(second_page.status, StatusCode::OK, "{:?}", second_page.json);
     assert_eq!(second_page.json["items"][0]["id"], p2.to_string());
+
+    let requested_branch = get_json(
+        service.clone(),
+        &format!(
+            "/api/v1/work-orders?branch_id={branch_id}&status=ASSIGNED&assigned_to=me&limit=10&offset=0"
+        ),
+        &token,
+    )
+    .await;
+    assert_eq!(requested_branch.status, StatusCode::OK, "{:?}", requested_branch.json);
+    assert_eq!(requested_branch.json["total"], 2);
+    assert_eq!(requested_branch.json["items"].as_array().unwrap().len(), 2);
+    assert!(requested_branch.json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item["branch_id"] == branch_id.to_string()));
+    assert!(requested_branch.json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item["id"] != second_visible.to_string()));
+
+    let foreign_branch = get_json(
+        service.clone(),
+        &format!("/api/v1/work-orders?branch_id={other_branch_id}&limit=10&offset=0"),
+        &token,
+    )
+    .await;
+    assert_eq!(foreign_branch.status, StatusCode::OK, "{:?}", foreign_branch.json);
+    assert_eq!(foreign_branch.json["total"], 0);
 
     let filtered = get_json(
         service.clone(),

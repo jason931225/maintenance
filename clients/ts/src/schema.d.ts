@@ -507,7 +507,7 @@ export interface paths {
         };
         /**
          * List branch-scoped work orders
-         * @description Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
+         * @description Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `branch_id` narrows results within the caller's existing branch/RLS scope. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
          */
         get: operations["listWorkOrders"];
         put?: never;
@@ -16568,6 +16568,8 @@ export interface operations {
                 assigned_to?: string;
                 customer_id?: components["schemas"]["Uuid"];
                 site_id?: components["schemas"]["Uuid"];
+                /** @description Narrows results to one branch already visible to the caller; it never expands branch/RLS visibility. */
+                branch_id?: components["schemas"]["Uuid"];
                 /** @description Search around this seed work order; returns branch/RLS-visible orders sharing the seed's customer, site, or equipment, including the seed. */
                 around_work_order_id?: components["schemas"]["Uuid"];
                 target_due_from?: components["schemas"]["Timestamp"];

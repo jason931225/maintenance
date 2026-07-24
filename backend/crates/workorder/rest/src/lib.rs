@@ -517,6 +517,7 @@ struct WorkOrderListQuery {
     assigned_to: Option<String>,
     customer_id: Option<uuid::Uuid>,
     site_id: Option<uuid::Uuid>,
+    branch_id: Option<uuid::Uuid>,
     around_work_order_id: Option<uuid::Uuid>,
     target_due_from: Option<time::OffsetDateTime>,
     target_due_to: Option<time::OffsetDateTime>,
@@ -531,6 +532,7 @@ struct NormalizedWorkOrderListQuery {
     assigned_to: Option<UserId>,
     customer_id: Option<uuid::Uuid>,
     site_id: Option<uuid::Uuid>,
+    branch_id: Option<uuid::Uuid>,
     around_work_order_id: Option<uuid::Uuid>,
     target_due_from: Option<time::OffsetDateTime>,
     target_due_to: Option<time::OffsetDateTime>,
@@ -3891,6 +3893,7 @@ fn parse_work_order_list_query(
                 "assigned_to" => query.assigned_to = non_empty_query_value(value),
                 "customer_id" => query.customer_id = parse_uuid_query_value("customer_id", value)?,
                 "site_id" => query.site_id = parse_uuid_query_value("site_id", value)?,
+                "branch_id" => query.branch_id = parse_uuid_query_value("branch_id", value)?,
                 "around_work_order_id" | "search_around_work_order_id" => {
                     query.around_work_order_id =
                         parse_uuid_query_value("around_work_order_id", value)?;
@@ -3913,6 +3916,7 @@ fn parse_work_order_list_query(
         assigned_to: normalize_assigned_to(query.assigned_to, actor)?,
         customer_id: query.customer_id,
         site_id: query.site_id,
+        branch_id: query.branch_id,
         around_work_order_id: query.around_work_order_id,
         target_due_from: query.target_due_from,
         target_due_to: query.target_due_to,
@@ -4141,6 +4145,10 @@ fn push_work_order_filters(
     if let Some(site_id) = query.site_id {
         builder.push(" AND w.site_id = ");
         builder.push_bind(site_id);
+    }
+    if let Some(branch_id) = query.branch_id {
+        builder.push(" AND w.branch_id = ");
+        builder.push_bind(branch_id);
     }
     if let Some(around_work_order_id) = query.around_work_order_id {
         builder.push(

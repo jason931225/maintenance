@@ -93,7 +93,9 @@ describe("inventoryApi", () => {
     ).resolves.toMatchObject([{ id: "work-order-1" }]);
     expect(GET).toHaveBeenCalledWith(
       "/api/v1/work-orders",
-      expect.objectContaining({ params: { query: { limit: 100, offset: 0 } } }),
+      expect.objectContaining({
+        params: { query: { branch_id: "branch-1", limit: 100, offset: 0 } },
+      }),
     );
   });
 
