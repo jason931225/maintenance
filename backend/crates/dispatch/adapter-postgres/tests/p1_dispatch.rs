@@ -146,6 +146,88 @@ async fn two_accepts_auto_assign_best_gps_candidate_and_audit(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn same_response_retry_is_idempotent_without_duplicate_audit(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: None,
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+
+        let first_response_at = now + time::Duration::seconds(30);
+        let first = store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Accept,
+                    trace: TraceContext::generate(),
+                    occurred_at: first_response_at,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        let retried = store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Accept,
+                    trace: TraceContext::generate(),
+                    occurred_at: first_response_at + time::Duration::seconds(10),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(retried, first);
+        let stored = dispatch_response(&pool, started.id, seeded.near_mechanic)
+            .await
+            .unwrap();
+        assert_eq!(stored.responded_at, first_response_at);
+        let actions = audit_actions_for_dispatch(&pool, started.id, seeded.work_order_id).await;
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| action.as_str() == "p1_dispatch.respond")
+                .count(),
+            1,
+            "a transport retry must not fabricate a second response audit event"
+        );
+
+        let changed_response = store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Decline,
+                    trace: TraceContext::generate(),
+                    occurred_at: first_response_at + time::Duration::seconds(20),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(changed_response.kind(), ErrorKind::Conflict);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn no_accept_path_escalates_and_manager_force_assigns(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         let seeded = seed_dispatch_context(&pool).await;
