@@ -4,7 +4,10 @@
 //! not inferred from DDL text alone.
 
 use sqlx::{PgPool, Row};
-use tokio::time::{timeout, Duration};
+use tokio::{
+    sync::oneshot,
+    time::{sleep, Duration, Instant},
+};
 use uuid::Uuid;
 
 const ORG_A: Uuid = Uuid::from_u128(0x1880_0000_0000_0000_0000_0000_0000_0001);
@@ -708,8 +711,14 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
     .unwrap();
 
     let assignment_pool = pool.clone();
-    let mut assignment = tokio::spawn(async move {
+    let (pid_sender, pid_receiver) = oneshot::channel();
+    let assignment = tokio::spawn(async move {
         let mut tx = runtime_tx(&assignment_pool, ORG_A).await;
+        let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        pid_sender.send(backend_pid).unwrap();
         let result = sqlx::query(
             "INSERT INTO attendance_substitutions \
              (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
@@ -725,9 +734,29 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
         tx.rollback().await.unwrap();
         result
     });
+    let assignment_pid = pid_receiver.await.unwrap();
+    let wait_deadline = Instant::now() + Duration::from_secs(2);
+    let mut advisory_wait_observed = false;
+    while Instant::now() < wait_deadline {
+        advisory_wait_observed = sqlx::query_scalar(
+            "SELECT COALESCE(a.wait_event_type = 'Lock' AND a.wait_event = 'advisory' \
+                    AND EXISTS (SELECT 1 FROM pg_locks l \
+                                WHERE l.pid = a.pid AND l.locktype = 'advisory' AND NOT l.granted), false) \
+             FROM pg_stat_activity a WHERE a.pid = $1",
+        )
+        .bind(assignment_pid)
+        .fetch_optional(&pool)
+        .await
+        .unwrap()
+        .unwrap_or(false);
+        if advisory_wait_observed {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
     assert!(
-        timeout(Duration::from_millis(200), &mut assignment).await.is_err(),
-        "the assignment must wait on the uncommitted leave approval lock"
+        advisory_wait_observed,
+        "the exact assignment backend must wait on the advisory lock before the leave transaction commits"
     );
     approve_leave.commit().await.unwrap();
     let blocked = assignment.await.unwrap().expect_err("leave approval wins after its lock commits");
