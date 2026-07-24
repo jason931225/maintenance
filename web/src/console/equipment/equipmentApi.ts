@@ -5,10 +5,11 @@
  * creation). The backend lane builds the same contract in parallel; any
  * deviation here is a defect against that contract, not a style choice.
  *
- * ponytail: raw fetch, not the generated openapi client, because the
- * equipment-3r paths are not in `@maintenance/api-client-ts` yet (openapi.yaml
- * is integrator-owned). Swap to `api.GET/POST` once the client is regenerated.
+ * This module adapts the shared generated client to its small console-facing
+ * view model; it never owns bearer handling or raw fetch transport.
  */
+import { createConsoleApiClient, type ConsoleApiClient } from "../../api/client";
+import { getEvidenceObjectDetail, listEvidenceObjects } from "../evidence/evidenceApi";
 
 export type UnitAvailability =
   | "AVAILABLE"
@@ -126,7 +127,6 @@ export interface DispositionView {
   buyerName: string | null;
   completedBy: string | null;
   completedAt: string | null;
-  financeGlPosting: null;
 }
 
 export interface HistoryEntry {
@@ -167,9 +167,10 @@ export interface DispatchInput {
 
 export interface HandoverInput {
   recipientName: string;
-  evidenceReference: string;
+  evidenceId: string;
   handedOverAt: string;
 }
+export interface HandoverEvidenceOption { id: string; label: string; }
 
 export interface InspectionInput {
   outcome: InspectionOutcome;
@@ -203,91 +204,60 @@ export class EquipmentApiError extends Error {
   }
 }
 
-const API_PREFIX = "/api/v1/equipment-3r";
-
-function apiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
+function requireData<T>(response: { data?: T; error?: unknown; response: Response }): T {
+  if (response.data !== undefined) return response.data;
+  const envelope = response.error && typeof response.error === "object" && "error" in response.error
+    ? (response.error as { error?: { code?: unknown; message?: unknown } }).error
+    : undefined;
+  const message = typeof envelope?.message === "string"
+    ? envelope.message
+    : `equipment-3r request failed (${String(response.response.status)})`;
+  throw new EquipmentApiError(message, response.response.status, typeof envelope?.code === "string" ? envelope.code : undefined);
 }
 
-function envelopeError(payload: unknown, status: number): EquipmentApiError {
-  if (payload && typeof payload === "object" && "error" in payload) {
-    const body = (payload as { error?: { code?: unknown; message?: unknown } }).error;
-    if (typeof body?.message === "string") {
-      return new EquipmentApiError(
-        body.message,
-        status,
-        typeof body.code === "string" ? body.code : undefined,
-      );
-    }
-  }
-  return new EquipmentApiError(`equipment-3r request failed (${String(status)})`, status);
-}
-
-interface RequestOptions {
-  body?: unknown;
-  headers?: Record<string, string>;
-  signal?: AbortSignal;
-}
-
-async function request<T>(
-  accessToken: string | undefined,
-  method: "GET" | "POST",
-  path: string,
-  options: RequestOptions = {},
-): Promise<T> {
-  const headers = new Headers({ Accept: "application/json" });
-  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  for (const [name, value] of Object.entries(options.headers ?? {})) {
-    headers.set(name, value);
-  }
-  const response = await fetch(`${apiBaseUrl()}${API_PREFIX}${path}`, {
-    method,
-    headers,
-    credentials: "include",
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    signal: options.signal,
-  });
-  const payload: unknown = await response.json().catch(() => undefined);
-  if (!response.ok) throw envelopeError(payload, response.status);
-  return payload as T;
-}
-
-/** Equipment-3R transport bound to the session bearer token. */
-export function createEquipmentApi(accessToken?: string) {
+/** Equipment-3R adapter over the shared generated/authenticated transport. */
+export function createEquipmentApi(api: ConsoleApiClient | string | undefined) {
+  // Legacy callers/tests may still provide a token. They are routed through
+  // the shared client immediately; equipment never owns request transport.
+  const client = typeof api === "string" || api === undefined ? createConsoleApiClient(api) : api;
   return {
     registerUnit: (input: RegisterUnitInput, signal?: AbortSignal) =>
-      request<UnitView>(accessToken, "POST", "/units", { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/units", { body: input, signal }).then(requireData<UnitView>),
     listUnits: (signal?: AbortSignal) =>
-      request<UnitView[]>(accessToken, "GET", "/units", { signal }),
+      client.GET("/api/v1/equipment-3r/units", { signal }).then(requireData<UnitView[]>),
     getUnit: (unitId: string, signal?: AbortSignal) =>
-      request<UnitDetailView>(accessToken, "GET", `/units/${encodeURIComponent(unitId)}`, { signal }),
+      client.GET("/api/v1/equipment-3r/units/{unit_id}", { params: { path: { unit_id: unitId } }, signal }).then(requireData<UnitDetailView>),
     unitHistory: (unitId: string, signal?: AbortSignal) =>
-      request<HistoryEntry[]>(accessToken, "GET", `/units/${encodeURIComponent(unitId)}/history`, { signal }),
+      client.GET("/api/v1/equipment-3r/units/{unit_id}/history", { params: { path: { unit_id: unitId } }, signal }).then(requireData<HistoryEntry[]>),
     createRentalCase: (input: CreateRentalCaseInput, idempotencyKey: string, signal?: AbortSignal) =>
-      request<CaseView>(accessToken, "POST", "/rental-cases", {
-        body: input,
-        headers: { "Idempotency-Key": idempotencyKey },
-        signal,
-      }),
+      client.POST("/api/v1/equipment-3r/rental-cases", { body: input, headers: { "Idempotency-Key": idempotencyKey }, signal }).then(requireData<CaseView>),
     listRentalCases: (signal?: AbortSignal) =>
-      request<CaseView[]>(accessToken, "GET", "/rental-cases", { signal }),
+      client.GET("/api/v1/equipment-3r/rental-cases", { signal }).then(requireData<CaseView[]>),
     getRentalCase: (caseId: string, signal?: AbortSignal) =>
-      request<CaseDetailView>(accessToken, "GET", `/rental-cases/${encodeURIComponent(caseId)}`, { signal }),
+      client.GET("/api/v1/equipment-3r/rental-cases/{case_id}", { params: { path: { case_id: caseId } }, signal }).then(requireData<CaseDetailView>),
     approval: (caseId: string, input: ApprovalInput, signal?: AbortSignal) =>
-      request<CaseView>(accessToken, "POST", `/rental-cases/${encodeURIComponent(caseId)}/approval`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/rental-cases/{case_id}/approval", { params: { path: { case_id: caseId } }, body: input, signal }).then(requireData<CaseView>),
     dispatch: (caseId: string, input: DispatchInput, signal?: AbortSignal) =>
-      request<CaseView>(accessToken, "POST", `/rental-cases/${encodeURIComponent(caseId)}/dispatch`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/rental-cases/{case_id}/dispatch", { params: { path: { case_id: caseId } }, body: input, signal }).then(requireData<CaseView>),
     handover: (caseId: string, input: HandoverInput, signal?: AbortSignal) =>
-      request<CaseView>(accessToken, "POST", `/rental-cases/${encodeURIComponent(caseId)}/handover`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/rental-cases/{case_id}/handover", { params: { path: { case_id: caseId } }, body: { recipientName: input.recipientName, evidenceReference: input.evidenceId, handedOverAt: input.handedOverAt }, signal }).then(requireData<CaseView>),
+    listHandoverEvidence: async (): Promise<HandoverEvidenceOption[]> => {
+      const summaries = await listEvidenceObjects(client);
+      const details = await Promise.all(summaries
+        .filter((item) => item.admissibility === "ADMISSIBLE" && !item.disposed)
+        .map((item) => getEvidenceObjectDetail(client, item.id)));
+      return details
+        .filter((item) => item.copies.some((copy) => copy.kind === "ORIGINAL" && copy.wormStatus === "VERIFIED"))
+        .map((item) => ({ id: item.id, label: `${item.code} — ${item.title}` }));
+    },
     recordInspection: (caseId: string, input: InspectionInput, signal?: AbortSignal) =>
-      request<InspectionView>(accessToken, "POST", `/rental-cases/${encodeURIComponent(caseId)}/inspections`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/rental-cases/{case_id}/inspections", { params: { path: { case_id: caseId } }, body: input, signal }).then(requireData<InspectionView>),
     recordReturn: (caseId: string, input: ReturnInput, signal?: AbortSignal) =>
-      request<CaseView>(accessToken, "POST", `/rental-cases/${encodeURIComponent(caseId)}/return`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/rental-cases/{case_id}/return", { params: { path: { case_id: caseId } }, body: input, signal }).then(requireData<CaseView>),
     assessment: (caseId: string, input: AssessmentInput, signal?: AbortSignal) =>
-      request<CaseDetailView>(accessToken, "POST", `/rental-cases/${encodeURIComponent(caseId)}/assessment`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/rental-cases/{case_id}/assessment", { params: { path: { case_id: caseId } }, body: input, signal }).then(requireData<CaseDetailView>),
     completeDisposition: (dispositionId: string, input: CompletionInput, signal?: AbortSignal) =>
-      request<DispositionView>(accessToken, "POST", `/dispositions/${encodeURIComponent(dispositionId)}/completion`, { body: input, signal }),
+      client.POST("/api/v1/equipment-3r/dispositions/{disposition_id}/completion", { params: { path: { disposition_id: dispositionId } }, body: input, signal }).then(requireData<DispositionView>),
   };
 }
 

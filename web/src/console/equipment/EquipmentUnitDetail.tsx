@@ -20,12 +20,14 @@ import {
   newIdempotencyKey,
   saveQuoteDraft,
   type QuoteDraft,
+  type QuoteDraftScope,
 } from "./quoteDraft";
 
 interface Props {
   api: EquipmentApi;
   unitId: string;
   branchId: string;
+  draftScope: QuoteDraftScope;
   capabilities: EquipmentCapabilities;
   onSelectCase: (caseId: string) => void;
   onChanged: () => void;
@@ -45,7 +47,7 @@ function emptyDraft(): QuoteDraft {
   };
 }
 
-export function EquipmentUnitDetail({ api, unitId, branchId, capabilities, onSelectCase, onChanged }: Props) {
+export function EquipmentUnitDetail({ api, unitId, branchId, draftScope, capabilities, onSelectCase, onChanged }: Props) {
   const [detail, setDetail] = useState<UnitDetailView>();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,7 @@ export function EquipmentUnitDetail({ api, unitId, branchId, capabilities, onSel
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [draft, setDraft] = useState<QuoteDraft>(
-    () => loadQuoteDraft(branchId, unitId) ?? emptyDraft(),
+    () => loadQuoteDraft(draftScope, branchId, unitId) ?? emptyDraft(),
   );
   const generation = useRef(0);
   const abort = useRef<AbortController | undefined>(undefined);
@@ -99,7 +101,7 @@ export function EquipmentUnitDetail({ api, unitId, branchId, capabilities, onSel
   const updateDraft = (patch: Partial<QuoteDraft>) => {
     setDraft((current) => {
       const next = { ...current, ...patch };
-      saveQuoteDraft(branchId, unitId, next);
+      saveQuoteDraft(draftScope, branchId, unitId, next);
       return next;
     });
   };
@@ -122,7 +124,7 @@ export function EquipmentUnitDetail({ api, unitId, branchId, capabilities, onSel
         },
         draft.idempotencyKey,
       );
-      clearQuoteDraft(branchId, unitId);
+      clearQuoteDraft(draftScope, branchId, unitId);
       setDraft(emptyDraft());
       setBusy(false);
       onChanged();

@@ -131,13 +131,17 @@ impl PgEquipment3rStore {
         .await
     }
 
-    pub async fn list_units(&self) -> Result<Value, PgEquipment3rError> {
+    pub async fn list_units(
+        &self,
+        branches: Option<Vec<BranchId>>,
+    ) -> Result<Value, PgEquipment3rError> {
         let org = current_org().map_err(KernelError::from)?;
         let rows = with_org_conn::<_, _, PgEquipment3rError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 sqlx::query(
-                    "SELECT id,serial_no,model_name,capacity_class,availability,acquisition_cost_minor,branch_id FROM equipment_3r_units ORDER BY created_at DESC, id LIMIT 200",
+                    "SELECT id,serial_no,model_name,capacity_class,availability,acquisition_cost_minor,branch_id FROM equipment_3r_units WHERE ($1::uuid[] IS NULL OR branch_id = ANY($1)) ORDER BY created_at DESC, id LIMIT 200",
                 )
+                .bind(branches.map(|items| items.into_iter().map(|branch| *branch.as_uuid()).collect::<Vec<_>>()))
                 .fetch_all(tx.as_mut())
                 .await
                 .map_err(Into::into)
@@ -326,13 +330,17 @@ impl PgEquipment3rStore {
         .await
     }
 
-    pub async fn list_cases(&self) -> Result<Value, PgEquipment3rError> {
+    pub async fn list_cases(
+        &self,
+        branches: Option<Vec<BranchId>>,
+    ) -> Result<Value, PgEquipment3rError> {
         let org = current_org().map_err(KernelError::from)?;
         let rows = with_org_conn::<_, _, PgEquipment3rError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 sqlx::query(
-                    "SELECT id,unit_id,status,customer_name,site_reference,monthly_rate_minor,duration_months,currency_code,branch_id FROM equipment_3r_rental_cases ORDER BY created_at DESC, id LIMIT 200",
+                    "SELECT id,unit_id,status,customer_name,site_reference,monthly_rate_minor,duration_months,currency_code,branch_id FROM equipment_3r_rental_cases WHERE ($1::uuid[] IS NULL OR branch_id = ANY($1)) ORDER BY created_at DESC, id LIMIT 200",
                 )
+                .bind(branches.map(|items| items.into_iter().map(|branch| *branch.as_uuid()).collect::<Vec<_>>()))
                 .fetch_all(tx.as_mut())
                 .await
                 .map_err(Into::into)
@@ -501,7 +509,6 @@ impl PgEquipment3rStore {
         authorize: BranchAuthorization,
     ) -> Result<Value, PgEquipment3rError> {
         required(&cmd.recipient_name, "recipientName", 160)?;
-        evidence_reference(&cmd.evidence_reference)?;
         let org = current_org().map_err(KernelError::from)?;
         let now = OffsetDateTime::now_utc();
         with_audits(&self.pool, org, |tx| {
@@ -509,6 +516,7 @@ impl PgEquipment3rStore {
                 let row = lock_case(tx, case).await?;
                 let branch = BranchId::from_uuid(row.try_get("branch_id")?);
                 authorize(branch).map_err(PgEquipment3rError::Domain)?;
+                resolve_handover_evidence(tx, org, branch, cmd.evidence_id).await?;
                 let state = CaseState::from_db(&row.try_get::<String, _>("status")?)?;
                 state.can_transition_to(CaseState::HandedOver)?;
                 let unit: Uuid = row.try_get("unit_id")?;
@@ -530,7 +538,7 @@ impl PgEquipment3rStore {
                 )
                 .bind(CaseState::HandedOver.as_db())
                 .bind(cmd.recipient_name.trim())
-                .bind(&cmd.evidence_reference)
+                .bind(format!("evidence://{}", cmd.evidence_id))
                 .bind(cmd.handed_over_at)
                 .bind(now)
                 .bind(case)
@@ -932,7 +940,6 @@ impl PgEquipment3rStore {
                     "buyerName": buyer,
                     "completedBy": actor,
                     "completedAt": rfc3339(now)?,
-                    "financeGlPosting": Value::Null,
                 });
                 Ok((
                     view,
@@ -1138,22 +1145,41 @@ fn idem(key: &str) -> Result<(), PgEquipment3rError> {
     }
 }
 
-fn evidence_reference(value: &str) -> Result<(), PgEquipment3rError> {
-    let rest = value.strip_prefix("evidence://").ok_or_else(|| {
-        KernelError::validation("evidenceReference must be an immutable evidence:// reference")
-    })?;
-    let len = rest.chars().count();
-    let charset_ok = rest
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'));
-    if (8..=400).contains(&len) && charset_ok {
-        Ok(())
-    } else {
-        Err(KernelError::validation(
-            "evidenceReference must be evidence:// followed by 8..400 charset-bounded characters",
-        )
-        .into())
+/// Resolve a typed evidence aggregate while the equipment case row is locked.
+/// Foreign objects and objects without custody at this branch are concealed;
+/// known but mutable/not-ready evidence is rejected without changing state.
+async fn resolve_handover_evidence(
+    tx: &mut Transaction<'_, Postgres>,
+    org: OrgId,
+    branch: BranchId,
+    evidence_id: Uuid,
+) -> Result<(), PgEquipment3rError> {
+    let row = sqlx::query(
+        "SELECT o.admissibility_status, o.disposed_at, \
+         EXISTS(SELECT 1 FROM docs_evidence_copies c WHERE c.evidence_object_id=o.id AND c.org_id=o.org_id AND c.copy_kind='ORIGINAL' AND c.worm_status='VERIFIED') AS immutable_copy, \
+         EXISTS(SELECT 1 FROM docs_evidence_custody_events e WHERE e.evidence_object_id=o.id AND e.org_id=o.org_id AND COALESCE(e.source_ref->>'branchId', e.source_ref->>'branch_id')=$3) AS branch_custody \
+         FROM docs_evidence_objects o WHERE o.id=$1 AND o.org_id=$2",
+    )
+    .bind(evidence_id)
+    .bind(*org.as_uuid())
+    .bind(branch.as_uuid().to_string())
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("handover evidence was not found"))?;
+    let branch_custody: bool = row.try_get("branch_custody")?;
+    if !branch_custody {
+        return Err(KernelError::not_found("handover evidence was not found").into());
     }
+    let admissible: String = row.try_get("admissibility_status")?;
+    let immutable_copy: bool = row.try_get("immutable_copy")?;
+    let disposed: Option<OffsetDateTime> = row.try_get("disposed_at")?;
+    if admissible != "ADMISSIBLE" || !immutable_copy || disposed.is_some() {
+        return Err(KernelError::validation(
+            "handover evidence must be admissible, immutable, and ready for custody transfer",
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn fingerprint(v: &Value) -> String {

@@ -132,8 +132,12 @@ async fn list_units(
     h: HeaderMap,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    authorize_org_wide(&p, Action::new(Feature::Equipment3rObserve)).map_err(RestError::kernel)?;
-    Ok(Json(s.store.list_units().await.map_err(RestError::store)?))
+    Ok(Json(
+        s.store
+            .list_units(observable_branches(&p)?)
+            .await
+            .map_err(RestError::store)?,
+    ))
 }
 
 async fn unit_detail(
@@ -147,7 +151,7 @@ async fn unit_detail(
         .unit_detail(unit_id)
         .await
         .map_err(RestError::store)?;
-    allow(&p, Feature::Equipment3rObserve, branch)?;
+    allow_concealed(&p, Feature::Equipment3rObserve, branch)?;
     Ok(Json(view))
 }
 
@@ -162,7 +166,7 @@ async fn unit_history(
         .unit_history(unit_id)
         .await
         .map_err(RestError::store)?;
-    allow(&p, Feature::Equipment3rObserve, branch)?;
+    allow_concealed(&p, Feature::Equipment3rObserve, branch)?;
     Ok(Json(view))
 }
 
@@ -226,8 +230,12 @@ async fn list_cases(
     h: HeaderMap,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
-    authorize_org_wide(&p, Action::new(Feature::Equipment3rObserve)).map_err(RestError::kernel)?;
-    Ok(Json(s.store.list_cases().await.map_err(RestError::store)?))
+    Ok(Json(
+        s.store
+            .list_cases(observable_branches(&p)?)
+            .await
+            .map_err(RestError::store)?,
+    ))
 }
 
 async fn case_detail(
@@ -241,7 +249,7 @@ async fn case_detail(
         .case_detail(case_id)
         .await
         .map_err(RestError::store)?;
-    allow(&p, Feature::Equipment3rObserve, branch)?;
+    allow_concealed(&p, Feature::Equipment3rObserve, branch)?;
     Ok(Json(view))
 }
 
@@ -307,6 +315,8 @@ async fn dispatch_case(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct HandoverBody {
     recipient_name: String,
+    /// Compatibility field until the shared OpenAPI face is migrated to
+    /// `evidenceId`; the value itself is a UUID, never an arbitrary URI.
     evidence_reference: String,
     #[serde(with = "time::serde::rfc3339")]
     handed_over_at: OffsetDateTime,
@@ -318,6 +328,11 @@ async fn handover_case(
     Json(b): Json<HandoverBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&s, &h).await?;
+    let evidence_id = Uuid::parse_str(&b.evidence_reference).map_err(|_| {
+        RestError::kernel(KernelError::validation(
+            "evidenceReference must be an evidence UUID",
+        ))
+    })?;
     let view = s
         .store
         .handover_case(
@@ -325,7 +340,7 @@ async fn handover_case(
             case_id,
             HandoverCase {
                 recipient_name: b.recipient_name,
-                evidence_reference: b.evidence_reference,
+                evidence_id,
                 handed_over_at: b.handed_over_at,
             },
             branch_authorization(&p, Feature::Equipment3rDispatch),
@@ -502,12 +517,53 @@ fn allow(p: &Principal, f: Feature, b: BranchId) -> Result<(), RestError> {
     .map_err(RestError::kernel)
 }
 
+/// A scoped principal must not learn that another branch's aggregate exists.
+/// Once a branch is in scope, an absent capability remains an ordinary 403.
+fn allow_concealed(p: &Principal, f: Feature, b: BranchId) -> Result<(), RestError> {
+    if !p.branch_scope.allows(b) {
+        return Err(RestError::kernel(KernelError::not_found(
+            "equipment record was not found",
+        )));
+    }
+    allow(p, f, b)
+}
+
+/// A branch operator may list only branches that both its live membership and
+/// its explicit capability grant allow.  Org-wide users retain roll-up lists.
+fn observable_branches(p: &Principal) -> Result<Option<Vec<BranchId>>, RestError> {
+    match &p.branch_scope {
+        BranchScope::All => {
+            authorize_org_wide(p, Action::new(Feature::Equipment3rObserve))
+                .map_err(RestError::kernel)?;
+            Ok(None)
+        }
+        BranchScope::Branches(branches) => {
+            let allowed = branches
+                .iter()
+                .copied()
+                .filter(|branch| {
+                    authorize(p, Action::new(Feature::Equipment3rObserve), *branch).is_ok()
+                })
+                .collect::<Vec<_>>();
+            if allowed.is_empty() {
+                return Err(RestError::kernel(KernelError::forbidden(
+                    "equipment observation is not authorized for any branch",
+                )));
+            }
+            Ok(Some(allowed))
+        }
+    }
+}
+
 /// In-transaction branch authorization for transition routes: the adapter
 /// calls this with the branch read from the locked row.
 fn branch_authorization(p: &Principal, f: Feature) -> BranchAuthorization {
     let p = p.clone();
     Box::new(move |b| {
         let a = Action::new(f);
+        if !p.branch_scope.allows(b) {
+            return Err(KernelError::not_found("equipment record was not found"));
+        }
         match p.branch_scope {
             BranchScope::All => authorize_org_wide(&p, a),
             _ => authorize(&p, a, b),

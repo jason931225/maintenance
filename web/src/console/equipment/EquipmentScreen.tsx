@@ -10,6 +10,7 @@ import {
   type UnitView,
 } from "./equipmentApi";
 import type { EquipmentCapabilities } from "./equipmentCapabilities";
+import type { QuoteDraftScope } from "./quoteDraft";
 import { EquipmentCaseDetail } from "./EquipmentCaseDetail";
 import { EquipmentUnitDetail } from "./EquipmentUnitDetail";
 import { AVAILABILITY_CHIP, availabilityLabel, CASE_CHIP, caseStatusLabel, formatKrw } from "./format";
@@ -19,6 +20,7 @@ type Props = {
   api: EquipmentApi;
   branchId: string;
   actorId: string | undefined;
+  orgId: string | undefined;
   capabilities: EquipmentCapabilities;
   /** Changes whenever auth replaces the effective tenant/session. */
   sessionKey: string | undefined;
@@ -117,7 +119,7 @@ export function EquipmentScreen(props: Props) {
   return <EquipmentScreenLayout key={sessionFence} {...props} />;
 }
 
-function EquipmentScreenLayout({ api, branchId, actorId, capabilities, sessionKey }: Props) {
+function EquipmentScreenLayout({ api, branchId, actorId, orgId, capabilities, sessionKey }: Props) {
   const [units, setUnits] = useState<UnitView[]>([]);
   const [cases, setCases] = useState<CaseView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -386,6 +388,7 @@ function EquipmentScreenLayout({ api, branchId, actorId, capabilities, sessionKe
             api={api}
             unitId={selection.id}
             branchId={branchId}
+            draftScope={{ orgId: orgId ?? "no-org", actorId: actorId ?? "no-actor", sessionKey: sessionKey ?? "no-session" } satisfies QuoteDraftScope}
             capabilities={capabilities}
             onSelectCase={(caseId) => { select({ kind: "case", id: caseId }); }}
             onChanged={() => void load()}

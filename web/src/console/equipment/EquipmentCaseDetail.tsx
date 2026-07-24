@@ -9,6 +9,7 @@ import {
   type DispositionKind,
   type DispositionView,
   type EquipmentApi,
+  type HandoverEvidenceOption,
   type InspectionOutcome,
 } from "./equipmentApi";
 import type { EquipmentCapabilities } from "./equipmentCapabilities";
@@ -69,6 +70,7 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
   const [actionError, setActionError] = useState<string>();
   const [declineIntent, setDeclineIntent] = useState(false);
   const [inspectionOutcome, setInspectionOutcome] = useState<InspectionOutcome>("PASS");
+  const [handoverEvidence, setHandoverEvidence] = useState<HandoverEvidenceOption[]>([]);
   const generation = useRef(0);
   const abort = useRef<AbortController | undefined>(undefined);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
@@ -123,6 +125,11 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
     };
   }, [load]);
 
+  useEffect(() => {
+    if (!capabilities.canDispatch) return;
+    void api.listHandoverEvidence().then(setHandoverEvidence).catch(() => setHandoverEvidence([]));
+  }, [api, capabilities.canDispatch]);
+
   /** Run a transition; on success refresh this detail from the backend + notify lists. */
   const transition = useCallback(async (work: () => Promise<unknown>) => {
     if (busy) return;
@@ -168,7 +175,7 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
     await transition(() =>
       api.handover(caseId, {
         recipientName: formText(data, "recipientName"),
-        evidenceReference: formText(data, "evidenceReference"),
+        evidenceId: formText(data, "evidenceId"),
         handedOverAt: toIso(formText(data, "handedOverAt")),
       }),
     );
@@ -441,14 +448,15 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
           </label>
           <label htmlFor={evidenceId}>
             {text.evidenceRef}
-            <input
+            <select
               id={evidenceId}
-              name="evidenceReference"
-              pattern="evidence://.+"
-              title={text.evidenceFormat}
-              placeholder="evidence://"
+              name="evidenceId"
               required
-            />
+              defaultValue=""
+            >
+              <option value="" disabled>Select immutable custody evidence</option>
+              {handoverEvidence.map((evidence) => <option key={evidence.id} value={evidence.id}>{evidence.label}</option>)}
+            </select>
           </label>
           <label htmlFor={handedOverId}>
             {text.handedOverAt}

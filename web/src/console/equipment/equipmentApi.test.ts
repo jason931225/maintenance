@@ -33,9 +33,9 @@ const rentalCase: CaseView = {
   branchId: "branch-1",
 };
 
-function lastRequest(): { url: URL; init: RequestInit } {
-  const call = fetchMock.mock.calls.at(-1) as [string, RequestInit];
-  return { url: new URL(call[0]), init: call[1] };
+function lastRequest(): { url: URL; init: RequestInit; request: Request } {
+  const [request] = fetchMock.mock.calls.at(-1) as [Request];
+  return { url: new URL(request.url), init: { method: request.method, headers: request.headers, body: request.body }, request };
 }
 
 function requestHeaders(): Headers {
@@ -59,9 +59,7 @@ describe("createEquipmentApi", () => {
     const { url, init } = lastRequest();
     expect(url.pathname).toBe("/api/v1/equipment-3r/units");
     expect(init.method).toBe("GET");
-    expect(init.credentials).toBe("include");
     expect(requestHeaders().get("Authorization")).toBe("Bearer token-1");
-    expect(requestHeaders().get("Accept")).toBe("application/json");
   });
 
   it("creates a rental case with the Idempotency-Key header and contract body", async () => {
@@ -80,11 +78,11 @@ describe("createEquipmentApi", () => {
       "0d5c9b0a-6a51-4c29-9e0e-3c8d1f2a4b5c",
     );
     expect(created).toEqual(rentalCase);
-    const { url, init } = lastRequest();
+    const { url, init, request } = lastRequest();
     expect(url.pathname).toBe("/api/v1/equipment-3r/rental-cases");
     expect(requestHeaders().get("Idempotency-Key")).toBe("0d5c9b0a-6a51-4c29-9e0e-3c8d1f2a4b5c");
     expect(requestHeaders().get("Content-Type")).toBe("application/json");
-    expect(JSON.parse(init.body as string)).toEqual({
+    expect(JSON.parse(await request.text())).toEqual({
       branchId: "branch-1",
       unitId: "unit-1",
       customerName: "customer",
@@ -139,7 +137,7 @@ describe("createEquipmentApi", () => {
   });
 
   it("targets every contract route with encoded path segments", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({}));
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({})));
     const api = createEquipmentApi("token-1");
     await api.getUnit("unit/1");
     expect(lastRequest().url.pathname).toBe("/api/v1/equipment-3r/units/unit%2F1");
@@ -151,7 +149,7 @@ describe("createEquipmentApi", () => {
     expect(lastRequest().url.pathname).toBe("/api/v1/equipment-3r/rental-cases/case-1/dispatch");
     await api.handover("case-1", {
       recipientName: "recipient",
-      evidenceReference: "evidence://photo/1",
+      evidenceId: "e90d6c29-5a9e-4c6c-9c28-76d1f7f3d2bb",
       handedOverAt: "2026-07-23T09:00:00.000Z",
     });
     expect(lastRequest().url.pathname).toBe("/api/v1/equipment-3r/rental-cases/case-1/handover");
@@ -163,9 +161,9 @@ describe("createEquipmentApi", () => {
     expect(lastRequest().url.pathname).toBe("/api/v1/equipment-3r/rental-cases/case-1/assessment");
     await api.completeDisposition("disp-1", { costMinor: 120_000 });
     expect(lastRequest().url.pathname).toBe("/api/v1/equipment-3r/dispositions/disp-1/completion");
-    expect(JSON.parse(lastRequest().init.body as string)).toEqual({ costMinor: 120_000 });
+    expect(JSON.parse(await lastRequest().request.text())).toEqual({ costMinor: 120_000 });
     await api.completeDisposition("disp-2", { saleAmountMinor: 9_000_000, buyerName: "buyer" });
-    expect(JSON.parse(lastRequest().init.body as string)).toEqual({
+    expect(JSON.parse(await lastRequest().request.text())).toEqual({
       saleAmountMinor: 9_000_000,
       buyerName: "buyer",
     });

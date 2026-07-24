@@ -47,7 +47,9 @@ pub struct DispatchCase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandoverCase {
     pub recipient_name: String,
-    pub evidence_reference: String,
+    /// Stable evidence aggregate id. The persistence adapter resolves this
+    /// against tenant, branch custody, and immutable-ready evidence state.
+    pub evidence_id: Uuid,
     pub handed_over_at: OffsetDateTime,
 }
 

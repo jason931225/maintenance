@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
 import { equipmentStrings as text } from "../../i18n/equipment";
+import { createConsoleApiClient } from "../../api/client";
 import { createEquipmentApi } from "./equipmentApi";
 import { deriveEquipmentCapabilities } from "./equipmentCapabilities";
 import { EquipmentScreen } from "./EquipmentScreen";
@@ -36,14 +37,14 @@ export function EquipmentConsoleBody({ branchId }: { branchId: string }) {
   const { session } = useAuth();
   const authz = useEquipmentConsoleAuthz();
   const capabilities = deriveEquipmentCapabilities(authz, branchId);
-  const token = session?.access_token;
-  const api = useMemo(() => createEquipmentApi(token), [token]);
+  const api = useMemo(() => createEquipmentApi(createConsoleApiClient(session?.access_token)), [session?.access_token]);
 
   return (
     <EquipmentScreen
       api={api}
       branchId={branchId}
       actorId={session?.user_id}
+      orgId={session?.org_id}
       capabilities={capabilities}
       sessionKey={session?.client_session_incarnation ?? session?.access_token}
     />

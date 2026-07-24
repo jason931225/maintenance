@@ -115,7 +115,6 @@ const completedResale: DispositionView = {
   buyerName: "매수기업",
   completedBy: "actor-1",
   completedAt: "2026-07-23T00:00:00.000Z",
-  financeGlPosting: null,
 };
 
 const unitHistory: HistoryEntry[] = [
@@ -176,6 +175,7 @@ function renderScreen(capabilities: EquipmentCapabilities = operator) {
       api={api}
       branchId="branch-1"
       actorId="actor-1"
+      orgId="org-1"
       capabilities={capabilities}
       sessionKey="session-a"
     />,

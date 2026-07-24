@@ -13,8 +13,14 @@ export interface QuoteDraft {
   durationMonths: string;
 }
 
-function storageKey(branchId: string, unitId: string): string {
-  return `equipment3r.quote-draft.${branchId}.${unitId}`;
+export interface QuoteDraftScope {
+  orgId: string;
+  actorId: string;
+  sessionKey: string;
+}
+
+function storageKey(scope: QuoteDraftScope, branchId: string, unitId: string): string {
+  return `equipment3r.quote-draft.${scope.orgId}.${scope.actorId}.${scope.sessionKey}.${branchId}.${unitId}`;
 }
 
 /** RFC 4122 UUID: 36 chars, inside the contract's 16..200 key length window. */
@@ -22,10 +28,10 @@ export function newIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
-export function loadQuoteDraft(branchId: string, unitId: string): QuoteDraft | undefined {
+export function loadQuoteDraft(scope: QuoteDraftScope, branchId: string, unitId: string): QuoteDraft | undefined {
   let raw: string | null;
   try {
-    raw = window.localStorage.getItem(storageKey(branchId, unitId));
+    raw = window.localStorage.getItem(storageKey(scope, branchId, unitId));
   } catch {
     return undefined;
   }
@@ -49,17 +55,17 @@ export function loadQuoteDraft(branchId: string, unitId: string): QuoteDraft | u
   }
 }
 
-export function saveQuoteDraft(branchId: string, unitId: string, draft: QuoteDraft): void {
+export function saveQuoteDraft(scope: QuoteDraftScope, branchId: string, unitId: string, draft: QuoteDraft): void {
   try {
-    window.localStorage.setItem(storageKey(branchId, unitId), JSON.stringify(draft));
+    window.localStorage.setItem(storageKey(scope, branchId, unitId), JSON.stringify(draft));
   } catch {
     // Storage unavailable (private mode/quota): the draft simply won't survive refresh.
   }
 }
 
-export function clearQuoteDraft(branchId: string, unitId: string): void {
+export function clearQuoteDraft(scope: QuoteDraftScope, branchId: string, unitId: string): void {
   try {
-    window.localStorage.removeItem(storageKey(branchId, unitId));
+    window.localStorage.removeItem(storageKey(scope, branchId, unitId));
   } catch {
     // Ignore: nothing to clear when storage is unavailable.
   }

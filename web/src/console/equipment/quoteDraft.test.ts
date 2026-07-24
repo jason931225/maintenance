@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { clearQuoteDraft, loadQuoteDraft, newIdempotencyKey, saveQuoteDraft } from "./quoteDraft";
 
+const scope = { orgId: "org-1", actorId: "actor-1", sessionKey: "session-1" };
+const otherActorScope = { ...scope, actorId: "actor-2" };
+
 describe("quoteDraft", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -15,10 +18,11 @@ describe("quoteDraft", () => {
       monthlyRate: "2500000",
       durationMonths: "12",
     };
-    saveQuoteDraft("branch-1", "unit-1", draft);
-    expect(loadQuoteDraft("branch-1", "unit-1")).toEqual(draft);
-    expect(loadQuoteDraft("branch-1", "unit-2")).toBeUndefined();
-    expect(loadQuoteDraft("branch-2", "unit-1")).toBeUndefined();
+    saveQuoteDraft(scope, "branch-1", "unit-1", draft);
+    expect(loadQuoteDraft(scope, "branch-1", "unit-1")).toEqual(draft);
+    expect(loadQuoteDraft(scope, "branch-1", "unit-2")).toBeUndefined();
+    expect(loadQuoteDraft(scope, "branch-2", "unit-1")).toBeUndefined();
+    expect(loadQuoteDraft(otherActorScope, "branch-1", "unit-1")).toBeUndefined();
   });
 
   it("keeps the idempotency key stable across reloads", () => {
@@ -29,9 +33,9 @@ describe("quoteDraft", () => {
       monthlyRate: "",
       durationMonths: "",
     };
-    saveQuoteDraft("branch-1", "unit-1", draft);
-    const first = loadQuoteDraft("branch-1", "unit-1");
-    const second = loadQuoteDraft("branch-1", "unit-1");
+    saveQuoteDraft(scope, "branch-1", "unit-1", draft);
+    const first = loadQuoteDraft(scope, "branch-1", "unit-1");
+    const second = loadQuoteDraft(scope, "branch-1", "unit-1");
     expect(first?.idempotencyKey).toBe(draft.idempotencyKey);
     expect(second?.idempotencyKey).toBe(draft.idempotencyKey);
   });
@@ -45,23 +49,23 @@ describe("quoteDraft", () => {
 
   it("rejects corrupt or short-key payloads instead of resurrecting them", () => {
     window.localStorage.setItem("equipment3r.quote-draft.branch-1.unit-1", "{not json");
-    expect(loadQuoteDraft("branch-1", "unit-1")).toBeUndefined();
+    expect(loadQuoteDraft(scope, "branch-1", "unit-1")).toBeUndefined();
     window.localStorage.setItem(
       "equipment3r.quote-draft.branch-1.unit-1",
       JSON.stringify({ idempotencyKey: "short", customerName: "x" }),
     );
-    expect(loadQuoteDraft("branch-1", "unit-1")).toBeUndefined();
+    expect(loadQuoteDraft(scope, "branch-1", "unit-1")).toBeUndefined();
   });
 
   it("clears a stored draft", () => {
-    saveQuoteDraft("branch-1", "unit-1", {
+    saveQuoteDraft(scope, "branch-1", "unit-1", {
       idempotencyKey: newIdempotencyKey(),
       customerName: "",
       siteReference: "",
       monthlyRate: "",
       durationMonths: "",
     });
-    clearQuoteDraft("branch-1", "unit-1");
-    expect(loadQuoteDraft("branch-1", "unit-1")).toBeUndefined();
+    clearQuoteDraft(scope, "branch-1", "unit-1");
+    expect(loadQuoteDraft(scope, "branch-1", "unit-1")).toBeUndefined();
   });
 });
