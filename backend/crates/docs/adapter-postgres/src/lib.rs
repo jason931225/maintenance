@@ -96,7 +96,8 @@ impl PgDocsStore {
     ) -> Result<EvidenceObjectPage, PgDocsError> {
         let limit = normalized_limit(query.limit);
         let offset = query.offset.unwrap_or(0).max(0);
-        if query.cursor.is_some() && offset != 0 {
+        let using_cursor = query.cursor.is_some();
+        if using_cursor && offset != 0 {
             return Err(
                 KernelError::validation("EV cursor paging cannot be combined with offset").into(),
             );
@@ -173,7 +174,7 @@ impl PgDocsStore {
         Ok(EvidenceObjectPage {
             items,
             limit,
-            offset: if query.cursor.is_some() { 0 } else { offset },
+            offset: if using_cursor { 0 } else { offset },
             total,
             as_of: snapshot_sequence,
             next_cursor,
