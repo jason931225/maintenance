@@ -476,3 +476,116 @@ async fn attendance_close_lock_and_exception_resolution_invariants_are_deferred(
         .await
         .expect("exact active payroll lock supports org close");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: PgPool) {
+    let a = seed_org(&pool, ORG_A, "eligibility").await;
+
+    let lock = sqlx::query(
+        "SELECT p.provolatile::text AS provolatile, p.proparallel::text AS proparallel, p.prosecdef, p.proconfig, \
+                has_function_privilege('mnt_rt', p.oid, 'EXECUTE') AS runtime_execute, \
+                has_function_privilege('mnt_leave_definer', p.oid, 'EXECUTE') AS leave_execute, \
+                EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) privilege \
+                        WHERE privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE') AS public_execute, \
+                pg_get_functiondef(p.oid) AS definition \
+         FROM pg_proc p WHERE p.oid = 'public.mnt_employee_day_eligibility_lock(uuid,uuid,date)'::regprocedure",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(lock.get::<String, _>("provolatile"), "v");
+    assert_eq!(lock.get::<String, _>("proparallel"), "u");
+    assert!(!lock.get::<bool, _>("prosecdef"), "lock helper must use invoker rights");
+    assert!(
+        lock.get::<Option<Vec<String>>, _>("proconfig")
+            .unwrap_or_default()
+            .iter()
+            .any(|setting| setting == "search_path=pg_catalog"),
+        "lock helper must pin pg_catalog"
+    );
+    assert!(lock.get::<bool, _>("runtime_execute"));
+    assert!(lock.get::<bool, _>("leave_execute"));
+    assert!(!lock.get::<bool, _>("public_execute"));
+    assert!(
+        lock.get::<String, _>("definition")
+            .contains("attendance-substitution-eligibility-v1|"),
+        "the lock material is a cross-domain compatibility contract"
+    );
+
+    let trigger_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_trigger t \
+         WHERE NOT t.tgisinternal AND t.tgname IN ( \
+             'trg_attendance_exceptions_eligibility_lock', \
+             'trg_attendance_substitutions_eligibility_guard', \
+             'trg_leave_requests_eligibility_lock' \
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(trigger_count, 3, "all cross-domain transitions must serialize");
+
+    let decide_definition: String = sqlx::query_scalar(
+        "SELECT pg_get_functiondef('leave_api.decide_request(uuid,uuid,uuid,bigint,text,text,text,text)'::regprocedure)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let lock_at = decide_definition
+        .find("mnt_employee_day_eligibility_lock")
+        .expect("leave approval takes sorted employee/day locks");
+    let employee_lock_at = decide_definition
+        .find("FROM public.employees e")
+        .expect("leave decision retains its employee row lock");
+    assert!(
+        lock_at < employee_lock_at && decide_definition.contains("ORDER BY work_date"),
+        "employee/day locks must precede the employee lock in deterministic date order"
+    );
+
+    let mut tx = runtime_tx(&pool, ORG_A).await;
+    sqlx::query(
+        "INSERT INTO attendance_exceptions \
+         (org_id, code, kind, employee_id, branch_id, work_date, detail, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'AT-eligibility', 'NO_SHOW', $2, $3, DATE '2026-07-02', 'unavailable', $4, 'exception-eligibility-1', $5)",
+    )
+    .bind(ORG_A)
+    .bind(a.employee)
+    .bind(a.branch)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let legacy = sqlx::query(
+        "INSERT INTO attendance_substitutions \
+         (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'A site', $2, 'mechanic', DATE '2026-07-02', 540, 1020, $3, 'NO_SHOW', 'Legacy cover', 'part_time', $4, 'substitution-legacy-null-1', $5)",
+    )
+    .bind(ORG_A)
+    .bind(a.branch)
+    .bind(a.employee)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await;
+    assert!(legacy.is_ok(), "legacy NULL worker assignments remain compatible");
+    let guarded = sqlx::query(
+        "INSERT INTO attendance_substitutions \
+         (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
+         VALUES ($1, 'A site', $2, 'mechanic', DATE '2026-07-02', 540, 1020, $3, 'NO_SHOW', $3, 'Known cover', 'part_time', $4, 'substitution-guarded-worker-1', $5)",
+    )
+    .bind(ORG_A)
+    .bind(a.branch)
+    .bind(a.employee)
+    .bind(a.user)
+    .bind(FINGERPRINT)
+    .execute(&mut *tx)
+    .await
+    .expect_err("known worker must be rejected when an open NO_SHOW exists");
+    assert_eq!(guarded.as_database_error().unwrap().code().as_deref(), Some("23514"));
+    assert_eq!(
+        guarded.as_database_error().unwrap().message(),
+        "attendance_substitutions_worker_eligibility_guard"
+    );
+    tx.rollback().await.unwrap();
+}
