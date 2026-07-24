@@ -1862,6 +1862,9 @@ impl PlatformProvisioner {
         .bind(trace.trace_id())
         .bind(trace.span_id())
         .bind(now)
+        // rls-arming: ok the isolated command pool has no table grants and can invoke only
+        // the audited platform-force SECURITY DEFINER capability; this is a global destructive
+        // control-plane operation, not a tenant-scoped query path.
         .fetch_one(pool)
         .await?;
 

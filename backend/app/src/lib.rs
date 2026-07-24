@@ -5495,6 +5495,25 @@ mod command_database_config_tests {
         assert!(shared_command_url.to_string().contains(
             "ONTOLOGY_COMMAND_DATABASE_URL must be distinct from LEAVE_COMMAND_DATABASE_URL"
         ));
+
+        for (conflicting_url, expected) in [
+            (RUNTIME_URL, "DATABASE_URL"),
+            (LEAVE_COMMAND_URL, "LEAVE_COMMAND_DATABASE_URL"),
+            (ONTOLOGY_COMMAND_URL, "ONTOLOGY_COMMAND_DATABASE_URL"),
+        ] {
+            let error = AppConfig::from_pairs([
+                ("MNT_APP_ROLE", "api"),
+                ("DATABASE_URL", RUNTIME_URL),
+                ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+                ("ONTOLOGY_COMMAND_DATABASE_URL", ONTOLOGY_COMMAND_URL),
+                ("PLATFORM_FORCE_COMMAND_DATABASE_URL", conflicting_url),
+            ])
+            .unwrap_err();
+            assert!(
+                error.to_string().contains(expected),
+                "platform-force URL collision with {expected} must be rejected: {error}"
+            );
+        }
     }
 
     #[cfg(not(feature = "test-postgres"))]
