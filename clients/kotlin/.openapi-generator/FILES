@@ -638,6 +638,7 @@ src/main/kotlin/com/maintenance/api/client/model/PurchaseFeaturePreferences.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchasePolicySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestLineInput.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestLineSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestPage.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseRequesterSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseStatus.kt

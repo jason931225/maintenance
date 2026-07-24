@@ -7303,7 +7303,9 @@ export const ko = {
         createHelp: "거래처, 품목, 견적 상태, 합계, 비고를 첫 화면에서 확인합니다.",
         vendorExisting: "등록 거래처 후보와 일치합니다.",
         vendorNew: "새 거래처로 수기 입력합니다.",
-        vendorManualHint: "거래처명을 입력하면 기존 후보와 새 거래처 여부를 표시합니다.",
+        vendorManualHint: "거래처명은 직접 입력합니다.",
+        visibleHistoryHint:
+          "제안 항목은 현재 화면에 표시된 구매요청 이력에서만 가져오며 거래처 마스터가 아닙니다.",
         totalLabel: "요청 금액 합계",
         purchaseType: "구매유형",
         equipmentScoped: "호기 연결 구매",

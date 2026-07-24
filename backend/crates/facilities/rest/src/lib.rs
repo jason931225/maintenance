@@ -251,9 +251,8 @@ async fn create_due_case(
     let idempotency_key = b.idempotency_key.clone();
     let existing = with_org_conn::<_, _, RestError>(&s.pool, org, move |tx| {
         Box::pin(async move {
-            sqlx::query("SELECT id,request_hash FROM facilities_cases WHERE org_id=$1 AND obligation_id=$2 AND idempotency_key=$3")
+            sqlx::query("SELECT id,request_hash FROM facilities_cases WHERE org_id=$1 AND idempotency_key=$2")
                 .bind(*org.as_uuid())
-                .bind(obligation_id)
                 .bind(idempotency_key)
                 .fetch_optional(tx.as_mut())
                 .await
@@ -545,11 +544,19 @@ async fn observe(
     let org = p.org_id;
     let actor = p.clone();
     with_audits::<_, _, RestError>(&s.pool, org, move |tx| Box::pin(async move {
-        let row = sqlx::query("SELECT branch_id FROM facilities_cases WHERE id=$1 AND org_id=$2 FOR UPDATE")
+        let row = sqlx::query("SELECT status,branch_id FROM facilities_cases WHERE id=$1 AND org_id=$2 FOR UPDATE")
             .bind(id).bind(*org.as_uuid()).fetch_optional(tx.as_mut()).await.map_err(RestError::db)?
             .ok_or_else(|| RestError::new(StatusCode::NOT_FOUND, "not_found", "facilities case was not found"))?;
         let branch: Uuid = row.try_get("branch_id").map_err(RestError::db)?;
         require_feature(&actor, Feature::FacilitiesObserve, branch)?;
+        let status: String = row.try_get("status").map_err(RestError::db)?;
+        if status == "CLOSED" {
+            return Err(RestError::new(
+                StatusCode::CONFLICT,
+                "terminal_case",
+                "observations cannot be added to a closed facilities case",
+            ));
+        }
         for (phase, value) in [("PRE", b.pre_kwh), ("POST", b.post_kwh)] {
             if let Some(kwh) = value {
                 sqlx::query("INSERT INTO facilities_energy_observations(org_id,case_id,phase,source,observed_at,kwh,recorded_by) VALUES($1,$2,$3,'MANUAL',$4,$5,$6) ON CONFLICT (org_id,case_id,phase) DO UPDATE SET observed_at=EXCLUDED.observed_at,kwh=EXCLUDED.kwh,recorded_by=EXCLUDED.recorded_by")
