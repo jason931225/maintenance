@@ -63,3 +63,17 @@ $$;
 CREATE TRIGGER docs_evidence_copies_bind_storage_attestation
     BEFORE INSERT ON docs_evidence_copies
     FOR EACH ROW EXECUTE FUNCTION docs_evidence_copy_bind_storage_attestation();
+
+-- `created_at` is a business-event timestamp and can legitimately predate the
+-- command that registers it. Complete register scans therefore use this
+-- database-assigned identity instead: a post-snapshot insertion cannot claim a
+-- sequence at or below an already-issued cursor boundary.
+ALTER TABLE docs_evidence_objects
+    ADD COLUMN register_sequence BIGINT GENERATED ALWAYS AS IDENTITY;
+
+ALTER TABLE docs_evidence_objects
+    ADD CONSTRAINT docs_evidence_objects_register_sequence_positive
+    CHECK (register_sequence > 0);
+
+CREATE UNIQUE INDEX docs_evidence_objects_org_register_sequence
+    ON docs_evidence_objects (org_id, register_sequence);

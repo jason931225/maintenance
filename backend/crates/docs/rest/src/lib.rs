@@ -165,8 +165,8 @@ impl TryFrom<ListQuery> for ListEvidenceObjectsQuery {
             .as_of
             .as_deref()
             .map(|raw| {
-                time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
-                    .map_err(|_| KernelError::validation("as_of must be RFC3339"))
+                raw.parse::<i64>()
+                    .map_err(|_| KernelError::validation("as_of must be a register sequence"))
             })
             .transpose()?;
         let cursor = value
@@ -211,8 +211,7 @@ struct EvidenceObjectPageResponse {
     limit: i64,
     offset: i64,
     total: i64,
-    #[serde(with = "time::serde::rfc3339")]
-    snapshot_at: time::OffsetDateTime,
+    as_of: i64,
     next_cursor: Option<String>,
 }
 
@@ -225,7 +224,7 @@ impl TryFrom<EvidenceObjectPage> for EvidenceObjectPageResponse {
             limit: page.limit,
             offset: page.offset,
             total: page.total,
-            snapshot_at: page.snapshot_at,
+            as_of: page.as_of,
             next_cursor: page
                 .next_cursor
                 .as_ref()
@@ -855,8 +854,8 @@ mod tests {
     #[test]
     fn register_cursor_round_trips_as_an_opaque_base64url_token() {
         let cursor = EvidenceObjectCursor {
-            snapshot_at: OffsetDateTime::from_unix_timestamp(1_760_000_000).unwrap(),
-            created_at: OffsetDateTime::from_unix_timestamp(1_759_999_999).unwrap(),
+            snapshot_sequence: 42,
+            register_sequence: 41,
             id: EvidenceObjectId::new(),
         };
         let token = encode_register_cursor(&cursor).expect("cursor encodes");

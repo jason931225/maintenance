@@ -430,7 +430,7 @@ async fn cursor_scan_is_stable_across_the_immutable_register(owner_pool: PgPool)
         st.docs_store()
             .list_objects(ListEvidenceObjectsQuery {
                 limit: Some(1),
-                as_of: Some(first.snapshot_at),
+                as_of: Some(first.as_of),
                 cursor: Some(cursor),
                 ..list_all()
             })
@@ -438,7 +438,7 @@ async fn cursor_scan_is_stable_across_the_immutable_register(owner_pool: PgPool)
     })
     .await
     .expect("second cursor page succeeds");
-    assert_eq!(second.snapshot_at, first.snapshot_at);
+    assert_eq!(second.as_of, first.as_of);
     assert_eq!(second.total, 2);
     assert_eq!(second.items.len(), 1);
     assert_ne!(first.items[0].id, second.items[0].id);

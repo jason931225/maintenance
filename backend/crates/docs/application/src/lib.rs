@@ -42,14 +42,12 @@ pub struct EvidenceObjectView {
 
 /// Opaque ordering position for a complete EV-register scan.
 ///
-/// `created_at` is immutable, unlike `updated_at`; paired with the snapshot it
-/// prevents concurrent lifecycle updates from reordering or skipping records.
+/// The database assigns `register_sequence` on insert; unlike business-event
+/// timestamps it cannot be backdated by a command, so it bounds a complete scan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceObjectCursor {
-    #[serde(with = "time::serde::rfc3339")]
-    pub snapshot_at: Timestamp,
-    #[serde(with = "time::serde::rfc3339")]
-    pub created_at: Timestamp,
+    pub snapshot_sequence: i64,
+    pub register_sequence: i64,
     pub id: EvidenceObjectId,
 }
 
@@ -60,11 +58,11 @@ pub struct EvidenceObjectPage {
     /// Compatibility metadata for callers still on offset paging. Cursor scans
     /// always return zero here and must use `next_cursor` instead.
     pub offset: i64,
-    /// Count of records in the stable `snapshot_at` register, before cursor
-    /// position is applied.
+    /// Count of records in the stable register snapshot, before cursor position
+    /// is applied.
     pub total: i64,
-    #[serde(with = "time::serde::rfc3339")]
-    pub snapshot_at: Timestamp,
+    /// Immutable database-assigned registration boundary for this scan.
+    pub as_of: i64,
     pub next_cursor: Option<EvidenceObjectCursor>,
 }
 
@@ -188,9 +186,9 @@ pub struct ListEvidenceObjectsQuery {
     pub classification: Option<EvidenceClassification>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    /// Immutable-register snapshot boundary. Omitted on the first page; the
-    /// store captures one and returns it in the response/cursor.
-    pub as_of: Option<Timestamp>,
+    /// Immutable database registration boundary. Omitted on the first page;
+    /// the store captures one and returns it in the response/cursor.
+    pub as_of: Option<i64>,
     pub cursor: Option<EvidenceObjectCursor>,
 }
 

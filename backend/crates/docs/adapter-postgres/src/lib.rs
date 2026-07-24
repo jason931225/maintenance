@@ -102,64 +102,80 @@ impl PgDocsStore {
             );
         }
         if let (Some(as_of), Some(cursor)) = (query.as_of, query.cursor.as_ref())
-            && as_of != cursor.snapshot_at
+            && as_of != cursor.snapshot_sequence
         {
             return Err(KernelError::validation("EV cursor snapshot does not match as_of").into());
         }
-        let snapshot_at = query
-            .cursor
-            .as_ref()
-            .map(|cursor| cursor.snapshot_at)
-            .or(query.as_of)
-            .unwrap_or_else(time::OffsetDateTime::now_utc);
-        let query_for_count = query.clone();
-        let mut count_builder =
-            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM docs_evidence_objects WHERE ");
-        push_object_filters(&mut count_builder, &query_for_count)?;
-        push_register_snapshot(&mut count_builder, snapshot_at, None);
-
-        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
-        builder.push(OBJECT_COLUMNS);
-        builder.push(" FROM docs_evidence_objects WHERE ");
-        push_object_filters(&mut builder, &query)?;
-        push_register_snapshot(&mut builder, snapshot_at, query.cursor.as_ref());
-        builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
-        builder.push_bind(limit);
-        if query.cursor.is_none() {
-            builder.push(" OFFSET ");
-            builder.push_bind(offset);
-        }
 
         let org = current_org().map_err(KernelError::from)?;
-        let (total, rows) = with_org_conn::<_, _, PgDocsError>(&self.pool, org, move |tx| {
-            Box::pin(async move {
-                let total: i64 = count_builder
-                    .build_query_scalar()
-                    .fetch_one(tx.as_mut())
-                    .await?;
-                let rows = builder.build().fetch_all(tx.as_mut()).await?;
-                Ok((total, rows))
+        let (snapshot_sequence, total, rows) =
+            with_org_conn::<_, _, PgDocsError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let snapshot_sequence = match query.cursor.as_ref() {
+                        Some(cursor) => cursor.snapshot_sequence,
+                        None => match query.as_of {
+                            Some(as_of) => as_of,
+                            None => sqlx::query_scalar(
+                                "SELECT COALESCE(MAX(register_sequence), 0) FROM docs_evidence_objects",
+                            )
+                            .fetch_one(tx.as_mut())
+                            .await?,
+                        },
+                    };
+                    let query_for_count = query.clone();
+                    let mut count_builder = QueryBuilder::<Postgres>::new(
+                        "SELECT COUNT(*) FROM docs_evidence_objects WHERE ",
+                    );
+                    push_object_filters(&mut count_builder, &query_for_count)?;
+                    push_register_snapshot(&mut count_builder, snapshot_sequence, None);
+
+                    let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+                    builder.push(OBJECT_COLUMNS);
+                    builder.push(" FROM docs_evidence_objects WHERE ");
+                    push_object_filters(&mut builder, &query)?;
+                    push_register_snapshot(
+                        &mut builder,
+                        snapshot_sequence,
+                        query.cursor.as_ref(),
+                    );
+                    builder.push(" ORDER BY register_sequence DESC, id DESC LIMIT ");
+                    builder.push_bind(limit);
+                    if query.cursor.is_none() {
+                        builder.push(" OFFSET ");
+                        builder.push_bind(offset);
+                    }
+                    let total: i64 = count_builder
+                        .build_query_scalar()
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                    let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                    Ok((snapshot_sequence, total, rows))
+                })
             })
-        })
-        .await?;
+            .await?;
         let mut items = Vec::with_capacity(rows.len());
         for row in &rows {
             items.push(object_from_row(row)?);
         }
-        let next_cursor = (items.len() == limit as usize)
-            .then(|| items.last())
-            .flatten()
-            .map(|last| EvidenceObjectCursor {
-                snapshot_at,
-                created_at: last.created_at,
-                id: last.id,
-            });
+        let next_cursor = if items.len() == limit as usize {
+            rows.last()
+                .map(|row| {
+                    Ok(EvidenceObjectCursor {
+                        snapshot_sequence,
+                        register_sequence: row.try_get("register_sequence")?,
+                        id: EvidenceObjectId::from_uuid(row.try_get("id")?),
+                    })
+                })
+                .transpose()?
+        } else {
+            None
+        };
         Ok(EvidenceObjectPage {
             items,
             limit,
             offset: if query.cursor.is_some() { 0 } else { offset },
             total,
-            snapshot_at,
+            as_of: snapshot_sequence,
             next_cursor,
         })
     }
@@ -770,7 +786,7 @@ impl PgDocsStore {
 const OBJECT_COLUMNS: &str = "id, code, title, description, source_type, source_id, source_code, \
     classification, record_owner_user_id, current_custody_stage, legal_hold_state, \
     admissibility_status, admissibility_reasons, admissibility_inputs, created_by, \
-    updated_by, created_at, updated_at, disposed_at";
+    updated_by, created_at, updated_at, disposed_at, register_sequence";
 
 fn normalized_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
@@ -778,16 +794,16 @@ fn normalized_limit(limit: Option<i64>) -> i64 {
 
 fn push_register_snapshot(
     builder: &mut QueryBuilder<Postgres>,
-    snapshot_at: Timestamp,
+    snapshot_sequence: i64,
     cursor: Option<&EvidenceObjectCursor>,
 ) {
-    // `created_at` is immutable by the EV object trigger. A complete scan is
-    // therefore stable even while `updated_at` changes during custody/hold work.
-    builder.push(" AND created_at <= ");
-    builder.push_bind(snapshot_at);
+    // `register_sequence` is database-assigned and immutable. Unlike an event
+    // timestamp, a post-snapshot insert cannot be backdated into this scan.
+    builder.push(" AND register_sequence <= ");
+    builder.push_bind(snapshot_sequence);
     if let Some(cursor) = cursor {
-        builder.push(" AND (created_at, id) < (");
-        builder.push_bind(cursor.created_at);
+        builder.push(" AND (register_sequence, id) < (");
+        builder.push_bind(cursor.register_sequence);
         builder.push(", ");
         builder.push_bind(*cursor.id.as_uuid());
         builder.push(")");
