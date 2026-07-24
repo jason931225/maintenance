@@ -82,13 +82,11 @@ export interface Substitution {
 
 export interface CreateSubstitution {
   site: string;
-  branch_id?: string | null;
   role: string;
   cover_date: string;
   from_minutes: number;
   to_minutes: number;
-  covered_employee_id?: string | null;
-  covered_name: string;
+  covered_employee_id: string;
   reason_kind: SubstitutionReasonKind;
   reason_detail?: string | null;
   worker_employee_id?: string | null;
@@ -193,10 +191,10 @@ export interface ExceptionQuery {
 export interface SubstitutionQuery {
   from_date: string;
   to_date: string;
-  site?: string;
 }
 
 export interface ResolveException {
+  action: ResolutionAction;
   reason: string;
   linked_work_ref?: string;
   ot_hours?: number;

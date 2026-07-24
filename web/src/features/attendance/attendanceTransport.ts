@@ -41,10 +41,7 @@ export interface CreateAttendanceException {
   kind: AttendanceException["kind"];
   employee_id: string;
   work_date: string;
-  occurred_at?: string;
   detail: string;
-  branch_id?: string | null;
-  links?: AttendanceException["links"];
   evidence?: AttendanceException["evidence"];
 }
 
@@ -99,7 +96,7 @@ export function createAttendanceApiTransport(
   return {
     async listExceptions(query, signal) {
       const result = await api.GET("/api/v1/attendance/exceptions", {
-        params: { query },
+        params: { query: { ...query, branch_id: activeBranchId } },
         signal,
       });
       return requireData<Page<AttendanceException>>(result);
@@ -107,7 +104,7 @@ export function createAttendanceApiTransport(
 
     async createException(input, signal) {
       const result = await api.POST("/api/v1/attendance/exceptions", {
-        body: { ...input, branch_id: input.branch_id ?? activeBranchId },
+        body: { ...input, branch_id: activeBranchId },
         params: { header: { "Idempotency-Key": idempotencyKey() } },
         signal,
       });
@@ -115,19 +112,16 @@ export function createAttendanceApiTransport(
     },
 
     async getException(id, signal) {
-      const result = await api.GET("/api/v1/attendance/exceptions/{id}", {
-        params: { path: { id } },
+      const result = await api.GET("/api/v1/attendance/exceptions/{exception_id}", {
+        params: { path: { exception_id: id } },
         signal,
       });
       return requireData<AttendanceException>(result);
     },
 
     async resolveException(id, input, signal) {
-      const result = await api.POST("/api/v1/attendance/exceptions/{id}/resolve", {
-        params: {
-          path: { id },
-          header: { "Idempotency-Key": idempotencyKey() },
-        },
+      const result = await api.POST("/api/v1/attendance/exceptions/{exception_id}/resolve", {
+        params: { path: { exception_id: id } },
         body: input,
         signal,
       });
@@ -136,7 +130,7 @@ export function createAttendanceApiTransport(
 
     async listSubstitutions(query: SubstitutionQuery, signal) {
       const result = await api.GET("/api/v1/attendance/substitutions", {
-        params: { query },
+        params: { query: { ...query, branch_id: activeBranchId } },
         signal,
       });
       return requireData<Page<Substitution>>(result);
@@ -144,7 +138,7 @@ export function createAttendanceApiTransport(
 
     async createSubstitution(input: CreateSubstitution, signal) {
       const result = await api.POST("/api/v1/attendance/substitutions", {
-        body: { ...input, branch_id: input.branch_id ?? activeBranchId },
+        body: { ...input, branch_id: activeBranchId },
         params: { header: { "Idempotency-Key": idempotencyKey() } },
         signal,
       });
@@ -152,11 +146,8 @@ export function createAttendanceApiTransport(
     },
 
     async cancelSubstitution(id, reason, signal) {
-      const result = await api.POST("/api/v1/attendance/substitutions/{id}/cancel", {
-        params: {
-          path: { id },
-          header: { "Idempotency-Key": idempotencyKey() },
-        },
+      const result = await api.POST("/api/v1/attendance/substitutions/{substitution_id}/cancel", {
+        params: { path: { substitution_id: id } },
         body: { reason },
         signal,
       });
@@ -165,37 +156,36 @@ export function createAttendanceApiTransport(
 
     async listCloses(month, signal) {
       const result = await api.GET("/api/v1/attendance/closes", {
-        params: { query: { month } },
+        params: { query: { month, branch_id: activeBranchId } },
         signal,
       });
       return requireData<MonthCloseBoard>(result);
     },
 
-    async preflightClose(month, _branchScope, signal) {
+    async preflightClose(month, branchScope, signal) {
       const result = await api.POST("/api/v1/attendance/closes/preflight", {
-        body: { month, branch_id: activeBranchId },
+        body: { month, branch_scope: branchScope || activeBranchId },
         signal,
       });
       return requireData<ClosePreflight>(result);
     },
 
-    async confirmClose(month, _branchScope, signal) {
+    async confirmClose(month, branchScope, signal) {
       const result = await api.POST("/api/v1/attendance/closes", {
         body: {
           month,
-          branch_id: activeBranchId,
+          branch_scope: branchScope || activeBranchId,
           attest: true,
         },
-        params: { header: { "Idempotency-Key": idempotencyKey() } },
         signal,
       });
       return requireData<MonthClose>(result);
     },
 
     async addCloseAmendment(closeId, input, signal) {
-      const result = await api.POST("/api/v1/attendance/closes/{id}/amendments", {
+      const result = await api.POST("/api/v1/attendance/closes/{close_id}/amend", {
         params: {
-          path: { id: closeId },
+          path: { close_id: closeId },
           header: { "Idempotency-Key": idempotencyKey() },
         },
         body: input,
@@ -206,16 +196,15 @@ export function createAttendanceApiTransport(
 
     async listWeek52(weekStart, signal) {
       const result = await api.GET("/api/v1/attendance/week52", {
-        params: { query: { week_start: weekStart } },
+        params: { query: { week_start: weekStart, branch_id: activeBranchId } },
         signal,
       });
       return requireData<Week52Board>(result);
     },
 
     async ackWeek52(employeeId, weekStart, signal) {
-      const result = await api.POST("/api/v1/attendance/week52/acks", {
+      const result = await api.POST("/api/v1/attendance/week52/ack", {
         body: { employee_id: employeeId, week_start: weekStart },
-        params: { header: { "Idempotency-Key": idempotencyKey() } },
         signal,
       });
       return requireData<Week52Row>(result);

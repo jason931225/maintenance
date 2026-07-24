@@ -454,7 +454,7 @@ describe("AttendanceScreen", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: text.exceptions.resolveConfirm }));
     await waitFor(() => { expect(resolveException).toHaveBeenCalledWith(
       "ex-1",
-      { reason: "출입 기록 확인" },
+      { action: "CONFIRM", reason: "출입 기록 확인" },
       expect.any(AbortSignal),
     ); });
     expect(await within(card).findByText(text.exceptions.resolved)).toBeVisible();

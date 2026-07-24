@@ -1706,6 +1706,7 @@ function ExceptionModal({
   busy: boolean;
   onClose: () => void;
   onResolve: (input: {
+    action: "CONFIRM" | "APPROVE_OVERTIME";
     reason: string;
     linked_work_ref?: string;
     ot_hours?: number;
@@ -1736,6 +1737,7 @@ function ExceptionModal({
     setFieldError(undefined);
     const hours = Number(otHours);
     onResolve({
+      action: isOvertime ? "APPROVE_OVERTIME" : "CONFIRM",
       reason: trimmed,
       ...(isOvertime ? { linked_work_ref: workRef.trim() } : {}),
       ...(isOvertime && otHours && Number.isFinite(hours)
@@ -2003,7 +2005,6 @@ function SubModal({
     from_minutes: number;
     to_minutes: number;
     covered_employee_id: string;
-    covered_name: string;
     reason_kind: "NO_SHOW";
     reason_detail: string;
     worker_name: string;
@@ -2069,7 +2070,6 @@ function SubModal({
       from_minutes: fromMin,
       to_minutes: toMin,
       covered_employee_id: gap.employee_id,
-      covered_name: gap.employee_name,
       reason_kind: "NO_SHOW",
       reason_detail: gap.detail,
       worker_name: worker.display_name,
