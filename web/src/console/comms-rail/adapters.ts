@@ -187,7 +187,7 @@ export function decodeNotificationRail(response: CommsRailResponse<unknown>): De
 
 export function decodeNoticeRail(response: CommsRailResponse<unknown>): DecodedRailResult {
   return decodeStatus(response, (value) => publishedNotices(value)?.map((notice) => ({
-      id: notice.id, source: "notices", occurredAt: notice.published_at!,
+      id: notice.id, source: "notices", occurredAt: notice.published_at,
       code: "notice", unread: false,
       target: { kind: "inline", source: "notices", id: notice.id },
       title: notice.title, status: "published" as const,

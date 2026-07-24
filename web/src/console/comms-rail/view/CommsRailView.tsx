@@ -274,7 +274,7 @@ function RailCategory({
                     </button>
                   ) : <div className="commsRail__row commsRail__row--static"><RowContents item={item} copy={copy} /></div>}
                   {item.action && onAction && copy.action[item.action.kind].trim() ? (
-                    <button type="button" className="commsRail__action" data-testid={`latest-comms-action-${source}-${item.id}`} onClick={() => { onAction(item.action!); }}>
+                    <button type="button" className="commsRail__action" data-testid={`latest-comms-action-${source}-${item.id}`} onClick={() => { if (item.action) onAction(item.action); }}>
                       {copy.action[item.action.kind]}
                     </button>
                   ) : null}

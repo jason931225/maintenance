@@ -116,8 +116,9 @@ function ScopedCommsRail({ api, scope, createStore, ...props }: CommsRailContain
     }
   };
   const onAction = (action: Parameters<typeof store.act>[0]) => { void store.act(action); };
+  const handleRetry = (source: "messenger" | "mail" | "notifications" | "notices") => { void onRetry(source); };
   if (props.presentation === "drawer") {
-    return <CommsRailView {...props} snapshot={snapshot} retryingSource={retryingSource} onRetry={onRetry} onAction={onAction} />;
+    return <CommsRailView {...props} snapshot={snapshot} retryingSource={retryingSource} onRetry={handleRetry} onAction={onAction} />;
   }
-  return <CommsRailView {...props} snapshot={snapshot} retryingSource={retryingSource} onRetry={onRetry} onAction={onAction} />;
+  return <CommsRailView {...props} snapshot={snapshot} retryingSource={retryingSource} onRetry={handleRetry} onAction={onAction} />;
 }
