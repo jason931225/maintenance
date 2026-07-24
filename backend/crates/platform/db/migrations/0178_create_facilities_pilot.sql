@@ -52,7 +52,7 @@ CREATE TABLE facilities_cases (
     assignee_id UUID NULL, scheduled_for TIMESTAMPTZ NULL, safety_acknowledged_at TIMESTAMPTZ NULL,
     response_due_at TIMESTAMPTZ NOT NULL, completion_due_at TIMESTAMPTZ NOT NULL, acceptance_due_at TIMESTAMPTZ NOT NULL,
     occurrence_due_at TIMESTAMPTZ NOT NULL, request_hash TEXT NOT NULL, idempotency_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (id, org_id), UNIQUE (org_id, obligation_id, occurrence_due_at), UNIQUE (org_id, obligation_id, idempotency_key),
+    UNIQUE (id, org_id), UNIQUE (org_id, obligation_id, occurrence_due_at), UNIQUE (org_id, idempotency_key),
     FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id), FOREIGN KEY (site_id, org_id) REFERENCES registry_sites(id, org_id),
     FOREIGN KEY (obligation_id, org_id) REFERENCES facilities_obligations(id, org_id),
     FOREIGN KEY (assignee_id, org_id) REFERENCES users(id, org_id)
