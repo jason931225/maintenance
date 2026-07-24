@@ -81,6 +81,12 @@ trap cleanup EXIT HUP INT TERM
 # `git archive HEAD` snapshots exactly the candidate tree without touching the
 # caller's index, working files, daemon state, or any parallel worktree.
 git -C "${repo_root}" archive --format=tar HEAD | tar -x -C "${scratch}"
+# Archive snapshots deliberately exclude mutable node_modules. Link the caller's
+# dependency tree only after package.json/package-lock digest parity and locked
+# direct-package validation; no generator can resolve an ambient ancestor tree.
+python3 "${repo_root}/tools/buck/provision_snapshot_node_modules.py" \
+  --caller "${repo_root}" \
+  --snapshot "${scratch}"
 # Every registered generated face runs from the immutable snapshot. The Python
 # runner dispatches only the allowlisted writer kind; registry strings are never
 # eval'd as shell commands. A single non-zero writer or output diff fails closed.
