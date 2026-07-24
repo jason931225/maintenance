@@ -13583,13 +13583,14 @@ paths:
     post:
       operationId: ingestProductionSource
       tags: [Production]
-      security: [{bearerAuth: []}]
-      description: Registered non-human source-workload ingress for demand, capacity, and material facts. The server derives source system identity from the authenticated enabled source registration; callers cannot assert it. The source id/version tuple is immutable and idempotent.
+      security: [{basicAuth: []}]
+      description: Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent.
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngress'}}}}
       responses:
         '200': {description: Existing source-version replay, or accepted source fact, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {description: Production service-principal HMAC key is not configured.}
   /api/v1/production/source-systems:
     post:
       operationId: registerProductionSourceSystem
@@ -13659,6 +13660,9 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
 components:
   securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
     bearerAuth:
       type: http
       scheme: bearer
@@ -27813,10 +27817,9 @@ components:
         credential: {type: string, minLength: 32, maxLength: 512, writeOnly: true}
     ProductionDemandIngress:
       type: object
-      required: [kind, branch_id, id, inquiry_id, product_code, quantity, due_at, source_id, source_version]
+      required: [kind, id, inquiry_id, product_code, quantity, due_at, source_id, source_version]
       properties:
         kind: {type: string, enum: [demand]}
-        branch_id: {$ref: '#/components/schemas/Uuid'}
         id: {$ref: '#/components/schemas/Uuid'}
         inquiry_id: {$ref: '#/components/schemas/Uuid'}
         product_code: {type: string, minLength: 1}
@@ -27826,10 +27829,9 @@ components:
         source_version: {type: string, minLength: 1, maxLength: 160}
     ProductionCapacityIngress:
       type: object
-      required: [kind, branch_id, id, site_id, capacity_date, available_quantity, source_id, source_version]
+      required: [kind, id, site_id, capacity_date, available_quantity, source_id, source_version]
       properties:
         kind: {type: string, enum: [capacity]}
-        branch_id: {$ref: '#/components/schemas/Uuid'}
         id: {$ref: '#/components/schemas/Uuid'}
         site_id: {$ref: '#/components/schemas/Uuid'}
         capacity_date: {type: string, format: date}
@@ -27838,10 +27840,9 @@ components:
         source_version: {type: string, minLength: 1, maxLength: 160}
     ProductionMaterialIngress:
       type: object
-      required: [kind, branch_id, material_item_id, quantity_on_hand_milli, safety_stock_milli, source_id, source_version]
+      required: [kind, material_item_id, quantity_on_hand_milli, safety_stock_milli, source_id, source_version]
       properties:
         kind: {type: string, enum: [material]}
-        branch_id: {$ref: '#/components/schemas/Uuid'}
         material_item_id: {$ref: '#/components/schemas/Uuid'}
         quantity_on_hand_milli: {type: integer, format: int64, minimum: 0}
         safety_stock_milli: {type: integer, format: int64, minimum: 0}

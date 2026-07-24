@@ -6,6 +6,7 @@
 //! source-domain records.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -13,7 +14,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{BranchId, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{
+    Action, Feature, Principal, Role, ServicePrincipal, authorize, authorize_service,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -50,24 +53,34 @@ pub const PRODUCTION_ROUTE_PATHS: &[&str] = &[
 pub struct ProductionRestState {
     pool: PgPool,
     jwt_verifier: Option<JwtVerifier>,
+    service_principal_hmac_key: Option<[u8; 32]>,
 }
 impl ProductionRestState {
     #[must_use]
     pub fn new(pool: PgPool, jwt_verifier: Option<JwtVerifier>) -> Self {
-        Self { pool, jwt_verifier }
+        Self {
+            pool,
+            jwt_verifier,
+            service_principal_hmac_key: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_service_principal_hmac_key(mut self, key: Option<[u8; 32]>) -> Self {
+        self.service_principal_hmac_key = key;
+        self
     }
 }
 
 pub fn router(state: ProductionRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.pool.clone();
-    let router = Router::new()
+    let human_router = Router::new()
         .route(PRODUCTION_PLANS_PATH, get(list_plans).post(create_plan))
         .route(PRODUCTION_CAPACITY_SLOTS_PATH, get(list_capacity_slots))
         .route(PRODUCTION_PLAN_PATH, get(get_plan))
         .route(PRODUCTION_PLAN_RELEASE_PATH, post(release_plan))
         .route(PRODUCTION_OPERATION_RECORDS_PATH, post(record_operation))
-        .route(PRODUCTION_SOURCE_INGRESS_PATH, post(ingest_source))
         .route(PRODUCTION_SOURCE_SYSTEMS_PATH, post(register_source_system))
         .route(
             PRODUCTION_SOURCE_SYSTEM_ROTATE_PATH,
@@ -77,8 +90,16 @@ pub fn router(state: ProductionRestState) -> Router {
             PRODUCTION_SOURCE_SYSTEM_DISABLE_PATH,
             post(disable_source_system),
         )
-        .with_state(state);
-    mnt_platform_request_context::with_request_context(router, verifier, pool)
+        .with_state(state.clone());
+    let human_router =
+        mnt_platform_request_context::with_request_context(human_router, verifier, pool);
+    // Basic-auth ingress is deliberately outside JWT request-context middleware.
+    // It authenticates the machine principal before parsing JSON, resolves the
+    // tenant through the narrow SECURITY DEFINER function, then arms RLS itself.
+    Router::new()
+        .route(PRODUCTION_SOURCE_INGRESS_PATH, post(ingest_source))
+        .with_state(state)
+        .merge(human_router)
 }
 
 #[derive(Deserialize)]
@@ -114,7 +135,6 @@ struct ReleasePlan {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SourceIngress {
     Demand {
-        branch_id: BranchId,
         id: Uuid,
         inquiry_id: Uuid,
         product_code: String,
@@ -125,7 +145,6 @@ enum SourceIngress {
         source_version: String,
     },
     Capacity {
-        branch_id: BranchId,
         id: Uuid,
         site_id: Uuid,
         capacity_date: time::Date,
@@ -134,7 +153,6 @@ enum SourceIngress {
         source_version: String,
     },
     Material {
-        branch_id: BranchId,
         material_item_id: Uuid,
         quantity_on_hand_milli: i64,
         safety_stock_milli: i64,
@@ -368,27 +386,69 @@ async fn source_system_lifecycle(
 async fn ingest_source(
     State(state): State<ProductionRestState>,
     headers: HeaderMap,
-    Json(request): Json<SourceIngress>,
+    body: Bytes,
 ) -> Result<Json<serde_json::Value>, RestError> {
-    let branch_id = match &request {
-        SourceIngress::Demand { branch_id, .. }
-        | SourceIngress::Capacity { branch_id, .. }
-        | SourceIngress::Material { branch_id, .. } => *branch_id,
-    };
-    let principal = principal(&state, &headers).await?;
-    if principal.roles.len() != 1 || !principal.roles.contains(&Role::Member) {
-        return Err(RestError::unauthorized(
-            "production source ingress requires a non-human service principal",
-        ));
-    }
-    authorize(
-        &principal,
+    let hmac_key = state
+        .service_principal_hmac_key
+        .ok_or_else(|| RestError::unavailable("production source authentication is unavailable"))?;
+    let credentials = service_auth::parse_basic_credentials(
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+    )
+    .ok_or_else(|| RestError::unauthorized("invalid production source credentials"))?;
+
+    // Authenticate before parsing an untrusted JSON body. The resolver is the
+    // sole pre-RLS bridge and exposes only the tenant UUID.
+    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
+    let org_id: Option<Uuid> = sqlx::query_scalar("SELECT production_service_principal_org($1)")
+        .bind(*credentials.client_id.as_uuid())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(RestError::db)?;
+    let org_id =
+        org_id.ok_or_else(|| RestError::unauthorized("invalid production source credentials"))?;
+    arm_tenant(&mut tx, org_id).await?;
+    let source = sqlx::query("SELECT id, org_id, branch_id, feature, generation, verifier FROM service_principals WHERE id=$1 AND state='ACTIVE' FOR SHARE")
+        .bind(*credentials.client_id.as_uuid())
+        .fetch_optional(&mut *tx).await.map_err(RestError::db)?
+        .ok_or_else(|| RestError::unauthorized("invalid production source credentials"))?;
+    let service_principal_id: Uuid = source.try_get("id").map_err(RestError::db)?;
+    let source_org: Uuid = source.try_get("org_id").map_err(RestError::db)?;
+    let branch_id = BranchId::from_uuid(source.try_get("branch_id").map_err(RestError::db)?);
+    let feature: String = source.try_get("feature").map_err(RestError::db)?;
+    let generation: i32 = source.try_get("generation").map_err(RestError::db)?;
+    let stored_verifier: Vec<u8> = source.try_get("verifier").map_err(RestError::db)?;
+    let machine = ServicePrincipal::new(
+        credentials.client_id,
+        mnt_kernel_core::OrgId::from_uuid(source_org),
+        branch_id,
+        Feature::ProductionSourceIngest,
+    );
+    authorize_service(
+        &machine,
         Action::limited(Feature::ProductionSourceIngest),
         branch_id,
     )
     .map_err(RestError::kernel)?;
-    let org = mnt_platform_request_context::current_org()
-        .map_err(|_| RestError::internal("tenant context is missing"))?;
+    let expected = service_auth::verifier(
+        &hmac_key,
+        &credentials.secret,
+        machine.org_id,
+        machine.id,
+        branch_id,
+        generation,
+    );
+    if feature != service_auth::PRODUCTION_SOURCE_INGEST_FEATURE
+        || !service_auth::verifier_matches(&stored_verifier, &expected)
+    {
+        return Err(RestError::unauthorized(
+            "invalid production source credentials",
+        ));
+    }
+    let request: SourceIngress = serde_json::from_slice(&body)
+        .map_err(|_| RestError::validation("invalid production source ingress body"))?;
+    let org = mnt_kernel_core::OrgId::from_uuid(org_id);
     let (kind, source_id, source_version) = match &request {
         SourceIngress::Demand {
             source_id,
@@ -416,27 +476,11 @@ async fn ingest_source(
         ));
     }
     let request_hash = hash_request(&request)?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let credential = headers
-        .get("x-production-source-credential")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| RestError::unauthorized("production source credential is required"))?;
-    let source = sqlx::query("SELECT id, source_system, credential_hash FROM production_source_systems WHERE principal_id=$1 AND branch_id=$2 AND enabled=true FOR UPDATE")
-        .bind(*principal.user_id.as_uuid()).bind(*branch_id.as_uuid()).fetch_optional(&mut *tx).await.map_err(RestError::db)?
-        .ok_or_else(|| RestError::unauthorized("registered enabled production source workload is required"))?;
-    let source_system_id: Uuid = source.try_get("id").map_err(RestError::db)?;
-    let source_system: String = source.try_get("source_system").map_err(RestError::db)?;
-    let credential_hash: String = source.try_get("credential_hash").map_err(RestError::db)?;
-    if hash_credential(credential) != credential_hash {
-        return Err(RestError::unauthorized(
-            "production source credential is invalid",
-        ));
-    }
-    sqlx::query("INSERT INTO production_source_ingress_claims (org_id,source_system_id,kind,source_id,source_version,payload_hash,ingested_by) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING")
-        .bind(*org.as_uuid()).bind(source_system_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).bind(&request_hash).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(RestError::db)?;
-    let claim = sqlx::query("SELECT payload_hash,response FROM production_source_ingress_claims WHERE org_id=$1 AND source_system_id=$2 AND kind=$3 AND source_id=$4 AND source_version=$5 FOR UPDATE")
-        .bind(*org.as_uuid()).bind(source_system_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+    let source_system = format!("service-principal:{service_principal_id}");
+    sqlx::query("INSERT INTO service_principal_ingress_claims (org_id,service_principal_id,kind,source_id,source_version,payload_hash) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+        .bind(*org.as_uuid()).bind(service_principal_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).bind(&request_hash).execute(&mut *tx).await.map_err(RestError::db)?;
+    let claim = sqlx::query("SELECT payload_hash,response FROM service_principal_ingress_claims WHERE org_id=$1 AND service_principal_id=$2 AND kind=$3 AND source_id=$4 AND source_version=$5 FOR UPDATE")
+        .bind(*org.as_uuid()).bind(service_principal_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
     let stored_hash: String = claim.try_get("payload_hash").map_err(RestError::db)?;
     if stored_hash != request_hash {
         return Err(RestError::conflict(
@@ -470,7 +514,6 @@ async fn ingest_source(
         }
         SourceIngress::Capacity {
             id,
-            branch_id,
             site_id,
             capacity_date,
             available_quantity,
@@ -489,7 +532,6 @@ async fn ingest_source(
             serde_json::json!({"kind":"capacity","id":id,"source_version":source_version})
         }
         SourceIngress::Material {
-            branch_id,
             material_item_id,
             quantity_on_hand_milli,
             safety_stock_milli,
@@ -506,8 +548,8 @@ async fn ingest_source(
             serde_json::json!({"kind":"material","id":persisted_id,"source_version":source_version})
         }
     };
-    sqlx::query("UPDATE production_source_ingress_claims SET response=$1, completed_at=now() WHERE org_id=$2 AND source_system_id=$3 AND kind=$4 AND source_id=$5 AND source_version=$6")
-        .bind(&response).bind(*org.as_uuid()).bind(source_system_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
+    sqlx::query("UPDATE service_principal_ingress_claims SET response=$1, completed_at=now() WHERE org_id=$2 AND service_principal_id=$3 AND kind=$4 AND source_id=$5 AND source_version=$6")
+        .bind(&response).bind(*org.as_uuid()).bind(service_principal_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok(Json(response))
 }

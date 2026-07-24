@@ -21,6 +21,7 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use base64::Engine as _;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use mnt_analytics_quant_rest::AnalyticsQuantState;
 use mnt_benefit_adapter_postgres::PgBenefitCatalogStore;
@@ -470,6 +471,9 @@ pub struct AppConfig {
     /// `MNT_OFFICE_DOCSERVER_URL` are set; the office routes still mount but
     /// return `503 office_not_configured`.
     pub office: Option<office::OfficeConfig>,
+    /// Base64-encoded, exactly 32-byte HMAC key for machine-only production
+    /// ingress. Its absence leaves only that ingress route unavailable (503).
+    pub production_service_principal_hmac_key: Option<[u8; 32]>,
 }
 
 /// Native app-link association config for the `/.well-known/*` endpoints.
@@ -762,6 +766,25 @@ impl AppConfig {
         };
         let office = office::office_config_from_vars(|key| non_empty(vars.get(key)))
             .map_err(AppError::Config)?;
+        let production_service_principal_hmac_key = non_empty(
+            vars.get("MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY"),
+        )
+        .map(|encoded| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|_| {
+                    AppError::Config(
+                        "MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY must be base64".to_owned(),
+                    )
+                })?;
+            bytes.try_into().map_err(|_: Vec<u8>| {
+                AppError::Config(
+                    "MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY must decode to exactly 32 bytes"
+                        .to_owned(),
+                )
+            })
+        })
+        .transpose()?;
 
         Ok(Self {
             role,
@@ -794,6 +817,7 @@ impl AppConfig {
             audit_chain_seal_enabled,
             storefront_org,
             office,
+            production_service_principal_hmac_key,
         })
     }
 }
@@ -2841,10 +2865,12 @@ pub fn build_router(state: AppState) -> Router {
                     ))
                     .with_job_queue(state.dispatch_job_queue.clone()),
                 ))
-                .merge(mnt_production_rest::router(ProductionRestState::new(
-                    pool.clone(),
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_production_rest::router(
+                    ProductionRestState::new(pool.clone(), state.jwt_verifier.clone())
+                        .with_service_principal_hmac_key(
+                            state.config.production_service_principal_hmac_key,
+                        ),
+                ))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
                     state.jwt_verifier.clone(),

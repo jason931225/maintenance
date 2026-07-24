@@ -32,6 +32,7 @@ dev-auth = ["mnt-platform-auth-rest/dev-auth"]
 
 [dependencies]
 axum = { workspace = true }
+base64 = { workspace = true }
 calamine = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }

@@ -36,6 +36,20 @@ CREATE TABLE service_principal_audit_events (
     FOREIGN KEY (actor_id, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
 );
 
+CREATE TABLE service_principal_ingress_claims (
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    service_principal_id UUID NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('DEMAND', 'CAPACITY', 'MATERIAL')),
+    source_id TEXT NOT NULL CHECK (btrim(source_id) <> '' AND char_length(source_id) <= 160),
+    source_version TEXT NOT NULL CHECK (btrim(source_version) <> '' AND char_length(source_version) <= 160),
+    payload_hash TEXT NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$'),
+    response JSONB,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    PRIMARY KEY (org_id, service_principal_id, kind, source_id, source_version),
+    FOREIGN KEY (service_principal_id, org_id) REFERENCES service_principals(id, org_id) ON DELETE RESTRICT
+);
+
 ALTER TABLE service_principals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_principals FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON service_principals
@@ -44,6 +58,11 @@ CREATE POLICY org_isolation ON service_principals
 ALTER TABLE service_principal_audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_principal_audit_events FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON service_principal_audit_events
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+ALTER TABLE service_principal_ingress_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_principal_ingress_claims FORCE ROW LEVEL SECURITY;
+CREATE POLICY org_isolation ON service_principal_ingress_claims
     USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
     WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
 
@@ -78,6 +97,6 @@ $$;
 
 REVOKE ALL ON FUNCTION production_service_principal_org(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION production_service_principal_org(UUID) TO mnt_rt;
-REVOKE ALL ON service_principals, service_principal_audit_events FROM PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON service_principals, service_principal_audit_events TO mnt_rt;
-REVOKE DELETE ON service_principals, service_principal_audit_events FROM mnt_rt;
+REVOKE ALL ON service_principals, service_principal_audit_events, service_principal_ingress_claims FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON service_principals, service_principal_audit_events, service_principal_ingress_claims TO mnt_rt;
+REVOKE DELETE ON service_principals, service_principal_audit_events, service_principal_ingress_claims FROM mnt_rt;
