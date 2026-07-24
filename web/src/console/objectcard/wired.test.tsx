@@ -9,7 +9,7 @@ import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { createObjectCardStub } from "./stub";
 import { objectCardGovStrings } from "./strings";
 import { GovernedObjectCard } from "./wired";
-import type { ObjectCardHandlers } from "./types";
+import type { ObjectCardDescriptor, ObjectCardHandlers } from "./types";
 
 const T = ko.console.objectcard;
 const S = objectCardGovStrings();
@@ -115,11 +115,71 @@ function renderGoverned(
   );
 }
 
+function renderGovernedWith(
+  api: ConsoleApiClient,
+  descriptor: ObjectCardDescriptor,
+) {
+  return render(
+    <PolicyGateProvider gate={allowGate}>
+      <GovernedObjectCard api={api} descriptor={descriptor} />
+    </PolicyGateProvider>,
+  );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function apiResult(data: unknown) {
+  return { data, error: undefined, response: { status: 200 } };
+}
+
 function clickAction(title: string) {
   fireEvent.click(screen.getByRole("button", { name: T.actionAria(title) }));
 }
 
 describe("GovernedObjectCard action preflight → execute", () => {
+  it("discards an API-A preflight after descriptor B is current and never executes through B", async () => {
+    const stalePreflight = deferred<ReturnType<typeof apiResult>>();
+    const postA = vi.fn(() => stalePreflight.promise);
+    const postB = vi.fn(() => Promise.resolve(apiResult({})));
+    const apiA = {
+      GET: vi.fn(() => Promise.resolve(apiResult([]))),
+      POST: postA,
+    } as unknown as ConsoleApiClient;
+    const apiB = {
+      GET: vi.fn(() => Promise.resolve(apiResult([]))),
+      POST: postB,
+    } as unknown as ConsoleApiClient;
+    const descriptorA = createObjectCardStub();
+    const descriptorB = {
+      ...descriptorA,
+      id: "wo-b",
+      objectType: { ...descriptorA.objectType, id: "type-b" },
+    };
+    const view = renderGovernedWith(apiA, descriptorA);
+    clickAction(T.samples.actions.reassign);
+    await waitFor(() => {
+      expect(postA).toHaveBeenCalledTimes(1);
+    });
+    view.rerender(
+      <PolicyGateProvider gate={allowGate}>
+        <GovernedObjectCard api={apiB} descriptor={descriptorB} />
+      </PolicyGateProvider>,
+    );
+
+    stalePreflight.resolve(
+      apiResult({ gates: passingChain, criteria_ok: true, would_execute: true }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: S.preflight.execute })).toBeNull();
+    });
+    expect(postB).not.toHaveBeenCalled();
+  });
   it("renders each gate's status and withholds execute while a gate is pending (writes nothing)", async () => {
     const executeCalls = vi.fn();
     server.use(
@@ -423,6 +483,44 @@ describe("GovernedObjectCard dynamic layer (acting-read + code resolve)", () => 
 
 describe("GovernedObjectCard lifecycle transition preflight", () => {
   const archiveLabel = T.transitionTo(T.lifecycle.archived);
+
+  it("discards an API-A lifecycle preflight after descriptor B is current", async () => {
+    const stalePreflight = deferred<ReturnType<typeof apiResult>>();
+    const postA = vi.fn(() => stalePreflight.promise);
+    const postB = vi.fn(() => Promise.resolve(apiResult({})));
+    const apiA = {
+      GET: vi.fn(() => Promise.resolve(apiResult([]))),
+      POST: postA,
+    } as unknown as ConsoleApiClient;
+    const apiB = {
+      GET: vi.fn(() => Promise.resolve(apiResult([]))),
+      POST: postB,
+    } as unknown as ConsoleApiClient;
+    const descriptorA = createObjectCardStub();
+    const descriptorB = {
+      ...descriptorA,
+      id: "wo-b",
+      objectType: { ...descriptorA.objectType, id: "type-b" },
+    };
+    const view = renderGovernedWith(apiA, descriptorA);
+    fireEvent.click(screen.getByRole("button", { name: archiveLabel }));
+    await waitFor(() => {
+      expect(postA).toHaveBeenCalledTimes(1);
+    });
+    view.rerender(
+      <PolicyGateProvider gate={allowGate}>
+        <GovernedObjectCard api={apiB} descriptor={descriptorB} />
+      </PolicyGateProvider>,
+    );
+
+    stalePreflight.resolve(
+      apiResult({ configured: true, config: {}, outcome: passingChain }),
+    );
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: archiveLabel })).toHaveLength(1);
+    });
+    expect(postB).not.toHaveBeenCalled();
+  });
 
   it("fail-closes an unconfigured edge as a blocker with no commit affordance", async () => {
     server.use(

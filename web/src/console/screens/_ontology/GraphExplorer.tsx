@@ -490,14 +490,9 @@ export function GraphExplorer({
   const zoomPct = Math.round(scale * 100);
 
   function refreshSelectedCard(): void {
-    // Re-mount the governed card after a commit so its dynamic acting read is
-    // server-fresh alongside the descriptor, traversal, and history refreshes.
+    // Keep the committed card mounted while the server-fresh descriptor resolves;
+    // its receipt and local history must remain visible through this refresh.
     setCardRefreshEpoch((current) => current + 1);
-    setResolved((current) => {
-      const next = new Map(current);
-      next.delete(selectedNode.id);
-      return next;
-    });
     setFailed((current) => {
       const next = new Set(current);
       next.delete(selectedNode.id);
@@ -665,11 +660,11 @@ export function GraphExplorer({
         ) : null}
         {api && !showProjected ? (
           <GovernedObjectCard
-            key={`${selectedNode.id}:${String(cardRefreshEpoch)}`}
             api={api}
             descriptor={descriptor}
             handlers={cardHandlers}
             onInstanceChange={refreshSelectedCard}
+            refreshEpoch={cardRefreshEpoch}
           />
         ) : (
           <ObjectCard descriptor={descriptor} handlers={cardHandlers} />

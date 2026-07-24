@@ -100,13 +100,30 @@ describe("ExploreBody", () => {
       }));
     const actionApi = {
       POST: post,
+      GET: vi.fn(() => ({ data: readback, response: { status: 200 } })),
     } as unknown as ConsoleApiClient;
+    const readback = [
+      {
+        id: "revision-2",
+        instance_id: instanceFixture.instance.id,
+        version: 2,
+        attributes: {},
+        valid_from: "2026-07-23T12:00:00Z",
+        valid_to: null,
+        action_type_id: detailFixture.actions[0].id,
+        actor: "user-1",
+        reason: "graph readback",
+        prev_hash: "0".repeat(64),
+        row_hash: "1".repeat(64),
+      },
+    ];
     render(<ExploreBody api={actionApi} authorityKey="tenant-1" />);
 
     await screen.findByRole("button", {
       name: ko.console.objectcard.actionAria(detailFixture.actions[0].title),
     });
     mocked.getInstanceHistory.mockClear();
+    mocked.getInstanceHistory.mockResolvedValue(readback);
     fireEvent.click(
       screen.getByRole("button", {
         name: ko.console.objectcard.actionAria(detailFixture.actions[0].title),
@@ -132,6 +149,17 @@ describe("ExploreBody", () => {
         instance_id: instanceFixture.instance.id,
       },
     });
+    expect(
+      await screen.findByText(
+        ko.console.objectcardGov.executedToast(
+          detailFixture.actions[0].title,
+          instanceFixture.revision.version,
+          "AAAAAAAA",
+        ),
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(ko.console.objectcard.lifecycle.active).length).toBeGreaterThan(0);
+    expect(await screen.findByText("graph readback")).toBeInTheDocument();
   });
 
   it("drills from a stat without crashing (graph stays mounted)", async () => {
