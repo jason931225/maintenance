@@ -133,18 +133,30 @@ function backendSettled(value) {
   return value === 'not_applicable'
     || value.startsWith('existing_real_')
     || value === 'integrated_on_local_train'
+    || value === 'integrated_dark_on_pr488'
     || value === 'complete';
 }
 
 function frontendSettled(value) {
   return value === 'not_applicable'
     || value === 'integrated_on_local_train'
+    || value === 'integrated_dark_on_pr488'
     || value === 'complete';
 }
 
 function sourceComplete(capability) {
   return backendSettled(stateText(capability, 'backend'))
     && frontendSettled(stateText(capability, 'frontend'));
+}
+
+function laneSourceComplete(capability, laneKind) {
+  if (laneKind.includes('frontend')) {
+    return frontendSettled(stateText(capability, 'frontend'));
+  }
+  if (laneKind.includes('backend')) {
+    return backendSettled(stateText(capability, 'backend'));
+  }
+  return sourceComplete(capability);
 }
 
 function independentReviewComplete(capability) {
@@ -346,9 +358,11 @@ export function buildFanoutPlan(registry, options) {
   const held = [];
   const admitted = [];
   const completed = [];
+  const completedLeafLanes = [];
   const reviewReady = [];
   const sharedRootsByCapability = new Map();
   const laneIdsByCapability = new Map();
+  const unassignedRootsByCapability = new Map();
 
   for (const capability of [...registry.capabilities].sort((left, right) => compareText(left.id, right.id))) {
     const capabilityRootClasses = classifyRoots(capabilityRoots(capability), sharedPatterns);
@@ -365,7 +379,45 @@ export function buildFanoutPlan(registry, options) {
     }
 
     const sourceLanes = sourceLaneDefinitions(capability);
-    laneIdsByCapability.set(capability.id, sourceLanes.map((lane) => lane.laneId));
+    const assignedRootPatterns = sourceLanes.flatMap((lane) => lane.roots);
+    const unassignedRoots = capabilityRootClasses.privateRoots.filter((root) => (
+      !assignedRootPatterns.some((assignedRoot) => {
+        try {
+          return patternFullyCovers(assignedRoot, root);
+        } catch {
+          return false;
+        }
+      })
+    ));
+    unassignedRootsByCapability.set(capability.id, unassignedRoots);
+    if (unassignedRoots.length > 0) {
+      held.push({
+        capability_id: capability.id,
+        lane_id: `${capability.id}#unowned-roots`,
+        reasons: ['unassigned_private_ownership_roots'],
+        invalid_roots: [],
+        unassigned_roots: unassignedRoots,
+      });
+    }
+
+    const incompleteSourceLanes = sourceLanes.filter((lane) => {
+      if (!laneSourceComplete(capability, lane.kind)) {
+        return true;
+      }
+      completedLeafLanes.push(lane.laneId);
+      if (!independentReviewComplete(capability)) {
+        reviewReady.push({
+          capability_id: capability.id,
+          lane_id: lane.laneId,
+          reason: 'source_lane_complete_independent_review_required',
+        });
+      }
+      return false;
+    });
+    laneIdsByCapability.set(
+      capability.id,
+      incompleteSourceLanes.map((lane) => lane.laneId),
+    );
     const evidencePath = typeof capability.evidence_path === 'string'
       ? normalizePattern(capability.evidence_path)
       : null;
@@ -378,7 +430,7 @@ export function buildFanoutPlan(registry, options) {
         }
       })
     ));
-    for (const lane of sourceLanes) {
+    for (const lane of incompleteSourceLanes) {
       const roots = classifyRoots(lane.roots, sharedPatterns);
       const reasons = admissionReasons(capability, lane, roots, evidenceOwned);
       if (reasons.length > 0) {
@@ -491,11 +543,13 @@ export function buildFanoutPlan(registry, options) {
       const awaitingLaneIds = (laneIdsByCapability.get(capabilityId) ?? [])
         .filter((laneId) => !selectedLaneIds.has(laneId))
         .sort(compareText);
+      const unassignedRoots = unassignedRootsByCapability.get(capabilityId) ?? [];
       return {
         capability_id: capabilityId,
         shared_roots: sharedRootsByCapability.get(capabilityId) ?? [],
-        ready_after_leaf_review: awaitingLaneIds.length === 0,
+        ready_after_leaf_review: awaitingLaneIds.length === 0 && unassignedRoots.length === 0,
         awaiting_lane_ids: awaitingLaneIds,
+        awaiting_unassigned_roots: unassignedRoots,
       };
     })
     .filter((lane) => lane.shared_roots.length > 0)
@@ -535,6 +589,7 @@ export function buildFanoutPlan(registry, options) {
     held,
     collision_blocked: collisionBlocked,
     completed_source_capabilities: completed,
+    completed_leaf_lanes: completedLeafLanes.sort(compareText),
     private_conflicts: privateConflicts,
     merge_dependency_holds: mergeDependencyHolds,
     review_queue: reviewQueue,

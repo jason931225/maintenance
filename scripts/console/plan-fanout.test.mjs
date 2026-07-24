@@ -271,6 +271,72 @@ test('one capability can safely fan out backend and frontend writers', () => {
       shared_roots: ['backend/openapi/openapi.yaml'],
       ready_after_leaf_review: true,
       awaiting_lane_ids: [],
+      awaiting_unassigned_roots: [],
+    },
+  ]);
+});
+
+test('settled split lanes are not dispatched again', () => {
+  const split = capability({
+    id: 'SPLIT',
+    roots: ['backend/crates/split/**', 'web/src/console/split/**'],
+    frontend: 'integrated_on_local_train',
+  });
+  split.lane_assignments = {
+    backend: {
+      owner: 'backend-owner',
+      worktree: '/tmp/split-backend',
+      branch: 'codex/split-backend',
+      roots: ['backend/crates/split/**', 'docs/evidence/console/SPLIT/**'],
+    },
+    frontend: {
+      owner: 'frontend-owner',
+      worktree: '/tmp/split-frontend',
+      branch: 'codex/split-frontend',
+      roots: ['web/src/console/split/**'],
+    },
+  };
+
+  const plan = buildFanoutPlan(registry([split]), {
+    anchorSha: SHA,
+    maxWriters: 2,
+    qualityBias: 0.6,
+    generatedFaces,
+  });
+
+  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['SPLIT#backend']);
+  assert.deepEqual(plan.completed_leaf_lanes, ['SPLIT#frontend']);
+});
+
+test('unassigned private roots are explicit merge holds without stopping disjoint work', () => {
+  const split = capability({
+    id: 'SPLIT',
+    roots: ['backend/crates/split/**', 'web/src/console/split/**'],
+  });
+  split.lane_assignments = {
+    frontend: {
+      owner: 'frontend-owner',
+      worktree: '/tmp/split-frontend',
+      branch: 'codex/split-frontend',
+      roots: ['web/src/console/split/**', 'docs/evidence/console/SPLIT/**'],
+    },
+  };
+
+  const plan = buildFanoutPlan(registry([split]), {
+    anchorSha: SHA,
+    maxWriters: 2,
+    qualityBias: 0.6,
+    generatedFaces,
+  });
+
+  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['SPLIT#frontend']);
+  assert.deepEqual(plan.held, [
+    {
+      capability_id: 'SPLIT',
+      lane_id: 'SPLIT#unowned-roots',
+      reasons: ['unassigned_private_ownership_roots'],
+      invalid_roots: [],
+      unassigned_roots: ['backend/crates/split/**'],
     },
   ]);
 });
