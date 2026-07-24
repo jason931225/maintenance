@@ -38,8 +38,12 @@ npm run dev:up
 
 `scripts/dev-up.mjs` layers `ops/compose.dev-deps.yml` on top of
 `ops/compose.yml` and `ops/compose.dev.yml`, using the `mnt-dev` Compose project
-by default. That dev-only overlay adds Mailpit, a published OTEL port, and the
-Postgres WAL archive retention helper described below.
+by default. It builds exactly one repository-pinned Buck2 app target per run,
+then executes that exact `buck-out` artifact for both migrations and the API:
+`//backend/app:mnt-app` normally, or `//backend/app:mnt-app-dev-auth` only when
+`MNT_DEV_AUTH_E2E=1`. It never falls back to a locally compiled backend binary.
+That dev-only overlay adds Mailpit, a published OTEL port, and the Postgres WAL
+archive retention helper described below.
 
 Shut the stack down:
 

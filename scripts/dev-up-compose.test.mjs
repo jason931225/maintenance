@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import { parseSingleBuckOutput } from "./lib/dev-up-buck-output.mjs";
 import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
 
 const compose = readFileSync(
@@ -431,7 +432,7 @@ test("preview-only bootstrap starts Vite without enabling or seeding dev-auth", 
     /const \{ devAuth, consolePreview, startVite \} =\s*resolveBootstrapModes\(process\.env\)/,
   );
   assert.match(bootstrap, /if \(devAuth\) runSeed\(compose\)/);
-  assert.match(bootstrap, /const cargoArgs = devAuth/);
+  assert.match(bootstrap, /const appBinary = buildAppBinary\(devAuth\)/);
   assert.match(bootstrap, /if \(startVite\)/);
   assert.match(bootstrap, /env: buildViteEnv\(appEnv, consolePreview\)/);
   assert.doesNotMatch(
@@ -494,4 +495,33 @@ test("authoritative dev-auth instructions keep preview independent", () => {
       }
     }
   }
+});
+
+test("dev-up executes one validated Buck2 output for both migration and API roles", () => {
+  const target = "//backend/app:mnt-app";
+  assert.equal(
+    parseSingleBuckOutput(target, `${target} buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app\n`),
+    "buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app",
+  );
+  assert.equal(
+    parseSingleBuckOutput(target, `root${target} buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app\n`),
+    "buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app",
+  );
+  assert.throws(
+    () => parseSingleBuckOutput(target, `${target} one\n${target} two\n`),
+    /exactly one output/,
+  );
+  assert.throws(() => parseSingleBuckOutput(target, "//other:binary buck-out/other\n"), /exactly one output/);
+
+  const bootstrap = devUp.slice(
+    devUp.indexOf("async function cmdBootstrap()"),
+    devUp.indexOf("async function cmdDown()"),
+  );
+  assert.match(devUp, /const BUCK2_BIN = path\.join\(REPO_ROOT, "tools", "buck2"\)/);
+  assert.match(devUp, /spawnSync\(BUCK2_BIN, \["build", target, "--show-output"\]/);
+  assert.match(bootstrap, /const appBinary = buildAppBinary\(devAuth\);[\s\S]*?runMigrations\(appBinary\)/);
+  assert.match(bootstrap, /spawn\(appBinary\.outputPath, \[\]/);
+  assert.match(bootstrap, /mode: "buck2",[\s\S]*?target: appBinary\.target,[\s\S]*?outputPath: appBinary\.outputPath/);
+  assert.doesNotMatch(devUp, /\bcargo\b/i);
+  assert.doesNotMatch(devUp, /target\/debug/);
 });
