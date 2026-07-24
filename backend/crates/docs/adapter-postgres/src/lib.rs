@@ -16,9 +16,9 @@ use mnt_docs_application::{
 };
 use mnt_docs_domain::{
     AdmissibilityInputs, AdmissibilityReason, AdmissibilityStatus, CustodyStage, DerivativeKind,
-    EvidenceClassification, EvidenceCode, EvidenceCopyKind, EvidenceSourceRef, EvidenceSourceType,
-    EvidenceStorageRef, LegalHoldState, LegalHoldStatus, Sha256Digest, TsaProofStatus,
-    WormStorageStatus, evaluate_admissibility,
+    EvidenceClassification, EvidenceCode, EvidenceCopyEvidentiaryStatus, EvidenceCopyKind,
+    EvidenceSourceRef, EvidenceSourceType, EvidenceStorageRef, LegalHoldState, LegalHoldStatus,
+    Sha256Digest, TsaProofStatus, WormStorageStatus, evaluate_admissibility,
 };
 use mnt_kernel_core::{
     AuditEventId, ErrorKind, EvidenceCopyId, EvidenceCustodyEventId, EvidenceExportId, EvidenceId,
@@ -159,7 +159,7 @@ impl PgDocsStore {
         }
         let next_cursor = if items.len() == limit as usize {
             rows.last()
-                .map(|row| {
+                .map(|row| -> Result<EvidenceObjectCursor, PgDocsError> {
                     Ok(EvidenceObjectCursor {
                         snapshot_sequence,
                         register_sequence: row.try_get("register_sequence")?,
