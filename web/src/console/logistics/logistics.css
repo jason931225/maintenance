@@ -118,6 +118,9 @@
 .logistics button:disabled { cursor: wait; opacity: 0.55; }
 
 .logistics__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
   justify-self: start;
   border: var(--border-hairline);
   border-radius: var(--radius-pill);
@@ -128,6 +131,15 @@
   font-size: var(--text-sm);
   line-height: 2;
   cursor: pointer;
+}
+
+.logistics__links {
+  display: grid;
+  justify-items: start;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .logistics__alert {

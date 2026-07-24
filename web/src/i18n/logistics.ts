@@ -51,6 +51,8 @@ export const logisticsStrings = {
   shipment: "배송",
   linkedShipment: "연결된 배송",
   linkedFulfillment: "연결된 출하",
+  relatedFulfillments: "관련 출하",
+  relatedAsns: "관련 ASN",
   settlement: "정산 내역",
   sla: {
     MET: "SLA 준수",

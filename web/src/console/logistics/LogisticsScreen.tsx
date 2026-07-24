@@ -116,6 +116,16 @@ function formDateTime(data: FormData, name: string): string | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
+const dateTimeDisplay = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "short",
+  timeStyle: "short",
+});
+
+function displayDateTime(iso: string): string {
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? iso : dateTimeDisplay.format(parsed);
+}
+
 function asnStatusLabel(status: AsnStatus): string {
   return status in text.asnStatus
     ? text.asnStatus[status as keyof typeof text.asnStatus]
@@ -623,6 +633,22 @@ function LogisticsScreenFencedBody({ api, branchId, capabilities }: Props) {
     selected?.kind === "shipment" ? shipments.find((entry) => entry.id === selected.id) : undefined;
   const putawayCount = asns.filter((entry) => entry.status === "PUTAWAY").length;
   const settledCount = shipments.filter((entry) => entry.status === "SETTLED").length;
+  // The backend joins inbound stock to outbound reservations on
+  // (branch, warehouseCode, sku) — putaway feeds logistics_stock, release
+  // reserves from it — so that key is the truthful traversal edge.
+  const relatedFulfillments = selectedAsn
+    ? fulfillments.filter(
+        (entry) =>
+          entry.warehouseCode === selectedAsn.warehouseCode && entry.sku === selectedAsn.sku,
+      )
+    : [];
+  const relatedAsns = selectedFulfillment
+    ? asns.filter(
+        (entry) =>
+          entry.warehouseCode === selectedFulfillment.warehouseCode &&
+          entry.sku === selectedFulfillment.sku,
+      )
+    : [];
 
   return (
     <section className="logistics" aria-label={text.title} aria-busy={busy}>
@@ -822,11 +848,32 @@ function LogisticsScreenFencedBody({ api, branchId, capabilities }: Props) {
             ) : (
               <p role="status">{text.receiptsEmpty}</p>
             )}
+            {relatedFulfillments.length > 0 && (
+              <>
+                <h3>{text.relatedFulfillments}</h3>
+                <ul className="logistics__links">
+                  {relatedFulfillments.map((entry) => (
+                    <li key={entry.id}>
+                      <button
+                        className="logistics__link"
+                        type="button"
+                        onClick={() => { setSelected({ kind: "fulfillment", id: entry.id }); }}
+                      >
+                        <span>{`${text.requestedQuantity} ${String(entry.requestedQuantity)}`}</span>
+                        <span className={fulfillmentChip(entry.status)}>
+                          {fulfillmentStatusLabel(entry.status)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             {capabilities.canReceive &&
               (selectedAsn.status === "EXPECTED" || selectedAsn.status === "PARTIAL_RECEIVED") && (
                 <form
                   className="logistics__form"
-                aria-label={text.receive}
+                  aria-label={text.receive}
                   onSubmit={(event) => void receive(event, selectedAsn)}
                 >
                   <label htmlFor={receiveQtyId}>
@@ -866,7 +913,7 @@ function LogisticsScreenFencedBody({ api, branchId, capabilities }: Props) {
                 </>
               )}
               <dt>{text.dueAt}</dt>
-              <dd>{selectedFulfillment.dueAt}</dd>
+              <dd>{displayDateTime(selectedFulfillment.dueAt)}</dd>
               <dt>{text.branch}</dt>
               <dd>{selectedFulfillment.branchId}</dd>
             </dl>
@@ -881,6 +928,25 @@ function LogisticsScreenFencedBody({ api, branchId, capabilities }: Props) {
               >
                 {text.linkedShipment}
               </button>
+            )}
+            {relatedAsns.length > 0 && (
+              <>
+                <h3>{text.relatedAsns}</h3>
+                <ul className="logistics__links">
+                  {relatedAsns.map((entry) => (
+                    <li key={entry.id}>
+                      <button
+                        className="logistics__link"
+                        type="button"
+                        onClick={() => { setSelected({ kind: "asn", id: entry.id }); }}
+                      >
+                        <span>{entry.externalReference}</span>
+                        <span className={asnChip(entry.status)}>{asnStatusLabel(entry.status)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
             {capabilities.canPickPack && selectedFulfillment.status === "RELEASED" && (
               <form
@@ -967,7 +1033,7 @@ function LogisticsScreenFencedBody({ api, branchId, capabilities }: Props) {
                   <dt>{text.evidenceReference}</dt>
                   <dd>{selectedShipment.pod.evidenceReference}</dd>
                   <dt>{text.confirmedAt}</dt>
-                  <dd>{selectedShipment.pod.confirmedAt}</dd>
+                  <dd>{displayDateTime(selectedShipment.pod.confirmedAt)}</dd>
                 </dl>
                 <span className={slaChip(selectedShipment.pod.slaAssessment)}>
                   {text.sla[selectedShipment.pod.slaAssessment]}
@@ -1009,7 +1075,7 @@ function LogisticsScreenFencedBody({ api, branchId, capabilities }: Props) {
                   <dt>{text.amountMinor}</dt>
                   <dd>{String(selectedShipment.settlement.amountMinor)}</dd>
                   <dt>{text.settledAt}</dt>
-                  <dd>{selectedShipment.settlement.settledAt}</dd>
+                  <dd>{displayDateTime(selectedShipment.settlement.settledAt)}</dd>
                 </dl>
               </>
             )}

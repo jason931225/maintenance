@@ -305,6 +305,48 @@ describe("LogisticsScreen", () => {
     expect(within(shipmentQueue).getByText(text.shipmentStatus.SETTLED)).toBeVisible();
   });
 
+  it("traverses upstream and downstream between an ASN and its stock-fed fulfillment", async () => {
+    const user = userEvent.setup();
+    const api = routed({
+      "/api/v1/logistics/asns": [ok({ id: "asn-1", status: "EXPECTED", branchId: "branch-1" })],
+      "/api/v1/logistics/asns/{asn_id}/receipts": [
+        ok({ id: "asn-1", status: "RECEIVED", receivedQuantity: 10 }),
+      ],
+      "/api/v1/logistics/asns/{asn_id}/putaway": [ok({ id: "asn-1", status: "PUTAWAY" })],
+      "/api/v1/logistics/fulfillments": [
+        ok({ id: "ff-1", status: "RELEASED", reservedQuantity: 5 }),
+      ],
+    });
+    renderScreen(all, api);
+    await createAsnThroughForm(user);
+    const receiveForm = screen.getByRole("form", { name: text.receive });
+    await user.type(within(receiveForm).getByLabelText(text.receivedQuantity), "10");
+    await user.click(within(receiveForm).getByRole("button", { name: text.receive }));
+    await user.click(await screen.findByRole("button", { name: text.putaway }));
+
+    // Release against the same (warehouse, sku) stock key the putaway fed.
+    const releaseForm = screen.getByRole("form", { name: text.release });
+    await user.type(within(releaseForm).getByLabelText(text.warehouse), "WH-01");
+    await user.type(within(releaseForm).getByLabelText(text.sku), "SKU-9");
+    await user.type(within(releaseForm).getByLabelText(text.requestedQuantity), "5");
+    fireEvent.change(within(releaseForm).getByLabelText(text.dueAt), {
+      target: { value: "2026-07-30T10:00" },
+    });
+    await user.click(within(releaseForm).getByRole("button", { name: text.release }));
+
+    // Fulfillment detail exposes the upstream ASN by its external reference.
+    const upstream = await screen.findByRole("button", { name: /PO-778/ });
+    await user.click(upstream);
+    expect(screen.getByRole("heading", { name: `${text.asn} SKU-9` })).toBeVisible();
+
+    // ASN detail exposes the downstream fulfillment drawing on its stock.
+    const downstream = screen.getByRole("button", {
+      name: new RegExp(`${text.requestedQuantity} 5`),
+    });
+    await user.click(downstream);
+    expect(screen.getByRole("heading", { name: `${text.fulfillment} SKU-9` })).toBeVisible();
+  });
+
   it("filters the working set without discarding it", async () => {
     const user = userEvent.setup();
     const api = routed({

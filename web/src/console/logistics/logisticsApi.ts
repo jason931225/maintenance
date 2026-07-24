@@ -113,6 +113,41 @@ export function newIdempotencyKey(): string {
 }
 
 /**
+ * Wire encoding for the backend's datetime fields (`dueAt`, `confirmedAt`,
+ * `settledAt`). The deployed rest crate deserializes them as plain
+ * `time::OffsetDateTime` WITHOUT `time::serde::rfc3339` — deviating from both
+ * the repo convention and openapi.yaml's declared `format: date-time` — so the
+ * only accepted wire form is time's default serde tuple
+ * `[year, ordinal-day, hour, minute, second, nanosecond, offset_h, offset_m, offset_s]`
+ * (verified against time 0.3.47 with the workspace feature set; RFC3339
+ * strings are rejected with 422). Encoded in UTC, so the offset is always 0.
+ * Drop this encoder when the backend adds the rfc3339 annotations (divergence
+ * flagged in docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/openapi.json).
+ */
+export function toTimeWire(
+  iso: string,
+): [number, number, number, number, number, number, 0, 0, 0] {
+  const at = new Date(iso);
+  const ordinal =
+    Math.floor(
+      (Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()) -
+        Date.UTC(at.getUTCFullYear(), 0, 1)) /
+        86_400_000,
+    ) + 1;
+  return [
+    at.getUTCFullYear(),
+    ordinal,
+    at.getUTCHours(),
+    at.getUTCMinutes(),
+    at.getUTCSeconds(),
+    at.getUTCMilliseconds() * 1_000_000,
+    0,
+    0,
+    0,
+  ];
+}
+
+/**
  * Logistics-pilot transport bound to the authenticated ConsoleApiClient.
  *
  * openapi.yaml omits the request bodies of pick/pack/dispatch/pod/settle (the
@@ -149,7 +184,13 @@ export function createLogisticsApi(api: ConsoleApiClient) {
       return requireData(response) as PutawayResult;
     },
     release: async (input: ReleaseFulfillmentInput, signal?: AbortSignal) => {
-      const response = await api.POST("/api/v1/logistics/fulfillments", { body: input, signal });
+      // `dueAt` must ride as the time-crate tuple (see toTimeWire), which the
+      // generated client (declared as `format: date-time`) cannot type.
+      const body = { ...input, dueAt: toTimeWire(input.dueAt) };
+      const response = await api.POST("/api/v1/logistics/fulfillments", {
+        body: body as never,
+        signal,
+      });
       return requireData(response) as FulfillmentReleased;
     },
     pick: async (
@@ -191,7 +232,7 @@ export function createLogisticsApi(api: ConsoleApiClient) {
     ) => {
       const response = await api.POST("/api/v1/logistics/shipments/{shipment_id}/pod", {
         params: { path: { shipment_id: shipmentId } },
-        body: input as never,
+        body: { ...input, confirmedAt: toTimeWire(input.confirmedAt) } as never,
         signal,
       });
       return requireData(response) as PodResult;
@@ -203,7 +244,7 @@ export function createLogisticsApi(api: ConsoleApiClient) {
     ) => {
       const response = await api.POST("/api/v1/logistics/shipments/{shipment_id}/settlements", {
         params: { path: { shipment_id: shipmentId } },
-        body: input as never,
+        body: { ...input, settledAt: toTimeWire(input.settledAt) } as never,
         signal,
       });
       return requireData(response) as SettlementResult;
