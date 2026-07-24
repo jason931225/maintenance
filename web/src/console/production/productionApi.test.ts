@@ -1,24 +1,33 @@
+import { createConsoleApiClient, type ConsoleApiClient } from "../../api/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { productionApi } from "./productionApi";
 
-describe("productionApi", () => {
+import { createProductionApi } from "./productionApi";
+
+describe("createProductionApi", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("uses the tenant production API for branch-scoped pagination", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+  it("uses the authenticated console client bearer and typed DailyPlan endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [] }), {
+      status: 200, headers: { "content-type": "application/json" },
+    }));
     vi.stubGlobal("fetch", fetchMock);
-
-    await productionApi.list("4a3879b8-c42c-4d59-a53f-35e35ccf9477", 25);
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/production/plans?branch_id=4a3879b8-c42c-4d59-a53f-35e35ccf9477&limit=25&offset=25",
-      expect.objectContaining({ credentials: "include" }),
-    );
+    await createProductionApi(createConsoleApiClient("bearer-token")).list("2026-07-23");
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(request.url).toContain("/api/daily-work-plans?plan_date=2026-07-23");
+    expect(request.headers.get("Authorization")).toBe("Bearer bearer-token");
+    expect(request.headers.get("X-Auth-Transport")).toBe("cookie");
   });
 
-  it("surfaces server failures instead of synthesizing a successful record", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "denied" } }), { status: 403, headers: { "content-type": "application/json" } })));
+  it("forwards endpoint params and bodies through the client instead of a module fetch", async () => {
+    const api = { GET: vi.fn(), POST: vi.fn().mockResolvedValue({ data: { id: "plan-1" }, response: new Response(null, { status: 200 }) }) } as unknown as ConsoleApiClient;
+    await createProductionApi(api).review("plan/a", { decision: "APPROVED", memo: "확인" });
+    expect(api.POST).toHaveBeenCalledWith("/api/daily-work-plans/{planId}/review", expect.objectContaining({
+      params: { path: { planId: "plan/a" } }, body: { decision: "APPROVED", memo: "확인" },
+    }));
+  });
 
-    await expect(productionApi.get("fbc58f5b-b1f4-481d-a661-4c09f6e49907")).rejects.toThrow("denied");
+  it("surfaces a backend denial instead of synthesizing success", async () => {
+    const api = { GET: vi.fn(), POST: vi.fn().mockResolvedValue({ error: { error: { message: "denied" } }, response: new Response(null, { status: 403 }) }) } as unknown as ConsoleApiClient;
+    await expect(createProductionApi(api).confirm("plan-1")).rejects.toThrow("denied");
   });
 });

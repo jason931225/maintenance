@@ -1,31 +1,199 @@
-import { FormEvent, useCallback, useEffect, useId, useState } from "react";
-import { productionApi, type ProductionPlan, type ProductionPlanDetail } from "./productionApi";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type SyntheticEvent } from "react";
+
+import type { ConsoleApiClient } from "../../api/client";
+import { productionStrings as text } from "../../i18n/production";
+import { createProductionApi, type DailyPlan } from "./productionApi";
+import type { ProductionCapabilities } from "./productionCapabilities";
 import "./production.css";
 
-const key = () => crypto.randomUUID();
-const ko = {
-  title: "생산 계획", subtitle: "테넌트 범위의 생산 실행과 변경 이력을 관리합니다.", retry: "다시 시도",
-  loading: "생산 계획을 불러오는 중입니다…", empty: "이 지점에는 생산 계획이 없습니다.", create: "검증된 계획 생성",
-  demand: "수요 계약 ID", capacity: "용량 슬롯 ID", material: "자재 품목 ID", quantity: "수량", due: "납기", approval: "승인 ID", ontology: "게시된 온톨로지 유형 ID",
-  noPlan: "생산 계획 생성 권한이 없습니다.", select: "계획을 선택하여 검증 결과와 이력을 확인하세요.", release: "첫 작업 출시", record: "작업 실적 기록",
-  output: "생산 수량", scrap: "불량 수량", downtime: "비가동 시간(분)", evidence: "품질 증빙 참조", quality: "품질 결과", pass: "통과", fail: "실패", note: "메모", lineage: "변경 이력",
-  demandLabel: "수요", operation: "작업", totals: "생산 / 불량", errorLoad: "생산 계획을 불러오지 못했습니다.", errorCreate: "생산 계획을 생성하지 못했습니다.", errorRelease: "계획을 출시하지 못했습니다.", errorRecord: "작업 실적을 기록하지 못했습니다.",
+type Props = {
+  api: ConsoleApiClient;
+  branchId: string;
+  actorId: string | undefined;
+  capabilities: ProductionCapabilities;
+  /** Changes whenever auth replaces the effective tenant/session. */
+  sessionKey: string | undefined;
 };
-type Props = { branchId: string; roles: readonly string[] };
 
-export function ProductionScreen({ branchId, roles }: Props) {
-  const canPlan = roles.includes("ADMIN") || roles.includes("EXECUTIVE");
-  const canRelease = canPlan;
-  const canRecord = canPlan || roles.includes("MECHANIC");
-  const [plans, setPlans] = useState<ProductionPlan[]>([]);
-  const [selected, setSelected] = useState<ProductionPlanDetail | null>(null);
-  const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
-  const demandId = useId(); const capacityId = useId(); const evidenceId = useId();
-  const load = useCallback(async () => { setLoading(true); setError(null); try { setPlans(await productionApi.list(branchId)); } catch (cause) { setError(cause instanceof Error ? cause.message : ko.errorLoad); } finally { setLoading(false); } }, [branchId]);
-  useEffect(() => { void load(); }, [load]);
-  const choose = async (id: string) => { setBusy(true); try { setSelected(await productionApi.get(id)); } catch (cause) { setError(cause instanceof Error ? cause.message : ko.errorLoad); } finally { setBusy(false); } };
-  const create = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); setBusy(true); try { const plan = await productionApi.create({ branch_id: branchId, customer_demand_id: String(data.get("demand")), capacity_slot_id: String(data.get("capacity")), material_item_id: String(data.get("material")), quantity: Number(data.get("quantity")), due_at: new Date(String(data.get("due"))).toISOString(), approval_ref: String(data.get("approval")), ontology_type_id: String(data.get("ontology")), idempotency_key: key() }); await load(); await choose(plan.id); event.currentTarget.reset(); } catch (cause) { setError(cause instanceof Error ? cause.message : ko.errorCreate); } finally { setBusy(false); } };
-  const release = async () => { if (!selected) return; setBusy(true); try { await productionApi.release(selected.id, selected.version, key()); await choose(selected.id); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : ko.errorRelease); } finally { setBusy(false); } };
-  const record = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!selected) return; const data = new FormData(event.currentTarget); setBusy(true); try { await productionApi.record(selected.id, selected.operation.id, { expected_version: selected.operation.version, idempotency_key: key(), output_quantity: Number(data.get("output")), scrap_quantity: Number(data.get("scrap")), downtime_minutes: Number(data.get("downtime")), quality_evidence_ref: String(data.get("evidence")), quality_passed: data.get("quality") === "pass", note: String(data.get("note")) }); await choose(selected.id); await load(); event.currentTarget.reset(); } catch (cause) { setError(cause instanceof Error ? cause.message : ko.errorRecord); } finally { setBusy(false); } };
-  return <main className="production" aria-busy={loading || busy}><section className="production__panel"><header><h1>{ko.title}</h1><p>{ko.subtitle}</p></header>{error && <div role="alert" className="production__alert">{error}<button onClick={() => void load()} type="button">{ko.retry}</button></div>}{loading ? <p role="status">{ko.loading}</p> : <ul aria-label={ko.title} className="production__list">{plans.length ? plans.map((plan) => <li key={plan.id}><button type="button" onClick={() => void choose(plan.id)}>{plan.product_code} · {plan.quantity} · {plan.status}</button></li>) : <li role="status">{ko.empty}</li>}</ul>}{canPlan && <form className="production__form" onSubmit={(event) => void create(event)}><h2>{ko.create}</h2><label htmlFor={demandId}>{ko.demand}</label><input id={demandId} name="demand" required /><label htmlFor={capacityId}>{ko.capacity}</label><input id={capacityId} name="capacity" required /><label>{ko.material}<input name="material" required /></label><label>{ko.quantity}<input name="quantity" type="number" min="1" required /></label><label>{ko.due}<input name="due" type="datetime-local" required /></label><label>{ko.approval}<input name="approval" required /></label><label>{ko.ontology}<input name="ontology" required /></label><button disabled={busy}>{ko.create}</button></form>}</section><section className="production__panel" aria-live="polite">{!selected ? <p>{ko.select}</p> : <><h2>{selected.product_code}</h2><dl><dt>{ko.demandLabel}</dt><dd>{selected.customer_demand_id}</dd><dt>{ko.operation}</dt><dd>{selected.operation.status}</dd><dt>{ko.totals}</dt><dd>{selected.operation.output_quantity} / {selected.operation.scrap_quantity}</dd></dl>{selected.status === "DRAFT" && canRelease && <button disabled={busy} onClick={() => void release()}>{ko.release}</button>}{selected.status === "RELEASED" && canRecord && <form className="production__form" onSubmit={(event) => void record(event)}><h3>{ko.record}</h3><label>{ko.output}<input name="output" type="number" min="0" required /></label><label>{ko.scrap}<input name="scrap" type="number" min="0" required /></label><label>{ko.downtime}<input name="downtime" type="number" min="0" required /></label><label htmlFor={evidenceId}>{ko.evidence}</label><input id={evidenceId} name="evidence" required /><fieldset><legend>{ko.quality}</legend><label><input name="quality" type="radio" value="pass" defaultChecked />{ko.pass}</label><label><input name="quality" type="radio" value="fail" />{ko.fail}</label></fieldset><label>{ko.note}<textarea name="note" maxLength={500} required /></label><button disabled={busy}>{ko.record}</button></form>}<h3>{ko.lineage}</h3><ol>{selected.events.map((event) => <li key={event.id}>{event.event_type} · {new Date(event.occurred_at).toLocaleString("ko-KR")}</li>)}</ol></>}</section></main>;
+const apiFenceIds = new WeakMap<object, number>();
+let nextApiFenceId = 1;
+
+function apiFenceKey(api: ConsoleApiClient): number {
+  const reference = api as object;
+  const existing = apiFenceIds.get(reference);
+  if (existing) return existing;
+  const id = nextApiFenceId++;
+  apiFenceIds.set(reference, id);
+  return id;
+}
+
+function message(cause: unknown, fallback: string): string {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
+function planId(plan: DailyPlan): string | undefined {
+  return plan.id;
+}
+
+function formText(data: FormData, name: string): string {
+  const value = data.get(name);
+  return typeof value === "string" ? value : "";
+}
+
+function statusLabel(status: DailyPlan["status"]): string {
+  if (status && status in text.status) {
+    return text.status[status as keyof typeof text.status];
+  }
+  return text.status.unknown;
+}
+
+/**
+ * Re-mount synchronously whenever effective authority changes. Effects run too
+ * late to fence an old tenant/session's selected plan, error, or busy state.
+ */
+export function ProductionScreen(props: Props) {
+  const capabilityKey = Object.values(props.capabilities).join(":");
+  const sessionFence = [
+    props.sessionKey ?? "no-session",
+    props.branchId,
+    props.actorId ?? "no-actor",
+    apiFenceKey(props.api),
+    capabilityKey,
+  ].join(":");
+  return <ProductionScreenBody key={sessionFence} {...props} />;
+}
+
+function ProductionScreenBody({ api, branchId, actorId, capabilities, sessionKey }: Props) {
+  const [plans, setPlans] = useState<DailyPlan[]>([]);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const generation = useRef(0);
+  const operation = useRef<AbortController | undefined>(undefined);
+  const reviewMemo = useRef<HTMLTextAreaElement | null>(null);
+  const mechanicId = useId();
+  const workOrderId = useId();
+  const descriptionId = useId();
+  const dateId = useId();
+  const reviewMemoId = useId();
+  const selected = plans.find((plan) => planId(plan) === selectedId);
+  const productionApi = useMemo(() => createProductionApi(api), [api]);
+
+  const isCurrent = useCallback((token: number) => generation.current === token, []);
+  const replacePlan = useCallback((next: DailyPlan) => {
+    if (next.branch_id !== branchId) {
+      setPlans([]);
+      setSelectedId(undefined);
+      return;
+    }
+    const id = planId(next);
+    if (!id) return;
+    setPlans((current) => {
+      const exists = current.some((plan) => planId(plan) === id);
+      return exists ? current.map((plan) => (planId(plan) === id ? next : plan)) : [next, ...current];
+    });
+    setSelectedId(id);
+  }, [branchId]);
+
+  const load = useCallback(async () => {
+    if (!capabilities.canRead) {
+      setPlans([]);
+      setSelectedId(undefined);
+      setLoading(false);
+      return;
+    }
+    operation.current?.abort();
+    const controller = new AbortController();
+    operation.current = controller;
+    const token = ++generation.current;
+    setLoading(true);
+    setError(undefined);
+    try {
+      const page = await productionApi.list(undefined, controller.signal);
+      if (isCurrent(token)) {
+        setPlans(page.items.filter((plan) => plan.branch_id === branchId));
+      }
+    } catch (cause) {
+      if (isCurrent(token) && !controller.signal.aborted) setError(message(cause, text.loadError));
+    } finally {
+      if (isCurrent(token)) setLoading(false);
+    }
+  }, [branchId, capabilities.canRead, isCurrent, productionApi]);
+
+  useEffect(() => {
+    generation.current += 1;
+    operation.current?.abort();
+    const start = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => {
+      window.clearTimeout(start);
+      operation.current?.abort();
+    };
+  }, [branchId, load, sessionKey]);
+
+  const mutate = useCallback(async (work: (signal: AbortSignal) => Promise<DailyPlan>) => {
+    operation.current?.abort();
+    const controller = new AbortController();
+    operation.current = controller;
+    const token = ++generation.current;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const next = await work(controller.signal);
+      if (isCurrent(token)) replacePlan(next);
+      return isCurrent(token);
+    } catch (cause) {
+      if (isCurrent(token) && !controller.signal.aborted) setError(message(cause, text.actionError));
+      return false;
+    } finally {
+      if (isCurrent(token)) setBusy(false);
+    }
+  }, [isCurrent, replacePlan]);
+
+  const create = async (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!capabilities.canCreate || !actorId) return;
+    const data = new FormData(event.currentTarget);
+    const applied = await mutate((signal) => productionApi.create({
+      branch_id: branchId,
+      mechanic_id: formText(data, "mechanic_id"),
+      plan_date: formText(data, "plan_date"),
+      items: [{ work_order_id: formText(data, "work_order_id"), description: formText(data, "description").trim() }],
+    }, signal));
+    if (applied) event.currentTarget.reset();
+  };
+
+  const transition = async (action: "request" | "approve" | "reject" | "confirm") => {
+    const id = selected && planId(selected);
+    if (!id) return;
+    if (action === "request" && capabilities.canRequestReview) {
+      await mutate((signal) => productionApi.requestReview(id, signal));
+    } else if (action === "confirm" && capabilities.canConfirm) {
+      await mutate((signal) => productionApi.confirm(id, signal));
+    } else if ((action === "approve" || action === "reject") && capabilities.canReview) {
+      const memo = reviewMemo.current?.value.trim();
+      await mutate((signal) => productionApi.review(id, { decision: action === "approve" ? "APPROVED" : "REJECTED", ...(memo ? { memo } : {}) }, signal));
+    }
+  };
+
+  if (!capabilities.canRead) {
+    return <main className="production"><section className="production__panel" aria-labelledby="production-title"><h1 id="production-title">{text.title}</h1><p role="status">{text.denied}</p></section></main>;
+  }
+
+  return <main className="production" aria-busy={loading || busy}>
+    <section className="production__panel" aria-labelledby="production-title">
+      <header><h1 id="production-title">{text.title}</h1><p>{text.subtitle}</p></header>
+      {error && <div className="production__alert" role="alert"><span>{error}</span><button type="button" onClick={() => { void load(); }}>{text.retry}</button></div>}
+      {loading ? <p role="status">{text.loading}</p> : <ul className="production__list" aria-label={text.planList}>{plans.length ? plans.map((plan) => {
+        const id = planId(plan);
+        return id ? <li key={id}><button className={id === selectedId ? "production__plan production__plan--selected" : "production__plan"} type="button" aria-pressed={id === selectedId} onClick={() => { setSelectedId(id); }}><span>{plan.plan_date}</span><strong>{statusLabel(plan.status)}</strong></button></li> : null;
+      }) : <li role="status">{text.empty}</li>}</ul>}
+      {capabilities.canCreate && actorId && <form className="production__form" onSubmit={(event) => void create(event)}><h2>{text.create}</h2><p>{text.createHint}</p><label htmlFor={mechanicId}>{text.mechanic}<input id={mechanicId} name="mechanic_id" defaultValue={actorId} required /></label><label htmlFor={dateId}>{text.planDate}<input id={dateId} name="plan_date" type="date" required /></label><label htmlFor={workOrderId}>{text.workOrder}<input id={workOrderId} name="work_order_id" required /></label><label htmlFor={descriptionId}>{text.description}<textarea id={descriptionId} name="description" maxLength={500} required /></label><button type="submit" disabled={busy}>{text.create}</button></form>}
+    </section>
+    <section className="production__panel" aria-live="polite" aria-label={text.detail}>
+      {!selected ? <p>{text.select}</p> : <><header><h2>{selected.plan_date}</h2><p>{statusLabel(selected.status)}</p></header><dl className="production__details"><dt>{text.mechanic}</dt><dd>{selected.mechanic_id}</dd><dt>{text.branch}</dt><dd>{selected.branch_id}</dd></dl><h3>{text.items}</h3><ol className="production__items">{selected.items?.map((item) => <li key={`${String(item.sort_order)}-${item.work_order_id ?? item.description}`}><strong>{item.request_no ?? item.management_no ?? text.unlinked}</strong><span>{item.description}</span></li>)}</ol>{selected.status === "DRAFT" && capabilities.canRequestReview && <button type="button" disabled={busy} onClick={() => void transition("request")}>{text.requestReview}</button>}{selected.status === "REQUESTED" && capabilities.canReview && <div className="production__review"><label htmlFor={reviewMemoId}>{text.reviewMemo}<textarea ref={reviewMemo} id={reviewMemoId} maxLength={500} /></label><div><button type="button" disabled={busy} onClick={() => void transition("approve")}>{text.approve}</button><button className="production__danger" type="button" disabled={busy} onClick={() => void transition("reject")}>{text.reject}</button></div></div>}{selected.status === "APPROVED" && capabilities.canConfirm && <button type="button" disabled={busy} onClick={() => void transition("confirm")}>{text.confirm}</button>}</>}
+    </section>
+  </main>;
 }
