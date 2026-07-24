@@ -4,6 +4,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const dotSlashBootstrap = "tools/buck/install_dotslash.sh";
+const reindeerToolchainLock = "third-party/rust/reindeer/upstream.lock";
+const reindeerToolchainSource = `source ${reindeerToolchainLock}`;
+const reindeerToolchainInstall = 'rustup toolchain install "$REINDEER_TOOLCHAIN" --profile minimal';
 const requiredPreflightCommands = [
   "tools/buck/preflight.sh",
   "npm run check:foundation-gates",
@@ -62,6 +65,33 @@ function isUnconditional(step) {
   return !/^        (?:if|continue-on-error):/m.test(step);
 }
 
+function multilineRunCommands(step) {
+  const run = step.match(/^        run: \|\n((?:          [^\n]*(?:\n|$))*)/m)?.[1] ?? "";
+  return run
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function requireReindeerToolchainBefore(steps, command, failures) {
+  const commandIndex = steps.findIndex((step) => runScalar(step) === command);
+  const toolchainIndex = steps.findIndex((step) => multilineRunCommands(step).includes(reindeerToolchainInstall));
+  if (toolchainIndex < 0) {
+    failures.push("generated-face-authority must install the lock-pinned Reindeer Rust toolchain before full generated-face closure");
+    return;
+  }
+  const commands = multilineRunCommands(steps[toolchainIndex]);
+  if (!commands.includes(reindeerToolchainSource)) {
+    failures.push(`generated-face-authority must source ${reindeerToolchainLock} before installing the Reindeer Rust toolchain`);
+  }
+  if (!isUnconditional(steps[toolchainIndex])) {
+    failures.push("generated-face-authority must install the Reindeer Rust toolchain unconditionally");
+  }
+  if (commandIndex >= 0 && toolchainIndex > commandIndex) {
+    failures.push("generated-face-authority must install the lock-pinned Reindeer Rust toolchain before full generated-face closure");
+  }
+}
+
 function requireDotSlashBefore(steps, command, job, failures) {
   const commandIndex = steps.findIndex((step) => runScalar(step) === command);
   const dotSlashIndex = steps.findIndex((step) => runScalar(step) === dotSlashBootstrap);
@@ -115,6 +145,7 @@ export function evaluateCiPreflight(workflow) {
       "generated-face-authority",
       failures,
     );
+    requireReindeerToolchainBefore(fullGeneratedFaceSteps, fullGeneratedFaceCommand, failures);
   }
 
   const apiContract = jobBlock(workflow, "api-contract");

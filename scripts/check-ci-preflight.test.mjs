@@ -93,6 +93,37 @@ describe("CI preflight contract", () => {
     );
   });
 
+  it("requires the lock-sourced Reindeer toolchain before the full generated-face closure", () => {
+    const toolchainSetup = `      - name: Install lock-pinned Reindeer Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=third-party/rust/reindeer/upstream.lock
+          source third-party/rust/reindeer/upstream.lock
+          rustup toolchain install "$REINDEER_TOOLCHAIN" --profile minimal
+
+`;
+    const fullGate = `      - name: Full generated-face closure
+        run: tools/buck/preflight.sh --full-generated-faces
+`;
+
+    expectFailure(
+      workflow.replace(toolchainSetup, ""),
+      "must install the lock-pinned Reindeer Rust toolchain before full generated-face closure",
+    );
+    expectFailure(
+      workflow.replace(
+        "source third-party/rust/reindeer/upstream.lock",
+        "REINDEER_TOOLCHAIN=hardcoded-not-lock-sourced",
+      ),
+      "must source third-party/rust/reindeer/upstream.lock",
+    );
+    expectFailure(
+      workflow.replace(toolchainSetup, "").replace(fullGate, `${fullGate}${toolchainSetup}`),
+      "must install the lock-pinned Reindeer Rust toolchain before full generated-face closure",
+    );
+  });
+
   it("rejects a preflight that does not run the lockfile and foundation gates", () => {
     expectFailure(workflow.replace("npm run check:package-lock", "npm run check:root-workspaces"), "check:package-lock");
   });

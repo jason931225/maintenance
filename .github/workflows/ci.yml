@@ -171,6 +171,14 @@ jobs:
         with:
           toolchain: "1.96.0"
 
+      - name: Install lock-pinned Reindeer Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=third-party/rust/reindeer/upstream.lock
+          source third-party/rust/reindeer/upstream.lock
+          rustup toolchain install "$REINDEER_TOOLCHAIN" --profile minimal
+
       - name: Install workspace dependencies
         run: npm ci
 
