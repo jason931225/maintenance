@@ -3,10 +3,10 @@
 //! as the non-owner runtime role, so tenant isolation and least privilege are
 //! not inferred from DDL text alone.
 
-use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use tokio::{
     sync::oneshot,
-    time::{sleep, Duration, Instant},
+    time::{Duration, Instant, sleep},
 };
 use uuid::Uuid;
 
@@ -499,7 +499,10 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
     .unwrap();
     assert_eq!(lock.get::<String, _>("provolatile"), "v");
     assert_eq!(lock.get::<String, _>("proparallel"), "u");
-    assert!(!lock.get::<bool, _>("prosecdef"), "lock helper must use invoker rights");
+    assert!(
+        !lock.get::<bool, _>("prosecdef"),
+        "lock helper must use invoker rights"
+    );
     assert!(
         lock.get::<Option<Vec<String>>, _>("proconfig")
             .unwrap_or_default()
@@ -516,7 +519,8 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
         "the lock material is a cross-domain compatibility contract"
     );
     assert!(
-        lock.get::<String, _>("definition").contains("to_char(p_work_date, 'YYYY-MM-DD')")
+        lock.get::<String, _>("definition")
+            .contains("to_char(p_work_date, 'YYYY-MM-DD')")
             && lock.get::<String, _>("definition").contains(" 0\n"),
         "the lock material must preserve the legacy seed-zero YYYY-MM-DD bytes"
     );
@@ -536,13 +540,12 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
         .execute(&mut *lock_tx)
         .await
         .unwrap();
-    let legacy_key_available: bool = sqlx::query_scalar(
-        "SELECT pg_try_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))",
-    )
-    .bind(lock_material)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let legacy_key_available: bool =
+        sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(lock_material)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(
         !legacy_key_available,
         "alternate DateStyle must still lock the exact legacy Rust key"
@@ -579,9 +582,27 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
     assert_eq!(
         trigger_shape,
         vec![
-            ("attendance_exceptions".into(), "trg_attendance_exceptions_eligibility_lock".into(), 23, "O".into(), "mnt_attendance_exception_eligibility_lock".into()),
-            ("attendance_substitutions".into(), "trg_attendance_substitutions_eligibility_guard".into(), 23, "O".into(), "mnt_attendance_substitution_eligibility_guard".into()),
-            ("leave_requests".into(), "trg_leave_requests_eligibility_lock".into(), 19, "O".into(), "mnt_leave_request_eligibility_lock".into()),
+            (
+                "attendance_exceptions".into(),
+                "trg_attendance_exceptions_eligibility_lock".into(),
+                23,
+                "O".into(),
+                "mnt_attendance_exception_eligibility_lock".into()
+            ),
+            (
+                "attendance_substitutions".into(),
+                "trg_attendance_substitutions_eligibility_guard".into(),
+                23,
+                "O".into(),
+                "mnt_attendance_substitution_eligibility_guard".into()
+            ),
+            (
+                "leave_requests".into(),
+                "trg_leave_requests_eligibility_lock".into(),
+                19,
+                "O".into(),
+                "mnt_leave_request_eligibility_lock".into()
+            ),
         ],
         "all transition triggers must retain their exact table, event, timing, function, and enabled metadata"
     );
@@ -629,7 +650,10 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
     .bind(FINGERPRINT)
     .execute(&mut *tx)
     .await;
-    assert!(legacy.is_ok(), "legacy NULL worker assignments remain compatible");
+    assert!(
+        legacy.is_ok(),
+        "legacy NULL worker assignments remain compatible"
+    );
     let guarded = sqlx::query(
         "INSERT INTO attendance_substitutions \
          (org_id, site, branch_id, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id, worker_name, worker_type, created_by, idempotency_key, request_fingerprint) \
@@ -643,7 +667,10 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
     .execute(&mut *tx)
     .await
     .expect_err("known worker must be rejected when an open NO_SHOW exists");
-    assert_eq!(guarded.as_database_error().unwrap().code().as_deref(), Some("23514"));
+    assert_eq!(
+        guarded.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
     assert_eq!(
         guarded.as_database_error().unwrap().message(),
         "attendance_substitutions_worker_eligibility_guard"
@@ -652,17 +679,21 @@ async fn employee_day_eligibility_coordination_is_catalogued_and_enforced(pool: 
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transitions(pool: PgPool) {
+async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transitions(
+    pool: PgPool,
+) {
     let a = seed_org(&pool, ORG_A, "coordination").await;
     let decider = Uuid::new_v4();
     let leave_request = Uuid::new_v4();
-    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, 'Leave decider', $2, $3)")
-        .bind(decider)
-        .bind(vec!["MECHANIC".to_owned()])
-        .bind(ORG_A)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, 'Leave decider', $2, $3)",
+    )
+    .bind(decider)
+    .bind(vec!["MECHANIC".to_owned()])
+    .bind(ORG_A)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let mut create_leave = pool.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE mnt_leave_definer")
@@ -769,8 +800,14 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
         "the exact assignment backend must wait on the advisory lock before the leave transaction commits"
     );
     approve_leave.commit().await.unwrap();
-    let blocked = assignment.await.unwrap().expect_err("leave approval wins after its lock commits");
-    assert_eq!(blocked.as_database_error().unwrap().code().as_deref(), Some("23514"));
+    let blocked = assignment
+        .await
+        .unwrap()
+        .expect_err("leave approval wins after its lock commits");
+    assert_eq!(
+        blocked.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
 
     let mut tx = runtime_tx(&pool, ORG_A).await;
     let rejected = sqlx::query(
@@ -786,7 +823,10 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
     .execute(&mut *tx)
     .await
     .expect_err("a completed leave approval must reject the queued assignment");
-    assert_eq!(rejected.as_database_error().unwrap().code().as_deref(), Some("23514"));
+    assert_eq!(
+        rejected.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
     tx.rollback().await.unwrap();
 
     let mut tx = runtime_tx(&pool, ORG_A).await;
@@ -822,7 +862,10 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
     .bind(FINGERPRINT)
     .execute(&mut *tx)
     .await;
-    assert!(replacement.is_ok(), "cancelling an assignment releases that eligibility");
+    assert!(
+        replacement.is_ok(),
+        "cancelling an assignment releases that eligibility"
+    );
     tx.rollback().await.unwrap();
 }
 
@@ -831,14 +874,14 @@ async fn platform_force_removal_closes_direct_org_restrict_fks_and_uses_dedicate
     pool: PgPool,
 ) {
     let function_body: String = sqlx::query_scalar(
-        "SELECT pg_get_functiondef('platform_force_remove_organization(uuid)'::regprocedure)",
+        "SELECT pg_get_functiondef('platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)'::regprocedure)",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
     assert!(
-        function_body.contains("platform_force_remove_direct_org_children(p_id)"),
-        "force removal must invoke the schema-derived direct-org FK closure"
+        function_body.contains("platform_force_remove_organization(p_id)"),
+        "atomic command must delegate to the canonical direct-org FK closure"
     );
 
     let unsupported_direct_org_fk_count: i64 = sqlx::query_scalar(
@@ -865,8 +908,8 @@ async fn platform_force_removal_closes_direct_org_restrict_fks_and_uses_dedicate
     );
 
     let permissions = sqlx::query(
-        "SELECT has_function_privilege('mnt_rt', 'platform_force_remove_organization(uuid)', 'EXECUTE') AS runtime_can_execute, \
-                has_function_privilege('mnt_platform_force_cmd', 'platform_force_remove_organization(uuid)', 'EXECUTE') AS command_can_execute",
+        "SELECT has_function_privilege('mnt_rt', 'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)', 'EXECUTE') AS runtime_can_execute, \
+                has_function_privilege('mnt_platform_force_cmd', 'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)', 'EXECUTE') AS command_can_execute",
     )
     .fetch_one(&pool)
     .await
@@ -900,7 +943,7 @@ async fn platform_force_removal_runtime_is_denied_and_command_role_can_remove_ar
         .execute(&mut *runtime)
         .await
         .unwrap();
-    let denied = sqlx::query_scalar::<_, String>("SELECT platform_force_remove_organization($1)")
+    let denied = sqlx::query_scalar::<_, String>("SELECT platform_force_remove_organization_command($1, NULL::uuid, '00000000000000000000000000000000', '0000000000000000', now())")
         .bind(org)
         .fetch_one(&mut *runtime)
         .await
@@ -919,7 +962,7 @@ async fn platform_force_removal_runtime_is_denied_and_command_role_can_remove_ar
         .execute(&mut *command)
         .await
         .unwrap();
-    let removed: String = sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+    let removed: String = sqlx::query_scalar("SELECT platform_force_remove_organization_command($1, NULL::uuid, '00000000000000000000000000000000', '0000000000000000', now())")
         .bind(org)
         .fetch_one(&mut *command)
         .await
@@ -936,10 +979,23 @@ async fn platform_force_removal_runtime_is_denied_and_command_role_can_remove_ar
         remaining, 0,
         "authorized command path must delete archived tenant"
     );
+    let receipt: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'platform.tenant.force_remove' AND target_id = $1",
+    )
+    .bind(org.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        receipt, 1,
+        "command must append exactly one immutable receipt"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn platform_force_removal_deletes_post_0188_attendance_rows_before_employee_roots(pool: PgPool) {
+async fn platform_force_removal_deletes_post_0188_attendance_rows_before_employee_roots(
+    pool: PgPool,
+) {
     let org = Uuid::new_v4();
     let seeded = seed_org(&pool, org, "force-remove-attendance").await;
     sqlx::query("UPDATE organizations SET status = 'ARCHIVED' WHERE id = $1")
@@ -966,7 +1022,7 @@ async fn platform_force_removal_deletes_post_0188_attendance_rows_before_employe
         .execute(&mut *command)
         .await
         .unwrap();
-    let removed: String = sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+    let removed: String = sqlx::query_scalar("SELECT platform_force_remove_organization_command($1, NULL::uuid, '00000000000000000000000000000000', '0000000000000000', now())")
         .bind(org)
         .fetch_one(&mut *command)
         .await
@@ -974,10 +1030,11 @@ async fn platform_force_removal_deletes_post_0188_attendance_rows_before_employe
     assert_eq!(removed, "removed");
     command.commit().await.unwrap();
 
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions WHERE org_id = $1")
-        .bind(org)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions WHERE org_id = $1")
+            .bind(org)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(rows, 0);
 }

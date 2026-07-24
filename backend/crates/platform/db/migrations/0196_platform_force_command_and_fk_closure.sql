@@ -268,3 +268,41 @@ BEGIN
     END IF;
 END
 $block$;
+
+
+-- Atomic receipt command: the command login has no table privileges. It can
+-- only invoke this pinned definer, which reads the target, removes it, and
+-- appends the platform-level immutable receipt in the same transaction.
+CREATE OR REPLACE FUNCTION platform_force_remove_organization_command(
+    p_id UUID, p_actor UUID, p_trace_id CHAR(32), p_span_id CHAR(16), p_occurred_at TIMESTAMPTZ
+) RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_slug TEXT;
+    v_name TEXT;
+    v_outcome TEXT;
+BEGIN
+    SET LOCAL row_security = off;
+    SELECT slug, name INTO v_slug, v_name FROM organizations WHERE id = p_id;
+    v_outcome := platform_force_remove_organization(p_id);
+    IF v_outcome <> 'removed' THEN
+        RETURN v_outcome;
+    END IF;
+    INSERT INTO audit_events (
+        org_id, actor, action, target_type, target_id, branch_id,
+        before_snap, after_snap, trace_id, span_id, occurred_at
+    ) VALUES (
+        NULL, p_actor, 'platform.tenant.force_remove', 'organizations', p_id::text, NULL,
+        jsonb_build_object('org_id', p_id, 'slug', v_slug, 'name', v_name), NULL,
+        p_trace_id, p_span_id, p_occurred_at
+    );
+    RETURN 'removed';
+END;
+$$;
+ALTER FUNCTION platform_force_remove_organization_command(UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ) OWNER TO mnt_app;
+REVOKE ALL ON FUNCTION platform_force_remove_organization_command(UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ) FROM PUBLIC, mnt_rt;
+GRANT EXECUTE ON FUNCTION platform_force_remove_organization_command(UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ) TO mnt_platform_force_cmd;
+REVOKE EXECUTE ON FUNCTION platform_force_remove_organization(UUID) FROM mnt_platform_force_cmd;
