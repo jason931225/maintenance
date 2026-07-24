@@ -36,6 +36,13 @@ if [[ "$1" == */validate_generated_faces.py ]]; then
   echo 'generated-face-registry: PASS'
   exit 0
 fi
+if [[ "$1" == */provision_snapshot_node_modules.py ]]; then
+  printf 'SNAPSHOT_NODE_DEPS=%s\n' "$*" >>"${HARNESS_LOG}"
+  if [[ "${FAKE_SNAPSHOT_NODE_DEPS_FAIL:-0}" == 1 ]]; then
+    exit 19
+  fi
+  exit 0
+fi
 if [[ "$1" == */run_generated_face_gates.py ]]; then
   printf 'GENERATED_FACE_GATES=%s\n' "$*" >>"${HARNESS_LOG}"
   if [[ "${FAKE_GENERATED_FACE_GATE_FAIL:-0}" == 1 ]]; then
@@ -59,12 +66,20 @@ test "${before}" = "${after}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock --version' "${log}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock audit cell' "${log}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock uquery ' "${log}"
+grep -Fq 'SNAPSHOT_NODE_DEPS=' "${log}"
 grep -Fq 'GENERATED_FACE_GATES=' "${log}"
 
 if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_GENERATED_FACE_GATE_FAIL=1 "${harness}"; then
   echo "expected a registered generated-face gate failure to fail preflight" >&2
+  exit 1
+fi
+
+if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
+  MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
+  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_SNAPSHOT_NODE_DEPS_FAIL=1 "${harness}"; then
+  echo "expected missing or inconsistent snapshot dependencies to fail preflight" >&2
   exit 1
 fi
 
