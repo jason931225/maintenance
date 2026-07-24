@@ -54,11 +54,8 @@ function idempotencyKey(): string {
 /**
  * Authenticated generated-client binding for the Attendance REST surface.
  *
- * This deliberately calls the exact generated OpenAPI paths. The candidate
- * base predates the parallel OpenAPI generation lane, so TypeScript currently
- * reports those paths as absent instead of silently accepting a stringly typed
- * fallback. Once that lane lands, this adapter becomes checked against the
- * canonical generated path/body/header contracts without source changes.
+ * This calls the exact generated OpenAPI paths and remains checked against
+ * their canonical path, body, and header contracts.
  */
 export function createAttendanceApiTransport(
   api: ConsoleApiClient,

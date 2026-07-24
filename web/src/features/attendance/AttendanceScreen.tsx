@@ -126,29 +126,6 @@ const PEOPLE_HREF = consoleScreenPath("people");
 const LEAVE_HREF = consoleScreenPath("leave");
 const LABORCOST_HREF = consoleScreenPath("laborcost");
 
-const attendanceActionText = {
-  raise: "예외 등록",
-  raiseTitle: "근태 예외 등록",
-  employee: "직원 ID",
-  kind: "예외 유형",
-  date: "발생 일자",
-  detail: "사유",
-  evidence: "증빙 항목 (한 줄에 하나)",
-  evidenceHint: "증빙 이름과 선택 크기를 입력하세요.",
-  create: "예외 등록",
-  cancelSubstitution: "대근 취소",
-  cancelSubstitutionTitle: "대근 편성 취소",
-  cancellationReason: "취소 사유",
-  amend: "소급 보정",
-  amendTitle: "마감 소급 보정",
-  amendmentReason: "보정 사유",
-  amendmentDetail: "보정 내용",
-  amendmentRef: "연결 참조",
-  submit: "저장",
-  cancel: "취소",
-  required: "필수 항목을 입력하세요.",
-} as const;
-
 function timeLabel(iso: string): string {
   return new Date(iso).toLocaleString("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -195,10 +172,7 @@ function AttendanceScreenBodyInner({
       ? stored
       : isoMonth(clock());
   });
-  const substitutionWindow = useMemo(
-    () => monthOperationalRange(month),
-    [month],
-  );
+  const substitutionWindow = useMemo(() => monthOperationalRange(month), [month]);
   const [exceptions, setExceptions] = useState<Res<Page<AttendanceException>>>({
     s: "loading",
   });
@@ -244,18 +218,15 @@ function AttendanceScreenBodyInner({
       monthRef.current === fence.month && isCurrent(fence.generation),
     [isCurrent],
   );
-  const selectMonth = useCallback(
-    (nextMonth: string) => {
-      if (busy) return;
-      monthRef.current = nextMonth;
-      setPreflight((current) =>
-        current?.month === nextMonth ? current : undefined,
-      );
-      setActionError(undefined);
-      setMonth(nextMonth);
-    },
-    [busy],
-  );
+  const selectMonth = useCallback((nextMonth: string) => {
+    if (busy) return;
+    monthRef.current = nextMonth;
+    setPreflight((current) =>
+      current?.month === nextMonth ? current : undefined,
+    );
+    setActionError(undefined);
+    setMonth(nextMonth);
+  }, [busy]);
 
   const load = useCallback(async () => {
     if (!capabilities.canRead) return;
@@ -800,15 +771,8 @@ function AttendanceScreenBodyInner({
               <span className="attendance__spacer" />
               <span className="attendance__hint">{text.exceptions.hint}</span>
               {capabilities.canRaise && (
-                <button
-                  type="button"
-                  className="attendance__actionbtn"
-                  disabled={busy}
-                  onClick={() => {
-                    setRaiseOpen(true);
-                  }}
-                >
-                  {attendanceActionText.raise}
+                <button type="button" className="attendance__actionbtn" disabled={busy} onClick={() => { setRaiseOpen(true); }}>
+                  {text.actions.raise}
                 </button>
               )}
             </div>
@@ -910,13 +874,7 @@ function AttendanceScreenBodyInner({
                 <>
                   <div className="attendance__sidelist">
                     {data.items.map((item) => (
-                      <CloseRowView
-                        key={item.branch_scope}
-                        item={item}
-                        canAmend={capabilities.canClose}
-                        busy={busy}
-                        onAmend={setAmendClose}
-                      />
+                      <CloseRowView key={item.branch_scope} item={item} canAmend={capabilities.canClose} busy={busy} onAmend={setAmendClose} />
                     ))}
                   </div>
                   <div className="attendance__closefoot">
@@ -1016,87 +974,36 @@ function AttendanceScreenBodyInner({
       )}
 
       {raiseOpen && (
-        <RaiseExceptionModal
-          busy={busy}
-          onClose={() => {
+        <RaiseExceptionModal busy={busy} onClose={() => { setRaiseOpen(false); }} onSubmit={(input) =>
+          void mutate(async (signal, fence) => {
+            const next = await transport.createException(input, signal);
+            if (!isFenceCurrent(fence)) return;
+            setExceptions((current) => current.s === "ready" ? { s: "ready", data: { ...current.data, items: [next, ...current.data.items], total: current.data.total + 1 } } : current);
             setRaiseOpen(false);
-          }}
-          onSubmit={(input) =>
-            void mutate(async (signal, fence) => {
-              const next = await transport.createException(input, signal);
-              if (!isFenceCurrent(fence)) return;
-              setExceptions((current) =>
-                current.s === "ready"
-                  ? {
-                      s: "ready",
-                      data: {
-                        ...current.data,
-                        items: [next, ...current.data.items],
-                        total: current.data.total + 1,
-                      },
-                    }
-                  : current,
-              );
-              setRaiseOpen(false);
-              await refreshCloses(fence.month, fence.generation);
-            })
-          }
+            await refreshCloses(fence.month, fence.generation);
+          })}
         />
       )}
 
       {cancelSub && (
-        <CancelSubstitutionModal
-          substitution={cancelSub}
-          busy={busy}
-          onClose={() => {
+        <CancelSubstitutionModal substitution={cancelSub} busy={busy} onClose={() => { setCancelSub(undefined); }} onSubmit={(reason) =>
+          void mutate(async (signal, fence) => {
+            const next = await transport.cancelSubstitution(cancelSub.id, reason, signal);
+            if (!isFenceCurrent(fence)) return;
+            setSubstitutions((current) => current.s === "ready" ? { s: "ready", data: { ...current.data, items: current.data.items.map((item) => item.id === next.id ? next : item) } } : current);
             setCancelSub(undefined);
-          }}
-          onSubmit={(reason) =>
-            void mutate(async (signal, fence) => {
-              const next = await transport.cancelSubstitution(
-                cancelSub.id,
-                reason,
-                signal,
-              );
-              if (!isFenceCurrent(fence)) return;
-              setSubstitutions((current) =>
-                current.s === "ready"
-                  ? {
-                      s: "ready",
-                      data: {
-                        ...current.data,
-                        items: current.data.items.map((item) =>
-                          item.id === next.id ? next : item,
-                        ),
-                      },
-                    }
-                  : current,
-              );
-              setCancelSub(undefined);
-            })
-          }
+          })}
         />
       )}
 
       {amendClose?.close && (
-        <CloseAmendmentModal
-          close={amendClose.close}
-          busy={busy}
-          onClose={() => {
+        <CloseAmendmentModal close={amendClose.close} busy={busy} onClose={() => { setAmendClose(undefined); }} onSubmit={(input) =>
+          void mutate(async (signal, fence) => {
+            await transport.addCloseAmendment(amendClose.close!.id, input, signal);
+            if (!isFenceCurrent(fence)) return;
             setAmendClose(undefined);
-          }}
-          onSubmit={(input) =>
-            void mutate(async (signal, fence) => {
-              await transport.addCloseAmendment(
-                amendClose.close!.id,
-                input,
-                signal,
-              );
-              if (!isFenceCurrent(fence)) return;
-              setAmendClose(undefined);
-              await refreshCloses(fence.month, fence.generation);
-            })
-          }
+            await refreshCloses(fence.month, fence.generation);
+          })}
         />
       )}
 
@@ -1304,14 +1211,8 @@ function DayBoard({
                       {formatWindow(row.sub.from_minutes, row.sub.to_minutes)}
                     </span>
                     {canSubstitute && row.sub.status === "ASSIGNED" && (
-                      <button
-                        type="button"
-                        className="attendance__subcta"
-                        onClick={() => {
-                          onCancel(row.sub);
-                        }}
-                      >
-                        {attendanceActionText.cancelSubstitution}
+                      <button type="button" className="attendance__subcta" onClick={() => { onCancel(row.sub); }}>
+                        {text.actions.cancelSubstitution}
                       </button>
                     )}
                   </span>
@@ -1754,58 +1655,20 @@ function W52RowView({
   );
 }
 
-function CloseRowView({
-  item,
-  canAmend,
-  busy,
-  onAmend,
-}: {
-  item: MonthCloseItem;
-  canAmend: boolean;
-  busy: boolean;
-  onAmend: (item: MonthCloseItem) => void;
-}) {
+function CloseRowView({ item, canAmend, busy, onAmend }: { item: MonthCloseItem; canAmend: boolean; busy: boolean; onAmend: (item: MonthCloseItem) => void; }) {
   return (
     <div className="attendance__closerow">
-      {item.closed ? (
-        <span className="attendance__okmark" aria-hidden>
-          ✓
-        </span>
-      ) : (
-        <span className="attendance__waitdot" aria-hidden />
-      )}
+      {item.closed ? <span className="attendance__okmark" aria-hidden>✓</span> : <span className="attendance__waitdot" aria-hidden />}
       <span className="attendance__closescope">{item.branch_scope}</span>
       {item.closed && item.close ? (
         <>
-          <span className="attendance__closemeta">
-            {timeLabel(item.close.closed_at)} · {item.close.attested_by}
-          </span>
-          {canAmend && (
-            <button
-              type="button"
-              className="attendance__ghostbtn"
-              disabled={busy}
-              onClick={() => {
-                onAmend(item);
-              }}
-            >
-              {attendanceActionText.amend}
-            </button>
-          )}
+          <span className="attendance__closemeta">{timeLabel(item.close.closed_at)} · {item.close.attested_by}</span>
+          {canAmend && <button type="button" className="attendance__ghostbtn" disabled={busy} onClick={() => { onAmend(item); }}>{text.actions.amend}</button>}
         </>
       ) : (
         <span className="attendance__closemeta attendance__closemeta--warn">
-          {text.closePanel.openExceptions} {item.open_exceptions}
-          {text.closePanel.countUnit}
-          {item.pending_leave > 0 && (
-            <>
-              {" · "}
-              <a href={LEAVE_HREF}>
-                {text.closePanel.pendingLeave} {item.pending_leave}
-                {text.closePanel.countUnit}
-              </a>
-            </>
-          )}
+          {text.closePanel.openExceptions} {item.open_exceptions}{text.closePanel.countUnit}
+          {item.pending_leave > 0 && <> {" · "}<a href={LEAVE_HREF}>{text.closePanel.pendingLeave} {item.pending_leave}{text.closePanel.countUnit}</a></>}
         </span>
       )}
     </div>
@@ -1928,132 +1791,132 @@ function ExceptionModal({
       label={text.exceptions.detailTitle}
       className="attendance__modal"
     >
-      <div className="attendance__modalhead">
-        <span className={exceptionToneClass(exception.kind)}>
-          {text.exceptions.kind[exception.kind]}
-        </span>
-        <span className="attendance__count">{exception.code}</span>
-        <span className="attendance__modaltitle">
-          {exception.employee_name}
-        </span>
-        <span className="attendance__count">{exception.work_date}</span>
-        {exception.status === "RESOLVED" && (
-          <span className="attendance__chip attendance__chip--ok">
-            {text.exceptions.resolved}
+        <div className="attendance__modalhead">
+          <span className={exceptionToneClass(exception.kind)}>
+            {text.exceptions.kind[exception.kind]}
           </span>
+          <span className="attendance__count">{exception.code}</span>
+          <span className="attendance__modaltitle">
+            {exception.employee_name}
+          </span>
+          <span className="attendance__count">{exception.work_date}</span>
+          {exception.status === "RESOLVED" && (
+            <span className="attendance__chip attendance__chip--ok">
+              {text.exceptions.resolved}
+            </span>
+          )}
+        </div>
+        <p className="attendance__exdetail">{exception.detail}</p>
+        {exception.evidence.length > 0 && (
+          <div
+            className="attendance__evlist"
+            aria-label={text.exceptions.evidence}
+          >
+            {exception.evidence.map((item) => (
+              <span key={item.name}>
+                {item.name}
+                {item.size != null ? ` · ${item.size}` : ""}
+              </span>
+            ))}
+          </div>
         )}
-      </div>
-      <p className="attendance__exdetail">{exception.detail}</p>
-      {exception.evidence.length > 0 && (
-        <div
-          className="attendance__evlist"
-          aria-label={text.exceptions.evidence}
-        >
-          {exception.evidence.map((item) => (
-            <span key={item.name}>
-              {item.name}
-              {item.size != null ? ` · ${item.size}` : ""}
-            </span>
-          ))}
-        </div>
-      )}
-      {exception.links.length > 0 && (
-        <div
-          className="attendance__linkchips"
-          aria-label={text.exceptions.links}
-        >
-          {exception.links.map((link) => (
-            <a
-              key={`${link.kind}-${link.label}`}
-              className="attendance__chip attendance__chipbtn"
-              href={linkHref(link.ref)}
-            >
-              {link.label}
-            </a>
-          ))}
-        </div>
-      )}
-      {exception.resolution && (
-        <p className="attendance__exdetail">
-          {exception.resolution.reason} · {exception.resolution.actor} ·{" "}
-          {timeLabel(exception.resolution.resolved_at)}
-          {exception.resolution.linked_work_ref != null
-            ? ` · ${exception.resolution.linked_work_ref}`
-            : ""}
-        </p>
-      )}
-      {exception.status === "OPEN" && canResolve && (
-        <>
-          <label className="attendance__field" htmlFor={reasonId}>
-            {text.exceptions.reasonLabel}
-            <textarea
-              id={reasonId}
-              value={reason}
-              maxLength={500}
-              required
-              onChange={(event) => {
-                setReason(event.target.value);
-                storageSet(draftKey, event.target.value);
-              }}
-            />
-          </label>
-          {isOvertime && (
-            <>
-              <label className="attendance__field" htmlFor={workRefId}>
-                {text.exceptions.workRefLabel}
-                <input
-                  id={workRefId}
-                  value={workRef}
-                  required
-                  onChange={(event) => {
-                    setWorkRef(event.target.value);
-                  }}
-                />
-              </label>
-              <label className="attendance__field" htmlFor={otHoursId}>
-                {text.exceptions.otHoursLabel}
-                <input
-                  id={otHoursId}
-                  value={otHours}
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  onChange={(event) => {
-                    setOtHours(event.target.value);
-                  }}
-                />
-              </label>
-            </>
-          )}
-          {fieldError !== undefined && (
-            <span className="attendance__fielderror" role="alert">
-              {fieldError}
-            </span>
-          )}
-        </>
-      )}
-      <div className="attendance__modalactions">
-        <button
-          type="button"
-          className="attendance__ghostbtn"
-          disabled={busy}
-          onClick={close}
-        >
-          {text.exceptions.close}
-        </button>
+        {exception.links.length > 0 && (
+          <div
+            className="attendance__linkchips"
+            aria-label={text.exceptions.links}
+          >
+            {exception.links.map((link) => (
+              <a
+                key={`${link.kind}-${link.label}`}
+                className="attendance__chip attendance__chipbtn"
+                href={linkHref(link.ref)}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        )}
+        {exception.resolution && (
+          <p className="attendance__exdetail">
+            {exception.resolution.reason} · {exception.resolution.actor} ·{" "}
+            {timeLabel(exception.resolution.resolved_at)}
+            {exception.resolution.linked_work_ref != null
+              ? ` · ${exception.resolution.linked_work_ref}`
+              : ""}
+          </p>
+        )}
         {exception.status === "OPEN" && canResolve && (
+          <>
+            <label className="attendance__field" htmlFor={reasonId}>
+              {text.exceptions.reasonLabel}
+              <textarea
+                id={reasonId}
+                value={reason}
+                maxLength={500}
+                required
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  storageSet(draftKey, event.target.value);
+                }}
+              />
+            </label>
+            {isOvertime && (
+              <>
+                <label className="attendance__field" htmlFor={workRefId}>
+                  {text.exceptions.workRefLabel}
+                  <input
+                    id={workRefId}
+                    value={workRef}
+                    required
+                    onChange={(event) => {
+                      setWorkRef(event.target.value);
+                    }}
+                  />
+                </label>
+                <label className="attendance__field" htmlFor={otHoursId}>
+                  {text.exceptions.otHoursLabel}
+                  <input
+                    id={otHoursId}
+                    value={otHours}
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    onChange={(event) => {
+                      setOtHours(event.target.value);
+                    }}
+                  />
+                </label>
+              </>
+            )}
+            {fieldError !== undefined && (
+              <span className="attendance__fielderror" role="alert">
+                {fieldError}
+              </span>
+            )}
+          </>
+        )}
+        <div className="attendance__modalactions">
           <button
             type="button"
-            className="attendance__actionbtn"
+            className="attendance__ghostbtn"
             disabled={busy}
-            onClick={submit}
+            onClick={close}
           >
-            {isOvertime
-              ? text.exceptions.resolveOvertime
-              : text.exceptions.resolveConfirm}
+            {text.exceptions.close}
           </button>
-        )}
-      </div>
+          {exception.status === "OPEN" && canResolve && (
+            <button
+              type="button"
+              className="attendance__actionbtn"
+              disabled={busy}
+              onClick={submit}
+            >
+              {isOvertime
+                ? text.exceptions.resolveOvertime
+                : text.exceptions.resolveConfirm}
+            </button>
+          )}
+        </div>
     </Dialog>
   );
 }
@@ -2087,77 +1950,77 @@ function PreflightModal({
       label={text.closePanel.preflightTitle}
       className="attendance__modal"
     >
-      <div className="attendance__modalhead">
-        <span className="attendance__modaltitle">
-          {text.closePanel.preflightTitle}
-        </span>
-        <span className="attendance__chip">{scope}</span>
-        <span className="attendance__count">{month}</span>
-      </div>
-      {preflight.checks.map((check) => (
-        <div key={check.key} className="attendance__checkrow">
-          {check.ok ? (
-            <span className="attendance__okmark" aria-hidden>
-              ✓
-            </span>
-          ) : (
-            <span className="attendance__waitdot" aria-hidden />
-          )}
-          <span>{check.key}</span>
-          <span
-            className={
-              check.ok
-                ? check.warn
-                  ? "attendance__chip attendance__chip--warn"
-                  : "attendance__chip attendance__chip--ok"
-                : "attendance__chip attendance__chip--danger"
-            }
-          >
-            {check.ok
-              ? check.warn
-                ? text.closePanel.checkWarn
-                : text.closePanel.checkOk
-              : text.closePanel.checkFail}
+        <div className="attendance__modalhead">
+          <span className="attendance__modaltitle">
+            {text.closePanel.preflightTitle}
           </span>
-          {check.note != null && (
-            <span className="attendance__exdetail">{check.note}</span>
-          )}
+          <span className="attendance__chip">{scope}</span>
+          <span className="attendance__count">{month}</span>
         </div>
-      ))}
-      {!preflight.can_close && (
-        <span className="attendance__fielderror" role="alert">
-          {text.closePanel.conflict}
-        </span>
-      )}
-      <label className="attendance__attest" htmlFor={attestId}>
-        <input
-          id={attestId}
-          type="checkbox"
-          checked={attest}
-          onChange={(event) => {
-            setAttest(event.target.checked);
-          }}
-        />
-        {text.closePanel.attest}
-      </label>
-      <div className="attendance__modalactions">
-        <button
-          type="button"
-          className="attendance__ghostbtn"
-          disabled={busy}
-          onClick={close}
-        >
-          {text.closePanel.cancel}
-        </button>
-        <button
-          type="button"
-          className="attendance__primarybtn"
-          disabled={busy || !attest || hardFail || !preflight.can_close}
-          onClick={onConfirm}
-        >
-          {scope} {text.closePanel.confirmCta}
-        </button>
-      </div>
+        {preflight.checks.map((check) => (
+          <div key={check.key} className="attendance__checkrow">
+            {check.ok ? (
+              <span className="attendance__okmark" aria-hidden>
+                ✓
+              </span>
+            ) : (
+              <span className="attendance__waitdot" aria-hidden />
+            )}
+            <span>{check.key}</span>
+            <span
+              className={
+                check.ok
+                  ? check.warn
+                    ? "attendance__chip attendance__chip--warn"
+                    : "attendance__chip attendance__chip--ok"
+                  : "attendance__chip attendance__chip--danger"
+              }
+            >
+              {check.ok
+                ? check.warn
+                  ? text.closePanel.checkWarn
+                  : text.closePanel.checkOk
+                : text.closePanel.checkFail}
+            </span>
+            {check.note != null && (
+              <span className="attendance__exdetail">{check.note}</span>
+            )}
+          </div>
+        ))}
+        {!preflight.can_close && (
+          <span className="attendance__fielderror" role="alert">
+            {text.closePanel.conflict}
+          </span>
+        )}
+        <label className="attendance__attest" htmlFor={attestId}>
+          <input
+            id={attestId}
+            type="checkbox"
+            checked={attest}
+            onChange={(event) => {
+              setAttest(event.target.checked);
+            }}
+          />
+          {text.closePanel.attest}
+        </label>
+        <div className="attendance__modalactions">
+          <button
+            type="button"
+            className="attendance__ghostbtn"
+            disabled={busy}
+            onClick={close}
+          >
+            {text.closePanel.cancel}
+          </button>
+          <button
+            type="button"
+            className="attendance__primarybtn"
+            disabled={busy || !attest || hardFail || !preflight.can_close}
+            onClick={onConfirm}
+          >
+            {scope} {text.closePanel.confirmCta}
+          </button>
+        </div>
     </Dialog>
   );
 }
@@ -2266,129 +2129,131 @@ function SubModal({
       label={text.sub.title}
       className="attendance__modal"
     >
-      <div className="attendance__modalhead">
-        <span className="attendance__modaltitle">{text.sub.title}</span>
-        <span className="attendance__chip attendance__chip--danger">
-          {gap.employee_name} · {text.sub.gapReason}
-        </span>
-        <span className="attendance__count">{gap.work_date}</span>
-      </div>
-      <p className="attendance__exdetail">{gap.detail}</p>
-      <label className="attendance__field" htmlFor={siteId}>
-        {text.sub.site}
-        <input
-          id={siteId}
-          value={site}
-          required
-          onChange={(event) => {
-            setSite(event.target.value);
-          }}
-        />
-      </label>
-      <label className="attendance__field" htmlFor={roleId}>
-        {text.sub.role}
-        <input
-          id={roleId}
-          value={role}
-          required
-          onChange={(event) => {
-            setRole(event.target.value);
-          }}
-        />
-      </label>
-      <div className="attendance__modalhead">
-        <label className="attendance__field" htmlFor={fromId}>
-          {text.sub.from}
-          <input
-            id={fromId}
-            type="time"
-            value={from}
-            required
-            onChange={(event) => {
-              setFrom(event.target.value);
-            }}
-          />
-        </label>
-        <label className="attendance__field" htmlFor={toId}>
-          {text.sub.to}
-          <input
-            id={toId}
-            type="time"
-            value={to}
-            required
-            onChange={(event) => {
-              setTo(event.target.value);
-            }}
-          />
-        </label>
-      </div>
-      <label className="attendance__field" htmlFor={searchId}>
-        {text.sub.poolSearch}
-        <input
-          id={searchId}
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-          }}
-        />
-      </label>
-      {fieldError !== undefined && (
-        <span className="attendance__fielderror" role="alert">
-          {fieldError}
-        </span>
-      )}
-      {pool.s === "loading" && (
-        <p role="status" className="attendance__status">
-          {text.loading}
-        </p>
-      )}
-      {pool.s === "denied" && (
-        <p role="status" className="attendance__status">
-          {text.panelDenied}
-        </p>
-      )}
-      {pool.s === "error" && (
-        <div className="attendance__alert" role="alert">
-          <span>{pool.message}</span>
+        <div className="attendance__modalhead">
+          <span className="attendance__modaltitle">{text.sub.title}</span>
+          <span className="attendance__chip attendance__chip--danger">
+            {gap.employee_name} · {text.sub.gapReason}
+          </span>
+          <span className="attendance__count">{gap.work_date}</span>
         </div>
-      )}
-      {pool.s === "ready" &&
-        (items.length === 0 ? (
+        <p className="attendance__exdetail">{gap.detail}</p>
+        <label className="attendance__field" htmlFor={siteId}>
+          {text.sub.site}
+          <input
+            id={siteId}
+            value={site}
+            required
+            onChange={(event) => {
+              setSite(event.target.value);
+            }}
+          />
+        </label>
+        <label className="attendance__field" htmlFor={roleId}>
+          {text.sub.role}
+          <input
+            id={roleId}
+            value={role}
+            required
+            onChange={(event) => {
+              setRole(event.target.value);
+            }}
+          />
+        </label>
+        <div className="attendance__modalhead">
+          <label className="attendance__field" htmlFor={fromId}>
+            {text.sub.from}
+            <input
+              id={fromId}
+              type="time"
+              value={from}
+              required
+              onChange={(event) => {
+                setFrom(event.target.value);
+              }}
+            />
+          </label>
+          <label className="attendance__field" htmlFor={toId}>
+            {text.sub.to}
+            <input
+              id={toId}
+              type="time"
+              value={to}
+              required
+              onChange={(event) => {
+                setTo(event.target.value);
+              }}
+            />
+          </label>
+        </div>
+        <label className="attendance__field" htmlFor={searchId}>
+          {text.sub.poolSearch}
+          <input
+            id={searchId}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+            }}
+          />
+        </label>
+        {fieldError !== undefined && (
+          <span className="attendance__fielderror" role="alert">
+            {fieldError}
+          </span>
+        )}
+        {pool.s === "loading" && (
           <p role="status" className="attendance__status">
-            {text.sub.empty}
+            {text.loading}
           </p>
-        ) : (
-          items.map((item) => (
-            <div key={item.user_id} className="attendance__poolrow">
-              <span className="attendance__poolname">{item.display_name}</span>
-              <span className="attendance__chip">
-                {item.last_event_at != null
-                  ? timeLabel(item.last_event_at)
-                  : text.sub.noActivity}
-              </span>
-              <button
-                type="button"
-                className="attendance__actionbtn"
-                disabled={busy}
-                onClick={() => {
-                  assign(item);
-                }}
-              >
-                {text.sub.assign}
-              </button>
-            </div>
-          ))
-        ))}
-      <div className="attendance__modalactions">
-        <button
-          type="button"
-          className="attendance__ghostbtn"
-          disabled={busy}
-          onClick={close}
-        >
-          {text.sub.cancel}
-        </button>
-      </div>
+        )}
+        {pool.s === "denied" && (
+          <p role="status" className="attendance__status">
+            {text.panelDenied}
+          </p>
+        )}
+        {pool.s === "error" && (
+          <div className="attendance__alert" role="alert">
+            <span>{pool.message}</span>
+          </div>
+        )}
+        {pool.s === "ready" &&
+          (items.length === 0 ? (
+            <p role="status" className="attendance__status">
+              {text.sub.empty}
+            </p>
+          ) : (
+            items.map((item) => (
+              <div key={item.user_id} className="attendance__poolrow">
+                <span className="attendance__poolname">
+                  {item.display_name}
+                </span>
+                <span className="attendance__chip">
+                  {item.last_event_at != null
+                    ? timeLabel(item.last_event_at)
+                    : text.sub.noActivity}
+                </span>
+                <button
+                  type="button"
+                  className="attendance__actionbtn"
+                  disabled={busy}
+                  onClick={() => {
+                    assign(item);
+                  }}
+                >
+                  {text.sub.assign}
+                </button>
+              </div>
+            ))
+          ))}
+        <div className="attendance__modalactions">
+          <button
+            type="button"
+            className="attendance__ghostbtn"
+            disabled={busy}
+            onClick={close}
+          >
+            {text.sub.cancel}
+          </button>
+        </div>
     </Dialog>
   );
 }
@@ -2420,7 +2285,7 @@ function RaiseExceptionModal({
     const trimmedEmployee = employeeId.trim();
     const trimmedDetail = detail.trim();
     if (!trimmedEmployee || !workDate || !trimmedDetail) {
-      setFieldError(attendanceActionText.required);
+      setFieldError(text.actions.required);
       return;
     }
     const parsedEvidence = evidence
@@ -2442,16 +2307,16 @@ function RaiseExceptionModal({
       open
       onClose={close}
       closeOnScrimClick={!busy}
-      label={attendanceActionText.raiseTitle}
+      label={text.actions.raiseTitle}
       className="attendance__modal"
     >
       <div className="attendance__modalhead">
         <span className="attendance__modaltitle">
-          {attendanceActionText.raiseTitle}
+          {text.actions.raiseTitle}
         </span>
       </div>
       <label className="attendance__field" htmlFor={employeeIdId}>
-        {attendanceActionText.employee}
+        {text.actions.employee}
         <input
           id={employeeIdId}
           value={employeeId}
@@ -2460,7 +2325,7 @@ function RaiseExceptionModal({
         />
       </label>
       <label className="attendance__field" htmlFor={kindId}>
-        {attendanceActionText.kind}
+        {text.actions.kind}
         <select
           id={kindId}
           value={kind}
@@ -2476,7 +2341,7 @@ function RaiseExceptionModal({
         </select>
       </label>
       <label className="attendance__field" htmlFor={dateId}>
-        {attendanceActionText.date}
+        {text.actions.date}
         <input
           id={dateId}
           type="date"
@@ -2486,7 +2351,7 @@ function RaiseExceptionModal({
         />
       </label>
       <label className="attendance__field" htmlFor={detailId}>
-        {attendanceActionText.detail}
+        {text.actions.detail}
         <textarea
           id={detailId}
           value={detail}
@@ -2496,7 +2361,7 @@ function RaiseExceptionModal({
         />
       </label>
       <label className="attendance__field" htmlFor={evidenceId}>
-        {attendanceActionText.evidence}
+        {text.actions.evidence}
         <textarea
           id={evidenceId}
           value={evidence}
@@ -2504,7 +2369,7 @@ function RaiseExceptionModal({
           aria-describedby={`${evidenceId}-hint`}
         />
         <span id={`${evidenceId}-hint`} className="attendance__hint">
-          {attendanceActionText.evidenceHint}
+          {text.actions.evidenceHint}
         </span>
       </label>
       {fieldError && (
@@ -2519,7 +2384,7 @@ function RaiseExceptionModal({
           disabled={busy}
           onClick={close}
         >
-          {attendanceActionText.cancel}
+          {text.actions.cancel}
         </button>
         <button
           type="button"
@@ -2527,7 +2392,7 @@ function RaiseExceptionModal({
           disabled={busy}
           onClick={submit}
         >
-          {attendanceActionText.create}
+          {text.actions.create}
         </button>
       </div>
     </Dialog>
@@ -2565,17 +2430,17 @@ function CancelSubstitutionModal({
       open
       onClose={close}
       closeOnScrimClick={!busy}
-      label={attendanceActionText.cancelSubstitutionTitle}
+      label={text.actions.cancelSubstitutionTitle}
       className="attendance__modal"
     >
       <div className="attendance__modalhead">
         <span className="attendance__modaltitle">
-          {attendanceActionText.cancelSubstitutionTitle}
+          {text.actions.cancelSubstitutionTitle}
         </span>
         <span className="attendance__chip">{substitution.worker_name}</span>
       </div>
       <label className="attendance__field" htmlFor={reasonId}>
-        {attendanceActionText.cancellationReason}
+        {text.actions.cancellationReason}
         <textarea
           id={reasonId}
           value={reason}
@@ -2596,7 +2461,7 @@ function CancelSubstitutionModal({
           disabled={busy}
           onClick={close}
         >
-          {attendanceActionText.cancel}
+          {text.actions.cancel}
         </button>
         <button
           type="button"
@@ -2604,7 +2469,7 @@ function CancelSubstitutionModal({
           disabled={busy}
           onClick={submit}
         >
-          {attendanceActionText.cancelSubstitution}
+          {text.actions.cancelSubstitution}
         </button>
       </div>
     </Dialog>
@@ -2636,7 +2501,7 @@ function CloseAmendmentModal({
     const nextReason = reason.trim();
     const nextDetail = detail.trim();
     if (!nextReason || !nextDetail) {
-      setFieldError(attendanceActionText.required);
+      setFieldError(text.actions.required);
       return;
     }
     setFieldError(undefined);
@@ -2651,17 +2516,17 @@ function CloseAmendmentModal({
       open
       onClose={closeDialog}
       closeOnScrimClick={!busy}
-      label={attendanceActionText.amendTitle}
+      label={text.actions.amendTitle}
       className="attendance__modal"
     >
       <div className="attendance__modalhead">
         <span className="attendance__modaltitle">
-          {attendanceActionText.amendTitle}
+          {text.actions.amendTitle}
         </span>
         <span className="attendance__chip">{monthClose.month}</span>
       </div>
       <label className="attendance__field" htmlFor={reasonId}>
-        {attendanceActionText.amendmentReason}
+        {text.actions.amendmentReason}
         <input
           id={reasonId}
           value={reason}
@@ -2670,7 +2535,7 @@ function CloseAmendmentModal({
         />
       </label>
       <label className="attendance__field" htmlFor={detailId}>
-        {attendanceActionText.amendmentDetail}
+        {text.actions.amendmentDetail}
         <textarea
           id={detailId}
           value={detail}
@@ -2680,7 +2545,7 @@ function CloseAmendmentModal({
         />
       </label>
       <label className="attendance__field" htmlFor={refId}>
-        {attendanceActionText.amendmentRef}
+        {text.actions.amendmentRef}
         <input
           id={refId}
           value={ref}
@@ -2699,7 +2564,7 @@ function CloseAmendmentModal({
           disabled={busy}
           onClick={closeDialog}
         >
-          {attendanceActionText.cancel}
+          {text.actions.cancel}
         </button>
         <button
           type="button"
@@ -2707,7 +2572,7 @@ function CloseAmendmentModal({
           disabled={busy}
           onClick={submit}
         >
-          {attendanceActionText.submit}
+          {text.actions.submit}
         </button>
       </div>
     </Dialog>
