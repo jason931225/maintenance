@@ -32,6 +32,7 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
+ * @param branchId Persisted case branch used for capability scoping.
  * @param status
  * @param responseDueAt
  * @param completionDueAt
@@ -46,6 +47,10 @@ data class FacilitiesCase (
 
     @Contextual @SerialName(value = "id")
     val id: java.util.UUID,
+
+    /* Persisted case branch used for capability scoping. */
+    @Contextual @SerialName(value = "branchId")
+    val branchId: java.util.UUID,
 
     @SerialName(value = "status")
     val status: FacilitiesCase.Status,

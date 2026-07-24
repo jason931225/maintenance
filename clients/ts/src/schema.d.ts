@@ -14311,6 +14311,8 @@ export interface components {
         };
         FacilitiesCase: {
             id: components["schemas"]["Uuid"];
+            /** @description Persisted case branch used for capability scoping. */
+            branchId: components["schemas"]["Uuid"];
             /** @enum {string} */
             status: "DUE" | "TRIAGED" | "SCHEDULED" | "ASSIGNED" | "IN_PROGRESS" | "SUBMITTED" | "REWORK_REQUIRED" | "AWAITING_ACCEPTANCE" | "CLOSED";
             /** Format: uuid */

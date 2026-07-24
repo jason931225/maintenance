@@ -10,7 +10,12 @@ export type FacilitiesFeature =
   | "facilities_observe";
 
 export interface FacilitiesPolicyGate {
-  allows: (query: { feature: FacilitiesFeature; minPermission: "allow" }) => boolean;
+  allows: (query: {
+    feature: FacilitiesFeature;
+    branch?: string;
+    minPermission: "allow";
+    requireOrgWide?: boolean;
+  }) => boolean;
 }
 
 export interface FacilitiesCapabilities {
@@ -33,17 +38,23 @@ export function deriveFacilitiesCapabilities(
   selected: FacilitiesCase | undefined,
   actorId: string | undefined,
 ): FacilitiesCapabilities {
-  const allows = (feature: FacilitiesFeature) =>
-    gate.allows({ feature, minPermission: "allow" });
+  const selectedBranch = selected?.branchId;
+  const allowsCase = (feature: FacilitiesFeature) =>
+    typeof selectedBranch === "string" &&
+    gate.allows({ feature, branch: selectedBranch, minPermission: "allow" });
   const isAssignee = Boolean(actorId && selected?.assigneeId === actorId);
 
   return {
-    canCreate: allows("facilities_manage"),
-    canTriage: allows("facilities_dispatch") && (selected?.status === "DUE" || selected?.status === "TRIAGED"),
-    canAssign: allows("facilities_dispatch") && selected?.status === "SCHEDULED",
-    canStart: allows("facilities_execute") && isAssignee && (selected?.status === "ASSIGNED" || selected?.status === "REWORK_REQUIRED"),
-    canObserve: allows("facilities_observe") && selected?.status === "IN_PROGRESS",
-    canSubmit: allows("facilities_execute") && isAssignee && selected?.status === "IN_PROGRESS",
-    canAccept: allows("facilities_accept") && selected?.status === "AWAITING_ACCEPTANCE",
+    canCreate: gate.allows({
+      feature: "facilities_manage",
+      minPermission: "allow",
+      requireOrgWide: true,
+    }),
+    canTriage: allowsCase("facilities_dispatch") && (selected?.status === "DUE" || selected?.status === "TRIAGED"),
+    canAssign: allowsCase("facilities_dispatch") && selected?.status === "SCHEDULED",
+    canStart: allowsCase("facilities_execute") && isAssignee && (selected?.status === "ASSIGNED" || selected?.status === "REWORK_REQUIRED"),
+    canObserve: allowsCase("facilities_observe") && selected?.status === "IN_PROGRESS",
+    canSubmit: allowsCase("facilities_execute") && isAssignee && selected?.status === "IN_PROGRESS",
+    canAccept: allowsCase("facilities_accept") && selected?.status === "AWAITING_ACCEPTANCE",
   };
 }

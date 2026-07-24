@@ -140,7 +140,9 @@ private enum GeneratedClientContractTests {
         func typedSubmitRequest(_ body: Operations.SubmitFacilitiesExecution.Input.Body) {}
         func typedAcceptanceRequest(_ body: Operations.DecideFacilitiesAcceptance.Input.Body) {}
         func typedObservationRequest(_ body: Operations.RecordFacilitiesObservation.Input.Body) {}
+        func caseBranch(_ caseValue: FacilitiesCase) -> Components.Schemas.Uuid { caseValue.branchId }
         _ = [caseFromTriage, caseFromAssign, caseFromStart, caseFromSubmit, caseFromAcceptance, caseFromObservation]
+        _ = caseBranch
         _ = [typedTriageRequest, typedAssignRequest, typedSubmitRequest, typedAcceptanceRequest, typedObservationRequest]
         return true
     }
