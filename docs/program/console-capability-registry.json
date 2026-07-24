@@ -82,7 +82,7 @@
     "id": "STORY-SHELL-001",
     "outcome": "An authenticated operator preserves route, selected work, and communication context while moving between persistent, compact, and mutually exclusive drawer layouts using keyboard or touch."
    },
-   "evidence_path": "docs/evidence/console/CAP-CONSOLE-SHELL/",
+   "evidence_path": "docs/evidence/console/CAP-CONSOLE-SHELL",
    "tests": {
     "files": [
      "web/src/console/shell/ConsoleShell.test.tsx"
@@ -169,7 +169,7 @@
     "id": "STORY-OVERVIEW-001",
     "outcome": "An authenticated operator scans the real action queue and agenda, moves through authorized work with J/K or arrows, opens the selected item with Enter, and retains usable layout at narrow widths."
    },
-   "evidence_path": "docs/evidence/console/CAP-OVERVIEW-WORKSPACE/",
+   "evidence_path": "docs/evidence/console/CAP-OVERVIEW-WORKSPACE",
    "tests": {
     "files": [
      "web/src/console/screens/overview/OverviewBody.test.tsx"
@@ -263,7 +263,7 @@
     "id": "STORY-BENEFITS-001",
     "outcome": "An authorized benefits administrator creates and updates a catalog item and its children, transitions lifecycle, observes audit evidence, and a MEMBER receives a non-leaking denial."
    },
-   "evidence_path": "docs/evidence/console/CAP-BENEFITS-CATALOG/",
+   "evidence_path": "docs/evidence/console/CAP-BENEFITS-CATALOG",
    "tests": {
     "files": [
      "web/src/console/screens/benefit/BenefitBody.test.tsx",
@@ -406,7 +406,7 @@
     "id": "STORY-COMPLIANCE-001",
     "outcome": "A qualified compliance owner traces a regulation to obligations, controls, and accepted evidence, transitions governed lifecycle with audit, while unauthorized and cross-tenant reads reveal neither rows nor counts."
    },
-   "evidence_path": "docs/evidence/console/CAP-COMPLIANCE-CATALOG/",
+   "evidence_path": "docs/evidence/console/CAP-COMPLIANCE-CATALOG",
    "tests": {
     "files": [
      "web/src/console/compliance/ComplianceModuleScreenBody.test.tsx",
@@ -495,7 +495,7 @@
     "id": "STORY-ONTOLOGY-001",
     "outcome": "An authorized user defines or consumes a typed object, traverses governed links, preflights and executes an action, and reads lifecycle, history, lineage, and audit consistently in every consuming module."
    },
-   "evidence_path": "docs/evidence/console/CAP-SHARED-ONTOLOGY-WORKFLOW/",
+   "evidence_path": "docs/evidence/console/CAP-SHARED-ONTOLOGY-WORKFLOW",
    "tests": {
     "files": [
      "web/src/console/ontology/**",
@@ -577,7 +577,7 @@
     "id": "STORY-PRODUCTION-001",
     "outcome": "Customer demand becomes a capacity- and material-checked staffed plan, executed operations and quality evidence, finished delivery, settlement, and margin."
    },
-   "evidence_path": "docs/evidence/console/CAP-PRODUCTION-PILOT/",
+   "evidence_path": "docs/evidence/console/CAP-PRODUCTION-PILOT",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -650,7 +650,7 @@
     "id": "STORY-LOGISTICS-001",
     "outcome": "An inbound notice proceeds through receiving, putaway, replenishment, pick and pack, dispatch, delivery evidence, SLA evaluation, and cost settlement."
    },
-   "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT/",
+   "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT",
    "tests": {
     "files": [
      "web/src/console/logistics/*.test.*"
@@ -750,7 +750,7 @@
     "id": "STORY-IFM-001",
     "outcome": "A service obligation or request is triaged, safely scheduled and assigned, executed with evidence, accepted by the customer, and reflected in SLA, energy, and cost reporting."
    },
-   "evidence_path": "docs/evidence/console/CAP-IFM-PILOT/",
+   "evidence_path": "docs/evidence/console/CAP-IFM-PILOT",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -828,7 +828,7 @@
     "id": "STORY-EQUIPMENT-3R-001",
     "outcome": "Availability and suitability lead to quote and approval, dispatch and handover, inspection and maintenance, return assessment, then repair, refurbishment, resale, or redeployment."
    },
-   "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/",
+   "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT",
    "tests": {
     "files": [
      "backend/crates/equipment/rest/tests/equipment_3r_http.rs",
@@ -919,7 +919,7 @@
     "id": "STORY-CONSULTING-001",
     "outcome": "A diagnostic produces evidence-backed findings and initiatives, approval and implementation, measured benefit, and a sustain-or-correct decision."
    },
-   "evidence_path": "docs/evidence/console/CAP-CONSULTING-PILOT/",
+   "evidence_path": "docs/evidence/console/CAP-CONSULTING-PILOT",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -992,7 +992,7 @@
     "id": "STORY-OWNED-PLANTS-001",
     "outcome": "Miryang, Changwon, and Ulsan configure plant-specific routing, quality, equipment, workforce, and cost without forking the shared production ontology or application."
    },
-   "evidence_path": "docs/evidence/console/CAP-OWNED-PLANTS-PILOT/",
+   "evidence_path": "docs/evidence/console/CAP-OWNED-PLANTS-PILOT",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1065,7 +1065,7 @@
     "id": "STORY-PAYROLL-001",
     "outcome": "A pay period closes attendance-complete, calculates, surfaces exceptions for resolution, routes for approval, schedules disbursement, and delivers payslips with acknowledged receipt."
    },
-   "evidence_path": "docs/evidence/console/CAP-PAYROLL-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-PAYROLL-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1177,7 +1177,7 @@
     "id": "STORY-ATTENDANCE-001",
     "outcome": "A day's plan versus actual reconciles: check-ins, exceptions with mandatory reasons, substitute coverage, weekly-52h monitoring, and a gated monthly close."
    },
-   "evidence_path": "docs/evidence/console/CAP-ATTENDANCE-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-ATTENDANCE-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1291,7 +1291,7 @@
     "id": "STORY-RECRUITING-001",
     "outcome": "A job posting publishes through preflight, applicants advance through evaluation to offer, and acceptance creates the employee object with full audit lineage."
    },
-   "evidence_path": "docs/evidence/console/CAP-RECRUITING/",
+   "evidence_path": "docs/evidence/console/CAP-RECRUITING",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1403,7 +1403,7 @@
     "id": "STORY-ORG-001",
     "outcome": "An organization change drafts a new entity, site, or team structure, passes impact preflight and SoD approval, takes effect on its effective date, and reflects across scope segments and the graph."
    },
-   "evidence_path": "docs/evidence/console/CAP-ORG-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-ORG-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1515,7 +1515,7 @@
     "id": "STORY-EVALUATION-001",
     "outcome": "A review cycle opens with goals, gathers self and manager evaluations with evidence links, calibrates, and finalizes into the person ledger with audit."
    },
-   "evidence_path": "docs/evidence/console/CAP-EVALUATION-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-EVALUATION-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1627,7 +1627,7 @@
     "id": "STORY-INVENTORY-001",
     "outcome": "Stock levels derive from movement documents; a cycle count reconciles variances through approval into adjusted stock with audit lineage."
    },
-   "evidence_path": "docs/evidence/console/CAP-INVENTORY-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-INVENTORY-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1739,7 +1739,7 @@
     "id": "STORY-DISPATCH-001",
     "outcome": "A dispatch request is scheduled to a crew and vehicle, tracked to completion, and its outcome feeds work-order and cost records."
    },
-   "evidence_path": "docs/evidence/console/CAP-DISPATCH-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-DISPATCH-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1851,7 +1851,7 @@
     "id": "STORY-MAINTENANCE-001",
     "outcome": "A maintenance request becomes a scheduled work order, executes with evidence, and closes into asset history and cost."
    },
-   "evidence_path": "docs/evidence/console/CAP-MAINTENANCE-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-MAINTENANCE-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -1963,7 +1963,7 @@
     "id": "STORY-FIELD-001",
     "outcome": "A customer site intake becomes a field visit with check-in, work log, and customer acceptance reflected in SLA and billing."
    },
-   "evidence_path": "docs/evidence/console/CAP-FIELD-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-FIELD-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -2075,7 +2075,7 @@
     "id": "STORY-DOCS-001",
     "outcome": "A record registers with classification and retention, seals into the WORM evidence chain, and is retrievable with verified integrity."
    },
-   "evidence_path": "docs/evidence/console/CAP-DOCS-EVIDENCE-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-DOCS-EVIDENCE-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -2188,7 +2188,7 @@
     "id": "STORY-NOTIF-001",
     "outcome": "Notifications aggregate by object and channel, resolve to their source objects, and are acknowledged, muted, or routed per user policy."
    },
-   "evidence_path": "docs/evidence/console/CAP-NOTIF-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-NOTIF-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -2301,7 +2301,7 @@
     "id": "STORY-BOARD-001",
     "outcome": "A notice publishes to scoped audiences with acknowledgment tracking to completion."
    },
-   "evidence_path": "docs/evidence/console/CAP-BOARD-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-BOARD-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
@@ -2411,7 +2411,7 @@
     "id": "STORY-DIRECTORY-001",
     "outcome": "Every person and team resolves to a card with live org placement, contact channels, and object links, searchable and PBAC-scoped."
    },
-   "evidence_path": "docs/evidence/console/CAP-DIRECTORY-CONSOLE/",
+   "evidence_path": "docs/evidence/console/CAP-DIRECTORY-CONSOLE",
    "tests": {
     "files": [],
     "leaf_commands": [],
