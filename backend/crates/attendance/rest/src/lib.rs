@@ -13,7 +13,7 @@ use axum::{
 use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, CallerScope, CancelSubstitution, CloseMonth,
-    ListSubstitutions, RaiseException, ResolveException, week52_tone,
+    ListSubstitutions, RaiseException, ResolveException, validate_week52_start, week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -600,7 +600,14 @@ async fn week52(
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
-    let week_start = parse_date(&q.week_start, "weekStart")?;
+    let week_start =
+        validate_week52_start(parse_date(&q.week_start, "weekStart")?).map_err(|e| {
+            RestError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation",
+                e.to_string(),
+            )
+        })?;
     let items=state.store.week52_inputs(&scope(&p),week_start,q.branch_id).await.map_err(RestError::store)?.into_iter().map(|i|json!({"employeeId":i.employee_id,"weekStart":i.week_start.to_string(),"currentHours":i.current_hours,"projectedHours":i.projected_hours,"tone":week52_tone(&i),"ackedAt":i.acknowledged_at})).collect::<Vec<_>>();
     Ok(Json(
         json!({"weekStart":week_start.to_string(),"through":(week_start+Duration::days(7)).to_string(),"items":items}),
@@ -626,7 +633,15 @@ async fn acknowledge_week52(
     require_resource_branch(&p, MANAGE, branch)?;
     let command = AcknowledgeWeek52 {
         employee_id: body.employee_id,
-        week_start: parse_date(&body.week_start, "weekStart")?,
+        week_start: validate_week52_start(parse_date(&body.week_start, "weekStart")?).map_err(
+            |e| {
+                RestError::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "validation",
+                    e.to_string(),
+                )
+            },
+        )?,
     };
     state
         .store
@@ -773,6 +788,14 @@ mod tests {
     #[test]
     fn week52_ack_rejects_client_supplied_branch() {
         assert!(serde_json::from_value::<Week52AckBody>(json!({"employeeId":Uuid::new_v4(),"weekStart":"2026-07-06","branchId":Uuid::new_v4()})).is_err());
+    }
+
+    #[test]
+    fn week52_read_and_ack_reject_non_monday_week_starts() {
+        let sunday = parse_date("2026-07-19", "weekStart").unwrap();
+        assert!(validate_week52_start(sunday).is_err());
+        let monday = parse_date("2026-07-20", "weekStart").unwrap();
+        assert!(validate_week52_start(monday).is_ok());
     }
 
     #[test]

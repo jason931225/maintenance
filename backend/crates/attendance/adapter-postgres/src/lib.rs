@@ -85,7 +85,6 @@ impl PgAttendanceStore {
         caller: &CallerScope,
         command: RaiseException,
     ) -> Result<Value, AttendanceStoreError> {
-        app::ensure_scope(caller, command.branch_id)?;
         let key = app::validate_idempotency_key(&command.idempotency_key)?;
         let detail = app::validate_text(&command.detail, "detail", 2000)?;
         let org = OrgId::from_uuid(caller.org_id);
@@ -93,13 +92,16 @@ impl PgAttendanceStore {
         let actor = caller.user_id;
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let request=json!({"kind":command.kind,"employeeId":command.employee_id,"branchId":command.branch_id,"workDate":command.work_date,"detail":detail,"evidence":command.evidence}); let fp=fingerprint(&request);
+            let branch = active_employee_branch(tx, command.employee_id).await?;
+            if command.branch_id != Some(branch) { return Err(AttendanceStoreError::Conflict); }
+            app::ensure_scope(&caller, Some(branch))?;
+            let request=json!({"kind":command.kind,"employeeId":command.employee_id,"branchId":branch,"workDate":command.work_date,"detail":detail,"evidence":command.evidence}); let fp=fingerprint(&request);
             idempotency_lock(tx, caller.org_id, &key).await?;
-            if let Some((existing, stored))=sqlx::query_as::<_,(Uuid,String)>("SELECT id,request_fingerprint FROM attendance_exceptions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { return Ok((exception_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
+            if let Some((existing, stored, existing_branch))=sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_exceptions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { app::ensure_scope(&caller, existing_branch)?; return Ok((exception_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             let code=issue_code(tx, OrgId::from_uuid(caller.org_id), "attendance_exception").await?;
             sqlx::query("INSERT INTO attendance_exceptions (id,org_id,code,kind,employee_id,branch_id,work_date,detail,evidence,links,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'[]'::jsonb,$10,$11,$12)")
-                .bind(id).bind(caller.org_id).bind(&code).bind(command.kind.as_db()).bind(command.employee_id).bind(command.branch_id).bind(command.work_date).bind(&detail).bind(command.evidence).bind(&key).bind(&fp).bind(actor).execute(tx.as_mut()).await?;
-            let view=exception_by_id(tx,id).await?; let audit=event(&caller,"attendance.exception.raise","attendance_exception",id,command.branch_id,Some(json!({"code":code})))?; Ok((view,vec![audit]))
+                .bind(id).bind(caller.org_id).bind(&code).bind(command.kind.as_db()).bind(command.employee_id).bind(branch).bind(command.work_date).bind(&detail).bind(command.evidence).bind(&key).bind(&fp).bind(actor).execute(tx.as_mut()).await?;
+            let view=exception_by_id(tx,id).await?; let audit=event(&caller,"attendance.exception.raise","attendance_exception",id,Some(branch),Some(json!({"code":code})))?; Ok((view,vec![audit]))
         })).await
     }
 
@@ -175,7 +177,6 @@ impl PgAttendanceStore {
         caller: &CallerScope,
         command: AssignSubstitute,
     ) -> Result<Value, AttendanceStoreError> {
-        app::ensure_scope(caller, command.branch_id)?;
         let key = app::validate_idempotency_key(&command.idempotency_key)?;
         let mut command = command;
         command.site = app::validate_text(&command.site, "site", 120)?;
@@ -190,9 +191,18 @@ impl PgAttendanceStore {
         let caller = caller.clone();
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move {
+            let branch = active_employee_branch(tx, command.covered_employee_id).await?;
+            if command.branch_id != Some(branch) { return Err(AttendanceStoreError::Conflict); }
+            if let Some(worker_employee_id) = command.worker_employee_id {
+                if active_employee_branch(tx, worker_employee_id).await? != branch {
+                    return Err(AttendanceStoreError::Conflict);
+                }
+            }
+            app::ensure_scope(&caller, Some(branch))?;
+            command.branch_id = Some(branch);
             let request = substitution_fingerprint(&caller, &command); let fp=fingerprint(&request);
             idempotency_lock(tx, caller.org_id, &key).await?;
-            if let Some((existing,stored))=sqlx::query_as::<_,(Uuid,String)>("SELECT id,request_fingerprint FROM attendance_substitutions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { return Ok((substitution_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
+            if let Some((existing,stored,existing_branch))=sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_substitutions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { app::ensure_scope(&caller, existing_branch)?; return Ok((substitution_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             ensure_historical_coverage(tx,command.covered_employee_id,&command.window,command.exception_id).await?;
             sqlx::query("INSERT INTO attendance_substitutions (id,org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,reason_detail,worker_employee_id,worker_name,worker_type,worker_rate,exception_id,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
                 .bind(id).bind(caller.org_id).bind(&command.site).bind(command.branch_id).bind(&command.role).bind(command.window.cover_date).bind(command.window.from_minutes).bind(command.window.to_minutes).bind(command.covered_employee_id).bind(&command.reason_kind).bind(&command.reason_detail).bind(command.worker_employee_id).bind(&command.worker_name).bind(&command.worker_type).bind(&command.worker_rate).bind(command.exception_id).bind(&key).bind(&fp).bind(caller.user_id).execute(tx.as_mut()).await?;
@@ -402,6 +412,7 @@ impl PgAttendanceStore {
         caller: &CallerScope,
         command: AcknowledgeWeek52,
     ) -> Result<Value, AttendanceStoreError> {
+        app::validate_week52_start(command.week_start)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
@@ -434,6 +445,7 @@ impl PgAttendanceStore {
         branch_id: Option<Uuid>,
     ) -> Result<Vec<Week52Input>, AttendanceStoreError> {
         app::ensure_scope(caller, branch_id)?;
+        app::validate_week52_start(week_start)?;
         let org = OrgId::from_uuid(caller.org_id);
         let end = week_start + Duration::days(7);
         let week_start_at = week52_boundary(week_start)?;
@@ -615,27 +627,55 @@ async fn ensure_historical_coverage(
     if window.cover_date >= OffsetDateTime::now_utc().date() {
         return Ok(());
     }
-    // Coupled migration contract: `leave_requests.subject_employee_id UUID NOT NULL`,
-    // `start_minutes INTEGER NOT NULL CHECK (start_minutes BETWEEN 0 AND 1439)`,
-    // and `end_minutes INTEGER NOT NULL CHECK (end_minutes BETWEEN 1 AND 1440 AND end_minutes > start_minutes)`.
-    // Historical substitution admits only an approved absence that fully covers
-    // the requested window; there is deliberately no same-day fallback.
-    let row = sqlx::query("SELECT subject_employee_id AS employee_id, start_minutes AS from_minutes, end_minutes AS to_minutes FROM leave_requests WHERE subject_employee_id=$1 AND status IN ('approved','APPROVED') AND start_date <= $2 AND end_date >= $2 ORDER BY start_date DESC LIMIT 1")
-        .bind(employee).bind(window.cover_date).fetch_optional(tx.as_mut()).await?;
+    // Historical substitution admits only an approved leave intent that fully covers
+    // the requested window; unknown/legacy intent is deliberately not coverage.
+    let row = sqlx::query(HISTORICAL_LEAVE_COVERAGE_SQL)
+        .bind(employee)
+        .bind(window.cover_date)
+        .fetch_optional(tx.as_mut())
+        .await?;
     let Some(row) = row else {
         return Err(AttendanceStoreError::Conflict);
     };
+    let leave_type: String = row.try_get("leave_type")?;
+    let partial_day_period: Option<String> = row.try_get("partial_day_period")?;
+    let (from_minutes, to_minutes) =
+        leave_coverage_window(&leave_type, partial_day_period.as_deref())
+            .ok_or(AttendanceStoreError::Conflict)?;
     let absence = HistoricalAbsence::new(
         row.try_get("employee_id")?,
         window.cover_date,
-        row.try_get("from_minutes")?,
-        row.try_get("to_minutes")?,
+        from_minutes,
+        to_minutes,
     )
     .map_err(app::AttendanceApplicationError::from)?;
     if absence.fully_covers(employee, window) {
         Ok(())
     } else {
         Err(AttendanceStoreError::Conflict)
+    }
+}
+
+async fn active_employee_branch(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: Uuid,
+) -> Result<Uuid, AttendanceStoreError> {
+    sqlx::query_scalar("SELECT home_branch_id FROM employees WHERE id=$1 AND employment_status='ACTIVE' AND home_branch_id IS NOT NULL")
+        .bind(employee_id)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .flatten()
+        .ok_or(AttendanceStoreError::NotFound)
+}
+
+const HISTORICAL_LEAVE_COVERAGE_SQL: &str = "SELECT subject_employee_id AS employee_id, leave_type, partial_day_period FROM leave_requests WHERE subject_employee_id=$1 AND status IN ('approved','APPROVED') AND start_date <= $2 AND end_date >= $2 ORDER BY start_date DESC LIMIT 1";
+
+fn leave_coverage_window(leave_type: &str, partial_day_period: Option<&str>) -> Option<(i32, i32)> {
+    match (leave_type, partial_day_period) {
+        ("annual", None) => Some((0, 1440)),
+        ("half_day", Some("am")) => Some((0, 720)),
+        ("half_day", Some("pm")) => Some((720, 1440)),
+        _ => None,
     }
 }
 
@@ -1006,5 +1046,31 @@ mod tests {
                 .unwrap()
                 .fully_covers(employee, &window)
         );
+    }
+    #[test]
+    fn historical_leave_coverage_uses_schema_backed_full_and_half_day_windows() {
+        assert_eq!(leave_coverage_window("annual", None), Some((0, 1440)));
+        assert_eq!(
+            leave_coverage_window("half_day", Some("am")),
+            Some((0, 720))
+        );
+        assert_eq!(
+            leave_coverage_window("half_day", Some("pm")),
+            Some((720, 1440))
+        );
+    }
+    #[test]
+    fn historical_leave_coverage_fails_closed_for_unknown_or_malformed_intent() {
+        assert_eq!(leave_coverage_window("annual", Some("am")), None);
+        assert_eq!(leave_coverage_window("half_day", None), None);
+        assert_eq!(leave_coverage_window("half_day", Some("night")), None);
+        assert_eq!(leave_coverage_window("legacy", None), None);
+    }
+    #[test]
+    fn historical_leave_coverage_query_uses_authoritative_leave_columns() {
+        assert!(HISTORICAL_LEAVE_COVERAGE_SQL.contains("leave_type"));
+        assert!(HISTORICAL_LEAVE_COVERAGE_SQL.contains("partial_day_period"));
+        assert!(!HISTORICAL_LEAVE_COVERAGE_SQL.contains("start_minutes"));
+        assert!(!HISTORICAL_LEAVE_COVERAGE_SQL.contains("end_minutes"));
     }
 }

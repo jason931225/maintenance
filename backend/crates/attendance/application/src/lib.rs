@@ -138,6 +138,14 @@ pub fn week52_tone(input: &Week52Input) -> Week52Tone {
     }
 }
 
+pub fn validate_week52_start(week_start: Date) -> Result<Date, AttendanceApplicationError> {
+    if week_start.weekday() == time::Weekday::Monday {
+        Ok(week_start)
+    } else {
+        Err(AttendanceApplicationError::InvalidWeekStart)
+    }
+}
+
 pub fn validate_idempotency_key(key: &str) -> Result<String, AttendanceApplicationError> {
     let key = key.trim();
     if !(16..=200).contains(&key.len()) {
@@ -199,6 +207,8 @@ pub enum AttendanceApplicationError {
     MissingAttestation,
     #[error("open exceptions block this close")]
     CloseBlocked,
+    #[error("weekStart must be an ISO Monday")]
+    InvalidWeekStart,
 }
 
 #[cfg(test)]
@@ -257,6 +267,12 @@ mod tests {
             acknowledged_at: None,
         };
         assert_eq!(week52_tone(&i), Week52Tone::Warn);
+    }
+    #[test]
+    fn week52_start_must_be_an_iso_monday() {
+        let monday = Date::from_calendar_date(2026, Month::July, 20).unwrap();
+        assert_eq!(validate_week52_start(monday).unwrap(), monday);
+        assert!(validate_week52_start(monday + time::Duration::days(1)).is_err());
     }
 }
 
