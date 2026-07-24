@@ -40,6 +40,7 @@ rust_test(
     crate_root = "backend/crates/compliance/rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/compliance/rest"},
+    labels = ["owner.backend.crates.compliance.rest", "domain.compliance", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/compliance/adapter-postgres:mnt-compliance-adapter-postgres",
         "//backend/crates/compliance/application:mnt-compliance-application",

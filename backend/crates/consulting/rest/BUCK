@@ -40,7 +40,7 @@ rust_test(
     crate_root = "backend/crates/consulting/rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/consulting/rest"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.consulting.rest", "domain.consulting", "test.unit", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/auth:mnt-platform-auth",

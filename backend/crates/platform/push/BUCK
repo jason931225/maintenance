@@ -38,6 +38,7 @@ rust_test(
     crate_root = "backend/crates/platform/push/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/push"},
+    labels = ["owner.backend.crates.platform.push", "domain.platform", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:hmac",

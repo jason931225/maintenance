@@ -33,6 +33,7 @@ rust_test(
     crate_root = "backend/crates/compliance/domain/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/compliance/domain"},
+    labels = ["owner.backend.crates.compliance.domain", "domain.compliance", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -50,6 +51,7 @@ rust_test(
     crate_root = "backend/crates/compliance/domain/tests/location_consent_fsm.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/compliance/domain"},
+    labels = ["owner.backend.crates.compliance.domain", "domain.compliance", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -68,6 +70,7 @@ rust_test(
     crate_root = "backend/crates/compliance/domain/tests/location_ping_policy.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/compliance/domain"},
+    labels = ["owner.backend.crates.compliance.domain", "domain.compliance", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",

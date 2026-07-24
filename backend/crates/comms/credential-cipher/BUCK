@@ -34,6 +34,7 @@ rust_test(
     crate_root = "backend/crates/comms/credential-cipher/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/credential-cipher"},
+    labels = ["owner.backend.crates.comms.credential-cipher", "domain.comms", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/comms/application:mnt-comms-application",
         "//backend/crates/kernel/core:mnt-kernel-core",

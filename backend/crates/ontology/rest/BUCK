@@ -47,6 +47,7 @@ rust_test(
     crate_root = "backend/crates/ontology/rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/ontology/rest"},
+    labels = ["owner.backend.crates.ontology.rest", "domain.ontology", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
         "//backend/crates/governance/application:mnt-governance-application",
@@ -88,7 +89,7 @@ rust_test(
     crate_root = "backend/crates/ontology/rest/tests/action_execute_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/ontology/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.ontology.rest", "domain.ontology", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
         "//backend/crates/governance/application:mnt-governance-application",
@@ -131,7 +132,7 @@ rust_test(
     crate_root = "backend/crates/ontology/rest/tests/object_type_cas_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/ontology/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.ontology.rest", "domain.ontology", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
         "//backend/crates/governance/application:mnt-governance-application",
@@ -174,7 +175,7 @@ rust_test(
     crate_root = "backend/crates/ontology/rest/tests/ont_gaps_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/ontology/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.ontology.rest", "domain.ontology", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
         "//backend/crates/governance/application:mnt-governance-application",
@@ -217,7 +218,7 @@ rust_test(
     crate_root = "backend/crates/ontology/rest/tests/projected_dispatch_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/ontology/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.ontology.rest", "domain.ontology", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
         "//backend/crates/governance/application:mnt-governance-application",
@@ -260,7 +261,7 @@ rust_test(
     crate_root = "backend/crates/ontology/rest/tests/publish_auto_create_action_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/ontology/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.ontology.rest", "domain.ontology", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
         "//backend/crates/governance/application:mnt-governance-application",

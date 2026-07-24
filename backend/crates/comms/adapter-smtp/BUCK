@@ -37,6 +37,7 @@ rust_test(
     crate_root = "backend/crates/comms/adapter-smtp/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/adapter-smtp"},
+    labels = ["owner.backend.crates.comms.adapter-smtp", "domain.comms", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/comms/application:mnt-comms-application",
         "//backend/crates/comms/domain:mnt-comms-domain",

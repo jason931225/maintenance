@@ -32,6 +32,7 @@ rust_test(
     crate_root = "backend/crates/platform/excel/tests/template_fidelity.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/excel"},
+    labels = ["owner.backend.crates.platform.excel", "domain.platform", "test.integration", "resource.none"],
     deps = [
         "//third-party/rust:tempfile",
         "//third-party/rust:umya-spreadsheet",
@@ -50,6 +51,7 @@ rust_test(
     crate_root = "backend/crates/platform/excel/tests/template_fill_engine.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/excel"},
+    labels = ["owner.backend.crates.platform.excel", "domain.platform", "test.integration", "resource.none"],
     deps = [
         "//third-party/rust:tempfile",
         "//third-party/rust:umya-spreadsheet",

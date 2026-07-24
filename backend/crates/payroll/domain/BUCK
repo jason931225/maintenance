@@ -30,6 +30,7 @@ rust_test(
     crate_root = "backend/crates/payroll/domain/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/payroll/domain"},
+    labels = ["owner.backend.crates.payroll.domain", "domain.payroll", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:time",

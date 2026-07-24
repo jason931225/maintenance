@@ -34,6 +34,7 @@ rust_test(
     crate_root = "backend/crates/workorder/application/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workorder/application"},
+    labels = ["owner.backend.crates.workorder.application", "domain.workorder", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/workorder/domain:mnt-workorder-domain",

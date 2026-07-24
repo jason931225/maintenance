@@ -39,6 +39,7 @@ rust_test(
     crate_root = "backend/ci/gates/migration-safety/tests/gate_detects_violation.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/migration-safety"},
+    labels = ["owner.backend.ci.gates.migration-safety", "domain.ci", "test.integration", "resource.none"],
     deps = [
         ":mnt-gate-migration-safety-lib",
     ],

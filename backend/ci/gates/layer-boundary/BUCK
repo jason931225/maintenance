@@ -45,6 +45,7 @@ rust_test(
     crate_root = "backend/ci/gates/layer-boundary/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/layer-boundary"},
+    labels = ["owner.backend.ci.gates.layer-boundary", "domain.ci", "test.unit", "resource.none"],
     deps = [
         "//third-party/rust:serde",
         "//third-party/rust:serde_json",
@@ -59,6 +60,7 @@ rust_test(
     crate_root = "backend/ci/gates/layer-boundary/tests/gate_detects_violation.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/layer-boundary"},
+    labels = ["owner.backend.ci.gates.layer-boundary", "domain.ci", "test.integration", "resource.none"],
     deps = [
         "//third-party/rust:serde",
         "//third-party/rust:serde_json",

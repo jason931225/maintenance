@@ -39,7 +39,7 @@ rust_test(
     crate_root = "backend/crates/finance-gl/adapter-postgres/tests/voucher_rls_and_fsm_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/finance-gl/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.finance-gl.adapter-postgres", "domain.finance-gl", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/finance-gl/application:mnt-finance-gl-application",
         "//backend/crates/finance-gl/domain:mnt-finance-gl-domain",

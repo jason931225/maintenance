@@ -277,7 +277,7 @@ rust_test(
     crate_root = "backend/app/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.unit", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -415,7 +415,7 @@ rust_test(
     crate_root = "backend/app/tests/action_inbox_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -554,7 +554,7 @@ rust_test(
     crate_root = "backend/app/tests/audit_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -693,7 +693,7 @@ rust_test(
     crate_root = "backend/app/tests/auth_rest.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -832,7 +832,7 @@ rust_test(
     crate_root = "backend/app/tests/benefit_catalog_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -971,7 +971,7 @@ rust_test(
     crate_root = "backend/app/tests/cedar_freshness_mint.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1110,7 +1110,7 @@ rust_test(
     crate_root = "backend/app/tests/cedar_parity_shadow.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1249,7 +1249,7 @@ rust_test(
     crate_root = "backend/app/tests/cedar_shadow_role_manage.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1388,7 +1388,7 @@ rust_test(
     crate_root = "backend/app/tests/compliance_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1527,7 +1527,7 @@ rust_test(
     crate_root = "backend/app/tests/compliance_catalog_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1664,6 +1664,7 @@ rust_test(
     crate_root = "backend/app/tests/config.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1802,7 +1803,7 @@ rust_test(
     crate_root = "backend/app/tests/console_kill_switch.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -1941,7 +1942,7 @@ rust_test(
     crate_root = "backend/app/tests/console_route_telemetry.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2080,7 +2081,7 @@ rust_test(
     crate_root = "backend/app/tests/consulting_engagement_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2219,7 +2220,7 @@ rust_test(
     crate_root = "backend/app/tests/dev_auth_persona_guard.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2358,7 +2359,7 @@ rust_test(
     crate_root = "backend/app/tests/dev_auth_persona_guard_feature.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2497,6 +2498,7 @@ rust_test(
     crate_root = "backend/app/tests/dev_seed_notification_links.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2635,7 +2637,7 @@ rust_test(
     crate_root = "backend/app/tests/facilities_pilot_story.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2774,7 +2776,7 @@ rust_test(
     crate_root = "backend/app/tests/finance_gl_voucher_sod.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -2911,7 +2913,7 @@ rust_test(
     crate_root = "backend/app/tests/health_readiness.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3050,7 +3052,7 @@ rust_test(
     crate_root = "backend/app/tests/hr_attendance_self_read.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3189,7 +3191,7 @@ rust_test(
     crate_root = "backend/app/tests/hr_ingest_checklist_gate.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3328,7 +3330,7 @@ rust_test(
     crate_root = "backend/app/tests/hr_people_create_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3467,7 +3469,7 @@ rust_test(
     crate_root = "backend/app/tests/logistics_pilot_story.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3606,7 +3608,7 @@ rust_test(
     crate_root = "backend/app/tests/m2_real_engine_drive.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3745,7 +3747,7 @@ rust_test(
     crate_root = "backend/app/tests/mobile_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -3884,7 +3886,7 @@ rust_test(
     crate_root = "backend/app/tests/notifications_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4023,7 +4025,7 @@ rust_test(
     crate_root = "backend/app/tests/object_graph_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4162,7 +4164,7 @@ rust_test(
     crate_root = "backend/app/tests/object_links_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4301,7 +4303,7 @@ rust_test(
     crate_root = "backend/app/tests/object_ontology_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4440,7 +4442,7 @@ rust_test(
     crate_root = "backend/app/tests/object_resolve_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4579,7 +4581,7 @@ rust_test(
     crate_root = "backend/app/tests/office_versions.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4743,6 +4745,7 @@ rust_test(
     crate_root = "backend/app/tests/openapi_drift.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -4879,6 +4882,7 @@ rust_test(
     crate_root = "backend/app/tests/openslo_files.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5017,7 +5021,7 @@ rust_test(
     crate_root = "backend/app/tests/platform_onboarding_e2e.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5156,7 +5160,7 @@ rust_test(
     crate_root = "backend/app/tests/purchase_request_collection_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5295,7 +5299,7 @@ rust_test(
     crate_root = "backend/app/tests/realtime_ws.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5434,7 +5438,7 @@ rust_test(
     crate_root = "backend/app/tests/registry_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5573,7 +5577,7 @@ rust_test(
     crate_root = "backend/app/tests/router_layers.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5712,7 +5716,7 @@ rust_test(
     crate_root = "backend/app/tests/search_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5851,7 +5855,7 @@ rust_test(
     crate_root = "backend/app/tests/submittable_definitions_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -5990,7 +5994,7 @@ rust_test(
     crate_root = "backend/app/tests/tenant_context_e2e.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6127,6 +6131,7 @@ rust_test(
     crate_root = "backend/app/tests/well_known.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6263,6 +6268,7 @@ rust_test(
     crate_root = "backend/app/tests/workbench_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app"},
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6401,7 +6407,7 @@ rust_test(
     crate_root = "backend/app/tests/workbench_native_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6540,7 +6546,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_automation_triggers.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6679,7 +6685,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_dynamics_branch.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6818,7 +6824,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_four_eyes_publish.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -6957,7 +6963,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_object_context_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -7096,7 +7102,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_object_kind_dynamics.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -7235,7 +7241,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_run_read_surface.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -7374,7 +7380,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_runtime_finalize_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -7513,7 +7519,7 @@ rust_test(
     crate_root = "backend/app/tests/workflow_runtime_instance_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
@@ -7652,7 +7658,7 @@ rust_test(
     crate_root = "backend/app/tests/workorder_api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",

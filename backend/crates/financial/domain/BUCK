@@ -30,6 +30,7 @@ rust_test(
     crate_root = "backend/crates/financial/domain/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/domain"},
+    labels = ["owner.backend.crates.financial.domain", "domain.financial", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -44,6 +45,7 @@ rust_test(
     crate_root = "backend/crates/financial/domain/tests/quote_and_residual.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/domain"},
+    labels = ["owner.backend.crates.financial.domain", "domain.financial", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",

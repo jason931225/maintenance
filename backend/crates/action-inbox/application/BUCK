@@ -32,6 +32,7 @@ rust_test(
     crate_root = "backend/crates/action-inbox/application/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/action-inbox/application"},
+    labels = ["owner.backend.crates.action-inbox.application", "domain.action-inbox", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",

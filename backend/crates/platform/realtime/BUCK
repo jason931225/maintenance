@@ -44,7 +44,7 @@ rust_test(
     crate_root = "backend/crates/platform/realtime/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/realtime"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.platform.realtime", "domain.platform", "test.unit", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/messenger/adapter-postgres:mnt-messenger-adapter-postgres",
@@ -75,6 +75,7 @@ rust_test(
     crate_root = "backend/crates/platform/realtime/tests/hub.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/realtime"},
+    labels = ["owner.backend.crates.platform.realtime", "domain.platform", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/messenger/adapter-postgres:mnt-messenger-adapter-postgres",
@@ -106,6 +107,7 @@ rust_test(
     crate_root = "backend/crates/platform/realtime/tests/notify_payload.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/realtime"},
+    labels = ["owner.backend.crates.platform.realtime", "domain.platform", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/messenger/adapter-postgres:mnt-messenger-adapter-postgres",
@@ -139,7 +141,7 @@ rust_test(
     crate_root = "backend/crates/platform/realtime/tests/postgres_bridge.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/realtime", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.platform.realtime", "domain.platform", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/messenger/adapter-postgres:mnt-messenger-adapter-postgres",

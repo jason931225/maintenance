@@ -39,4 +39,5 @@ rust_test(
     crate_root = "backend/ci/gates/iac-tier/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/iac-tier"},
+    labels = ["owner.backend.ci.gates.iac-tier", "domain.ci", "test.unit", "resource.none"],
 )

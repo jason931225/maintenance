@@ -40,6 +40,7 @@ rust_test(
     crate_root = "backend/crates/payroll/rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/payroll/rest"},
+    labels = ["owner.backend.crates.payroll.rest", "domain.payroll", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/payroll/adapter-postgres:mnt-payroll-adapter-postgres",
@@ -72,7 +73,7 @@ rust_test(
     crate_root = "backend/crates/payroll/rest/tests/api.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/payroll/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.payroll.rest", "domain.payroll", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/payroll/adapter-postgres:mnt-payroll-adapter-postgres",

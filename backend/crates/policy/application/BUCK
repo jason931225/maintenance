@@ -36,6 +36,7 @@ rust_test(
     crate_root = "backend/crates/policy/application/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/policy/application"},
+    labels = ["owner.backend.crates.policy.application", "domain.policy", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/policy/domain:mnt-policy-domain",

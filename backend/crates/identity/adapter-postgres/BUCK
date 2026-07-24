@@ -40,7 +40,7 @@ rust_test(
     crate_root = "backend/crates/identity/adapter-postgres/tests/deactivate_revokes_credentials.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/identity/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.identity.adapter-postgres", "domain.identity", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/identity/application:mnt-identity-application",
         "//backend/crates/identity/domain:mnt-identity-domain",
@@ -68,7 +68,7 @@ rust_test(
     crate_root = "backend/crates/identity/adapter-postgres/tests/me_workspace_layouts_rls.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/identity/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.identity.adapter-postgres", "domain.identity", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/identity/application:mnt-identity-application",
         "//backend/crates/identity/domain:mnt-identity-domain",
@@ -96,7 +96,7 @@ rust_test(
     crate_root = "backend/crates/identity/adapter-postgres/tests/region_branch_crud_rls_surfaces_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/identity/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.identity.adapter-postgres", "domain.identity", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/identity/application:mnt-identity-application",
         "//backend/crates/identity/domain:mnt-identity-domain",
@@ -124,7 +124,7 @@ rust_test(
     crate_root = "backend/crates/identity/adapter-postgres/tests/subject_authz_versions_freshness_rls.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/identity/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.identity.adapter-postgres", "domain.identity", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/identity/application:mnt-identity-application",
         "//backend/crates/identity/domain:mnt-identity-domain",
