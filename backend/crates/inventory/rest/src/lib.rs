@@ -330,9 +330,9 @@ fn trace_context_from_headers(headers: &HeaderMap) -> Result<TraceContext, Kerne
 
 fn validate_idempotency_key(value: &str) -> Result<(), KernelError> {
     let trimmed = value.trim();
-    if trimmed.is_empty() || trimmed.len() > 128 {
+    if !(16..=200).contains(&trimmed.chars().count()) {
         return Err(KernelError::validation(
-            "idempotency_key is required and must be at most 128 bytes",
+            "idempotency_key must be between 16 and 200 characters",
         ));
     }
     Ok(())
@@ -482,10 +482,12 @@ mod tests {
     }
 
     #[test]
-    fn consumption_requires_a_non_empty_bounded_idempotency_key() {
-        assert!(validate_idempotency_key("consume-20260724-0001").is_ok());
-        assert!(validate_idempotency_key(" ").is_err());
-        assert!(validate_idempotency_key(&"x".repeat(129)).is_err());
+    fn consumption_idempotency_key_matches_the_authoritative_character_contract() {
+        assert!(validate_idempotency_key(&"x".repeat(15)).is_err());
+        assert!(validate_idempotency_key(&"x".repeat(16)).is_ok());
+        assert!(validate_idempotency_key(&"x".repeat(200)).is_ok());
+        assert!(validate_idempotency_key(&"x".repeat(201)).is_err());
+        assert!(validate_idempotency_key(&format!("  {}  ", "x".repeat(16))).is_ok());
     }
 
     #[test]
