@@ -189,6 +189,14 @@ class TestResourceClassification(unittest.TestCase):
         self.assertIn("resource.postgres", labels)
         self.assertIn("needs-postgres", labels)
 
+    def test_equipment_discoveries_have_reviewed_resources(self) -> None:
+        self.assertTrue(
+            GENERATOR.requires_postgres(
+                "mnt-app", "test.integration", "tests/equipment_3r_api.rs"
+            )
+        )
+        self.assertFalse(GENERATOR.requires_postgres("mnt-equipment-domain", "test.unit"))
+
     def test_integration_resource_lookup_requires_a_target_path(self) -> None:
         with self.assertRaises(ValueError):
             GENERATOR.requires_postgres("mnt-benefit-adapter-postgres", "test.integration")
@@ -208,6 +216,21 @@ class TestResourceClassification(unittest.TestCase):
             package = GENERATOR.load(directory)["package"]["name"]
             discovered.update(GENERATOR.discovered_test_resource_keys(directory, package))
         GENERATOR.validate_resource_metadata(discovered)
+
+    def test_every_discovered_target_has_exactly_one_test_and_resource_label(self) -> None:
+        for directory in GENERATOR.find_members():
+            package_name = GENERATOR.load(directory)["package"]["name"]
+            package_path = str(Path(directory).relative_to(GENERATOR.REPO))
+            for _, test_type, test_file in GENERATOR.discovered_test_resource_keys(
+                directory, package_name
+            ):
+                labels = GENERATOR.test_labels(
+                    package_path,
+                    test_type,
+                    GENERATOR.requires_postgres(package_name, test_type, test_file),
+                )
+                self.assertEqual(1, len(set(labels) & GENERATOR.TEST_TYPE_LABELS))
+                self.assertEqual(1, len(set(labels) & GENERATOR.RESOURCE_LABELS))
 
 
 if __name__ == "__main__":
