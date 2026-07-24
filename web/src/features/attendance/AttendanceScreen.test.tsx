@@ -1391,7 +1391,7 @@ describe("AttendanceScreen", () => {
       name: text.closePanel.title,
     });
     await userEvent.click(
-      within(closeCard).getByRole("button", { name: "소급 보정" }),
+      await within(closeCard).findByRole("button", { name: "소급 보정" }),
     );
     const dialog = await screen.findByRole("dialog", {
       name: "마감 소급 보정",
