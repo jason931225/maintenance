@@ -40,6 +40,10 @@ export default defineConfig({
       },
     },
     setupFiles: ["./src/test/setup.ts"],
+    // Browser/unit tests live under src/. Node's built-in test runner owns the
+    // production dev-auth artifact guards in scripts/; including those files in
+    // Vitest yields zero-suite failures and bypasses their intended runner.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
     // AppRouter/full-suite jsdom workers lazily transform large route modules;
     // the default 5s test timeout races that cold path on CI/local Macs even
     // when the page eventually renders correctly.

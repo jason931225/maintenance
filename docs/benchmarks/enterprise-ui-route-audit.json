@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-02",
+  "updatedAt": "2026-07-24",
   "purpose": "Machine-readable route-to-enterprise-parity coverage for the current G002 shared hard gate and G003 browser-persona evidence plan.",
   "qualityGateSource": "docs/benchmarks/enterprise-parity-matrix.md#quality-gates-for-every-future-slice",
   "routeCoverage": [
@@ -1215,6 +1215,30 @@
       "denialScopeTest": "Finance console read/create/post/source-link affordances require policy gates and must stay hidden or denied for users without finance voucher permissions",
       "screenshotTraceEvidence": "Pending #332 finance screenshot fidelity workflow; this route row only restores route-audit coverage and is not final visual acceptance",
       "groupScopeStory": "Group finance can consolidate subsidiary finance views while subsidiary finance remains policy-scoped and source-object drilldowns stay tenant-bounded"
+    },
+    {
+      "rawPath": "/facilities",
+      "canonicalPath": "/facilities",
+      "epRows": [
+        "EP-011",
+        "EP-013"
+      ],
+      "personas": [
+        "facilities-manager",
+        "dispatcher",
+        "field-technician",
+        "customer-acceptor"
+      ],
+      "roleStoryEvidence": "Authenticated IFM lifecycle workbench: a facilities manager creates an idempotent case from an active HVAC obligation; dispatcher schedules and assigns; the assigned technician records energy and cost observations plus required safety/service evidence; an authorized customer acceptor closes or returns the case. FacilitiesWorkflowPage tests cover server-read states, lifecycle commands, capability omission, assignee fencing, evidence-required denial, and backend-transition errors.",
+      "accessibilityEvidence": "FacilitiesWorkflowPage uses labelled native forms, semantic selected-case aria-pressed state, visible alert/status feedback, keyboard-operable buttons, Korean UI-string enforcement, and focused component tests; the required browser story remains pending live execution.",
+      "ownerLane": "G006 facilities/asset/dispatch lifecycle lane, with G005 authorization and workflow evidence dependencies.",
+      "dataClass": "HVAC maintenance obligation, facilities case, response/completion/acceptance SLA, assignee, energy and cost observation, safety checklist, service report, optional photo evidence, acceptance decision, and audit metadata.",
+      "sourceObject": "active HVAC obligation, persisted facilities case, staff assignment, observation, immutable evidence record, or acceptance decision.",
+      "lifecycleStates": "due, triaged, scheduled, assigned, in progress, submitted, awaiting acceptance, rework required, closed, plus denied and backend-error states without optimistic fabricated transitions.",
+      "e2eSpec": "Required browser story: authorized facilities manager opens an active HVAC obligation, creates the case, dispatcher schedules and assigns it, the assigned technician records measured energy/cost and both required evidence IDs, and the authorized acceptor closes or rejects it; assert each refreshed server state, SLA, evidence requirement, and denied cross-role action.",
+      "denialScopeTest": "Backend authorization remains authoritative; UI omits create, dispatch, execution, observation, and acceptance controls without the matching capability, non-assignees cannot execute, submissions without safety and service evidence are denied, and backend transition failures remain visible instead of changing client state.",
+      "screenshotTraceEvidence": "Pending G003/G006 live browser screenshots and trace evidence for the complete facilities lifecycle; current component/API evidence is non-terminal and must not be represented as live closure.",
+      "groupScopeStory": "Group facilities managers may inspect only authorized subsidiary cases and delegate within policy scope; branch/org authorization, assignee fencing, evidence visibility, and acceptance authority must remain server-enforced across consolidated and selected-subsidiary views."
     },
     {
       "rawPath": "/financial",

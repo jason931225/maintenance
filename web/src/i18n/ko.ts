@@ -155,7 +155,7 @@ export const ko = {
     description: "정기 HVAC 의무를 실제 접수부터 현장 실행, 증빙, 고객 인수와 에너지·비용 관측까지 추적합니다.",
     refresh: "새로 고침",
     intakeTitle: "의무 기반 사례 접수",
-    intakeDescription: "활성 HVAC 의무 ID를 사용합니다. 임의 사례나 데모 데이터는 생성하지 않습니다.",
+    intakeDescription: "활성 HVAC 의무 ID를 사용합니다. 임의 사례나 시험용 데이터는 생성하지 않습니다.",
     obligationId: "활성 HVAC 의무 ID",
     creating: "접수 중…",
     create: "사례 접수",
