@@ -309,8 +309,15 @@ describe("CI preflight contract", () => {
     );
   });
 
-  it("rejects a preflight that does not run the lockfile and foundation gates", () => {
+  it("rejects a preflight that does not run npm and Cargo lock consistency gates", () => {
     expectFailure(workflow.replace("npm run check:package-lock", "npm run check:root-workspaces"), "check:package-lock");
+    expectFailure(
+      workflow.replace(
+        "cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null",
+        "cargo metadata --manifest-path backend/Cargo.toml --no-deps --format-version=1 >/dev/null",
+      ),
+      "cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null",
+    );
   });
 
   it("rejects a preflight command that appears only in a comment", () => {

@@ -136,6 +136,14 @@ jobs:
       - name: Canonical npm lockfile
         run: npm run check:package-lock
 
+      - name: Install Rust toolchain for Cargo.lock consistency
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cargo.lock consistency
+        run: cargo metadata --manifest-path backend/Cargo.toml --locked --no-deps --format-version=1 >/dev/null
+
   generated-face-authority:
     # This status is the complete generated-face closure required by policy.
     # It becomes merge-enforced only after the live GitHub ruleset admits this
@@ -251,10 +259,6 @@ jobs:
         with:
           workspaces: backend
 
-      - name: Cargo.lock freshness gate
-        if: ${{ !cancelled() }}
-        run: cargo tree --locked --workspace --target all >/dev/null
-
       - name: rustfmt check
         if: ${{ !cancelled() }}
         run: cargo fmt --all -- --check
@@ -263,7 +267,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
-      # Migration 0165 fails closed unless the portable six-role topology
+      # Migration 0165 fails closed unless the portable seven-role topology
       # already exists. Reconcile it before any database test applies the
       # migration, using the distinct service administrator only for this
       # cluster-scoped bootstrap.
@@ -274,6 +278,7 @@ jobs:
           RT_PASSWORD="$(openssl rand -hex 32)"
           LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
@@ -282,6 +287,7 @@ jobs:
             -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
             -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
 
@@ -337,6 +343,7 @@ jobs:
           RT_PASSWORD="$(openssl rand -hex 32)"
           LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
@@ -345,12 +352,14 @@ jobs:
             -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
             -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4 /usr/local/bin/postgres-reconcile-topology
 
           OWNER_DATABASE_URL="postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_ci"
           RUNTIME_DATABASE_URL="postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_ci"
           LEAVE_COMMAND_DATABASE_URL="postgres://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
           ONTOLOGY_COMMAND_DATABASE_URL="postgres://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
+          PLATFORM_FORCE_COMMAND_DATABASE_URL="postgres://mnt_platform_force_cmd:${PLATFORM_FORCE_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
           export DATABASE_URL="$OWNER_DATABASE_URL"
 
           MNT_APP_ROLE=migrate SQLX_OFFLINE=true cargo run -q -p mnt-app
@@ -363,6 +372,7 @@ jobs:
           DATABASE_URL="$RUNTIME_DATABASE_URL" \
           LEAVE_COMMAND_DATABASE_URL="$LEAVE_COMMAND_DATABASE_URL" \
           ONTOLOGY_COMMAND_DATABASE_URL="$ONTOLOGY_COMMAND_DATABASE_URL" \
+          PLATFORM_FORCE_COMMAND_DATABASE_URL="$PLATFORM_FORCE_COMMAND_DATABASE_URL" \
           MNT_HTTP_ADDR=127.0.0.1:8092 \
           MNT_JWT_ISSUER=ci-boot-smoke \
           MNT_JWT_AUDIENCE=ci-boot-smoke \
@@ -1073,7 +1083,8 @@ jobs:
             E2E_MNT_APP_POSTGRES_PASSWORD \
             E2E_MNT_RT_POSTGRES_PASSWORD \
             E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD \
-            E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD
+            E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD \
+            E2E_MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD
           do
             role_password="$(openssl rand -hex 32)"
             printf '::add-mask::%s\n' "$role_password"
