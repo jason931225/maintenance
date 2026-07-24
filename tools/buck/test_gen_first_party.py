@@ -110,6 +110,9 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             "$(location //backend:sqlx-offline)",
         )
 
+    def test_production_parser_unit_target_stays_hermetic(self) -> None:
+        self.assertIn("mnt-production-rest", GENERATOR.PURE_UNIT_PACKAGES)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -142,6 +142,10 @@ TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
 # A test that touches a real database / the mnt_rt runtime role cannot run
 # hermetically under `buck2 test` — it needs a live Postgres (same as cargo).
 PG_MARKERS = ("sqlx::test", "PgPool", "DATABASE_URL", "mnt_rt", "with_org_conn")
+# The production REST crate has SQL in its library implementation, but its
+# inline tests exercise only parser/HMAC helpers. Its HTTP/RLS suite remains a
+# separately labeled integration target below.
+PURE_UNIT_PACKAGES = {"mnt-production-rest"}
 
 
 def find_members():
@@ -376,7 +380,11 @@ def emit(d, name, deps, named, dev_deps, dev_named):
     # SQL-backed suites are emitted and labeled rather than hidden: the migration
     # input is hermetic at compile time, while execution still requires Postgres.
     if tree_has(src, "#[cfg(test)]"):
-        labels = ["needs-postgres"] if tree_has(src, *PG_MARKERS) else None
+        labels = (
+            None
+            if name in PURE_UNIT_PACKAGES
+            else ["needs-postgres"] if tree_has(src, *PG_MARKERS) else None
+        )
         out.append("")
         out += _block("rust_test", name + "-unit",
                       globstr(lib_pats, exclude=unit_excl), ident,
