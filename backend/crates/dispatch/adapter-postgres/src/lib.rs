@@ -2,9 +2,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_dispatch_application::{
-    ActionInboxDispatchOffer, ExpireP1DispatchCommand, ForceAssignP1DispatchCommand,
-    IncidentLocationInput, MyDispatchOffer, P1DispatchResponseSummary, P1DispatchSummary,
-    RespondP1DispatchCommand, StartP1DispatchCommand, dispatch_audit_event,
+    ActionInboxDispatchOffer, DispatchCandidatePage, DispatchCandidateSummary, DispatchQueueCursor,
+    DispatchQueueDispatch, DispatchQueueItem, DispatchQueuePage, DispatchQueueStats,
+    ExpireP1DispatchCommand, ForceAssignP1DispatchCommand, IncidentLocationInput,
+    ListDispatchQueueQuery, MyDispatchOffer, P1DispatchResponsePage, P1DispatchResponseSummary,
+    P1DispatchSummary, RespondP1DispatchCommand, StartP1DispatchCommand, dispatch_audit_event,
     resolution_after_snapshot, response_after_snapshot, start_after_snapshot,
 };
 use mnt_dispatch_domain::{
@@ -77,6 +79,20 @@ impl PgDispatchStore {
         command: StartP1DispatchCommand,
         timers: DispatchTimerConfig,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
+        // The unique work-order constraint is an idempotency boundary, not an
+        // error a retry must guess around.  Same intent replays silently;
+        // changed intent is a conflict and never adds fan-out or audit rows.
+        if let Some(existing) = existing_dispatch_intent(&self.pool, command.work_order_id).await? {
+            if existing.include_region == command.include_region
+                && existing.incident_location == command.incident_location
+            {
+                return self.dispatch(existing.dispatch_id).await;
+            }
+            return Err(KernelError::conflict(
+                "dispatch already exists with different start input",
+            )
+            .into());
+        }
         let dispatch_id = P1DispatchId::new();
         let dispatch = P1Dispatch::start(
             dispatch_id,
@@ -411,6 +427,19 @@ impl PgDispatchStore {
         command: ForceAssignP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
         let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        // Exact retry after a completed force assignment is a no-op. A changed
+        // mechanic is a conflict, never a second assignment/audit.
+        if let Some(existing_mechanic) =
+            forced_mechanic_if_resolved(&self.pool, command.dispatch_id).await?
+        {
+            if existing_mechanic == command.mechanic_id {
+                return self.dispatch(command.dispatch_id).await;
+            }
+            return Err(KernelError::conflict(
+                "dispatch already force-assigned to a different mechanic",
+            )
+            .into());
+        }
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
         let event = dispatch_audit_event(
@@ -440,6 +469,12 @@ impl PgDispatchStore {
             Box::pin(async move {
                 let mut dispatch = lock_dispatch(tx, dispatch_id).await?;
                 ensure_technician_target(tx, dispatch_id, mechanic_id).await?;
+                if target_declined(tx, dispatch_id, mechanic_id).await? {
+                    return Err(KernelError::conflict(
+                        "cannot force-assign a mechanic who declined this dispatch",
+                    )
+                    .into());
+                }
                 dispatch.force_assign()?;
                 assign_work_order_tx(
                     tx,
@@ -473,6 +508,119 @@ impl PgDispatchStore {
             })
         })
         .await
+    }
+
+    /// Read-only, tenant-armed dispatch queue.  Scope is represented in SQL,
+    /// not filtered after the query, so rows and aggregates cannot leak.
+    pub async fn list_dispatch_queue(
+        &self,
+        query: ListDispatchQueueQuery,
+    ) -> Result<DispatchQueuePage, PgDispatchError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let statuses = query
+            .statuses
+            .iter()
+            .map(|s| s.as_db_str())
+            .collect::<Vec<_>>();
+        let (all_branches, branches) = match query.branch_scope {
+            BranchScope::All => (true, Vec::new()),
+            BranchScope::Branches(values) => (
+                false,
+                values.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>(),
+            ),
+        };
+        let cursor = query.after;
+        let now = query.now;
+        let limit = query.limit.clamp(1, 200);
+        with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| Box::pin(async move {
+            let (as_of, cursor_due, cursor_updated, cursor_id) = match cursor {
+                Some(cursor) => (cursor.as_of(), cursor.target_due_at(), Some(cursor.updated_at()), Some(*cursor.work_order_id().as_uuid())),
+                None => (now, None, None, None),
+            };
+            let rows = sqlx::query(r#"
+                SELECT w.id, w.request_no, w.branch_id, w.status, w.priority, w.symptom,
+                       w.equipment_id, w.customer_id, w.site_id, w.target_due_at, w.updated_at,
+                       primary_assignment.mechanic_id AS assigned_mechanic_id,
+                       d.id AS dispatch_id, d.status AS dispatch_status, d.accept_window_ends_at,
+                       d.manual_call_required_at IS NOT NULL AND d.manual_call_cleared_at IS NULL AS manual_call_required,
+                       COALESCE(targets.target_count, 0) AS target_count,
+                       COALESCE(responses.accepted_count, 0) AS accepted_count,
+                       COALESCE(responses.declined_count, 0) AS declined_count
+                FROM work_orders w
+                LEFT JOIN work_order_assignments primary_assignment
+                  ON primary_assignment.work_order_id = w.id AND primary_assignment.role = 'PRIMARY'
+                LEFT JOIN p1_dispatches d ON d.work_order_id = w.id
+                LEFT JOIN LATERAL (SELECT count(*)::bigint AS target_count FROM p1_dispatch_targets t WHERE t.dispatch_id=d.id) targets ON d.id IS NOT NULL
+                LEFT JOIN LATERAL (SELECT count(*) FILTER (WHERE r.response='ACCEPT')::bigint AS accepted_count,
+                                          count(*) FILTER (WHERE r.response='DECLINE')::bigint AS declined_count
+                                   FROM p1_dispatch_responses r WHERE r.dispatch_id=d.id) responses ON d.id IS NOT NULL
+                WHERE w.status = ANY($1) AND w.updated_at <= $2
+                  AND ($3::boolean OR w.branch_id = ANY($4))
+                  AND ($5::timestamptz IS NULL
+                       OR CASE WHEN $6::timestamptz IS NULL THEN
+                            w.target_due_at IS NULL AND (w.updated_at, w.id) < ($7::timestamptz, $8::uuid)
+                          ELSE w.target_due_at IS NULL OR w.target_due_at > $6
+                            OR (w.target_due_at = $6 AND (w.updated_at, w.id) < ($7::timestamptz, $8::uuid)) END)
+                ORDER BY w.target_due_at ASC NULLS LAST, w.updated_at DESC, w.id ASC
+                LIMIT $9
+            "#)
+            .bind(&statuses).bind(as_of).bind(all_branches).bind(&branches)
+            .bind(cursor_updated).bind(cursor_due).bind(cursor_updated).bind(cursor_id).bind(limit + 1)
+            .fetch_all(tx.as_mut()).await?;
+            let has_more = rows.len() > usize::try_from(limit).unwrap_or(200);
+            let rows = rows.into_iter().take(usize::try_from(limit).unwrap_or(200)).collect::<Vec<_>>();
+            let mut items = Vec::with_capacity(rows.len());
+            for row in rows {
+                let due: Option<OffsetDateTime> = row.try_get("target_due_at")?;
+                let updated: OffsetDateTime = row.try_get("updated_at")?;
+                let id = WorkOrderId::from_uuid(row.try_get("id")?);
+                let dispatch_id: Option<uuid::Uuid> = row.try_get("dispatch_id")?;
+                let dispatch = match dispatch_id {
+                    Some(id) => Some(DispatchQueueDispatch { id: P1DispatchId::from_uuid(id), status: DispatchStatus::from_db_str(row.try_get("dispatch_status")?)?, accept_window_ends_at: row.try_get("accept_window_ends_at")?, target_count: row.try_get("target_count")?, accepted_count: row.try_get("accepted_count")?, declined_count: row.try_get("declined_count")?, manual_call_required: row.try_get("manual_call_required")? }),
+                    None => None,
+                };
+                items.push(DispatchQueueItem { work_order_id:id, request_no:row.try_get("request_no")?, branch_id:BranchId::from_uuid(row.try_get("branch_id")?), status:WorkOrderStatus::from_db_str(row.try_get("status")?)?, priority:PriorityLevel::from_db_str(row.try_get("priority")?)?, symptom:row.try_get("symptom")?, equipment_id:row.try_get("equipment_id")?, customer_id:row.try_get("customer_id")?, site_id:row.try_get("site_id")?, target_due_at:due, assigned_mechanic_id:row.try_get::<Option<uuid::Uuid>, _>("assigned_mechanic_id")?.map(UserId::from_uuid), dispatch, updated_at:updated });
+            }
+            let stats_row = sqlx::query(r#"SELECT count(*) FILTER (WHERE a.mechanic_id IS NULL)::bigint AS unassigned_count,
+                count(*) FILTER (WHERE w.target_due_at IS NOT NULL AND w.target_due_at <= $5)::bigint AS sla_due_count
+                FROM work_orders w LEFT JOIN work_order_assignments a ON a.work_order_id=w.id AND a.role='PRIMARY'
+                WHERE w.status=ANY($1) AND w.updated_at <= $2 AND ($3::boolean OR w.branch_id=ANY($4))"#)
+                .bind(&statuses).bind(as_of).bind(all_branches).bind(&branches).bind(now).fetch_one(tx.as_mut()).await?;
+            let next_after = if has_more { items.last().map(|item| DispatchQueueCursor::encode(as_of, item.target_due_at, item.updated_at, item.work_order_id)) } else { None };
+            Ok(DispatchQueuePage { items, next_after, stats: DispatchQueueStats { unassigned_count:stats_row.try_get("unassigned_count")?, sla_due_count:stats_row.try_get("sla_due_count")? } })
+        })).await
+    }
+
+    /// Candidate ranking deliberately computes only from a transient query. It
+    /// never updates response score columns and never exposes coordinates.
+    pub async fn dispatch_candidates(
+        &self,
+        dispatch_id: P1DispatchId,
+        now: OffsetDateTime,
+        timers: DispatchTimerConfig,
+    ) -> Result<DispatchCandidatePage, PgDispatchError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| Box::pin(async move {
+            let dispatch=sqlx::query("SELECT incident_latitude, incident_longitude FROM p1_dispatches WHERE id=$1").bind(*dispatch_id.as_uuid()).fetch_one(tx.as_mut()).await?;
+            let incident=match (dispatch.try_get::<Option<f64>,_>("incident_latitude")?, dispatch.try_get::<Option<f64>,_>("incident_longitude")?) { (Some(lat),Some(lon))=>Some(GeoPoint::new(lat,lon)?), _=>None };
+            let rows=sqlx::query(r#"SELECT t.user_id, r.response, r.responded_at, lc.status='GRANTED' AS consent_granted, lp.latitude, lp.longitude, lp.recorded_at,
+                    COALESCE(load.p1_count,0) AS p1_count, COALESCE(load.p2_count,0) AS p2_count, COALESCE(load.p3_count,0) AS p3_count, COALESCE(load.other_count,0) AS other_count
+                FROM p1_dispatch_targets t LEFT JOIN p1_dispatch_responses r ON r.dispatch_id=t.dispatch_id AND r.user_id=t.user_id
+                LEFT JOIN location_consents lc ON lc.user_id=t.user_id
+                LEFT JOIN LATERAL (SELECT latitude,longitude,recorded_at FROM location_pings WHERE user_id=t.user_id ORDER BY recorded_at DESC LIMIT 1) lp ON TRUE
+                LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE w.priority='P1')::bigint p1_count,count(*) FILTER(WHERE w.priority='P2')::bigint p2_count,count(*) FILTER(WHERE w.priority='P3')::bigint p3_count,count(*) FILTER(WHERE w.priority NOT IN('P1','P2','P3'))::bigint other_count FROM work_order_assignments a JOIN work_orders w ON w.id=a.work_order_id WHERE a.mechanic_id=t.user_id AND w.status NOT IN('FINAL_COMPLETED','CANCELLED','ARCHIVED')) load ON TRUE
+                WHERE t.dispatch_id=$1 AND t.target_role='TECHNICIAN'"#).bind(*dispatch_id.as_uuid()).fetch_all(tx.as_mut()).await?;
+            let mut items=Vec::with_capacity(rows.len());
+            for row in rows { let latest=match(row.try_get::<Option<f64>,_>("latitude")?,row.try_get::<Option<f64>,_>("longitude")?){(Some(lat),Some(lon))=>Some(GeoPoint::new(lat,lon)?),_=>None}; let workload=TechnicianLoad{p1:row.try_get("p1_count")?,p2:row.try_get("p2_count")?,p3:row.try_get("p3_count")?,other:row.try_get("other_count")?}; let score=score_candidate(DispatchCandidate{mechanic_id:UserId::from_uuid(row.try_get("user_id")?),latest_location:latest,incident_location:incident,location_recorded_at:row.try_get("recorded_at")?,location_consent_granted:row.try_get::<Option<bool>,_>("consent_granted")?.unwrap_or(false),workload},now,timers.gps_ping_freshness); items.push(DispatchCandidateSummary{mechanic_id:score.mechanic_id,score_milli:score.score_milli,gps_ranked:score.gps_ranked,distance_meters:score.distance_meters,location_recorded_at:row.try_get("recorded_at")?,workload,score_reason:score.reason().to_owned(),response:row.try_get::<Option<&str>,_>("response")?.map(DispatchResponseKind::from_db_str).transpose()?,responded_at:row.try_get("responded_at")?}); }
+            items.sort_by_key(|item|(item.score_milli,*item.mechanic_id.as_uuid())); Ok(DispatchCandidatePage{items})
+        })).await
+    }
+    pub async fn dispatch_responses(
+        &self,
+        dispatch_id: P1DispatchId,
+    ) -> Result<P1DispatchResponsePage, PgDispatchError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_,_,PgDispatchError>(&self.pool,org,move|tx|Box::pin(async move { let rows=sqlx::query("SELECT dispatch_id,user_id,response,responded_at,score_milli,gps_ranked,distance_meters,score_reason FROM p1_dispatch_responses WHERE dispatch_id=$1 ORDER BY responded_at ASC,user_id ASC").bind(*dispatch_id.as_uuid()).fetch_all(tx.as_mut()).await?; let mut items=Vec::with_capacity(rows.len()); for row in rows {items.push(P1DispatchResponseSummary{dispatch_id:P1DispatchId::from_uuid(row.try_get("dispatch_id")?),user_id:UserId::from_uuid(row.try_get("user_id")?),response:DispatchResponseKind::from_db_str(row.try_get("response")?)?,responded_at:row.try_get("responded_at")?,score_milli:row.try_get("score_milli")?,gps_ranked:row.try_get("gps_ranked")?,distance_meters:row.try_get("distance_meters")?,score_reason:row.try_get("score_reason")?});} Ok(P1DispatchResponsePage{items})})).await
     }
 
     pub async fn dispatch(
@@ -1145,6 +1293,59 @@ struct ApprovalStepInsert<'a> {
 fn validate_incident(input: IncidentLocationInput) -> Result<IncidentLocationInput, KernelError> {
     GeoPoint::new(input.latitude, input.longitude)?;
     Ok(input)
+}
+
+struct ExistingDispatchIntent {
+    dispatch_id: P1DispatchId,
+    include_region: bool,
+    incident_location: Option<IncidentLocationInput>,
+}
+
+async fn existing_dispatch_intent(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+) -> Result<Option<ExistingDispatchIntent>, PgDispatchError> {
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT id, include_region, incident_latitude, incident_longitude FROM p1_dispatches WHERE work_order_id = $1",
+            )
+            .bind(*work_order_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?;
+            let Some(row) = row else { return Ok(None); };
+            let incident_location = match (
+                row.try_get::<Option<f64>, _>("incident_latitude")?,
+                row.try_get::<Option<f64>, _>("incident_longitude")?,
+            ) {
+                (Some(latitude), Some(longitude)) => Some(IncidentLocationInput { latitude, longitude }),
+                _ => None,
+            };
+            Ok(Some(ExistingDispatchIntent {
+                dispatch_id: P1DispatchId::from_uuid(row.try_get("id")?),
+                include_region: row.try_get("include_region")?,
+                incident_location,
+            }))
+        })
+    })
+    .await
+}
+
+async fn forced_mechanic_if_resolved(
+    pool: &PgPool,
+    dispatch_id: P1DispatchId,
+) -> Result<Option<UserId>, PgDispatchError> {
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_,_,PgDispatchError>(pool,org,move|tx|Box::pin(async move { Ok(sqlx::query_scalar::<_,Option<uuid::Uuid>>("SELECT auto_assigned_mechanic_id FROM p1_dispatches WHERE id=$1 AND status='AUTO_ASSIGNED'").bind(*dispatch_id.as_uuid()).fetch_optional(tx.as_mut()).await?.flatten().map(UserId::from_uuid)) })).await
+}
+
+async fn target_declined(
+    tx: &mut Transaction<'_, Postgres>,
+    dispatch_id: P1DispatchId,
+    user_id: UserId,
+) -> Result<bool, PgDispatchError> {
+    Ok(sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM p1_dispatch_responses WHERE dispatch_id=$1 AND user_id=$2 AND response='DECLINE')").bind(*dispatch_id.as_uuid()).bind(*user_id.as_uuid()).fetch_one(tx.as_mut()).await?)
 }
 
 async fn work_order_head(

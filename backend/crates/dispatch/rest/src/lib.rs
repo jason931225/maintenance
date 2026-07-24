@@ -1,25 +1,30 @@
 //! REST API for P1 emergency dispatch.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_dispatch_adapter_postgres::{PendingFcmPush, PgDispatchError, PgDispatchStore};
 use mnt_dispatch_application::{
-    ForceAssignP1DispatchCommand, IncidentLocationInput, MyDispatchOfferPage, P1DispatchSummary,
-    RespondP1DispatchCommand, StartP1DispatchCommand,
+    DispatchCandidatePage, DispatchQueueCursor, DispatchQueuePage, DispatchQueueStatus,
+    ForceAssignP1DispatchCommand, IncidentLocationInput, ListDispatchQueueQuery,
+    MyDispatchOfferPage, P1DispatchResponsePage, P1DispatchSummary, RespondP1DispatchCommand,
+    StartP1DispatchCommand,
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchTimerConfig};
 use mnt_kernel_core::{
-    ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId, TraceContext, UserId, WorkOrderId,
+    BranchScope, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId, TraceContext, UserId,
+    WorkOrderId,
 };
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize};
+use mnt_platform_authz::{
+    Action, EffectiveFeatureGrant, Feature, PermissionLevel, Principal, authorize, permission_for,
+};
 use mnt_platform_jobs::{JobQueue, JobQueueError, JobRequest};
 use mnt_platform_push::{FcmPushMessage, PushError, PushNotifier};
 use serde::{Deserialize, Serialize};
@@ -62,11 +67,16 @@ pub const P1_DISPATCH_RESPONSES_PATH_TEMPLATE: &str =
     "/api/v1/p1-dispatches/{dispatch_id}/responses";
 pub const P1_DISPATCH_FORCE_ASSIGN_PATH_TEMPLATE: &str =
     "/api/v1/p1-dispatches/{dispatch_id}/force-assign";
+pub const CONSOLE_DISPATCH_QUEUE_PATH: &str = "/api/v1/console/dispatch/queue";
+pub const P1_DISPATCH_CANDIDATES_PATH_TEMPLATE: &str =
+    "/api/v1/p1-dispatches/{dispatch_id}/candidates";
 pub const DISPATCH_ROUTE_PATHS: &[&str] = &[
     START_DISPATCH_PATH_TEMPLATE,
     P1_DISPATCH_PATH_TEMPLATE,
     P1_DISPATCH_RESPONSES_PATH_TEMPLATE,
     P1_DISPATCH_FORCE_ASSIGN_PATH_TEMPLATE,
+    CONSOLE_DISPATCH_QUEUE_PATH,
+    P1_DISPATCH_CANDIDATES_PATH_TEMPLATE,
     ME_DISPATCH_OFFERS_PATH,
 ];
 
@@ -76,11 +86,27 @@ pub fn router(state: DispatchRestState) -> Router {
     let router = Router::new()
         .route(START_DISPATCH_PATH_TEMPLATE, post(start_dispatch))
         .route(P1_DISPATCH_PATH_TEMPLATE, get(get_dispatch))
-        .route(P1_DISPATCH_RESPONSES_PATH_TEMPLATE, post(respond_dispatch))
+        .route(
+            P1_DISPATCH_RESPONSES_PATH_TEMPLATE,
+            post(respond_dispatch).get(list_dispatch_responses),
+        )
+        .route(CONSOLE_DISPATCH_QUEUE_PATH, get(list_dispatch_queue))
+        .route(
+            P1_DISPATCH_CANDIDATES_PATH_TEMPLATE,
+            get(list_dispatch_candidates),
+        )
         .route(P1_DISPATCH_FORCE_ASSIGN_PATH_TEMPLATE, post(force_assign))
         .route(ME_DISPATCH_OFFERS_PATH, get(list_my_offers))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DispatchQueueRequest {
+    status: Option<String>,
+    limit: Option<i64>,
+    after: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +134,94 @@ struct ErrorBody {
 struct ErrorPayload {
     code: &'static str,
     message: String,
+}
+
+async fn list_dispatch_queue(
+    State(state): State<DispatchRestState>,
+    headers: HeaderMap,
+    Query(query): Query<DispatchQueueRequest>,
+) -> Result<Json<DispatchQueuePage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::WorkOrderReadAll)?;
+    let now = time::OffsetDateTime::now_utc();
+    let after = query
+        .after
+        .as_deref()
+        .map(|raw| DispatchQueueCursor::decode(raw, now))
+        .transpose()
+        .map_err(RestError::from_kernel)?;
+    let statuses =
+        DispatchQueueStatus::parse_csv(query.status.as_deref()).map_err(RestError::from_kernel)?;
+    let limit = query.limit.unwrap_or(50);
+    if !(1..=200).contains(&limit) {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "dispatch queue limit must be between 1 and 200",
+        )));
+    }
+    let page = state
+        .store
+        .list_dispatch_queue(ListDispatchQueueQuery {
+            branch_scope,
+            statuses,
+            limit,
+            after,
+            now,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
+}
+
+async fn list_dispatch_candidates(
+    State(state): State<DispatchRestState>,
+    headers: HeaderMap,
+    Path(dispatch_id): Path<P1DispatchId>,
+) -> Result<Json<DispatchCandidatePage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let dispatch = state
+        .store
+        .dispatch(dispatch_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::new(Feature::AssigneeManage),
+        dispatch.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .dispatch_candidates(dispatch_id, time::OffsetDateTime::now_utc(), state.timers)
+            .await
+            .map_err(RestError::from_store)?,
+    ))
+}
+
+async fn list_dispatch_responses(
+    State(state): State<DispatchRestState>,
+    headers: HeaderMap,
+    Path(dispatch_id): Path<P1DispatchId>,
+) -> Result<Json<P1DispatchResponsePage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let dispatch = state
+        .store
+        .dispatch(dispatch_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::new(Feature::WorkOrderReadAll),
+        dispatch.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(
+        state
+            .store
+            .dispatch_responses(dispatch_id)
+            .await
+            .map_err(RestError::from_store)?,
+    ))
 }
 
 async fn start_dispatch(
@@ -427,6 +541,42 @@ fn rest_error_from_request_context(
             RestError::unauthorized(format!("token claim is invalid: {message}"))
         }
     }
+}
+
+fn authorized_feature_scope(
+    principal: &Principal,
+    feature: Feature,
+) -> Result<BranchScope, RestError> {
+    let builtin_allows = principal
+        .roles
+        .iter()
+        .any(|role| permission_for(*role, feature) == PermissionLevel::Allow);
+    let custom_scope = custom_feature_scope(&principal.effective_feature_grants, feature);
+    let scope = match (builtin_allows, custom_scope) {
+        (true, _) => principal.branch_scope.clone(),
+        (false, Some(scope)) => principal.branch_scope.intersect(&scope),
+        (false, None) => BranchScope::none(),
+    };
+    if scope.is_empty() {
+        return Err(RestError::from_kernel(KernelError::forbidden(
+            "principal has no authorized branch scope for feature",
+        )));
+    }
+    Ok(scope)
+}
+
+fn custom_feature_scope(grants: &[EffectiveFeatureGrant], feature: Feature) -> Option<BranchScope> {
+    let mut branches = BTreeSet::new();
+    for grant in grants {
+        if grant.feature != feature || grant.permission != PermissionLevel::Allow {
+            continue;
+        }
+        match &grant.branch_scope {
+            BranchScope::All => return Some(BranchScope::All),
+            BranchScope::Branches(values) => branches.extend(values),
+        }
+    }
+    (!branches.is_empty()).then_some(BranchScope::Branches(branches))
 }
 
 fn current_trace_context() -> TraceContext {
