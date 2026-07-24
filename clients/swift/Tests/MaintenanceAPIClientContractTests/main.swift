@@ -164,6 +164,11 @@ private enum GeneratedClientContractTests {
         _ = [credentialFromRegister, credentialFromRotate, receiptFromDisable, receiptFromIngress]
         _ = [typedRegisterRequest, typedRotateRequest, typedDisableRequest]
 
+        guard let credential = try? decoder.decode(
+            ProductionCredential.self,
+            from: Data(#"{"id":"00000000-0000-0000-0000-000000000001","source_system":"erp","enabled":true,"credential_generation":1,"secret":"one-time-secret"}"#.utf8)
+        ), credential.secret == "one-time-secret" else { return false }
+
         let id = "00000000-0000-0000-0000-000000000001"
         let ingress: [(String, Components.Schemas.ProductionSourceIngress)] = [
             ("demand", .demand(.init(kind: .demand, id: id, inquiryId: id, productCode: "WIDGET", quantity: 1, dueAt: Date(timeIntervalSince1970: 0), sourceId: "erp", sourceVersion: "v1"))),

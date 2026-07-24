@@ -18,6 +18,7 @@ import java.time.OffsetDateTime
 import java.util.UUID
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -36,6 +37,9 @@ class ProductionSourceApiContractTest : StringSpec({
     "generated production source operations retain typed receipts and generation guards" {
         listOf(registerReturn, rotateReturn, disableReturn, ingressReturn).size shouldBe 4
         ProductionSourceSystemGenerationRequest(expectedGeneration = 1).expectedGeneration shouldBe 1
+        Serializer.kotlinxSerializationJson.decodeFromString<ProductionSourceSystemCredential>(
+            """{"id":"00000000-0000-0000-0000-000000000001","source_system":"erp","enabled":true,"credential_generation":1,"secret":"one-time-secret"}""",
+        ).secret shouldBe "one-time-secret"
     }
 
     "generated production ingress serializes every source kind through the discriminator" {
