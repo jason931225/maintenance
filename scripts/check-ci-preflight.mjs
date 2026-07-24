@@ -75,115 +75,30 @@ function multilineRunCommands(step) {
     .filter(Boolean);
 }
 
-function shellSource(step) {
+const apiContractCaptureName = "Capture Buck2-built app for contract test";
+const apiContractCaptureCommands = [
+  "set -euo pipefail",
+  'mnt_app_bin="${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"',
+  'test -x "${mnt_app_bin}"',
+  "printf 'MNT_APP_BIN=%s\\n' \"${mnt_app_bin}\" >> \"${GITHUB_ENV}\"",
+];
+
+function activeRunText(step) {
   const scalar = runScalar(step);
-  return scalar && scalar !== "|" ? scalar : multilineRunCommands(step).join("\n");
+  const source = scalar && scalar !== "|" ? scalar : multilineRunCommands(step).join("\n");
+  return source.split(/\r?\n/).filter((line) => !line.trimStart().startsWith("#")).join("\n");
 }
 
-function shellSegments(source) {
-  const continued = source.replace(/\\\r?\n/g, " ");
-  const segments = [];
-  let segment = "";
-  let quote = null;
-  for (let index = 0; index < continued.length; index += 1) {
-    const character = continued[index];
-    if (quote) {
-      segment += character;
-      if (character === quote) quote = null;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-      segment += character;
-    } else if (character === "#") {
-      while (index + 1 < continued.length && continued[index + 1] !== "\n") index += 1;
-    } else if (character === ";" || character === "\n" || (character === "&" && continued[index + 1] === "&") || (character === "|" && continued[index + 1] === "|")) {
-      if (segment.trim()) segments.push(segment.trim());
-      segment = "";
-      if (character === "&" || character === "|") index += 1;
-    } else {
-      segment += character;
-    }
-  }
-  if (segment.trim()) segments.push(segment.trim());
-  return segments;
+function isDesignatedApiContractCapture(step) {
+  if (!step.startsWith(`name: ${apiContractCaptureName}\n`)) return false;
+  return multilineRunCommands(step).filter((line) => !line.startsWith("#")).join("\n")
+    === apiContractCaptureCommands.join("\n");
 }
 
-function shellTokens(segment) {
-  const tokens = [];
-  let token = "";
-  let quote = null;
-  const flush = () => {
-    if (token) tokens.push(token);
-    token = "";
-  };
-  for (let index = 0; index < segment.length; index += 1) {
-    const character = segment[index];
-    if (quote) {
-      if (character === quote) quote = null;
-      else token += character;
-    } else if (character === "'" || character === '"') {
-      quote = character;
-    } else if (/\s/.test(character)) {
-      flush();
-    } else if (character === ">" && segment[index + 1] === ">") {
-      flush();
-      tokens.push(">>");
-      index += 1;
-    } else if (character === "|") {
-      flush();
-      tokens.push("|");
-    } else {
-      token += character;
-    }
-  }
-  flush();
-  return tokens;
-}
-
-function shellFacts(step) {
-  return shellSegments(shellSource(step)).map((segment) => {
-    const tokens = shellTokens(segment);
-    const githubEnv = tokens.some((token) => token === "$GITHUB_ENV" || token === "${GITHUB_ENV}");
-    const githubEnvWrite = githubEnv && (
-      tokens.some((token, index) => token === ">>" && (tokens[index + 1] === "$GITHUB_ENV" || tokens[index + 1] === "${GITHUB_ENV}"))
-      || (tokens.includes("tee") && tokens.includes("-a"))
-    );
-    return {
-      tokens,
-      githubEnvWrite,
-      mntAppWrite: githubEnvWrite && tokens.some((token) => token.startsWith("MNT_APP_BIN=")),
-    };
-  });
-}
-
-function hasTokenSequence(tokens, sequence) {
-  return sequence.every((token, offset) => tokens[offset] === token);
-}
-
-function producesOpenApi(step) {
-  return shellFacts(step).some(({ tokens }) => tokens.some((token, index) =>
-    (token === "npm" || token.endsWith("/npm"))
-    && hasTokenSequence(tokens.slice(index + 1), ["run", "check:openapi-app"]),
-  ));
-}
-
-function directlyBuildsMntApp(step) {
-  return shellFacts(step).some(({ tokens }) => tokens.some((token, index) => {
-    if (token !== "buck2" && !token.endsWith("/buck2")) return false;
-    const buildIndex = tokens.slice(index + 1).indexOf("build");
-    return buildIndex >= 0 && tokens.slice(index + buildIndex + 2).includes("//backend/app:mnt-app");
-  }));
-}
-
-function capturesBuckAppBinary(step) {
-  const facts = shellFacts(step);
-  const tokens = facts.flatMap(({ tokens: entry }) => entry);
-  const writesMntApp = facts.filter(({ mntAppWrite }) => mntAppWrite);
-  return tokens.some((token) => token === "mnt_app_bin=${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app" || token === "mnt_app_bin=$GITHUB_WORKSPACE/.tmp/buck2/api-contract/mnt-app")
-    && facts.some(({ tokens: entry }) => entry.includes("-x") && entry.some((token) => token === "${mnt_app_bin}" || token === "$mnt_app_bin"))
-    && writesMntApp.length === 1
-    && writesMntApp[0].tokens.some((token) => token === "${mnt_app_bin}" || token === "$mnt_app_bin");
+function usesIndirectOpenApiProducer(step) {
+  const run = activeRunText(step);
+  return /\b(?:bash|sh|zsh)\s+-c\b|\beval\b|(?:^|[;&|]\s*)(?:command\s+)?["']?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?["']?/.test(run)
+    || /\bnode\s+scripts\/check-openapi-app\.mjs\b/.test(run);
 }
 
 function requireReindeerToolchainBefore(steps, command, failures) {
@@ -224,6 +139,14 @@ function requireDotSlashBefore(steps, command, job, failures) {
     failures.push(`${job} must install DotSlash unconditionally`);
   } else if (commandIndex >= 0 && dotSlashIndex > commandIndex) {
     failures.push(`${job} must install DotSlash before ${command}`);
+  }
+}
+
+function requireEffectiveDotSlashBootstrap(block, job, failures) {
+  const workingDirectory = block.match(/^    defaults:\n      run:\n        working-directory: ([^\n]+)$/m)?.[1]?.trim();
+  const bootstrap = workingDirectory === "backend" ? `../${dotSlashBootstrap}` : dotSlashBootstrap;
+  if (!stepBlocks(block).some((step) => runScalar(step) === bootstrap)) {
+    failures.push(`${job} must install pinned DotSlash from ${bootstrap}`);
   }
 }
 
@@ -281,28 +204,30 @@ export function evaluateCiPreflight(workflow) {
       failures,
     );
     const openApiGateIndexes = apiContractSteps
-      .map((step, index) => (producesOpenApi(step) ? index : -1))
+      .map((step, index) => (runScalar(step) === "npm run check:openapi-app" ? index : -1))
       .filter((index) => index >= 0);
     if (openApiGateIndexes.length !== 1) {
       failures.push("api-contract must run exactly one npm run check:openapi-app producer");
     }
-    if (apiContractSteps.some(directlyBuildsMntApp)) {
+    if (apiContractSteps.some((step) => /\b(?:\.\/)?tools\/buck2(?:\s|$)/.test(activeRunText(step)))) {
       failures.push("api-contract must not directly build //backend/app:mnt-app");
+    }
+    if (apiContractSteps.some((step) =>
+      usesIndirectOpenApiProducer(step)
+      || (activeRunText(step).includes("check:openapi-app") && runScalar(step) !== "npm run check:openapi-app"),
+    )) {
+      failures.push("api-contract must not use indirect OpenAPI producers");
     }
 
     const jobOrStepAppBinaryOverride = /^ {6,}MNT_APP_BIN\s*:/m.test(apiContract);
-    const apiContractFacts = apiContractSteps.flatMap((step, stepIndex) =>
-      shellFacts(step).map((fact) => ({ ...fact, stepIndex })),
-    );
-    const mntAppGithubEnvWrites = apiContractFacts.filter(({ mntAppWrite }) => mntAppWrite);
-    const shellAppBinaryOverride = apiContractFacts.some(({ tokens, mntAppWrite }) =>
-      !mntAppWrite
-      && tokens.some((token) => token.startsWith("MNT_APP_BIN="))
-      && (tokens[0]?.startsWith("MNT_APP_BIN=") || tokens.includes("export") || tokens.includes("env")),
-    );
-    const cargoTargetAppBinaryOverride = apiContractFacts.some(({ tokens }) =>
-      tokens.some((token) => token.startsWith("MNT_APP_BIN=") && (token.includes("backend/target") || token.includes("CARGO_TARGET_DIR"))),
-    ) || apiContract.split(/\r?\n/).some((line) =>
+    const captureStepIndexes = apiContractSteps
+      .map((step, index) => (step.startsWith(`name: ${apiContractCaptureName}\n`) ? index : -1))
+      .filter((index) => index >= 0);
+    const captureStepIndex = captureStepIndexes[0] ?? -1;
+    const captureIsDesignated = captureStepIndexes.length === 1 && isDesignatedApiContractCapture(apiContractSteps[captureStepIndex]);
+    const nonCaptureSteps = apiContractSteps.filter((_, index) => index !== captureStepIndex);
+    const shellAppBinaryOverride = nonCaptureSteps.some((step) => step.includes("MNT_APP_BIN"));
+    const cargoTargetAppBinaryOverride = apiContract.split(/\r?\n/).some((line) =>
       !line.trimStart().startsWith("#") && line.includes("MNT_APP_BIN:") && (line.includes("backend/target") || line.includes("CARGO_TARGET_DIR")),
     );
     if (jobOrStepAppBinaryOverride || shellAppBinaryOverride) {
@@ -311,25 +236,27 @@ export function evaluateCiPreflight(workflow) {
     if (cargoTargetAppBinaryOverride) {
       failures.push("api-contract must not use a Cargo target path for MNT_APP_BIN");
     }
-    if (mntAppGithubEnvWrites.length !== 1) {
-      failures.push("api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once");
+    if (!captureIsDesignated) {
+      failures.push("api-contract capture must use the designated verified command grammar");
+    }
+    if (nonCaptureSteps.some((step) => step.includes("GITHUB_ENV"))) {
+      failures.push("api-contract may reference GITHUB_ENV only in the designated capture step");
     }
 
     const openApiGateIndex = openApiGateIndexes[0] ?? -1;
     const contractTestIndex = apiContractSteps.findIndex((step) => runScalar(step) === "npm run test:contract");
-    const buckBinaryCapture = apiContractSteps.findIndex(capturesBuckAppBinary);
-    if (mntAppGithubEnvWrites.some(({ stepIndex }) => stepIndex !== buckBinaryCapture)) {
-      failures.push("api-contract must not override the captured MNT_APP_BIN");
-    }
     if (
       openApiGateIndex < 0
       || contractTestIndex < 0
-      || buckBinaryCapture < openApiGateIndex
-      || buckBinaryCapture > contractTestIndex
+      || captureStepIndex < openApiGateIndex
+      || captureStepIndex > contractTestIndex
     ) {
       failures.push("api-contract must capture the Buck2-built mnt-app path for npm run test:contract");
     }
   }
+
+  const backend = jobBlock(workflow, "backend");
+  if (backend) requireEffectiveDotSlashBootstrap(backend, "backend", failures);
 
   for (const job of protectedJobs) {
     const block = jobBlock(workflow, job);

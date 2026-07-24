@@ -230,7 +230,7 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned DotSlash runtime
-        run: tools/buck/install_dotslash.sh
+        run: ../tools/buck/install_dotslash.sh
 
       - name: Free runner disk for Rust backend
         uses: ./.github/actions/free-runner-disk

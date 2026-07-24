@@ -83,6 +83,16 @@ describe("CI preflight contract", () => {
     expectFailure(apiWithoutDotSlash, "api-contract must install pinned DotSlash before Buck2");
   });
 
+  it("resolves the backend DotSlash bootstrap from its effective working directory", () => {
+    expectFailure(
+      workflow.replace(
+        "        run: ../tools/buck/install_dotslash.sh",
+        "        run: tools/buck/install_dotslash.sh",
+      ),
+      "backend must install pinned DotSlash from ../tools/buck/install_dotslash.sh",
+    );
+  });
+
   it("rejects API contract tests that point MNT_APP_BIN at a Cargo target", () => {
     for (const path of [
       "${{ github.workspace }}/backend/target/debug/mnt-app",
@@ -118,14 +128,14 @@ describe("CI preflight contract", () => {
         "      - name: Employee import replay contract\n",
         "      - name: Override contract app\n        run: echo \"MNT_APP_BIN=${CARGO_TARGET_DIR}/debug/mnt-app\" >> \"$GITHUB_ENV\"\n\n      - name: Employee import replay contract\n",
       ),
-      "api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once",
+      "api-contract may reference GITHUB_ENV only in the designated capture step",
     );
     expectFailure(
       workflow.replace(
         '          printf \'MNT_APP_BIN=%s\\n\' "${mnt_app_bin}" >> "${GITHUB_ENV}"\n',
         '          printf \'MNT_APP_BIN=%s\\n\' "${mnt_app_bin}" >> "${GITHUB_ENV}"\n          export MNT_APP_BIN=/tmp/other-mnt-app\n',
       ),
-      "api-contract must not override the captured MNT_APP_BIN",
+      "api-contract capture must use the designated verified command grammar",
     );
     expectFailure(
       workflow.replace(
@@ -136,29 +146,9 @@ describe("CI preflight contract", () => {
     );
   });
 
-  it("accepts equivalent safe shell syntax for the Buck2 app handoff", () => {
-    const equivalentCapture = `      - name: Capture Buck2-built app for contract test
-        if: \${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The prior OpenAPI gate owns the only Buck2 app build.
-          mnt_app_bin="$GITHUB_WORKSPACE/.tmp/buck2/api-contract/mnt-app"
-          [ -x "$mnt_app_bin" ]
-          echo "MNT_APP_BIN=$mnt_app_bin" >> "$GITHUB_ENV"
-
-`;
-    const currentCapture = `      - name: Capture Buck2-built app for contract test
-        if: \${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mnt_app_bin="\${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"
-          test -x "\${mnt_app_bin}"
-          printf 'MNT_APP_BIN=%s\\n' "\${mnt_app_bin}" >> "\${GITHUB_ENV}"
-
-`;
-    assert.deepEqual(evaluateCiPreflight(workflow.replace(currentCapture, equivalentCapture)).failures, []);
+  it("accepts the designated verified Buck2 app handoff", () => {
+    assert.match(workflow, /# check:openapi-app is the sole Buck2 producer for this handoff\./);
+    assert.deepEqual(evaluateCiPreflight(workflow).failures, []);
   });
 
   it("rejects shell-spelling bypasses for API contract producers and environment writes", () => {
@@ -167,7 +157,7 @@ describe("CI preflight contract", () => {
         "      - name: Capture Buck2-built app for contract test\n",
         "      - name: Duplicate OpenAPI producer\n        run: |\n          # This still produces the Buck app.\n          CI=1 npm \\\n            run check:openapi-app; :\n\n      - name: Capture Buck2-built app for contract test\n",
       ),
-      "api-contract must run exactly one npm run check:openapi-app producer",
+      "api-contract must not use indirect OpenAPI producers",
     );
     expectFailure(
       workflow.replace(
@@ -181,14 +171,49 @@ describe("CI preflight contract", () => {
         "      - name: Employee import replay contract\n",
         "      - name: Late redirected override\n        run: |\n          echo \"MNT_APP_BIN=/tmp/other-mnt-app\" >> \"$GITHUB_ENV\" # still a write\n          :\n\n      - name: Employee import replay contract\n",
       ),
-      "api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once",
+      "api-contract may reference GITHUB_ENV only in the designated capture step",
     );
     expectFailure(
       workflow.replace(
         "      - name: Employee import replay contract\n",
         "      - name: Late tee override\n        run: printf 'MNT_APP_BIN=/tmp/other-mnt-app\\n' | tee -a \"$GITHUB_ENV\"\n\n      - name: Employee import replay contract\n",
       ),
-      "api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once",
+      "api-contract may reference GITHUB_ENV only in the designated capture step",
+    );
+  });
+
+  it("fails closed on indirect producers and every non-capture GITHUB_ENV surface", () => {
+    for (const command of [
+      'bash -c "npm run check:openapi-app"',
+      'sh -c "npm run check:openapi-app"',
+      'zsh -c "npm run check:openapi-app"',
+      'eval "npm run check:openapi-app"',
+      '"$OPENAPI_PRODUCER"',
+      'command "$OPENAPI_PRODUCER"',
+      "node scripts/check-openapi-app.mjs",
+    ]) {
+      expectFailure(
+        workflow.replace(
+          "      - name: Capture Buck2-built app for contract test\n",
+          `      - name: Indirect OpenAPI producer\n        run: ${command}\n\n      - name: Capture Buck2-built app for contract test\n`,
+        ),
+        "api-contract must not use indirect OpenAPI producers",
+      );
+    }
+
+    expectFailure(
+      workflow.replace(
+        "      - name: Employee import replay contract\n",
+        "      - name: Programmatic environment override\n        run: node -e 'require(\"node:fs\").appendFileSync(process.env.GITHUB_ENV, \"MNT_APP_BIN=/tmp/other\\n\")'\n\n      - name: Employee import replay contract\n",
+      ),
+      "api-contract may reference GITHUB_ENV only in the designated capture step",
+    );
+    expectFailure(
+      workflow.replace(
+        '          printf \'MNT_APP_BIN=%s\\n\' "${mnt_app_bin}" >> "${GITHUB_ENV}"',
+        '          printf \'MNT_APP_BIN=%s\\n\' "${mnt_app_bin}" > "${GITHUB_ENV:?}"',
+      ),
+      "api-contract capture must use the designated verified command grammar",
     );
   });
 
