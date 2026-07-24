@@ -1,6 +1,7 @@
 import type { components } from "@maintenance/api-client-ts";
 
 import type { ConsoleApiClient } from "../../api/client";
+import { ApiCallError } from "../../api/ontologyActions";
 
 import type {
   ComplianceCatalogItem,
@@ -251,4 +252,99 @@ export async function readFrameworkDetail(
 
 export function kindForRowId(items: ComplianceCatalogItem[], id: string): ComplianceCatalogItem | undefined {
   return items.find((item) => item.id === id);
+}
+
+export interface EvidenceWorkbenchControl {
+  id: string;
+  frameworkId: string;
+  frameworkCode: string;
+  frameworkTitle: string;
+  controlKey: string;
+  title: string;
+  objective: string;
+  status: ComplianceControl["status"];
+}
+
+export interface EvidenceWorkbenchObligation {
+  id: string;
+  code: string;
+  title: string;
+}
+
+export interface EvidenceBindingWorkspace {
+  controls: EvidenceWorkbenchControl[];
+  obligations: EvidenceWorkbenchObligation[];
+  bindings: EvidenceBinding[];
+}
+
+async function allEvidencePage(
+  api: ConsoleApiClient,
+  signal: AbortSignal,
+  offset: number,
+): Promise<ApiPage<RawEvidence>> {
+  const { data } = await api.GET("/api/v1/compliance/evidence-bindings", {
+    params: { query: { limit: PAGE_SIZE, offset } },
+    signal,
+  });
+  if (!data) throw new Error("compliance evidence bindings read returned no data");
+  return data;
+}
+
+/**
+ * Read the evidence workbench from the same authenticated catalog APIs that
+ * enforce tenant scope server-side. Controls are resolved from their owning
+ * frameworks; evidence history is fetched independently so the workbench does
+ * not hide bindings simply because a framework has no currently selected row.
+ */
+export async function readEvidenceBindingWorkspace(
+  api: ConsoleApiClient,
+  signal: AbortSignal,
+): Promise<EvidenceBindingWorkspace> {
+  const [frameworks, rawObligations, rawBindings] = await Promise.all([
+    readAllPages(signal, (offset) => frameworkPage(api, signal, offset, "")),
+    readAllPages(signal, (offset) => obligationPage(api, signal, offset, "")),
+    readAllPages(signal, (offset) => allEvidencePage(api, signal, offset)),
+  ]);
+  const controlPages = await mapWithConcurrency(
+    frameworks,
+    signal,
+    EVIDENCE_READ_CONCURRENCY,
+    async (rawFramework) => {
+      const rawControls = await readAllPages(
+        signal,
+        (offset) => controlPage(api, signal, rawFramework.id, offset),
+      );
+      return rawControls.map<EvidenceWorkbenchControl>((rawControl) => ({
+        id: rawControl.id,
+        frameworkId: rawFramework.id,
+        frameworkCode: rawFramework.code,
+        frameworkTitle: rawFramework.name,
+        controlKey: rawControl.control_key,
+        title: rawControl.title,
+        objective: rawControl.objective,
+        status: rawControl.status,
+      }));
+    },
+  );
+  return {
+    controls: controlPages.flat(),
+    obligations: rawObligations.map((raw) => ({ id: raw.id, code: raw.code, title: raw.title })),
+    bindings: rawBindings.map(evidence),
+  };
+}
+
+export type CreateEvidenceBindingRequest = components["schemas"]["CreateEvidenceBindingRequest"];
+
+/** Create a PROPOSED evidence binding through the generated contract. The
+ * backend owns the initial status, audit event, authorization, and tenant RLS. */
+export async function createEvidenceBinding(
+  api: ConsoleApiClient,
+  request: CreateEvidenceBindingRequest,
+): Promise<EvidenceBinding> {
+  const { data, error, response } = await api.POST(
+    "/api/v1/compliance/evidence-bindings",
+    { body: request },
+  );
+  if (!data) throw new ApiCallError(response.status, error);
+  return evidence(data);
 }

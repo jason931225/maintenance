@@ -16,6 +16,7 @@ import { GenericModuleScreen } from "../modules/GenericModuleScreen";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { COMPLIANCE_ACTIONS } from "./complianceModel";
 import { complianceModuleScreen } from "./complianceModuleScreen";
+import { EvidenceBindingWorkbench } from "./EvidenceBindingWorkbench";
 
 const COMPLIANCE_READ_ROLES = new Set(["EXECUTIVE", "SUPER_ADMIN"]);
 const INTEGRITY_FINDINGS_READ = "integrity_findings_read";
@@ -54,9 +55,23 @@ export function ComplianceModuleScreenBody() {
     [featureGrants, roles],
   );
 
+  const canRead = gate.can(COMPLIANCE_ACTIONS.read);
+  // The backend permits this org-wide action to SUPER_ADMIN or an org-wide
+  // custom grant. This is a conservative UI hint; the REST boundary remains
+  // authoritative for every submission.
+  const canWriteEvidence =
+    (roles?.includes("SUPER_ADMIN") ?? false) ||
+    (featureGrants?.includes(COMPLIANCE_ACTIONS.evidenceLink) ?? false);
+
   return (
     <PolicyGateProvider gate={gate}>
       <GenericModuleScreen config={complianceModuleScreen} api={api} authorityKey={authorityKey} />
+      <EvidenceBindingWorkbench
+        api={api}
+        authorityKey={authorityKey}
+        canRead={canRead}
+        canWrite={canWriteEvidence}
+      />
     </PolicyGateProvider>
   );
 }
