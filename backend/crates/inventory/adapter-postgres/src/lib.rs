@@ -1049,3 +1049,33 @@ fn sha256_hex(value: &str) -> String {
 
 #[allow(dead_code)]
 fn _org_id_type_anchor(_: OrgId) {}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use time::UtcOffset;
+
+    #[test]
+    fn occurrence_time_fingerprint_distinguishes_presence_and_canonicalizes_instants() {
+        let item_id = InventoryItemId::from_uuid(uuid::Uuid::from_u128(1));
+        let source = InventoryConsumptionSource::WorkOrder {
+            work_order_id: WorkOrderId::from_uuid(uuid::Uuid::from_u128(2)),
+        };
+        let quantity = PositiveQuantityMilli::new(1).unwrap();
+        let instant = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+        let same_instant_with_offset = instant.to_offset(UtcOffset::from_hms(9, 0, 0).unwrap());
+
+        let omitted = request_fingerprint(item_id, source, quantity, None, None);
+        let explicit = request_fingerprint(item_id, source, quantity, None, Some(instant));
+        let canonical = request_fingerprint(
+            item_id,
+            source,
+            quantity,
+            None,
+            Some(same_instant_with_offset),
+        );
+        assert_ne!(omitted, explicit, "presence is part of the fingerprint");
+        assert_eq!(explicit, canonical, "the same instant hashes canonically");
+    }
+}
