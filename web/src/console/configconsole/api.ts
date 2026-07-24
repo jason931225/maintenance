@@ -29,6 +29,19 @@ import type {
 
 export const CONSOLE_VIEW_KEY = "console_view";
 
+// Kept only until the server confirms a receipt. A failed transport attempt can
+// call saveConsoleView again with the same loaded draft and therefore replay the
+// same command rather than append a second revision.
+const pendingSaveCommands = new Map<string, string>();
+
+function commandIdFor(key: string): string {
+  const prior = pendingSaveCommands.get(key);
+  if (prior) return prior;
+  const id = globalThis.crypto.randomUUID();
+  pendingSaveCommands.set(key, id);
+  return id;
+}
+
 /** PropertyDefWire.config is schemaless JSON — pull `{choices:[{id,name,color?}]}` defensively. */
 function choicesOf(config: unknown): OntChoice[] {
   if (!config || typeof config !== "object" || Array.isArray(config)) return [];
@@ -162,11 +175,17 @@ export async function saveConsoleView(
   doc: DashboardDoc,
   scope: ConsoleViewScope,
 ): Promise<ConsoleViewRecord> {
+  const serialized = JSON.stringify(doc);
+  const attemptKey = `${existing?.instanceId ?? "new"}:${scope}:${screenKey}:${serialized}`;
+  const commandId = commandIdFor(attemptKey);
   const result = await executeOntologyAction(api, "create", {
     object_type_id: objectTypeId,
     ...(existing ? { instance_id: existing.instanceId } : {}),
-    params: { screen_key: screenKey, config: JSON.stringify(doc), scope },
-  });
+    params: { screen_key: screenKey, config: serialized, scope },
+    command_id: commandId,
+    ...(existing ? { expected_revision: existing.version } : {}),
+  } as Parameters<typeof executeOntologyAction>[2]);
+  pendingSaveCommands.delete(attemptKey);
   return { instanceId: result.instance.instanceId, screenKey, config: doc, scope, version: result.instance.version };
 }
 

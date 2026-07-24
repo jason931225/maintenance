@@ -200,6 +200,8 @@ fn create_command(object_type_id: ObjectTypeId, priority: &str) -> ActionCommand
         valid_from: Some(AT),
         checklist_all_acknowledged: None,
         four_eyes_request_ref: None,
+        command_id: Some(Uuid::new_v4()),
+        expected_revision: None,
     }
 }
 
@@ -379,6 +381,8 @@ async fn projected_dispatch_is_not_wired_yet_and_writes_nothing(owner_pool: PgPo
                     valid_from: Some(AT),
                     checklist_all_acknowledged: None,
                     four_eyes_request_ref: None,
+                    command_id: None,
+                    expected_revision: None,
                 },
             )
             .await
@@ -431,4 +435,116 @@ async fn cross_org_action_is_invisible(owner_pool: PgPool) {
     .expect_err("org-A's action must be invisible to org-B");
     assert!(matches!(err, ActionError::NotFound), "got {err:?}");
     assert_eq!(count_instances(&owner_pool, org_b).await, 0);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn command_receipt_replays_and_stale_editor_cannot_append(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
+    let type_id = seed_instance_type_with_action(
+        &owner_pool,
+        org,
+        actor,
+        "wo.command",
+        "set_priority",
+        json!(["authority"]),
+        json!([]),
+    )
+    .await;
+    let created = mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(
+                &super_admin(actor, org),
+                "set_priority",
+                create_command(type_id, "lo"),
+            )
+            .await
+    })
+    .await
+    .unwrap();
+    let instance_id = created.instance.unwrap().instance.id;
+
+    let command_id = Uuid::new_v4();
+    let edit = ActionCommand {
+        object_type_id: type_id,
+        instance_id: Some(instance_id),
+        title: None,
+        params: json!({"priority": "hi", "count": 5}),
+        reason: Some("editor A".to_owned()),
+        valid_from: Some(AT + time::Duration::seconds(1)),
+        checklist_all_acknowledged: None,
+        four_eyes_request_ref: None,
+        command_id: Some(command_id),
+        expected_revision: Some(1),
+    };
+    let first = mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor, org), "set_priority", edit.clone())
+            .await
+    })
+    .await
+    .unwrap();
+    let replay = mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor, org), "set_priority", edit)
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        first.receipt.unwrap().payload_digest,
+        replay.receipt.unwrap().payload_digest
+    );
+    assert_eq!(replay.instance.unwrap().revision.version, 2);
+
+    let mismatch = ActionCommand {
+        object_type_id: type_id,
+        instance_id: Some(instance_id),
+        title: None,
+        params: json!({"priority": "lo", "count": 5}),
+        reason: Some("editor A changed payload".to_owned()),
+        valid_from: Some(AT + time::Duration::seconds(1)),
+        checklist_all_acknowledged: None,
+        four_eyes_request_ref: None,
+        command_id: Some(command_id),
+        expected_revision: Some(1),
+    };
+    assert!(
+        mnt_platform_request_context::scope_org(org, async {
+            state(&rt, &cmd)
+                .execute_action(&super_admin(actor, org), "set_priority", mismatch)
+                .await
+        })
+        .await
+        .is_err()
+    );
+
+    let stale = ActionCommand {
+        object_type_id: type_id,
+        instance_id: Some(instance_id),
+        title: None,
+        params: json!({"priority": "lo", "count": 5}),
+        reason: Some("editor B".to_owned()),
+        valid_from: Some(AT + time::Duration::seconds(2)),
+        checklist_all_acknowledged: None,
+        four_eyes_request_ref: None,
+        command_id: Some(Uuid::new_v4()),
+        expected_revision: Some(1),
+    };
+    assert!(
+        mnt_platform_request_context::scope_org(org, async {
+            state(&rt, &cmd)
+                .execute_action(&super_admin(actor, org), "set_priority", stale)
+                .await
+        })
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        count_execute_audits(&owner_pool, org).await,
+        2,
+        "create + one edit only"
+    );
 }

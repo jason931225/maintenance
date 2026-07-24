@@ -267,6 +267,8 @@ async fn publish_auto_attaches_create_action_and_instance_creation_works(owner_p
                     valid_from: Some(AT),
                     checklist_all_acknowledged: None,
                     four_eyes_request_ref: None,
+                    command_id: Some(Uuid::new_v4()),
+                    expected_revision: None,
                 },
             )
             .await

@@ -26446,6 +26446,28 @@ components:
           type: boolean
         four_eyes_request_ref:
           $ref: '#/components/schemas/Uuid'
+        command_id:
+          $ref: '#/components/schemas/Uuid'
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 1
+    OntologyActionCommandReceipt:
+      type: object
+      description: Immutable replay receipt for an accepted instance_revision action command.
+      required:
+      - command_id
+      - payload_digest
+      - instance
+      properties:
+        command_id:
+          $ref: '#/components/schemas/Uuid'
+        payload_digest:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        instance:
+          type: object
+          additionalProperties: true
     GovernanceOpenOverrideRequest:
       type: object
       required:

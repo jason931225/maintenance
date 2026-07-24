@@ -395,6 +395,8 @@ fn dispatch_command(object_type_id: ObjectTypeId, equipment_id: EquipmentId) -> 
         valid_from: Some(AT),
         checklist_all_acknowledged: None,
         four_eyes_request_ref: None,
+        command_id: None,
+        expected_revision: None,
     }
 }
 
