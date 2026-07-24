@@ -153,6 +153,11 @@ const EquipmentManagePage = lazy(() =>
     default: m.EquipmentManagePage,
   })),
 );
+const Equipment3rConsoleRoute = lazy(() =>
+  import("./console/equipment").then((m) => ({
+    default: m.EquipmentScreenBody,
+  })),
+);
 const ConsoleModuleRoute = lazy(() =>
   import("./console/modules").then((m) => ({
     default: m.ConsoleModuleRoute,
@@ -444,6 +449,16 @@ export function AppRouter() {
                     <ConsoleApp screenKeys={EXPOSED_SCREEN_KEYS} />
                   </ConsoleRolloutBoundary>
                 )}
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+        <Route
+          path="/console/equipment-3r"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <Equipment3rConsoleRoute />
               </Suspense>
             </RouteErrorBoundary>
           }

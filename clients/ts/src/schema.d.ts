@@ -710,6 +710,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment-3r/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the caller-visible Equipment 3R units */
+        get: operations["listEquipment3rUnits"];
+        put?: never;
+        /** Register a serialized Equipment 3R unit */
+        post: operations["registerEquipment3rUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/units/{unit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an Equipment 3R unit with its active aggregate references */
+        get: operations["getEquipment3rUnit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/units/{unit_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read append-only Equipment 3R lifecycle history */
+        get: operations["listEquipment3rUnitHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the caller-visible Equipment 3R rental cases */
+        get: operations["listEquipment3rRentalCases"];
+        put?: never;
+        /** Create or idempotently replay an Equipment 3R rental quote */
+        post: operations["quoteEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an Equipment 3R rental case and its evidence-bearing lifecycle detail */
+        get: operations["getEquipment3rRentalCase"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a four-eyes approval decision for an Equipment 3R rental case */
+        post: operations["decideEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the carrier and vehicle dispatch leg for an approved Equipment 3R case */
+        post: operations["dispatchEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/handover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record recipient and immutable evidence for an Equipment 3R handover */
+        post: operations["handoverEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append an Equipment 3R inspection or maintenance record */
+        post: operations["inspectEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record physical return and move the unit to assessment */
+        post: operations["returnEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/assessment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bind a returned Equipment 3R unit to repair, refurbishment, resale, or redeploy */
+        post: operations["assessEquipment3rRentalReturn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/dispositions/{disposition_id}/completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete an Equipment 3R repair, refurbishment, or resale disposition */
+        post: operations["completeEquipment3rDisposition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment/lookup": {
         parameters: {
             query?: never;
@@ -14497,6 +14703,167 @@ export interface components {
             quality_passed: boolean;
             note: string;
         };
+        Equipment3rRegisterUnit: {
+            branchId: components["schemas"]["Uuid"];
+            serialNo: string;
+            modelName: string;
+            capacityClass: string;
+            /** Format: int64 */
+            acquisitionCostMinor: number;
+        };
+        Equipment3rUnit: {
+            id: components["schemas"]["Uuid"];
+            serialNo: string;
+            modelName: string;
+            capacityClass: string;
+            /** @enum {string} */
+            availability: "AVAILABLE" | "RESERVED" | "ON_RENT" | "IN_ASSESSMENT" | "IN_REPAIR" | "IN_REFURBISHMENT" | "FOR_SALE" | "SOLD";
+            /** Format: int64 */
+            acquisitionCostMinor: number;
+            branchId: components["schemas"]["Uuid"];
+        };
+        Equipment3rUnitDetail: components["schemas"]["Equipment3rUnit"] & {
+            activeCaseId: components["schemas"]["Uuid"] | null;
+            openDispositionId: components["schemas"]["Uuid"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Equipment3rQuoteCase: {
+            branchId: components["schemas"]["Uuid"];
+            unitId: components["schemas"]["Uuid"];
+            customerName: string;
+            siteReference: string;
+            /** Format: int64 */
+            monthlyRateMinor: number;
+            /** Format: int32 */
+            durationMonths: number;
+            /** @enum {string} */
+            currencyCode: "KRW";
+        };
+        Equipment3rRentalCase: {
+            id: components["schemas"]["Uuid"];
+            unitId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "QUOTED" | "APPROVED" | "DECLINED" | "DISPATCHED" | "HANDED_OVER" | "RETURNED" | "CLOSED";
+            customerName: string;
+            siteReference: string;
+            /** Format: int64 */
+            monthlyRateMinor: number;
+            /** Format: int32 */
+            durationMonths: number;
+            /** @enum {string} */
+            currencyCode: "KRW";
+            branchId: components["schemas"]["Uuid"];
+            replayed?: boolean;
+        };
+        Equipment3rApproval: {
+            /** @enum {string} */
+            decision: "APPROVED" | "DECLINED";
+            reason?: string;
+        };
+        Equipment3rDispatch: {
+            carrierName: string;
+            vehicleReference: string;
+        };
+        Equipment3rHandover: {
+            recipientName: string;
+            evidenceReference: string;
+            /** Format: date-time */
+            handedOverAt: string;
+        };
+        Equipment3rInspectionRequest: {
+            /** @enum {string} */
+            outcome: "PASS" | "MAINTENANCE_PERFORMED";
+            findings: string;
+            maintenanceNote?: string;
+        };
+        Equipment3rReturn: {
+            /** Format: date-time */
+            returnedAt: string;
+        };
+        Equipment3rAssessment: {
+            /** @enum {string} */
+            conditionGrade: "A" | "B" | "C" | "D";
+            findings: string;
+            /** @enum {string} */
+            disposition: "REPAIR" | "REFURBISH" | "RESALE" | "REDEPLOY";
+        };
+        Equipment3rDispositionCompletion: {
+            /** Format: int64 */
+            costMinor?: number;
+            /** Format: int64 */
+            saleAmountMinor?: number;
+            buyerName?: string;
+        };
+        Equipment3rHistoryEntry: {
+            /** @enum {string} */
+            aggregateKind: "unit" | "case" | "disposition";
+            aggregateId: components["schemas"]["Uuid"];
+            transition: string;
+            actorId: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        Equipment3rInspection: {
+            id: components["schemas"]["Uuid"];
+            caseId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            outcome: "PASS" | "MAINTENANCE_PERFORMED";
+            findings: string;
+            maintenanceNote: string | null;
+            inspectedBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            inspectedAt: string;
+        };
+        Equipment3rDisposition: {
+            id: components["schemas"]["Uuid"];
+            unitId: components["schemas"]["Uuid"];
+            caseId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "REPAIR" | "REFURBISH" | "RESALE" | "REDEPLOY";
+            /** @enum {string} */
+            status: "OPEN" | "COMPLETED";
+            costMinor: number | null;
+            saleAmountMinor: number | null;
+            buyerName: string | null;
+            completedBy: components["schemas"]["Uuid"] | null;
+            completedAt: string | null;
+            financeGlPosting: null;
+        };
+        Equipment3rRentalCaseDetail: components["schemas"]["Equipment3rRentalCase"] & {
+            approval: components["schemas"]["Equipment3rApprovalRecord"] | null;
+            dispatch: components["schemas"]["Equipment3rDispatchRecord"] | null;
+            handover: components["schemas"]["Equipment3rHandoverRecord"] | null;
+            returnedAt: string | null;
+            assessment: components["schemas"]["Equipment3rAssessmentRecord"] | null;
+            dispositionId: components["schemas"]["Uuid"] | null;
+            inspections: components["schemas"]["Equipment3rInspection"][];
+            createdBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Equipment3rApprovalRecord: components["schemas"]["Equipment3rApproval"] & {
+            decidedBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            decidedAt: string;
+        };
+        Equipment3rDispatchRecord: components["schemas"]["Equipment3rDispatch"] & {
+            /** Format: date-time */
+            dispatchedAt: string;
+        };
+        Equipment3rHandoverRecord: components["schemas"]["Equipment3rHandover"] & {
+            /** Format: date-time */
+            handedOverAt: string;
+        };
+        Equipment3rAssessmentRecord: components["schemas"]["Equipment3rAssessment"] & {
+            assessedBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            assessedAt: string;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -15918,6 +16285,401 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             422: components["responses"]["ValidationError"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listEquipment3rUnits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Units */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rUnit"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    registerEquipment3rUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rRegisterUnit"];
+            };
+        };
+        responses: {
+            /** @description Registered unit */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rUnit"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getEquipment3rUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unit detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rUnitDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listEquipment3rUnitHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lifecycle history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rHistoryEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listEquipment3rRentalCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rental cases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    quoteEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rQuoteCase"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"];
+                };
+            };
+            /** @description Created quote */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rental case detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCaseDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    decideEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rApproval"];
+            };
+        };
+        responses: {
+            /** @description Updated rental case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    dispatchEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rDispatch"];
+            };
+        };
+        responses: {
+            /** @description Updated rental case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    handoverEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rHandover"];
+            };
+        };
+        responses: {
+            /** @description Updated rental case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    inspectEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rInspectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Inspection */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rInspection"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    returnEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rReturn"];
+            };
+        };
+        responses: {
+            /** @description Updated rental case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCase"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    assessEquipment3rRentalReturn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rAssessment"];
+            };
+        };
+        responses: {
+            /** @description Rental case detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rRentalCaseDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    completeEquipment3rDisposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                disposition_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Equipment3rDispositionCompletion"];
+            };
+        };
+        responses: {
+            /** @description Completed disposition */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rDisposition"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     lookupEquipment: {

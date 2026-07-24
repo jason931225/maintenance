@@ -1404,6 +1404,185 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+  /api/v1/equipment-3r/units:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rUnits
+      summary: List the caller-visible Equipment 3R units
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Units, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Equipment3rUnit'}}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [equipment-3r]
+      operationId: registerEquipment3rUnit
+      summary: Register a serialized Equipment 3R unit
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRegisterUnit'}}}}
+      responses:
+        '201': {description: Registered unit, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rUnit'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/equipment-3r/units/{unit_id}:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rUnit
+      summary: Read an Equipment 3R unit with its active aggregate references
+      security: [{bearerAuth: []}]
+      parameters: [{name: unit_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      responses:
+        '200': {description: Unit detail, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rUnitDetail'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/equipment-3r/units/{unit_id}/history:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rUnitHistory
+      summary: Read append-only Equipment 3R lifecycle history
+      security: [{bearerAuth: []}]
+      parameters: [{name: unit_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      responses:
+        '200': {description: Lifecycle history, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Equipment3rHistoryEntry'}}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/equipment-3r/rental-cases:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rRentalCases
+      summary: List the caller-visible Equipment 3R rental cases
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Rental cases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [equipment-3r]
+      operationId: quoteEquipment3rRentalCase
+      summary: Create or idempotently replay an Equipment 3R rental quote
+      security: [{bearerAuth: []}]
+      parameters: [{name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 200}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rQuoteCase'}}}}
+      responses:
+        '200': {description: Idempotent replay, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}
+        '201': {description: Created quote, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/equipment-3r/rental-cases/{case_id}:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rRentalCase
+      summary: Read an Equipment 3R rental case and its evidence-bearing lifecycle detail
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      responses:
+        '200': {description: Rental case detail, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCaseDetail'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/equipment-3r/rental-cases/{case_id}/approval:
+    post:
+      tags: [equipment-3r]
+      operationId: decideEquipment3rRentalCase
+      summary: Record a four-eyes approval decision for an Equipment 3R rental case
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rApproval'}}}}
+      responses:
+        '200': {description: Updated rental case, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/equipment-3r/rental-cases/{case_id}/dispatch:
+    post:
+      tags: [equipment-3r]
+      operationId: dispatchEquipment3rRentalCase
+      summary: Record the carrier and vehicle dispatch leg for an approved Equipment 3R case
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rDispatch'}}}}
+      responses:
+        '200': {description: Updated rental case, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/equipment-3r/rental-cases/{case_id}/handover:
+    post:
+      tags: [equipment-3r]
+      operationId: handoverEquipment3rRentalCase
+      summary: Record recipient and immutable evidence for an Equipment 3R handover
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rHandover'}}}}
+      responses:
+        '200': {description: Updated rental case, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/equipment-3r/rental-cases/{case_id}/inspections:
+    post:
+      tags: [equipment-3r]
+      operationId: inspectEquipment3rRentalCase
+      summary: Append an Equipment 3R inspection or maintenance record
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rInspectionRequest'}}}}
+      responses:
+        '201': {description: Inspection, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rInspection'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/equipment-3r/rental-cases/{case_id}/return:
+    post:
+      tags: [equipment-3r]
+      operationId: returnEquipment3rRentalCase
+      summary: Record physical return and move the unit to assessment
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rReturn'}}}}
+      responses:
+        '200': {description: Updated rental case, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCase'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/equipment-3r/rental-cases/{case_id}/assessment:
+    post:
+      tags: [equipment-3r]
+      operationId: assessEquipment3rRentalReturn
+      summary: Bind a returned Equipment 3R unit to repair, refurbishment, resale, or redeploy
+      security: [{bearerAuth: []}]
+      parameters: [{name: case_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rAssessment'}}}}
+      responses:
+        '200': {description: Rental case detail, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rRentalCaseDetail'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/equipment-3r/dispositions/{disposition_id}/completion:
+    post:
+      tags: [equipment-3r]
+      operationId: completeEquipment3rDisposition
+      summary: Complete an Equipment 3R repair, refurbishment, or resale disposition
+      security: [{bearerAuth: []}]
+      parameters: [{name: disposition_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rDispositionCompletion'}}}}
+      responses:
+        '200': {description: Completed disposition, content: {application/json: {schema: {$ref: '#/components/schemas/Equipment3rDisposition'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/v1/equipment/lookup:
     get:
       tags:
@@ -29209,3 +29388,185 @@ components:
         quality_evidence_ref: {type: string, minLength: 1}
         quality_passed: {type: boolean}
         note: {type: string, maxLength: 500}
+    Equipment3rRegisterUnit:
+      type: object
+      additionalProperties: false
+      required: [branchId, serialNo, modelName, capacityClass, acquisitionCostMinor]
+      properties:
+        branchId: {$ref: '#/components/schemas/Uuid'}
+        serialNo: {type: string, minLength: 1, maxLength: 80}
+        modelName: {type: string, minLength: 1, maxLength: 120}
+        capacityClass: {type: string, minLength: 1, maxLength: 40}
+        acquisitionCostMinor: {type: integer, format: int64, minimum: 0}
+    Equipment3rUnit:
+      type: object
+      required: [id, serialNo, modelName, capacityClass, availability, acquisitionCostMinor, branchId]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        serialNo: {type: string}
+        modelName: {type: string}
+        capacityClass: {type: string}
+        availability: {type: string, enum: [AVAILABLE, RESERVED, ON_RENT, IN_ASSESSMENT, IN_REPAIR, IN_REFURBISHMENT, FOR_SALE, SOLD]}
+        acquisitionCostMinor: {type: integer, format: int64}
+        branchId: {$ref: '#/components/schemas/Uuid'}
+    Equipment3rUnitDetail:
+      allOf:
+        - {$ref: '#/components/schemas/Equipment3rUnit'}
+        - type: object
+          required: [activeCaseId, openDispositionId, createdAt, updatedAt]
+          properties:
+            activeCaseId: {oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}]}
+            openDispositionId: {oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}]}
+            createdAt: {type: string, format: date-time}
+            updatedAt: {type: string, format: date-time}
+    Equipment3rQuoteCase:
+      type: object
+      additionalProperties: false
+      required: [branchId, unitId, customerName, siteReference, monthlyRateMinor, durationMonths, currencyCode]
+      properties:
+        branchId: {$ref: '#/components/schemas/Uuid'}
+        unitId: {$ref: '#/components/schemas/Uuid'}
+        customerName: {type: string, minLength: 1, maxLength: 160}
+        siteReference: {type: string, minLength: 1, maxLength: 200}
+        monthlyRateMinor: {type: integer, format: int64, minimum: 1}
+        durationMonths: {type: integer, format: int32, minimum: 1, maximum: 120}
+        currencyCode: {type: string, enum: [KRW]}
+    Equipment3rRentalCase:
+      type: object
+      required: [id, unitId, status, customerName, siteReference, monthlyRateMinor, durationMonths, currencyCode, branchId]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        unitId: {$ref: '#/components/schemas/Uuid'}
+        status: {type: string, enum: [QUOTED, APPROVED, DECLINED, DISPATCHED, HANDED_OVER, RETURNED, CLOSED]}
+        customerName: {type: string}
+        siteReference: {type: string}
+        monthlyRateMinor: {type: integer, format: int64}
+        durationMonths: {type: integer, format: int32}
+        currencyCode: {type: string, enum: [KRW]}
+        branchId: {$ref: '#/components/schemas/Uuid'}
+        replayed: {type: boolean}
+    Equipment3rApproval:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: {type: string, enum: [APPROVED, DECLINED]}
+        reason: {type: string, minLength: 1, maxLength: 500}
+    Equipment3rDispatch:
+      type: object
+      additionalProperties: false
+      required: [carrierName, vehicleReference]
+      properties:
+        carrierName: {type: string, minLength: 1, maxLength: 120}
+        vehicleReference: {type: string, minLength: 1, maxLength: 120}
+    Equipment3rHandover:
+      type: object
+      additionalProperties: false
+      required: [recipientName, evidenceReference, handedOverAt]
+      properties:
+        recipientName: {type: string, minLength: 1, maxLength: 160}
+        evidenceReference: {type: string, pattern: '^evidence://[A-Za-z0-9._/-]{8,400}$'}
+        handedOverAt: {type: string, format: date-time}
+    Equipment3rInspectionRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome, findings]
+      properties:
+        outcome: {type: string, enum: [PASS, MAINTENANCE_PERFORMED]}
+        findings: {type: string, minLength: 1, maxLength: 2000}
+        maintenanceNote: {type: string, minLength: 1, maxLength: 2000}
+    Equipment3rReturn:
+      type: object
+      additionalProperties: false
+      required: [returnedAt]
+      properties: {returnedAt: {type: string, format: date-time}}
+    Equipment3rAssessment:
+      type: object
+      additionalProperties: false
+      required: [conditionGrade, findings, disposition]
+      properties:
+        conditionGrade: {type: string, enum: [A, B, C, D]}
+        findings: {type: string, minLength: 1, maxLength: 2000}
+        disposition: {type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY]}
+    Equipment3rDispositionCompletion:
+      type: object
+      additionalProperties: false
+      properties:
+        costMinor: {type: integer, format: int64, minimum: 0}
+        saleAmountMinor: {type: integer, format: int64, minimum: 0}
+        buyerName: {type: string, minLength: 1, maxLength: 160}
+    Equipment3rHistoryEntry:
+      type: object
+      required: [aggregateKind, aggregateId, transition, actorId, occurredAt]
+      properties:
+        aggregateKind: {type: string, enum: [unit, case, disposition]}
+        aggregateId: {$ref: '#/components/schemas/Uuid'}
+        transition: {type: string}
+        actorId: {$ref: '#/components/schemas/Uuid'}
+        occurredAt: {type: string, format: date-time}
+    Equipment3rInspection:
+      type: object
+      required: [id, caseId, outcome, findings, maintenanceNote, inspectedBy, inspectedAt]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        caseId: {$ref: '#/components/schemas/Uuid'}
+        outcome: {type: string, enum: [PASS, MAINTENANCE_PERFORMED]}
+        findings: {type: string}
+        maintenanceNote: {oneOf: [{type: string}, {type: 'null'}]}
+        inspectedBy: {$ref: '#/components/schemas/Uuid'}
+        inspectedAt: {type: string, format: date-time}
+    Equipment3rDisposition:
+      type: object
+      required: [id, unitId, caseId, kind, status, costMinor, saleAmountMinor, buyerName, completedBy, completedAt, financeGlPosting]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        unitId: {$ref: '#/components/schemas/Uuid'}
+        caseId: {$ref: '#/components/schemas/Uuid'}
+        kind: {type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY]}
+        status: {type: string, enum: [OPEN, COMPLETED]}
+        costMinor: {oneOf: [{type: integer, format: int64}, {type: 'null'}]}
+        saleAmountMinor: {oneOf: [{type: integer, format: int64}, {type: 'null'}]}
+        buyerName: {oneOf: [{type: string}, {type: 'null'}]}
+        completedBy: {oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}]}
+        completedAt: {oneOf: [{type: string, format: date-time}, {type: 'null'}]}
+        financeGlPosting: {type: 'null'}
+    Equipment3rRentalCaseDetail:
+      allOf:
+        - {$ref: '#/components/schemas/Equipment3rRentalCase'}
+        - type: object
+          required: [approval, dispatch, handover, returnedAt, assessment, dispositionId, inspections, createdBy, createdAt, updatedAt]
+          properties:
+            approval: {oneOf: [{$ref: '#/components/schemas/Equipment3rApprovalRecord'}, {type: 'null'}]}
+            dispatch: {oneOf: [{$ref: '#/components/schemas/Equipment3rDispatchRecord'}, {type: 'null'}]}
+            handover: {oneOf: [{$ref: '#/components/schemas/Equipment3rHandoverRecord'}, {type: 'null'}]}
+            returnedAt: {oneOf: [{type: string, format: date-time}, {type: 'null'}]}
+            assessment: {oneOf: [{$ref: '#/components/schemas/Equipment3rAssessmentRecord'}, {type: 'null'}]}
+            dispositionId: {oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}]}
+            inspections: {type: array, items: {$ref: '#/components/schemas/Equipment3rInspection'}}
+            createdBy: {$ref: '#/components/schemas/Uuid'}
+            createdAt: {type: string, format: date-time}
+            updatedAt: {type: string, format: date-time}
+    Equipment3rApprovalRecord:
+      allOf:
+        - {$ref: '#/components/schemas/Equipment3rApproval'}
+        - type: object
+          required: [decidedBy, decidedAt]
+          properties: {decidedBy: {$ref: '#/components/schemas/Uuid'}, decidedAt: {type: string, format: date-time}}
+    Equipment3rDispatchRecord:
+      allOf:
+        - {$ref: '#/components/schemas/Equipment3rDispatch'}
+        - type: object
+          required: [dispatchedAt]
+          properties: {dispatchedAt: {type: string, format: date-time}}
+    Equipment3rHandoverRecord:
+      allOf:
+        - {$ref: '#/components/schemas/Equipment3rHandover'}
+        - type: object
+          required: [handedOverAt]
+          properties: {handedOverAt: {type: string, format: date-time}}
+    Equipment3rAssessmentRecord:
+      allOf:
+        - {$ref: '#/components/schemas/Equipment3rAssessment'}
+        - type: object
+          required: [assessedBy, assessedAt]
+          properties: {assessedBy: {$ref: '#/components/schemas/Uuid'}, assessedAt: {type: string, format: date-time}}
