@@ -140,11 +140,13 @@ function coverForEmployeeNoShow(
   exceptions: AttendanceException[],
   substitutions: Substitution[],
 ): Substitution | undefined {
-  return substitutions.find((substitution) =>
-    exceptions.some((exception) =>
-      substitutionCoversException(substitution, exception),
-    ),
-  );
+  if (
+    exceptions.length === 0 ||
+    !exceptions.every((exception) => coverForException(exception, substitutions))
+  ) {
+    return undefined;
+  }
+  return coverForException(exceptions[0], substitutions);
 }
 
 /**

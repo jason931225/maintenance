@@ -218,6 +218,39 @@ describe("dayBoardRows", () => {
     const employee = rows.find((row) => row.type === "employee");
     expect(employee?.type === "employee" && employee.cover).toBeUndefined();
   });
+
+  it.each([
+    ["covered exception first", ["ex-covered", "ex-uncovered"]],
+    ["uncovered exception first", ["ex-uncovered", "ex-covered"]],
+  ])(
+    "does not show a generic employee cover when one same-day no-show remains uncovered (%s)",
+    (_order, exceptionIds) => {
+      const rows = dayBoardRows(
+        [
+          record({
+            kind: "CLOCK_IN",
+            occurred_at: "2026-07-23T06:00:00+09:00",
+            employee_id: "emp-2",
+            employee_display_name: "최민석",
+          }),
+        ],
+        exceptionIds.map((id) =>
+          exception({
+            id,
+            kind: "NO_SHOW",
+            employee_id: "emp-2",
+            employee_name: "최민석",
+          }),
+        ),
+        [substitution({ exception_id: "ex-covered" })],
+        TODAY,
+        600,
+      );
+
+      const employee = rows.find((row) => row.type === "employee");
+      expect(employee?.type === "employee" && employee.cover).toBeUndefined();
+    },
+  );
 });
 
 describe("monthSheetRows", () => {
