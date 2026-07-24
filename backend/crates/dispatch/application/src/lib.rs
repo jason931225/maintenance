@@ -269,21 +269,16 @@ impl DispatchQueueCursor {
         target_due_at: Option<Timestamp>,
         updated_at: Timestamp,
         work_order_id: WorkOrderId,
-    ) -> String {
+    ) -> Result<String, KernelError> {
         let payload = DispatchQueueCursorPayload {
             as_of,
             target_due_at,
             updated_at,
             work_order_id,
         };
-        // Every field in `DispatchQueueCursorPayload` has a deterministic serde
-        // representation.  This API cannot return an encoding error, so preserve
-        // its fail-closed invariant without using a production `expect`.
-        let bytes = match serde_json::to_vec(&payload) {
-            Ok(bytes) => bytes,
-            Err(_) => std::process::abort(),
-        };
-        URL_SAFE_NO_PAD.encode(bytes)
+        let bytes = serde_json::to_vec(&payload)
+            .map_err(|_| KernelError::internal("dispatch queue cursor serialization failed"))?;
+        Ok(URL_SAFE_NO_PAD.encode(bytes))
     }
     pub fn decode(value: &str, now: Timestamp) -> Result<Self, KernelError> {
         let bytes = URL_SAFE_NO_PAD
@@ -403,7 +398,8 @@ mod tests {
             ErrorKind::Validation
         );
 
-        let cursor = DispatchQueueCursor::encode(now, None, now, WorkOrderId::new());
+        let cursor = DispatchQueueCursor::encode(now, None, now, WorkOrderId::new())
+            .expect("cursor fields must serialize");
         assert_eq!(
             DispatchQueueCursor::decode(&cursor, now)
                 .expect("complete opaque cursor must round-trip")
@@ -426,7 +422,8 @@ mod tests {
             None,
             now,
             WorkOrderId::new(),
-        );
+        )
+        .expect("cursor fields must serialize");
         assert_eq!(
             DispatchQueueCursor::decode(&future, now)
                 .expect_err("future snapshot cursors are invalid")

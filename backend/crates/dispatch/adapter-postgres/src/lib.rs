@@ -613,7 +613,21 @@ impl PgDispatchStore {
                 FROM work_orders w LEFT JOIN work_order_assignments a ON a.work_order_id=w.id AND a.role='PRIMARY'
                 WHERE w.status=ANY($1) AND w.updated_at <= $2 AND ($3::boolean OR w.branch_id=ANY($4))"#)
                 .bind(&statuses).bind(as_of).bind(all_branches).bind(&branches).bind(now).fetch_one(tx.as_mut()).await?;
-            let next_after = if has_more { items.last().map(|item| DispatchQueueCursor::encode(as_of, item.target_due_at, item.updated_at, item.work_order_id)) } else { None };
+            let next_after = if has_more {
+                items
+                    .last()
+                    .map(|item| {
+                        DispatchQueueCursor::encode(
+                            as_of,
+                            item.target_due_at,
+                            item.updated_at,
+                            item.work_order_id,
+                        )
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
             Ok(DispatchQueuePage { items, next_after, stats: DispatchQueueStats { unassigned_count:stats_row.try_get("unassigned_count")?, sla_due_count:stats_row.try_get("sla_due_count")? } })
         })).await
     }
