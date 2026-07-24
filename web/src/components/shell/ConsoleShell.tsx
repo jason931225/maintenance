@@ -23,6 +23,7 @@ import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { ConsoleToast } from "../console/primitives";
 import { CommandPalette } from "./CommandPalette";
 import {
+  isGrantedConsoleNavItem,
   isNavItemVisible,
   visibleNavItemsForRoles,
   type NavItemKey,
@@ -187,9 +188,7 @@ function ConsoleShellContent() {
         session?.roles,
         session?.group_roles,
         session?.feature_grants,
-      ).find(
-        (item) => item.key !== "profile" && item.key !== "my-attendance",
-      )?.href ?? "/settings/profile";
+      ).find(isGrantedConsoleNavItem)?.href ?? "/settings/profile";
     return <Navigate to={fallback} replace />;
   }
 
