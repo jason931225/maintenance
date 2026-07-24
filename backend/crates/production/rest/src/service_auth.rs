@@ -14,15 +14,31 @@ type HmacSha256 = Hmac<Sha256>;
 
 pub const PRODUCTION_SOURCE_INGEST_FEATURE: &str = "production_source_ingest";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BasicCredentials {
-    pub client_id: ServicePrincipalId,
-    pub secret: [u8; 32],
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct BasicCredentials {
+    pub(crate) client_id: ServicePrincipalId,
+    secret: [u8; 32],
+}
+
+impl std::fmt::Debug for BasicCredentials {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BasicCredentials")
+            .field("client_id", &self.client_id)
+            .field("secret", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl BasicCredentials {
+    pub(crate) const fn secret(&self) -> &[u8; 32] {
+        &self.secret
+    }
 }
 
 /// Parse the only accepted wire format. Any malformed form deliberately maps
 /// to the same caller-facing authentication failure as an unknown credential.
-pub fn parse_basic_credentials(value: Option<&str>) -> Option<BasicCredentials> {
+pub(crate) fn parse_basic_credentials(value: Option<&str>) -> Option<BasicCredentials> {
     let encoded = value?.strip_prefix("Basic ")?;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(encoded)
@@ -38,7 +54,7 @@ pub fn parse_basic_credentials(value: Option<&str>) -> Option<BasicCredentials> 
 }
 
 #[must_use]
-pub fn verifier(
+pub(crate) fn verifier(
     key: &[u8; 32],
     secret: &[u8; 32],
     org_id: OrgId,
@@ -59,7 +75,7 @@ pub fn verifier(
 }
 
 #[must_use]
-pub fn verifier_matches(expected: &[u8], actual: &[u8; 32]) -> bool {
+pub(crate) fn verifier_matches(expected: &[u8], actual: &[u8; 32]) -> bool {
     expected.ct_eq(actual).into()
 }
 

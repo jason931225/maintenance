@@ -453,7 +453,7 @@ async fn ingest_source(
     .map_err(RestError::kernel)?;
     let expected = service_auth::verifier(
         &hmac_key,
-        &credentials.secret,
+        credentials.secret(),
         machine.org_id,
         machine.id,
         branch_id,
@@ -984,7 +984,6 @@ async fn plan_for_auth_tx(
         first_operation_id: r.try_get("first_operation_id").map_err(RestError::db)?,
         created_at: r.try_get("created_at").map_err(RestError::db)?,
         due_at: r.try_get("due_at").map_err(RestError::db)?,
-        plan_digest: r.try_get("plan_digest").map_err(RestError::db)?,
         created_by: r.try_get("created_by").map_err(RestError::db)?,
         plan_digest: r.try_get("plan_digest").map_err(RestError::db)?,
         checks: r.try_get("checks").map_err(RestError::db)?,
