@@ -450,7 +450,7 @@ export function Topbar({
                 className="cshell-hoverable cshell-focusable"
                 onClick={() => {
                   closeUserMenu(true);
-                  onLocalRoleSwitch();
+                  onLocalRoleSwitch?.();
                 }}
                 style={{
                   width: "100%",
