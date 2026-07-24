@@ -30,7 +30,7 @@ function authzResponse(features = allFacilitiesCapabilities) {
 }
 
 function caseView(status: string, overrides = {}) {
-  return { id: caseId, status, assigneeId: status === "DUE" || status === "SCHEDULED" ? null : techId, responseDueAt: "2030-01-01T09:00:00Z", completionDueAt: "2030-01-01T12:00:00Z", acceptanceDueAt: "2030-01-02T12:00:00Z", energyDeltaKwh: null, totalCostKrw: 0, ...overrides };
+  return { id: caseId, branchId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status, assigneeId: status === "DUE" || status === "SCHEDULED" ? null : techId, responseDueAt: "2030-01-01T09:00:00Z", completionDueAt: "2030-01-01T12:00:00Z", acceptanceDueAt: "2030-01-02T12:00:00Z", energyDeltaKwh: null, totalCostKrw: 0, ...overrides };
 }
 
 function setupApi(initial = "DUE", userId = actorId) {

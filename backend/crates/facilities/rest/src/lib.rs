@@ -123,6 +123,7 @@ pub fn router(state: FacilitiesRestState) -> Router {
 #[serde(rename_all = "camelCase")]
 struct CaseView {
     id: Uuid,
+    branch_id: Uuid,
     status: String,
     assignee_id: Option<Uuid>,
     response_due_at: time::OffsetDateTime,
@@ -336,6 +337,7 @@ async fn get_case_view(pool: &PgPool, p: &Principal, id: Uuid) -> Result<CaseVie
     require_feature(p, Feature::FacilitiesObserve, b)?;
     Ok(CaseView {
         id: r.try_get("id").map_err(RestError::db)?,
+        branch_id: b,
         status: r.try_get("status").map_err(RestError::db)?,
         assignee_id: r.try_get("assignee_id").map_err(RestError::db)?,
         response_due_at: r.try_get("response_due_at").map_err(RestError::db)?,
