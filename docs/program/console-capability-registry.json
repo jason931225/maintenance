@@ -5,6 +5,27 @@
  "source_revision": "origin/main@8e42b9a2ea42c4d79ed498044a9f50f623299f7f",
  "dispatch_rule": "A row may enter in_progress only with one writer, an exact isolated worktree, disjoint ownership roots, a signature story, evidence paths, and executable leaf gates.",
  "hold_rule": "Unassigned worktrees, overlapping ownership, missing backend contracts, empty Buck2 target sets, stale reference digests, or missing jurisdiction and independent-review receipts fail closed.",
+ "review_authority": {
+  "reviewers": [
+   {
+    "id": "jasonlee-ssh-reviewer",
+    "author_name": "Jason Lee",
+    "author_email": "jason19931225@gmail.com",
+    "committer_name": "Jason Lee",
+    "committer_email": "jason19931225@gmail.com",
+    "signing": {
+     "format": "ssh",
+     "principal": "jason19931225@gmail.com",
+     "fingerprint": "SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8"
+    }
+   }
+  ]
+ },
+ "fanout_epoch": {
+  "current_epoch": 1,
+  "normalized_lane_ids": [],
+  "status": "No currently declared lane has a fresh, clean, exact worktree, root, resource, and leaf-gate normalization; legacy lanes remain explicitly held."
+ },
  "priority_formula": {
   "user_workflow_value": 0.25,
   "dependency_unlock": 0.2,

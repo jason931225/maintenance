@@ -74,7 +74,7 @@ test('completed source checks unowned private roots before its review shortcut',
 
 test('consolidation is blocked until exact independent review and valid consolidation identity', () => {
   const source = cap('A', ['backend/crates/a/**', 'backend/openapi/openapi.yaml']);
-  source.lane_assignments = { source: { owner: source.owner, worktree: source.worktree, branch: source.branch, roots: ['backend/crates/a/**', 'docs/evidence/A/**'], resources, tests: source.tests }, consolidation: { owner: 'console-consolidation', worktree: '/tmp/consolidation', branch: 'codex/consolidation', resources } };
+  source.lane_assignments = { source: { owner: source.owner, worktree: source.worktree, branch: source.branch, roots: ['backend/crates/a/**'], resources, tests: source.tests }, consolidation: { owner: 'console-consolidation', worktree: '/tmp/consolidation', branch: 'codex/consolidation', resources } };
   const value = plan([source]);
   assert.equal(value.consolidation_queue[0].ready_after_leaf_review, false);
   assert.match(value.consolidation_queue[0].review_prerequisites.join(','), /exact_leaf_review_receipts_required/);
@@ -101,13 +101,13 @@ test('Buck isolation directories include a stable full-lane hash and reject call
 test('review receipts fail closed unless an independent reviewer custody-binds the exact leaf result', async () => {
   const { validateReviewReceiptForAnchor, leafResultDigest } = await import('./plan-fanout.mjs');
   const LEAF = 'b'.repeat(40); const REVIEW = 'c'.repeat(40); const OTHER = 'd'.repeat(40);
-  const lane = { laneId: 'A', owner: 'writer-a' };
+  const lane = { laneId: 'A', owner: 'writer-a', privateRoots: ['src/a/**'], protectedRoots: ['shared/**'] };
   const authority = { reviewers: [{ id: 'reviewer-b', author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test', signing_fingerprint: 'ABCD' }] };
   const receipt = { status: 'approved', epoch_base_sha: SHA, lane_id: 'A', implementer: 'writer-a', reviewer: 'reviewer-b', leaf_commit: LEAF, leaf_result_sha256: leafResultDigest('base..leaf'), review_commit: REVIEW };
   const signature = '[GNUPG:] VALIDSIG ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234 2026-07-24 0 4 0 1 10 00 ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234\n';
   authority.reviewers[0].signing_fingerprint = 'ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234';
   const receiptFromSeparatelyParsedContent = JSON.parse(JSON.stringify(receipt));
-  const operations = { hasCommit: (sha) => [LEAF, REVIEW, OTHER].includes(sha), isAncestor: (ancestor, descendant) => ancestor === SHA && descendant === LEAF, parentOf: (sha) => sha === REVIEW ? LEAF : OTHER, changedPaths: () => ['docs/evidence/console/fanout-receipts/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd.json'], readJson: () => receiptFromSeparatelyParsedContent, leafDiff: () => 'base..leaf', commitIdentity: () => ({ author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test' }), verifySignature: () => signature };
+  const operations = { hasCommit: (sha) => [LEAF, REVIEW, OTHER].includes(sha), isAncestor: (ancestor, descendant) => ancestor === SHA && descendant === LEAF, parentOf: (sha) => sha === REVIEW ? LEAF : OTHER, parentCount: () => 1, changedPaths: (sha) => sha === LEAF ? ['src/a/file.rs'] : ['docs/evidence/console/fanout-receipts/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd.json'], readJson: () => receiptFromSeparatelyParsedContent, leafDiff: () => 'base..leaf', commitIdentity: () => ({ author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test' }), verifySignature: () => signature };
   assert.deepEqual(validateReviewReceiptForAnchor(receipt, SHA, lane, authority, operations), receipt);
   const forgedDigest = { ...receipt, leaf_result_sha256: 'e'.repeat(64) };
   assert.throws(() => validateReviewReceiptForAnchor(forgedDigest, SHA, lane, authority, { ...operations, readJson: () => forgedDigest }), /digest/);
@@ -116,6 +116,8 @@ test('review receipts fail closed unless an independent reviewer custody-binds t
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, readJson: () => null }), /absent/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, changedPaths: () => ['code.js'] }), /mutates/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentOf: () => OTHER }), /direct child/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentCount: (sha) => sha === LEAF ? 2 : 1 }), /single-parent/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, changedPaths: (sha) => sha === LEAF ? ['shared/generated.rs'] : operations.changedPaths(sha) }), /private roots/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, isAncestor: () => false }), /anchored/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => '[GNUPG:] VALIDSIG 0000000000000000000000000000000000000000\n' }), /signature/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => '[GNUPG:] GOODSIG ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234 reviewer\n' }), /signature/);
@@ -189,6 +191,23 @@ test('private lane roots that intersect protected authority are held instead of 
   const value = plan([unsafe]);
   assert.equal(value.selected.length, 0);
   assert.match(value.held.find((entry) => entry.lane_id === 'UNSAFE#source').reasons.join(','), /protected_shared_root_intersection/);
+});
+
+test('lane assignment roots must be covered by exactly one private capability root', () => {
+  const expanding = cap('EXPANDING', ['backend/crates/owned/**']);
+  expanding.lane_assignments = { source: { owner: expanding.owner, worktree: expanding.worktree, branch: expanding.branch, roots: ['backend/crates/**'], resources, tests: expanding.tests } };
+  const value = plan([expanding]);
+  assert.equal(value.selected.length, 0);
+  assert.match(value.held.find((entry) => entry.lane_id === 'EXPANDING#source').reasons.join(','), /lane_root_outside_capability_private_ownership/);
+});
+
+test('completed and legacy lanes remain held before completion shortcuts', () => {
+  const complete = cap('COMPLETE', ['backend/crates/complete/**'], { state: { backend: 'complete', frontend: 'not_applicable' } });
+  complete.lane_assignments = { source: { owner: complete.owner, worktree: complete.worktree, branch: complete.branch, roots: ['backend/crates/**'], resources, tests: complete.tests } };
+  const invalid = plan([complete]);
+  assert.match(invalid.held[0].reasons.join(','), /lane_root_outside_capability_private_ownership/);
+  const legacy = buildFanoutPlan(reg([cap('LEGACY', ['backend/crates/legacy/**'])], { fanout_epoch: { current_epoch: 1, normalized_lane_ids: [] } }), { anchorSha: SHA, maxWriters: 3, qualityBias: .6, generatedFaces: faces });
+  assert.match(legacy.held[0].reasons.join(','), /legacy_lane_not_normalized_for_epoch/);
 });
 
 test('runtime-ineligible lanes are held before ranking so lower safe lanes fill capacity', () => {
