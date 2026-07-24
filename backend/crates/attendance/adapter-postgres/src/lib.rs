@@ -1149,7 +1149,7 @@ mod tests {
     fn canonical_whitespace_has_the_same_persisted_fingerprint() {
         let caller = scope();
         let mut canonical = command();
-        let mut whitespace = command();
+        let mut whitespace = canonical.clone();
         whitespace.site = " Seoul ".into();
         whitespace.role = " Operator ".into();
         whitespace.reason_kind = " APPROVED_LEAVE ".into();
