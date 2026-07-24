@@ -216,4 +216,66 @@ describe("AttendancePunchPanel", () => {
     view.rerender(<AuthContext.Provider value={makeAuthContext(undefined)}><AttendancePunchPanel /></AuthContext.Provider>);
     expect(screen.queryByRole("heading", { name: "출퇴근 및 기록" })).not.toBeInTheDocument();
   });
+
+  it("supersedes a deferred initial read with the post-write reload", async () => {
+    const user = userEvent.setup();
+    let resolveInitial!: (response: HttpResponse) => void;
+    const initial = new Promise<HttpResponse>((resolve) => { resolveInitial = resolve; });
+    let initialSignal: AbortSignal | undefined;
+    let reads = 0;
+    server.use(
+      http.get("*/api/v1/hr/attendance-records/me", ({ request }) => {
+        reads += 1;
+        if (reads === 1) {
+          initialSignal = request.signal;
+          return initial;
+        }
+        return HttpResponse.json({ items: [{ ...baseRecord, payroll_material_ref_id: "NEW-PAYROLL" }] });
+      }),
+      http.post("*/api/v1/hr/attendance-records/me", () => HttpResponse.json(baseRecord)),
+    );
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: "출근 기록" }));
+    expect(await screen.findByText("NEW-PAYROLL")).toBeInTheDocument();
+    expect(initialSignal?.aborted).toBe(true);
+    resolveInitial(HttpResponse.json({ items: [{ ...baseRecord, payroll_material_ref_id: "OLD-PAYROLL" }] }));
+    await Promise.resolve();
+    expect(screen.queryByText("OLD-PAYROLL")).not.toBeInTheDocument();
+    expect(reads).toBe(2);
+  });
+
+  it("aborts deferred session-A reads and writes on direct logout", async () => {
+    const user = userEvent.setup();
+    let resolveRead!: (response: HttpResponse) => void;
+    let resolvePost!: (response: HttpResponse) => void;
+    const read = new Promise<HttpResponse>((resolve) => { resolveRead = resolve; });
+    const post = new Promise<HttpResponse>((resolve) => { resolvePost = resolve; });
+    let readSignal: AbortSignal | undefined;
+    let postSignal: AbortSignal | undefined;
+    let reads = 0;
+    server.use(
+      http.get("*/api/v1/hr/attendance-records/me", ({ request }) => {
+        reads += 1;
+        readSignal = request.signal;
+        return read;
+      }),
+      http.post("*/api/v1/hr/attendance-records/me", ({ request }) => {
+        postSignal = request.signal;
+        return post;
+      }),
+    );
+    const view = renderApp();
+    await user.click(await screen.findByRole("button", { name: "출근 기록" }));
+    await waitFor(() => expect(postSignal).toBeDefined());
+    view.rerender(<AuthContext.Provider value={makeAuthContext(undefined)}><AttendancePunchPanel /></AuthContext.Provider>);
+    expect(readSignal?.aborted).toBe(true);
+    expect(postSignal?.aborted).toBe(true);
+    resolveRead(HttpResponse.json({ items: [{ ...baseRecord, payroll_material_ref_id: "A-PAYROLL" }] }));
+    resolvePost(HttpResponse.json(baseRecord));
+    await Promise.resolve();
+    expect(screen.queryByText("A-PAYROLL")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "출퇴근 및 기록" })).not.toBeInTheDocument();
+    expect(reads).toBe(1);
+  });
 });

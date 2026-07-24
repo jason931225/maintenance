@@ -105,26 +105,23 @@ function AttendancePunchPanelInner({ sessionIdentity }: { sessionIdentity: strin
     setState("idle");
   }, [api]);
 
-  const refreshRecords = useCallback(() => {
+  const refreshRecords = useCallback(async (token = generation.current) => {
     readController.current?.abort();
     const controller = new AbortController();
     readController.current = controller;
-    void loadRecords(controller.signal, generation.current);
+    await loadRecords(controller.signal, token);
   }, [loadRecords]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    readController.current = controller;
     const token = ++generation.current;
-    void Promise.resolve().then(() => loadRecords(controller.signal, token));
+    void refreshRecords(token);
     return () => {
-      controller.abort();
       readController.current?.abort();
       operationController.current?.abort();
-      if (readController.current === controller) readController.current = undefined;
+      readController.current = undefined;
       generation.current += 1;
     };
-  }, [loadRecords, sessionIdentity]);
+  }, [refreshRecords, sessionIdentity]);
 
   const latest = items.length > 0 ? items[0] : undefined;
   const currentState = latest?.state_after ?? "OFF_DUTY";
@@ -172,9 +169,9 @@ function AttendancePunchPanelInner({ sessionIdentity }: { sessionIdentity: strin
 
       setStatus(response.response.status);
       setReplayedRecordId(response.data.duplicate ? response.data.id : undefined);
-      await loadRecords(controller.signal, token);
+      await refreshRecords(token);
     },
-    [api, idPrefix, loadRecords, recordFailure],
+    [api, idPrefix, recordFailure, refreshRecords],
   );
 
   const history = useMemo(() => items.slice(0, 10), [items]);
@@ -186,7 +183,7 @@ function AttendancePunchPanelInner({ sessionIdentity }: { sessionIdentity: strin
           {attendanceText.personal.punch}
         </h3>
         <RefreshButton
-          onClick={refreshRecords}
+          onClick={() => { void refreshRecords(); }}
           isLoading={state === "loading"}
         />
       </div>
@@ -195,7 +192,7 @@ function AttendancePunchPanelInner({ sessionIdentity }: { sessionIdentity: strin
           <PageError
             message={t.loadFailed}
             status={status}
-            onRetry={refreshRecords}
+            onRetry={() => { void refreshRecords(); }}
           />
         ) : null}
 
