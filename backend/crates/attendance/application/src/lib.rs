@@ -1,0 +1,254 @@
+//! Attendance use-case contracts.  The adapter supplies persistence; this layer
+//! fixes the business decisions so all transports share the same gates.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
+use mnt_attendance_domain::{
+    AttendanceDateRange, AttendanceDomainError, ExceptionKind, SubstitutionWindow,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use time::{Date, OffsetDateTime};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallerScope {
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub branch_ids: Vec<Uuid>,
+    pub org_wide: bool,
+}
+impl CallerScope {
+    pub fn permits_branch(&self, branch_id: Option<Uuid>) -> bool {
+        self.org_wide
+            || branch_id.is_none()
+            || branch_id.is_some_and(|id| self.branch_ids.contains(&id))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListSubstitutions {
+    pub range: AttendanceDateRange,
+    pub branch_id: Option<Uuid>,
+    pub limit: i64,
+    pub offset: i64,
+}
+impl ListSubstitutions {
+    pub fn new(
+        range: AttendanceDateRange,
+        branch_id: Option<Uuid>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Self {
+        Self {
+            range,
+            branch_id,
+            limit: limit.unwrap_or(50).clamp(1, 200),
+            offset: offset.unwrap_or(0).clamp(0, 1_000_000),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RaiseException {
+    pub kind: ExceptionKind,
+    pub employee_id: Uuid,
+    pub branch_id: Option<Uuid>,
+    pub work_date: Date,
+    pub detail: String,
+    pub evidence: Value,
+    pub idempotency_key: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveException {
+    pub exception_id: Uuid,
+    pub action: String,
+    pub reason: String,
+    pub linked_work_ref: Option<String>,
+    pub ot_hours: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssignSubstitute {
+    pub window: SubstitutionWindow,
+    pub branch_id: Option<Uuid>,
+    pub site: String,
+    pub role: String,
+    pub covered_employee_id: Uuid,
+    pub reason_kind: String,
+    pub reason_detail: Option<String>,
+    pub worker_employee_id: Option<Uuid>,
+    pub worker_name: String,
+    pub worker_type: String,
+    pub worker_rate: Option<String>,
+    pub exception_id: Option<Uuid>,
+    pub idempotency_key: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloseMonth {
+    pub month: String,
+    pub branch_scope: Option<Uuid>,
+    pub attest: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloseChecks {
+    pub open_exceptions: i64,
+    pub pending_leave: i64,
+    pub already_closed: bool,
+}
+impl CloseChecks {
+    #[must_use]
+    pub const fn ready(&self) -> bool {
+        self.open_exceptions == 0 && !self.already_closed
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Week52Input {
+    pub employee_id: Uuid,
+    pub week_start: Date,
+    pub current_hours: f64,
+    pub projected_hours: f64,
+    pub acknowledged_at: Option<OffsetDateTime>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Week52Tone {
+    Ok,
+    Warn,
+    Danger,
+}
+pub fn week52_tone(input: &Week52Input) -> Week52Tone {
+    if input.current_hours >= 52.0 || input.projected_hours >= 52.0 {
+        Week52Tone::Danger
+    } else if input.projected_hours >= 48.0 {
+        Week52Tone::Warn
+    } else {
+        Week52Tone::Ok
+    }
+}
+
+pub fn validate_idempotency_key(key: &str) -> Result<String, AttendanceApplicationError> {
+    let key = key.trim();
+    if !(16..=200).contains(&key.len()) {
+        return Err(AttendanceApplicationError::InvalidIdempotencyKey);
+    }
+    Ok(key.to_owned())
+}
+pub fn validate_text(
+    value: &str,
+    name: &'static str,
+    max: usize,
+) -> Result<String, AttendanceApplicationError> {
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > max {
+        return Err(AttendanceApplicationError::InvalidText(name));
+    }
+    Ok(value.to_owned())
+}
+pub fn ensure_scope(
+    scope: &CallerScope,
+    branch_id: Option<Uuid>,
+) -> Result<(), AttendanceApplicationError> {
+    if scope.permits_branch(branch_id) {
+        Ok(())
+    } else {
+        Err(AttendanceApplicationError::ForbiddenBranch)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AttendanceApplicationError {
+    #[error(transparent)]
+    Domain(#[from] AttendanceDomainError),
+    #[error("Idempotency-Key must be 16..200 characters")]
+    InvalidIdempotencyKey,
+    #[error("{0} is required and too long")]
+    InvalidText(&'static str),
+    #[error("the requested branch is outside the caller scope")]
+    ForbiddenBranch,
+    #[error("monthly close requires explicit attestation")]
+    MissingAttestation,
+    #[error("open exceptions block this close")]
+    CloseBlocked,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::{Date, Month};
+    #[test]
+    fn branch_scope_never_expands() {
+        let allowed = Uuid::new_v4();
+        let caller = CallerScope {
+            org_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            branch_ids: vec![allowed],
+            org_wide: false,
+        };
+        assert!(ensure_scope(&caller, Some(allowed)).is_ok());
+        assert!(ensure_scope(&caller, Some(Uuid::new_v4())).is_err());
+    }
+    #[test]
+    fn close_requires_no_open_exception() {
+        assert!(
+            !CloseChecks {
+                open_exceptions: 1,
+                pending_leave: 0,
+                already_closed: false
+            }
+            .ready()
+        );
+        assert!(
+            CloseChecks {
+                open_exceptions: 0,
+                pending_leave: 2,
+                already_closed: false
+            }
+            .ready()
+        );
+    }
+    #[test]
+    fn monitor_thresholds_are_server_policy() {
+        let i = Week52Input {
+            employee_id: Uuid::new_v4(),
+            week_start: Date::from_calendar_date(2026, Month::July, 6).unwrap(),
+            current_hours: 47.0,
+            projected_hours: 49.0,
+            acknowledged_at: None,
+        };
+        assert_eq!(week52_tone(&i), Week52Tone::Warn);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdempotencyDecision {
+    Create,
+    Replay,
+    Conflict,
+}
+#[must_use]
+pub fn idempotency_decision(
+    existing_fingerprint: Option<&str>,
+    request_fingerprint: &str,
+) -> IdempotencyDecision {
+    match existing_fingerprint {
+        None => IdempotencyDecision::Create,
+        Some(existing) if existing == request_fingerprint => IdempotencyDecision::Replay,
+        Some(_) => IdempotencyDecision::Conflict,
+    }
+}
+
+#[cfg(test)]
+mod idempotency_tests {
+    use super::*;
+    #[test]
+    fn duplicate_assignment_is_replay_only_for_same_request() {
+        assert_eq!(idempotency_decision(None, "a"), IdempotencyDecision::Create);
+        assert_eq!(
+            idempotency_decision(Some("a"), "a"),
+            IdempotencyDecision::Replay
+        );
+        assert_eq!(
+            idempotency_decision(Some("a"), "b"),
+            IdempotencyDecision::Conflict
+        );
+    }
+}
