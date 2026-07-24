@@ -56,8 +56,8 @@ END;
 $$;
 
 -- Mirror `authorize_org_wide(EmployeeDirectoryManage)` at the command boundary:
--- EXECUTIVE/SUPER_ADMIN have live all-branch scope, while custom grants must be
--- active, allow this feature, and have no branch-narrowing condition.
+-- SUPER_ADMIN has the built-in permission; a custom grant also needs the
+-- resolver's live All scope plus an active, non-branch-narrowed allow policy.
 CREATE FUNCTION leave_api.assert_employee_directory_manager(
     p_org_id UUID, p_actor UUID
 ) RETURNS VOID
@@ -72,7 +72,6 @@ BEGIN
           AND u.is_active
           AND (
               u.roles @> ARRAY['SUPER_ADMIN']::TEXT[]
-              OR u.roles @> ARRAY['EXECUTIVE']::TEXT[]
               OR (
                   -- A custom grant can only be org-wide when the actor has
                   -- the resolver's live All scope (EXECUTIVE/SUPER_ADMIN).

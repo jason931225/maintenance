@@ -209,8 +209,8 @@ pub enum Feature {
     MailUse,
     /// Read the tenant HR employee directory. EXECUTIVE + ADMIN + SUPER_ADMIN only.
     EmployeeDirectoryRead,
-    /// Import/manage tenant HR employee rows. ADMIN + EXECUTIVE + SUPER_ADMIN;
-    /// employees are deliberately not auth users.
+    /// Import/manage tenant HR employee rows. ADMIN + SUPER_ADMIN only; employees
+    /// are deliberately not auth users.
     EmployeeDirectoryManage,
     /// Report a staff exit case (무단결근 → 퇴사 보고). The branch/site manager
     /// tier — ADMIN + SUPER_ADMIN. Distinct from HR/HQ confirmation so a site
@@ -485,7 +485,7 @@ impl Feature {
             // MECHANIC is excluded (their workflow is the messenger surface).
             Self::MailUse => [D, A, D, A, A, A],
             Self::EmployeeDirectoryRead => [D, D, D, A, A, A],
-            Self::EmployeeDirectoryManage => [D, D, D, A, A, A],
+            Self::EmployeeDirectoryManage => [D, D, D, A, D, A],
             // Separation of duties across the absence → exit → settlement chain.
             // Report + HR confirm + settlement are the branch HR/manager tier
             // (ADMIN + SUPER_ADMIN); HQ confirm is the org-wide leadership tier

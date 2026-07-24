@@ -157,7 +157,8 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
 
     let executive = UserId::new();
     seed_user_with_roles(&pool, org, executive, &["EXECUTIVE"]).await;
-    let executive_created = post(
+    let before_denials = people_write_counts(&pool, org).await;
+    let executive_denied = post(
         service.clone(),
         EMPLOYEES_PATH,
         &bearer(&keys, org, executive, &["EXECUTIVE"]),
@@ -171,11 +172,12 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     )
     .await;
     assert_eq!(
-        executive_created.status,
-        StatusCode::CREATED,
+        executive_denied.status,
+        StatusCode::FORBIDDEN,
         "{:?}",
-        executive_created.json
+        executive_denied.json
     );
+    assert_eq!(people_write_counts(&pool, org).await, before_denials);
 
     let custom_grantee = UserId::new();
     seed_user_with_roles(&pool, org, custom_grantee, &["EXECUTIVE"]).await;
@@ -200,7 +202,6 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         custom_created.json
     );
 
-    let before_denials = people_write_counts(&pool, org).await;
     let denied_user = UserId::new();
     seed_user_with_roles(&pool, org, denied_user, &["MEMBER"]).await;
     let denied_create = post(
@@ -224,19 +225,12 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     );
 
     let branch_grantee = UserId::new();
-    seed_user_with_roles(&pool, org, branch_grantee, &["ADMIN"]).await;
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
-        .bind(*branch_grantee.as_uuid())
-        .bind(branch)
-        .bind(*org.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
+    seed_user_with_roles(&pool, org, branch_grantee, &["EXECUTIVE"]).await;
     seed_manage_grant(&pool, org, branch_grantee, Some(branch)).await;
     let branch_denied = post(
         service.clone(),
         EMPLOYEES_PATH,
-        &bearer(&keys, org, branch_grantee, &["ADMIN"]),
+        &bearer(&keys, org, branch_grantee, &["EXECUTIVE"]),
         create_body(
             branch,
             "PEOPLE-BRANCH",
@@ -251,6 +245,29 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         StatusCode::FORBIDDEN,
         "{:?}",
         branch_denied.json
+    );
+    assert_eq!(people_write_counts(&pool, org).await, before_denials);
+
+    let admin = UserId::new();
+    seed_user_with_roles(&pool, org, admin, &["ADMIN"]).await;
+    let admin_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, admin, &["ADMIN"]),
+        create_body(
+            branch,
+            "PEOPLE-ADMIN",
+            "admin-key",
+            "010-1234-5678",
+            "Admin",
+        ),
+    )
+    .await;
+    assert_eq!(
+        admin_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        admin_denied.json
     );
     assert_eq!(people_write_counts(&pool, org).await, before_denials);
 
