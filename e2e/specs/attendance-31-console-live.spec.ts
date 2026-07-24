@@ -43,6 +43,12 @@ const DATABASE_URL =
 const OWNER_DATABASE_URL =
   process.env.MNT_DEV_DATABASE_OWNER_URL ??
   "postgres://mnt_app:mnt-dev-owner-change-me@127.0.0.1:55432/mnt_dev";
+const LEAVE_COMMAND_DATABASE_URL =
+  process.env.LEAVE_COMMAND_DATABASE_URL ??
+  "postgres://mnt_leave_cmd:mnt-dev-leave-command-change-me@127.0.0.1:55432/mnt_dev";
+const DEV_AUTH_API_BASE_URL =
+  process.env.MNT_DEV_API_BASE_URL ??
+  `http://127.0.0.1:${process.env.MNT_DEV_HTTP_PORT ?? "8090"}`;
 
 const runId = randomUUID();
 const blockedEmployeeId = randomUUID();
@@ -54,7 +60,7 @@ const approvedLeaveCandidateId = randomUUID();
 const openNoShowCandidateId = randomUUID();
 const overlapCandidateId = randomUUID();
 const otherBranchId = randomUUID();
-const leaveDeciderId = randomUUID();
+const leaveRequesterId = randomUUID();
 const memberUserId = randomUUID();
 const memberEmployeeId = randomUUID();
 const memberExceptionId = randomUUID();
@@ -132,7 +138,7 @@ function assertDevOnlyEnvironment(): void {
 function execSql(sql: string): string {
   return execFileSync(
     "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
+    [DATABASE_URL, "-q", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   ).trim();
 }
@@ -140,9 +146,87 @@ function execSql(sql: string): string {
 function execOwnerSql(sql: string): string {
   return execFileSync(
     "psql",
-    [OWNER_DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
+    [OWNER_DATABASE_URL, "-q", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   ).trim();
+}
+
+/**
+ * The command login is intentionally distinct from the runtime seed connection:
+ * migration 0166 permits leave writes only through these SECURITY DEFINER
+ * commands, executed by the dedicated command role used by the real API.
+ */
+function execLeaveCommandSql(sql: string): string {
+  return execFileSync(
+    "psql",
+    [LEAVE_COMMAND_DATABASE_URL, "-q", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  ).trim();
+}
+
+function commandTraceId(): string {
+  return randomUUID().replaceAll("-", "");
+}
+
+function commandSpanId(): string {
+  return randomUUID().replaceAll("-", "").slice(0, 16);
+}
+
+function devAuthSuperAdminToken(): string {
+  const output = execFileSync(
+    "curl",
+    [
+      "--fail-with-body",
+      "--silent",
+      "--show-error",
+      "--request",
+      "POST",
+      `${DEV_AUTH_API_BASE_URL}/api/v1/dev-auth/session`,
+      "--header",
+      "Content-Type: application/json",
+      "--header",
+      "X-Auth-Transport: body",
+      "--data",
+      JSON.stringify({ org_id: ORG_ID, role: "SUPER_ADMIN", branch_ids: [] }),
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const body = JSON.parse(output) as { access_token?: unknown };
+  if (typeof body.access_token !== "string" || body.access_token.length === 0) {
+    throw new Error("dev-auth SUPER_ADMIN session did not return an access token");
+  }
+  return body.access_token;
+}
+
+function assignHomeBranchThroughHrCommand(
+  employeeId: string,
+  branchId: string,
+  accessToken: string,
+): void {
+  const expectedUpdatedAt = scalar(
+    `SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM employees WHERE org_id = ${sqlLiteral(ORG_ID)} AND id = ${sqlLiteral(employeeId)}::uuid`,
+  );
+  if (!expectedUpdatedAt) {
+    throw new Error(`employee ${employeeId} was not available for home-branch assignment`);
+  }
+  execFileSync(
+    "curl",
+    [
+      "--fail-with-body",
+      "--silent",
+      "--show-error",
+      "--request",
+      "PUT",
+      `${DEV_AUTH_API_BASE_URL}/api/v1/employees/${employeeId}/home-branch`,
+      "--header",
+      "Content-Type: application/json",
+      "--header",
+      `Authorization: Bearer ${accessToken}`,
+      "--data",
+      JSON.stringify({ branch_id: branchId, expected_updated_at: expectedUpdatedAt }),
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
 }
 
 function sqlLiteral(value: string): string {
@@ -179,8 +263,11 @@ function seedAttendanceStory(): void {
   ] as const;
   const employees = employeeRows
     .map(
-      ([id, name, homeBranchId, employmentStatus], index) =>
-        `(${sqlLiteral(id)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(name)}, 'attendance-live-e2e', 'attendance', ${index + 1}, ${sqlLiteral(`attendance-live-e2e-${runId}-${index}`)}, ${sqlLiteral(employmentStatus)}, 'E2E 근태', ${sqlLiteral(homeBranchId)}::uuid)`,
+      ([id, name, _homeBranchId, employmentStatus], index) =>
+        // Home-branch assignment is command-owned. These runtime prerequisites
+        // intentionally begin unassigned and are assigned through the real HR
+        // endpoint below with an optimistic-version precondition.
+        `(${sqlLiteral(id)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(name)}, 'attendance-live-e2e', 'attendance', ${index + 1}, ${sqlLiteral(`attendance-live-e2e-${runId}-${index}`)}, ${sqlLiteral(employmentStatus)}, 'E2E 근태', NULL)`,
     )
     .join(",\n");
   const profiles = employeeRows
@@ -197,13 +284,16 @@ function seedAttendanceStory(): void {
       (${sqlLiteral(BRANCH_ID)}, ${sqlLiteral(REGION_ID)}, ${sqlLiteral(branchName)}, ${sqlLiteral(ORG_ID)}),
       (${sqlLiteral(otherBranchId)}, ${sqlLiteral(REGION_ID)}, ${sqlLiteral(`E2E 타지점 ${runId.slice(0, 8)}`)}, ${sqlLiteral(ORG_ID)});
 
-    INSERT INTO users (id, display_name, roles, org_id) VALUES
-      (${sqlLiteral(leaveDeciderId)}, ${sqlLiteral(`E2E 휴가 결재자 ${runId.slice(0, 8)}`)}, ARRAY['ADMIN'], ${sqlLiteral(ORG_ID)});
-
     INSERT INTO employees (
       id, org_id, company, name, source_filename, source_sheet, source_row,
       source_key, employment_status, org_unit, home_branch_id
     ) VALUES ${employees};
+
+    -- The leave requester is a real, active linked employee. The test never
+    -- writes leave tables through this runtime connection; the command envelope
+    -- resolves this relationship server-side when it creates the request.
+    INSERT INTO users (id, display_name, roles, org_id, employee_id) VALUES
+      (${sqlLiteral(leaveRequesterId)}, ${sqlLiteral(`E2E 휴가 신청자 ${runId.slice(0, 8)}`)}, ARRAY['MEMBER'], ${sqlLiteral(ORG_ID)}, ${sqlLiteral(approvedLeaveCandidateId)}::uuid);
 
     INSERT INTO employee_employment_profiles (
       employee_id, org_id, employment_type, phone_e164, base_pay, currency,
@@ -233,22 +323,6 @@ function seedAttendanceStory(): void {
         ${sqlLiteral(`attendance-live-e2e-no-show-${runId}`)}, repeat('d', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid
       );
 
-    INSERT INTO leave_requests (
-      id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type,
-      days, start_date, end_date, reason
-    ) VALUES (
-      ${sqlLiteral(randomUUID())}, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(BRANCH_ID)},
-      ${sqlLiteral(SEED_ACTOR_ID)}, ${sqlLiteral(approvedLeaveCandidateId)}, 'annual',
-      1, ${sqlLiteral(todayValue)}::date, ${sqlLiteral(todayValue)}::date,
-      ${sqlLiteral(`e2e candidate approved leave ${runId}`)}
-    );
-    UPDATE leave_requests
-      SET status = 'approved', charge_state = 'legacy_unverified',
-          charge_review_reasons = ARRAY[]::text[], charge_units = 1,
-          decided_by = ${sqlLiteral(leaveDeciderId)}::uuid, decided_at = now()
-      WHERE org_id = ${sqlLiteral(ORG_ID)}
-        AND subject_employee_id = ${sqlLiteral(approvedLeaveCandidateId)}::uuid;
-
     INSERT INTO attendance_substitutions (
       id, org_id, site, branch_id, role, cover_date, from_minutes, to_minutes,
       covered_employee_id, reason_kind, reason_detail, worker_employee_id,
@@ -268,6 +342,114 @@ function seedAttendanceStory(): void {
     COMMIT;
   `;
   execSql(sql);
+
+  // Home-branch routing is a protected employee mutation. Use the public,
+  // authenticated HR command for every test employee, preserving its current
+  // optimistic version rather than embedding a privileged SQL bypass.
+  const superAdminToken = devAuthSuperAdminToken();
+  for (const [employeeId, _name, homeBranchId] of employeeRows) {
+    assignHomeBranchThroughHrCommand(employeeId, homeBranchId, superAdminToken);
+  }
+
+  seedApprovedLeaveThroughCommandEnvelope();
+}
+
+/**
+ * Establish the approved-leave exclusion through the same restricted command
+ * envelope used by the real leave API. There is deliberately no INSERT/UPDATE
+ * of leave_requests here: 0166's guards stay enabled and the command-owned
+ * audit/receipt/ledger sequence is exercised instead.
+ */
+function seedApprovedLeaveThroughCommandEnvelope(): void {
+  const balanceVersion = scalar(
+    `SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM employees WHERE org_id = ${sqlLiteral(ORG_ID)} AND id = ${sqlLiteral(approvedLeaveCandidateId)}::uuid`,
+  );
+  if (!balanceVersion) {
+    throw new Error("approved leave candidate was not available for governed balance import");
+  }
+  const balanceTrace = commandTraceId();
+  const balanceSpan = commandSpanId();
+  const balanceKey = `attendance-live-e2e-balance-${runId}`;
+  const imported = execLeaveCommandSql(`
+    SELECT changed::text || '|' || replayed::text
+    FROM leave_api.import_employee_leave_balance(
+      ${sqlLiteral(ORG_ID)}::uuid,
+      ${sqlLiteral(approvedLeaveCandidateId)}::uuid,
+      ${sqlLiteral(balanceVersion)}::timestamptz,
+      '15.000000', '0.000000', '15.000000',
+      'employee_import', ${sqlLiteral(`attendance live e2e ${runId}`)},
+      ${sqlLiteral(balanceKey)}, ${sqlLiteral(SEED_ACTOR_ID)}::uuid,
+      ${sqlLiteral(balanceTrace)}, ${sqlLiteral(balanceSpan)}
+    )
+  `);
+  if (imported !== "true|false") {
+    throw new Error(`governed leave balance import did not apply: ${imported}`);
+  }
+
+  const requestId = randomUUID();
+  const evidence = {
+    date_charges: [
+      {
+        date: todayValue,
+        obligation: { kind: "scheduled", minutes: 480 },
+        units: "1.000000",
+      },
+    ],
+    calendar_revision_ref: {
+      kind: "attendance_live_e2e",
+      reference: `calendar-${runId}`,
+      revision: "1",
+    },
+    policy_revision_ref: {
+      kind: "attendance_live_e2e",
+      reference: `policy-${runId}`,
+      revision: "1",
+    },
+    supporting_source_refs: [],
+  };
+  const createTrace = commandTraceId();
+  const createSpan = commandSpanId();
+  const created = execLeaveCommandSql(`
+    SELECT request_version::text || '|' || charge_version::text
+    FROM leave_api.create_request(
+      ${sqlLiteral(ORG_ID)}::uuid, ${sqlLiteral(requestId)}::uuid,
+      ${sqlLiteral(leaveRequesterId)}::uuid, 'annual',
+      ${sqlLiteral(todayValue)}::date, ${sqlLiteral(todayValue)}::date,
+      ${sqlLiteral(`e2e candidate approved leave ${runId}`)}, NULL,
+      ARRAY[]::text[], ${sqlLiteral(BRANCH_ID)}::uuid,
+      ${sqlLiteral(JSON.stringify(evidence.date_charges))}::jsonb,
+      ${sqlLiteral(JSON.stringify(evidence.calendar_revision_ref))}::jsonb,
+      ${sqlLiteral(JSON.stringify(evidence.policy_revision_ref))}::jsonb,
+      ${sqlLiteral(JSON.stringify(evidence.supporting_source_refs))}::jsonb,
+      ${sqlLiteral(randomUUID())}::uuid,
+      ${sqlLiteral(createTrace)}, ${sqlLiteral(createSpan)}
+    )
+  `);
+  if (created !== "1|1") {
+    throw new Error(`governed leave create did not record resolved evidence: ${created}`);
+  }
+
+  const decisionTrace = commandTraceId();
+  const decisionSpan = commandSpanId();
+  const decided = execLeaveCommandSql(`
+    SELECT outcome
+    FROM leave_api.decide_request(
+      ${sqlLiteral(ORG_ID)}::uuid, ${sqlLiteral(requestId)}::uuid,
+      ${sqlLiteral(SEED_ACTOR_ID)}::uuid, 1, 'approve',
+      ${sqlLiteral(`e2e governed approval ${runId}`)},
+      ${sqlLiteral(decisionTrace)}, ${sqlLiteral(decisionSpan)}
+    )
+  `);
+  if (decided !== "decided") {
+    throw new Error(`governed leave approval did not complete: ${decided}`);
+  }
+
+  const persisted = scalar(
+    `SELECT status || '|' || charge_state FROM leave_requests WHERE org_id = ${sqlLiteral(ORG_ID)} AND id = ${sqlLiteral(requestId)}::uuid`,
+  );
+  if (persisted !== "approved|resolved") {
+    throw new Error(`governed leave seed did not persist approval: ${persisted}`);
+  }
 }
 
 function seedMemberSelfServiceStory(): void {
@@ -328,8 +510,13 @@ async function loginAs(page: Page, role: DevRole): Promise<void> {
   await page.goto("/login");
   await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
   await page.getByRole("combobox").selectOption({ label: role });
-  await page.getByLabel("지점").selectOption(BRANCH_ID);
-  await page.getByRole("button", { name: /로그인$/ }).click();
+  const branchIds = page.getByLabel(/^지점 ID/);
+  if (await branchIds.count()) {
+    await branchIds.fill(BRANCH_ID);
+  } else {
+    await page.getByLabel("지점").selectOption(BRANCH_ID);
+  }
+  await page.getByRole("button", { name: "역할로 로그인" }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 
@@ -337,13 +524,11 @@ async function loginAsMemberWithoutBranch(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
   await page.getByRole("combobox").selectOption({ label: "일반 멤버" });
-  await page.getByRole("button", { name: "고급 설정" }).click();
+  const advancedSettings = page.getByRole("button", { name: "고급 설정" });
+  if (await advancedSettings.count()) await advancedSettings.click();
   await page.getByLabel("조직 ID").fill(memberOrgId);
-  await page.getByLabel("지점 ID (쉼표로 구분)").fill("");
-  await expect(
-    page.getByText("지점 ID를 비워두면 조직 전체 범위로 로그인합니다."),
-  ).toBeVisible();
-  await page.getByRole("button", { name: /로그인$/ }).click();
+  await page.getByLabel(/^지점 ID/).fill("");
+  await page.getByRole("button", { name: "역할로 로그인" }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 
