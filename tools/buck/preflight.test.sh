@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Behavior and documentation locks for the cheap Buck2 preflight.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+harness="${repo_root}/tools/buck/preflight.sh"
+playbook="${repo_root}/docs/program/console-buck2-scale-playbook.md"
+roadmap="${repo_root}/docs/program/console-enterprise-roadmap.md"
+ledger="${repo_root}/docs/program/console-program-ledger.md"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/mnt-buck-preflight-test.XXXXXX")"
+trap 'rm -rf "${scratch}"' EXIT
+mkdir -p "${scratch}/bin"
+log="${scratch}/calls.log"
+
+cat >"${scratch}/buck" <<'BUCK'
+#!/usr/bin/env bash
+printf 'BUCK_ISOLATION_DIR=%s %s\n' "${BUCK_ISOLATION_DIR:-}" "$*" >>"${HARNESS_LOG}"
+case "$1" in
+  --version) echo 'buck2 fake' ;;
+  audit)
+    test "$2" = cell
+    echo 'root: /fake/root'
+    ;;
+  uquery) echo 'root//backend/crates/example:example-unit' ;;
+  *) echo "unexpected Buck command: $*" >&2; exit 2 ;;
+esac
+BUCK
+cat >"${scratch}/bin/python3" <<'PYTHON'
+#!/usr/bin/env bash
+# The manifest validator runs in the caller worktree; preserve the real
+# interpreter there. Only the archive-local generator is substituted.
+if [[ "$1" == "-" ]]; then
+  exec "${REAL_PYTHON3}" "$@"
+fi
+if [[ "${FAKE_GENERATOR_DRIFT:-0}" == 1 ]]; then
+  printf '# drift\n' >> backend/app/BUCK
+fi
+PYTHON
+chmod +x "${scratch}/buck" "${scratch}/bin/python3"
+
+real_python="$(command -v python3)"
+before="$(git -C "${repo_root}" status --porcelain)"
+PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
+  MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
+  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" "${harness}"
+after="$(git -C "${repo_root}" status --porcelain)"
+test "${before}" = "${after}"
+grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock --version' "${log}"
+grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock audit cell' "${log}"
+grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock uquery ' "${log}"
+
+if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
+  MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
+  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_GENERATOR_DRIFT=1 "${harness}"; then
+  echo "expected generator drift to fail the preflight" >&2
+  exit 1
+fi
+
+grep -Fq '2026-07-15' "${playbook}"
+grep -Fq 'Cells are trust, toolchain, and configuration boundaries' "${playbook}"
+grep -Fq 'No per-module cells' "${playbook}"
+grep -Fq 'console-buck2-scale-playbook.md' "${roadmap}"
+grep -Fq 'console-buck2-scale-playbook.md' "${ledger}"
+
+echo "preflight: PASS"
