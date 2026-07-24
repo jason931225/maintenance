@@ -744,3 +744,167 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
     .await
     .unwrap()
 }
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn final_completion_appends_one_immutable_equipment_history_snapshot(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let store = PgWorkOrderStore::new(pool.clone());
+        let created = create_reported_work_order(&store, &seeded).await;
+
+        store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                comment: "Admin approved the completed report".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+
+        let evidence_id = insert_evidence_media_returning_id(
+            &pool,
+            created.id,
+            seeded.mechanic,
+            AttachmentStage::Report,
+            "VERIFIED",
+        )
+        .await;
+        let ledger_id = insert_cost_ledger_for_work_order(&pool, &seeded, created.id).await;
+
+        let completed = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.executive,
+                work_order_id: created.id,
+                comment: "Executive approved the completed report".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(completed.status, WorkOrderStatus::FinalCompleted);
+
+        let history = sqlx::query(
+            "SELECT id, equipment_id, work_order_id FROM equipment_maintenance_history WHERE work_order_id = $1",
+        )
+        .bind(*created.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let history_id: uuid::Uuid = history.try_get("id").unwrap();
+        assert_eq!(history.try_get::<uuid::Uuid, _>("equipment_id").unwrap(), seeded.equipment_id);
+        assert_eq!(history.try_get::<uuid::Uuid, _>("work_order_id").unwrap(), *created.id.as_uuid());
+
+        let history_evidence: Vec<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT evidence_media_id FROM equipment_maintenance_history_evidence WHERE history_id = $1",
+        )
+        .bind(history_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(history_evidence, vec![evidence_id]);
+
+        let history_costs: Vec<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT equipment_cost_ledger_id FROM equipment_maintenance_history_costs WHERE history_id = $1",
+        )
+        .bind(history_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(history_costs, vec![ledger_id]);
+
+        let repeat = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.executive,
+                work_order_id: created.id,
+                comment: "A duplicate terminal approval must not append history".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(repeat.kind(), ErrorKind::Conflict);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM equipment_maintenance_history WHERE work_order_id = $1",
+        )
+        .bind(*created.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+
+        let update = sqlx::query(
+            "UPDATE equipment_maintenance_history SET completed_at = now() WHERE id = $1",
+        )
+        .bind(history_id)
+        .execute(&pool)
+        .await;
+        assert!(update.is_err(), "maintenance history must be immutable");
+        let delete = sqlx::query("DELETE FROM equipment_maintenance_history WHERE id = $1")
+            .bind(history_id)
+            .execute(&pool)
+            .await;
+        assert!(delete.is_err(), "maintenance history must be append-only");
+    })
+    .await;
+}
+
+async fn insert_evidence_media_returning_id(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+    uploaded_by: UserId,
+    stage: AttachmentStage,
+    status: &str,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO evidence_media (
+            work_order_id, stage, s3_key, content_type, size_bytes,
+            uploaded_by, worm_replica_status, retry_count, org_id
+        )
+        VALUES ($1, $2, $3, 'image/jpeg', 1024, $4, $5, 0, $6)
+        RETURNING id
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(stage.as_db_str())
+    .bind(format!(
+        "work-orders/{}/{}/{}.jpg",
+        work_order_id,
+        stage.as_db_str(),
+        uuid::Uuid::new_v4()
+    ))
+    .bind(*uploaded_by.as_uuid())
+    .bind(status)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn insert_cost_ledger_for_work_order(
+    pool: &PgPool,
+    seeded: &SeededContext,
+    work_order_id: WorkOrderId,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO equipment_cost_ledger (
+            branch_id, equipment_id, work_order_id, source, amount_won, memo,
+            residual_before_won, residual_after_won, entry_at, created_by, org_id
+        )
+        VALUES ($1, $2, $3, 'MANUAL_ADMIN', 1000, 'Verified maintenance expense',
+                10000, 9000, now(), $4, $5)
+        RETURNING id
+        "#,
+    )
+    .bind(*seeded.branch_id.as_uuid())
+    .bind(seeded.equipment_id)
+    .bind(*work_order_id.as_uuid())
+    .bind(*seeded.admin.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
