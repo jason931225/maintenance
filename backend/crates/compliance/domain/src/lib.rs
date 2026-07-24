@@ -1114,11 +1114,22 @@ fn validate_transition(
 mod compliance_domain_tests {
     use super::*;
 
+    fn assert_enum_wire_value<T>(value: T, wire: &str)
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + PartialEq,
+    {
+        assert_eq!(
+            serde_json::to_string(&value).unwrap(),
+            format!("\"{wire}\"")
+        );
+        let decoded: T = serde_json::from_str(&format!("\"{wire}\"")).unwrap();
+        assert_eq!(decoded, value);
+    }
+
     macro_rules! assert_enum_wire {
         ($($value:path => $wire:literal),+ $(,)?) => {
             $(
-                assert_eq!(serde_json::to_string(&$value).unwrap(), concat!("\"", $wire, "\""));
-                assert_eq!(serde_json::from_str(&format!("\"{}\"", $wire)).unwrap(), $value);
+                assert_enum_wire_value($value, $wire);
             )+
         };
     }

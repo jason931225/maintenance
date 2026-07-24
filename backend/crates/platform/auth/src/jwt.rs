@@ -313,6 +313,7 @@ impl JwtIssuer {
             group_roles,
             None,
             None,
+            None,
         )
     }
 
@@ -327,6 +328,7 @@ impl JwtIssuer {
             self.settings.access_token_ttl,
             Some(access_scope),
             group_roles,
+            None,
             None,
             None,
         )
