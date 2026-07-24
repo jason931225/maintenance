@@ -62,6 +62,17 @@ describe("gateAllows", () => {
     });
     expect(gateAllows(p, { feature: "x", branch: B2 })).toBe(true);
   });
+
+  it("requires all-branch scope when an affordance is organization-wide", () => {
+    const scoped = projection({
+      capabilities: [{ feature: "facilities_manage", permission: "allow", branchScope: { kind: "branches", branches: [B1] } }],
+    });
+    const orgWide = projection({
+      capabilities: [{ feature: "facilities_manage", permission: "allow", branchScope: { kind: "all" } }],
+    });
+    expect(gateAllows(scoped, { feature: "facilities_manage", requireOrgWide: true })).toBe(false);
+    expect(gateAllows(orgWide, { feature: "facilities_manage", requireOrgWide: true })).toBe(true);
+  });
 });
 
 describe("parseAuthzResponse", () => {

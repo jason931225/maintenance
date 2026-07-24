@@ -33,6 +33,7 @@ type TransitionSuccesses = {
 
 const facilitiesCase = {
   id: "00000000-0000-0000-0000-000000000001",
+  branchId: "00000000-0000-0000-0000-000000000009",
   status: "IN_PROGRESS",
   assigneeId: null,
   responseDueAt: "2026-07-23T12:00:00Z",
@@ -118,6 +119,8 @@ test("Facilities transitions retain typed JSON case readbacks and required paylo
       readFileSync(fileURLToPath(new URL("../../../backend/openapi/openapi.yaml", import.meta.url)), "utf8").indexOf("    ProductionPlan:\n"),
     )
     : "";
+  assert.match(facilitiesCaseSchema, /branchId: \{ \$ref: '#\/components\/schemas\/Uuid', description: Persisted case branch used for capability scoping. \}/);
+  assert.match(facilitiesCaseSchema, /required: \[id, branchId, status,/);
   assert.match(facilitiesCaseSchema, /assigneeId: \{ type: \[string, 'null'\], format: uuid \}/);
   assert.match(facilitiesCaseSchema, /energyDeltaKwh: \{ type: \[string, 'null'\] \}/);
   assert.doesNotMatch(facilitiesCaseSchema, /nullable:/);
