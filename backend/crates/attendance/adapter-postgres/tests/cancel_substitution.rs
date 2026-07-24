@@ -20,8 +20,15 @@ async fn assigned_substitution_cancels_through_runtime_adapter_using_migration_0
 ) {
     scope_org(OrgId::knl(), async move {
         let branch = seed_branch(&owner_pool, "attendance-cancel", "operations").await;
-        let actor = seed_user(&owner_pool, "Attendance Manager", "SUPER_ADMIN", branch).await;
-        let employee = seed_employee(&owner_pool, branch, actor).await;
+        let provisioner = seed_user(
+            &owner_pool,
+            "Employee Directory Provisioner",
+            "SUPER_ADMIN",
+            branch,
+        )
+        .await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
+        let employee = seed_employee(&owner_pool, branch, provisioner).await;
         let substitution_id =
             seed_assigned_substitution(&owner_pool, branch, actor, employee).await;
 
