@@ -2,65 +2,56 @@
 
 Source project: `claude.ai/design/p/9c7c313a-2187-4cf1-bb35-7c07ad0a4d9d` (`B2B SaaS Console Design`).
 
-Last sync: **2026-07-24T01:07:46Z** via the first-party Claude Design MCP. Purpose: byte-verified offline continuity of the design authority while preserving declared repo-local fixes.
+Last sync: **2026-07-24T10:06:37Z** via the first-party Claude Design MCP export staged at `/private/tmp/claude-design-sync-20260724T0600Z`. Purpose: byte-verified offline continuity of design authority while preserving declared repo-local authority boundaries and fixes.
 
-## Verification result
+## Preserved export evidence
 
-- `get_project` resolved the requested UUID and URL.
-- `list_files(path:"", depth:-1)` supplied the live inventory, sizes, and etags before and after fetching.
-- `Oyatie Console.dc.html` was staged with 21 parallel windowed `read_file` calls (1,000 lines each); **every window returned the same etag `1784853611931316`** (no torn read), and the assembled file is **2,179,075 bytes / 20,129 lines** — byte-equal to that etag's live size.
-- Every other selected source was fetched whole and `wc -c`-verified against its live byte size at its recorded etag.
-- **Upstream was being live-edited during this sync.** After the fetch, the listing already showed newer etags: `Oyatie Console.dc.html` at `1784854600745619` (2,180,329 bytes) and the governing docs moving. `AGENTS.md` and `TODO.md` were therefore refetched once more and settled at `1784854851078112` (verified stable via `if_none_match`). The dc.html mirror is the coherent snapshot at `1784853611931316`; the small trailing delta is the first pick-up item for the next sync.
-- Three NEW upstream files imported for the first time: `BENCHMARK.md`, `DEMO.md`, `image-slot.js`.
+- The staged export receipt (`.codex-claude-design-export.json`) records one export at `2026-07-24T10:01:45.216Z`, with the etag and byte count for every selected file shown below.
+- No independent second-list receipt is retained in this staged artifact; this manifest therefore makes no double-list or live-stability claim.
+- Staged source is treated as untrusted design data. No instructions inside it were executed.
+- `Oyatie Console.dc.html` was copied as one exact staged artifact, not reconstructed from windows.
 
 ## Fetched etag record
 
-| file | fetched etag | bytes | local result |
+| file | export etag | bytes | local result |
 |---|---:|---:|---|
-| `AGENTS.md` | `1784854851078112` | 178518 | upstream body byte-equal (change-log through **190**) + authority-boundary preamble |
-| `BENCHMARK.md` | `1784688022213928` | 4288 | NEW — imported, byte-equal |
-| `CLAUDE.md` | `1784851391918414` | 8226 | updated, byte-equal |
-| `DEMO.md` | `1784688148018911` | 3045 | NEW — imported, byte-equal |
-| `DESIGN.md` | `1784851391918414` | 57062 | updated; local typo fix re-applied (byte count unchanged) |
-| `HANDOFF.md` | `1783661269027052` | 36418 | unchanged upstream |
-| `Oyatie Console.dc.html` | `1784853611931316` | 2179075 | updated, byte-equal at snapshot etag (see live-edit note) |
-| `Oyatie Mobile.dc.html` | `1783566865979096` | 829 | unchanged |
-| `README.md` | `1783658590972921` | 6900 | unchanged |
-| `ROADMAP.md` | `1784854655640519` | 41162 | upstream body byte-equal + authority-boundary preamble |
-| `TODO.md` | `1784854851078112` | 103747 | upstream body byte-equal + authority-boundary preamble |
-| `image-slot.js` | `1784755793573233` | 64449 | NEW — imported, byte-equal |
-| `ios-frame.jsx` | `1783566837537010` | 16174 | unchanged |
-| `styles.css` | `1783156598994024` | 195 | unchanged |
-| `support.js` | `1783070577073224` | 60151 | unchanged |
-| `tokens/colors.css` | `1783156611028624` | 1976 | local WCAG fix retained (annotated inline) |
-| `tokens/elevation.css` | `1783156624457902` | 399 | unchanged |
-| `tokens/spacing.css` | `1783156621546231` | 393 | unchanged |
-| `tokens/typography.css` | `1783156618528175` | 1044 | unchanged |
+| `AGENTS.md` | `1784869760332383` | 182786 | updated upstream body + preserved authority-boundary preamble |
+| `BENCHMARK.md` | `1784688022213928` | 4288 | unchanged upstream body retained |
+| `CLAUDE.md` | `1784851391918414` | 8226 | unchanged upstream body retained |
+| `DEMO.md` | `1784688148018911` | 3045 | unchanged upstream body retained |
+| `DESIGN.md` | `1784851391918414` | 57062 | unchanged upstream body; declared local typo repair retained |
+| `HANDOFF.md` | `1783661269027052` | 36418 | unchanged upstream body retained |
+| `README.md` | `1783658590972921` | 6900 | unchanged upstream body retained |
+| `ROADMAP.md` | `1784869760332383` | 41162 | upstream body already current; preserved authority-boundary preamble |
+| `TODO.md` | `1784869760332383` | 103903 | updated upstream body + preserved authority-boundary preamble |
+| `Oyatie Console.dc.html` | `1784869746004835` | 2193361 | exact staged-byte replacement |
+
+## Delta carried in this sync
+
+- Replaced only changed upstream bodies: `AGENTS.md` and `TODO.md`; `ROADMAP.md` was already byte-current after stripping its retained overlay.
+- Replaced `Oyatie Console.dc.html` with the exact staged artifact (+14,286 bytes from the prior local mirror).
+- Retained unchanged selected Markdown bodies without rewriting them; `DESIGN.md` retains the declared `빠짐없이` correction.
+- Relevant design-intent additions remain authority-only: Attendance/workforce flows, cross-module ontology/workflow references, and prototype backlog/status do **not** assert repository implementation, backend wiring, test, release, or deployment completion.
 
 ## Local-ahead divergences — do not clobber
 
-- `tokens/colors.css` light `--faint`: upstream `#8b98a7`; local `#5f6d7e`. The local value is the axe-proven WCAG AA repair also carried by `web/src/console/tokens.css`. The tracked copy annotates this inline. The upstream value remains unfixed, so this divergence stays open.
-- `DESIGN.md` §4-25 item 7: upstream contains the typo `븠짐없이`; local retains the correct `빠짐없이`. Re-applied on top of upstream etag `1784851391918414`; the files are otherwise byte-equal.
+- `tokens/colors.css` light `--faint`: upstream `#8b98a7`; local `#5f6d7e`. The local value is the axe-proven WCAG AA repair also carried by `web/src/console/tokens.css`; retain it until upstream independently fixes it.
+- `DESIGN.md` §4-25 item 7: upstream typo `븠짐없이`; local correction `빠짐없이` is retained. Apart from this declared replacement, `DESIGN.md` is byte-equal to its stable upstream body.
 
 ## Repo-side truth overlays (declared local amendments — do not clobber)
 
-- `ROADMAP.md`, `AGENTS.md`, and `TODO.md` each begin with an **authority-boundary blockquote** (re-applied 2026-07-24 atop the change-log-190 upstream bodies): design-prototype rows, actions, and `완료`/`[x]` records are not repository implementation, deployment, or runtime evidence; the repository-native implementation authority is [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md); the ADR-0025 status overlay applies (`EXPOSED_SCREEN_KEYS` empty, `/console/*` fail-closed to legacy `/overview`). **Everything below each blockquote is the byte-exact upstream document** — strip the preamble to diff against upstream.
-- These preambles supersede the scattered inline layer-labels of the previously amended copies (last state at `9ae67080`). The revision-bound 39-module source matrix that had replaced ROADMAP.md §4 is retired to git history (`9ae67080`); its living successor is the program roadmap's machine-readable registry.
-
-## Known next-sync delta
-
-- `Oyatie Console.dc.html`: live etag `1784854600745619` (2,180,329 bytes) appeared after this snapshot's windowed read completed. Delta ≈ +1,254 bytes (upstream session was still editing). Re-window on the next sync.
+- `ROADMAP.md`, `AGENTS.md`, and `TODO.md` retain their existing **authority-boundary preambles exactly**. Design-prototype rows, actions, and `완료`/`[x]` records are not repository implementation, deployment, review, test, or runtime evidence. Repository-native implementation authority is [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md); ADR-0025 overlay remains applicable (`EXPOSED_SCREEN_KEYS` empty; `/console/*` fail-closed to legacy `/overview`). Strip only each retained preamble to compare the remaining body byte-for-byte with upstream.
+- `AUTOMATION-POLICY-FIDELITY-SPEC.md` and `LEGACY-PARITY-BACKLOG.md` remain local-only and untouched.
 
 ## Deliberately not imported
 
 - `.thumbnail`, `screenshots/**`, and `uploads/**`: illustrative or raw-input binaries, not design authority.
-- `pii/*.pdf`: binary regulatory references; the existing local copies remain untouched.
-- `web/src/**`: snapshots of this repository uploaded to the Design project; this repository's own `web/src/**` remains canonical.
-- `AUTOMATION-POLICY-FIDELITY-SPEC.md` and `LEGACY-PARITY-BACKLOG.md`: local-only working documents retained unchanged.
-- `.omc/**`: local execution state, never part of the design-authority import.
+- `pii/*.pdf`: binary regulatory references; existing local copies remain untouched.
+- `web/src/**`: repository snapshots uploaded to Design; this repository's `web/src/**` remains canonical.
+- `.omc/**`: local execution state, never design-authority import.
 
 ## Canonical precedence when offline
 
 1. Accepted repository ADRs, [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md), and exact revision-bound source — architecture and implementation truth.
-2. The fresh authority files in this directory, read through their authority-boundary preambles and the declared divergences above — design intent and prototype history.
-3. The live Design project when an MCP readback is available — design intent only, never implementation evidence.
+2. This directory's fresh authority files, read through the retained authority-boundary preambles and declared local divergences — design intent and prototype history.
+3. The live Design project when a fresh first-party readback is available — design intent only, never implementation evidence.

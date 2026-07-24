@@ -1188,7 +1188,7 @@
           <button onClick="{{ kp.onClick }}" style="display:flex; align-items:baseline; gap:7px; padding:5px 11px; border-radius:8px; border:1px solid var(--border); background:var(--surface); text-align:left; min-width:0;" style-hover="border-color:var(--steel)">
             <span style="font-size:10.5px; font-weight:700; color:var(--steel); white-space:nowrap;">{{ kp.label }}</span>
             <span style="font-size:15px; font-weight:800; letter-spacing:-0.3px; color:{{ kp.valueColor }};">{{ kp.value }}</span>
-
+            
           </button>
         </sc-for>
       </div>
@@ -1228,7 +1228,7 @@
           <div onMouseDown="{{ hrLayRoster.onCorner }}" title="대각선 크기 조절" style="position:absolute; left:{{ hrLayRoster.cornerL }}; right:{{ hrLayRoster.cornerR }}; bottom:0; width:16px; height:16px; cursor:{{ hrLayRoster.cornerCur }}; z-index:7; border-radius:5px;" style-hover="background:var(--border-soft)"></div>
           <div style="position:absolute; left:1px; right:1px; bottom:0; height:18px; background:linear-gradient(to bottom, transparent, var(--surface)); pointer-events:none; z-index:4; border-radius:0 0 11px 11px;"></div>
           <div style="flex:none; display:flex; align-items:center; gap:10px; padding:12px 15px; border-bottom:1px solid var(--border-soft); flex-wrap:wrap;">
-
+            
             <span style="font-size:14px; font-weight:800; letter-spacing:-0.2px;">직원 명부</span>
             <span style="font-family:ui-monospace, 'SF Mono', Menlo, monospace; font-size:11px; font-weight:800; color:var(--steel); background:var(--muted); border-radius:6px; padding:1px 7px;">{{ hrCount }}</span>
             <button onClick="{{ onHrPool }}" title="인력풀(비상근·호출) — 재직 명부·집계 비합산 · 클릭=인력풀 화면" style="display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:6px; border:1px solid var(--purple-bd); background:var(--purple-bg); color:var(--purple-tx); font-size:10px; font-weight:800; cursor:pointer;" style-hover="border-color:var(--steel)">인력풀 {{ hrPoolN }} · 비합산</button>
@@ -1274,7 +1274,7 @@
           <div onMouseDown="{{ hrLayIssues.onResize }}" title="드래그로 높이 조절" style="position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; z-index:6;" style-hover="background:var(--border-soft)"></div>
           <div onMouseDown="{{ hrLayIssues.onCorner }}" title="대각선 크기 조절" style="position:absolute; left:{{ hrLayIssues.cornerL }}; right:{{ hrLayIssues.cornerR }}; bottom:0; width:16px; height:16px; cursor:{{ hrLayIssues.cornerCur }}; z-index:7; border-radius:5px;" style-hover="background:var(--border-soft)"></div>
           <div style="flex:none; display:flex; align-items:center; gap:8px; padding:12px 15px 8px;">
-
+            
             <span style="width:7px; height:7px; border-radius:50%; background:var(--danger-solid);"></span>
             <span style="font-size:13px; font-weight:800;">근태 이상 · 오늘</span>
             <span style="font-family:ui-monospace, 'SF Mono', Menlo, monospace; font-size:10.5px; font-weight:800; color:var(--faint);">{{ hrIssueCount }}</span>
@@ -1442,7 +1442,7 @@
       <div style="flex:1 1 auto; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:11px; box-shadow:var(--shadow); overflow:hidden;">
         <div style="flex:none; display:flex; align-items:center; gap:10px; padding:12px 15px; border-bottom:1px solid var(--border-soft); flex-wrap:wrap;">
           <span style="font-size:14px; font-weight:800; letter-spacing:-0.2px;">모집 공고</span>
-
+          
           <div style="flex:1;"></div>
         </div>
         <div style="flex:1 1 auto; min-height:0; overflow:auto;">
@@ -1669,7 +1669,7 @@
           <div onMouseDown="{{ rvLayTeams.onResize }}" title="드래그로 높이 조절" style="position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; z-index:6;" style-hover="background:var(--border-soft)"></div>
           <div onMouseDown="{{ rvLayTeams.onCorner }}" title="대각선 크기 조절" style="position:absolute; left:{{ rvLayTeams.cornerL }}; right:{{ rvLayTeams.cornerR }}; bottom:0; width:16px; height:16px; cursor:{{ rvLayTeams.cornerCur }}; z-index:7; border-radius:5px;" style-hover="background:var(--border-soft)"></div>
           <div style="flex:none; display:flex; align-items:center; gap:8px; padding:12px 15px 8px;">
-
+            
             <span style="font-size:14px; font-weight:800;">팀별 진행률</span>
           </div>
           <div style="flex:1 1 auto; min-height:0; overflow-y:auto; padding:2px 0 10px;">
@@ -1686,7 +1686,7 @@
           <div onMouseDown="{{ rvLayTasks.onResize }}" title="드래그로 높이 조절" style="position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; z-index:6;" style-hover="background:var(--border-soft)"></div>
           <div onMouseDown="{{ rvLayTasks.onCorner }}" title="대각선 크기 조절" style="position:absolute; left:{{ rvLayTasks.cornerL }}; right:{{ rvLayTasks.cornerR }}; bottom:0; width:16px; height:16px; cursor:{{ rvLayTasks.cornerCur }}; z-index:7; border-radius:5px;" style-hover="background:var(--border-soft)"></div>
           <div style="flex:none; display:flex; align-items:center; gap:8px; padding:12px 15px 8px;">
-
+            
             <span style="font-size:14px; font-weight:800;">내 평가 할 일</span>
           </div>
           <div style="flex:1 1 auto; min-height:0; overflow-y:auto; padding:2px 0 10px;">
@@ -1819,7 +1819,7 @@
           <div onMouseDown="{{ attLayBoard.onResize }}" title="드래그로 높이 조절" style="position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; z-index:6;" style-hover="background:var(--border-soft)"></div>
           <div onMouseDown="{{ attLayBoard.onCorner }}" title="대각선 크기 조절" style="position:absolute; left:{{ attLayBoard.cornerL }}; right:{{ attLayBoard.cornerR }}; bottom:0; width:16px; height:16px; cursor:{{ attLayBoard.cornerCur }}; z-index:7; border-radius:5px;" style-hover="background:var(--border-soft)"></div>
           <div style="flex:none; display:flex; align-items:center; gap:9px; padding:11px 15px; border-bottom:1px solid var(--border-soft); flex-wrap:wrap;">
-
+            
             <span style="font-size:14px; font-weight:800; letter-spacing:-0.2px;">근무 현황</span>
             <div style="display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
               <button onClick="{{ onAttViewDay }}" style="padding:3.5px 11px; border:none; background:{{ attSegDayBg }}; color:{{ attSegDayTx }}; font-size:11px; font-weight:800;">오늘</button>
@@ -1994,7 +1994,7 @@
           <div onMouseDown="{{ attLayW52.onResize }}" title="드래그로 높이 조절" style="position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; z-index:6;" style-hover="background:var(--border-soft)"></div>
           <div onMouseDown="{{ attLayW52.onCorner }}" title="대각선 크기 조절" style="position:absolute; left:{{ attLayW52.cornerL }}; right:{{ attLayW52.cornerR }}; bottom:0; width:16px; height:16px; cursor:{{ attLayW52.cornerCur }}; z-index:7; border-radius:5px;" style-hover="background:var(--border-soft)"></div>
           <div style="flex:none; display:flex; align-items:center; gap:8px; padding:12px 15px 8px;">
-
+            
               <span style="font-size:13px; font-weight:800;">주 52시간 모니터</span>
               <span style="font-size:10px; font-weight:700; color:var(--faint);">6/29–7/5</span>
               <div style="flex:1;"></div>
@@ -3575,6 +3575,13 @@
                         <span onClick="{{ bw.onRemove }}" role="button" title="제거" style="flex:none; display:inline-flex; cursor:pointer; opacity:0.55; font-weight:900; color:var(--ink); padding:0 3px;">×</span>
                       </div>
                     </sc-for>
+                    <div style="display:flex; align-items:center; gap:6px; padding:6px 0;">
+                      <span style="font-size:9.5px; font-weight:800; letter-spacing:0.4px; color:var(--faint);">정책 연결</span>
+                      <select value="{{ wfbPol }}" onChange="{{ onWfbPol }}" title="규칙이 참조할 설정 개체(임계·타임아웃·한도) — §4-28 결정적 파라미터" style="border:1px solid var(--border); border-radius:7px; padding:4px 8px; font-size:10.5px; font-weight:700; color:var(--ink); background:var(--surface); outline:none;">
+                        <sc-for list="{{ wfbPolOpts }}" as="po"><option value="{{ po.v }}">{{ po.v }}</option></sc-for>
+                      </select>
+                      <button onClick="{{ onWfbPolNew }}" title="새 조항 저작 — DoA 파라미터 복제 시드 · four-eyes 발효 · 현재 규칙에 즉시 연결" style="padding:4px 10px; border-radius:7px; border:1px dashed var(--border); background:transparent; color:var(--steel); font-size:10px; font-weight:800; cursor:pointer;" style-hover="border-color:var(--steel); color:var(--ink)">+ 새 조항</button>
+                    </div>
                     <button onClick="{{ onWfCondAdd }}" style="display:inline-flex; align-items:center; gap:5px; padding:6px 12px; border-radius:8px; border:1px dashed var(--border); background:transparent; color:var(--steel); font-size:11px; font-weight:700; cursor:pointer; align-self:flex-start;" style-hover="border-color:var(--steel); color:var(--ink)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14 M12 5v14"></path></svg>조건 추가 (field · 연산 · 값)</button>
                     <sc-if value="{{ wfbCondEmpty }}" hint-placeholder-val="{{ true }}"><span style="font-size:9.5px; font-weight:600; color:var(--faint);">조건 없음 = 트리거 시 항상 실행</span></sc-if>
                   </div>
@@ -7672,6 +7679,21 @@
     </div>
   </sc-if>
 
+  <!-- 딜 단계 전이 — 근거 필수 (#41 CRM) -->
+  <sc-if value="{{ crmMoveOn }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ crmMoveV.onBackdrop }}" style="position:fixed; inset:0; z-index:134; background:rgba(10,14,18,0.42); display:flex; align-items:center; justify-content:center;">
+      <div role="dialog" aria-modal="true" style="width:min(380px,92vw); display:flex; flex-direction:column; gap:11px; background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow-pop); padding:15px 16px; animation:pop-in 0.15s ease;">
+        <div style="font-size:13px; font-weight:800; color:var(--ink);">{{ crmMoveV.title }}</div>
+        <textarea value="{{ crmMoveV.note }}" onInput="{{ crmMoveV.onNote }}" rows="2" placeholder="전이 근거 - 예: 실사 완료, 담당 임원 예산 확인" style="width:100%; box-sizing:border-box; border:1px solid var(--border); border-radius:8px; padding:8px 11px; font-size:12px; font-family:inherit; color:var(--ink); background:var(--canvas); outline:none; resize:none;" style-focus="border-color:var(--steel)"></textarea>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="flex:1; font-size:10px; font-weight:700; color:var(--faint);">근거 없는 전이 불가 — 감사·전환율 지표에 기록</span>
+          <button onClick="{{ crmMoveV.onCancel }}" style="padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--steel); font-size:11.5px; font-weight:700; cursor:pointer;">취소</button>
+          <button onClick="{{ crmMoveV.onGo }}" style="padding:6px 14px; border-radius:8px; border:none; background:var(--ink); color:var(--surface); font-size:11.5px; font-weight:800; cursor:pointer; opacity:{{ crmMoveV.goOp }};" style-hover="opacity:0.9">전이</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <!-- 자동화 활성화 프리플라이트 (§4-29) -->
   <sc-if value="{{ wfPreOn }}" hint-placeholder-val="{{ false }}">
     <div onClick="{{ wfPreV.onBackdrop }}" style="position:fixed; inset:0; z-index:134; background:rgba(10,14,18,0.42); display:flex; align-items:center; justify-content:center;">
@@ -8698,6 +8720,7 @@ class Component extends DCLogic {
         { id: "t_fs", code: "OT-02F", label: "현장", tone: "사업장", stage: "active", ver: 1, steward: "사업운영팀", since: "24-07", note: "고객 상주 현장 — SLA·커버리지·지도 연동" },
         { id: "t_pos", code: "OT-02P", label: "편성", tone: "사업장", stage: "active", ver: 1, steward: "인사팀", since: "24-07", note: "포지션 TO·충원율 — 계약 프리셋 상속 체인 (#15)" },
         { id: "t_wp", code: "OT-03W", label: "인력풀", tone: "직원", stage: "active", ver: 1, steward: "인사팀", since: "24-07", note: "WP- · 대근·일용 — 가용·평점·재고용" },
+        { id: "t_dl", code: "OT-33", label: "딜", tone: "계약", stage: "active", ver: 1, steward: "사업운영팀", since: "26-07", note: "DL- · 리드→접촉→제안→협상→계약 전환 — C- 상류 (#41)" },
         { id: "t_an", code: "OT-11", label: "분석", tone: "분석", stage: "active", ver: 1, steward: "경영지원팀", since: "26-07", note: "AN-·FC- · 근거 체인 파생 개체" },
         { id: "t_cl", code: "OT-12", label: "거래처", tone: "거래처", stage: "active", ver: 1, steward: "사업운영팀", since: "26-07", note: "CL- · 계약·현장·전표·정비 횡단 지속 개체" },
         { id: "t_dp", code: "OT-13", label: "배차", tone: "정비", stage: "archived", ver: 1, steward: "운영팀", since: "24-07", note: "정비(WO-)로 통합 — 인스턴스 마이그레이션 완료" },
@@ -9127,6 +9150,22 @@ class Component extends DCLogic {
           trigger: { label: "외부 API 인제스트 · 오픈뱅킹 신규 거래", icon: "plug" },
           when: [{ label: "입금 · 거래처 명세 매칭 성공" }],
           then: [{ label: "데이터 파이프라인 실행 → 회계 전표 적재", icon: "transform" }, { label: "미수금 대사·재무 반영", icon: "receipt" }] },
+        { id: "wf10", name: "신규 리드 — 담당 라운드로빈 배정", active: true, runs: 4, lastRun: "7/2 14:20", lastResult: "ok",
+          runLog: [
+            { t: "7/2 14:20", result: "ok", dur: "0.3s", note: "DL-098 (인바운드 문의) → 순번 3/3 정하늘 배정 · 첫 활동 기한 D+2 부여", made: [] },
+            { t: "6/30 10:05", result: "ok", dur: "0.3s", note: "DL-104 (고객 소개) → 순번 2/3 김도윤 배정", made: [] }
+          ],
+          trigger: { label: "딜(DL-) 생성 · 담당 미지정", icon: "activity" },
+          when: [{ label: "유입 경로 ≠ 갱신 자동 (갱신 딜=원 계약 담당 승계 — wf9)" }],
+          then: [{ label: "배정 순번표(사업운영팀 3명 · 고정 순서) 다음 순번 배정 — 같은 입력=같은 출력", icon: "bell" }, { label: "첫 활동 기한 D+2 부여 · 미이행=무활동 경고 합류", icon: "clock" }] },
+        { id: "wf9", name: "계약 만료 접근 → 갱신 딜 자동 생성", active: true, runs: 2, lastRun: "7/3 09:00", lastResult: "ok",
+          runLog: [
+            { t: "7/3 09:00", result: "ok", dur: "0.8s", note: "C-114 만료 2027.01 (D-186 ≤ 창 210일) → DL-R02 갱신 딜 생성 · AN-203 임차가 근거 첨부", made: ["DL-R02"] },
+            { t: "5/2 09:00", result: "ok", dur: "0.7s", note: "C-207 갱신 협상 창 진입 → DL-R01 생성 · FC-08 가격 밴드 첨부 · 담당=원 계약 담당", made: ["DL-R01"] }
+          ],
+          trigger: { label: "계약(C-) 갱신 협상 창 진입 (만료 D-210 · 매일 09:00 스쯔)", icon: "clock" },
+          when: [{ label: "계약 상태=활성 · 갱신 딜 미존재 (중복 방지)" }, { label: "수익성·가격 근거(CT-/FC-/AN-) 존재 시 첨부" }],
+          then: [{ label: "갱신 딜(DL-R) 생성 — 원 계약·근거 링크 · 담당 승계", icon: "activity" }, { label: "원 계약 담당 알림 + 다음 활동 「갱신 조건 제안」 기한 D-180", icon: "bell" }] },
         { id: "wf8", name: "P0 라인정지 — 근무외 무대기 승인 프로토콜", active: true, runs: 3, lastRun: "6/28 (일) 02:14", lastResult: "ok", policy: "DoA-E1",
           runLog: [
             { t: "6/28 (일) 02:14", result: "ok", dur: "14분", note: "BESTEC 3호기 정지(P0) → 당직 김성호 응답(8분) · 한도 내 선배차 · 사후 결재 AP-3096 자동 상신 — 월요일 four-eyes 검증 완료", made: ["WO-2611", "AP-3096"] },
@@ -9517,7 +9556,7 @@ class Component extends DCLogic {
     const v = (raw || "").trim();
     if (!v || idx < 0) return;
     let who;
-    const title = v.replace(/@([가-힣A-Za-z0-9_]+)\s*/g, (mm, name) => { who = "@" + name; return ""; }).trim() || v;
+    const title = v.replace(/@([\uAC00-\uD7A3A-Za-z0-9_]+)\s*/g, (mm, name) => { who = "@" + name; return ""; }).trim() || v;
     const id = "px" + Math.random().toString(36).slice(2, 7);
     this.setState((s) => ({ schedByDay: s.schedByDay.map((d, i) => (i === idx ? [...d, { id, type: "todo", t: "", title, who, done: false }] : d)), calAddVal: "" }));
   }
@@ -9549,7 +9588,7 @@ class Component extends DCLogic {
     if (i >= 0) { this.addTodoToDay(i, raw); return; }
     const v = (raw || "").trim(); if (!v) return;
     let who;
-    const title = v.replace(/@([가-힣A-Za-z0-9_]+)\s*/g, (mm, name) => { who = "@" + name; return ""; }).trim() || v;
+    const title = v.replace(/@([\uAC00-\uD7A3A-Za-z0-9_]+)\s*/g, (mm, name) => { who = "@" + name; return ""; }).trim() || v;
     const id = "px" + Math.random().toString(36).slice(2, 7);
     this.setState((ps) => ({ schedExtra: { ...(ps.schedExtra || {}), [ds]: (((ps.schedExtra || {})[ds]) || []).concat([{ id, type: "todo", t: "", title, who, done: false }]) } }));
   }
@@ -11061,6 +11100,58 @@ class Component extends DCLogic {
         { id: "mo2", code: "WO-2641", c1: "타이어 교체 — 반납 전 정비", c2: "인천 제1센터", c3: "미배정", st: "내일 10:00", tone: "warn", flow: { steps: [{ l: "접수", st: "done" }, { l: "계획 · 부품 예약", st: "cur" }, { l: "실행", st: "next" }, { l: "정산", st: "next" }, { l: "전표", st: "next" }] }, en: [["유형", "교체 정비"], ["원인", "반납 준비"]], kv: [["체크리스트", "6/8 완료"]], links: [{ label: "자산 FL-2641", scr: "asset" }], acts: [{ label: "배차·처리 패널", item: "d2" }] },
         { id: "mo3", code: "WO-2638", c1: "정기 예방정비 — 조립라인 3호기", c2: "안산공장", c3: "김성호", st: "D-2", tone: "warn", flow: { steps: [{ l: "접수", st: "done" }, { l: "계획 · 부품 예약", st: "done", code: "PO-118" }, { l: "실행", st: "cur" }, { l: "정산", st: "next" }, { l: "전표", st: "next", code: "VC-2604" }] }, en: [["유형", "예방 정비"], ["원인", "정기"]], kv: [["부품", "PO-118 입고 완료"], ["일지", "JL-0702 연동"]], links: [{ label: "JL-0702", code: "JL-0702" }, { label: "담당 김성호", person: "김성호" }], acts: [{ label: "승인·처리 패널", item: "w1" }] }
       ] },
+      // ── CRM 영업 파이프라인 (#41 · HubSpot/Salesforce 리서치 — 스테이지=생애주기·활동 규율·Lost 사유·C- 전환) ──
+      crm: (() => {
+        const stOv = s0.crmStage || {};
+        const deals0 = [
+          { id: "dl1", code: "DL-104", c1: "평택물류 하역 도급 신규", c2: "평택물류", amt: 5.2, stage: 2, next: "제안서 검토 미팅 7/25", nextDue: "7/25", won: 60, src: "고객 소개",
+            kv: [["규모", "월 ₩5.2M · 하역 12명"], ["다음 활동", "제안서 검토 미팅 7/25 (정하늘)"], ["이력", "리드 유입 6/30 (소개) → 현장 실사 7/8 → 제안 7/15"]], links: [{ label: "거래처 평택물류", code: "CL-01" }] },
+          { id: "dl2", code: "DL-102", c1: "세아제강 미화 범위 확장", c2: "세아제강", amt: 2.1, stage: 3, next: "단가 협상 회신 대기", nextDue: "7/24", won: 75, src: "기존 고객",
+            kv: [["규모", "월 ₩2.1M · 미화 +4명"], ["다음 활동", "단가 협상 회신 (CS-114 연동)"], ["이력", "기존 계약 확장 문의 7/1 → 견적 7/10"]], links: [{ label: "거래처 세아제강", code: "CL-04" }, { label: "CS-114", code: "CS-114" }] },
+          { id: "dl3", code: "DL-101", c1: "인천항만공사 청사 용역 (나라장터)", c2: "인천항만공사", amt: 35.6, stage: 2, next: "입찰서 제출 7/18 17:00", nextDue: "7/18", won: 38, src: "나라장터 wf5",
+            kv: [["규모", "연 ₩428M 추정 (월 환산 ₩35.6M)"], ["다음 활동", "입찰서 제출 마감 7/18 17:00"], ["근거", "FC-07 입찰 판단 — 승률 38%"]], links: [{ label: "FC-07 입찰 판단", scr: "forecast" }, { label: "DX-1050 공고 원본", scr: "ingest" }] },
+          { id: "dl4", code: "DL-098", c1: "김해 물류센터 경비 신규", c2: "이래CS", amt: 8.4, stage: 1, next: null, nextDue: null, won: 25, src: "인바운드 문의",
+            kv: [["규모", "월 ₩8.4M 추정 · 경비 10명"], ["다음 활동", "없음 — 활동 규율 위반 (14일 무활동 시 자동 Lost 후보)"], ["이력", "문의 접수 7/2 이후 무활동"]], links: [] },
+          { id: "dl5", code: "DL-096", c1: "창원 제조사 생산도급 (패)", c2: "DY파워", amt: 12.0, stage: 5, next: null, nextDue: null, won: 0, src: "공개 입찰", lost: "가격 — 경쟁사 대비 +8%",
+            kv: [["Lost 사유", "가격 — 경쟁사 대비 +8% (필수 enum)"], ["환류", "월간 Lost 패턴 분석 → 단가 정책 검토"]], links: [] },
+          // 갱신 파이프라인 — 활성 고객·계약 생애주기 (renewal = 기존 고객 딜 · CRM 컨벤션)
+          { id: "dl6", code: "DL-R01", c1: "C-207 NK보안 갱신 (2027.06 만료)", c2: "대원강업", amt: 186.0 / 12, stage: 3, next: "인상 밴드 협상 착수 8월", nextDue: "8/1", won: 80, src: "갱신 · 활성 계약", renew: "C-207",
+            kv: [["계약 생애주기", "활성 · 만료 D-337 — 갱신 협상 창 진입"], ["근거", "FC-08 갱신 가격 밴드 +4.8~6.2%"], ["다음 활동", "인상 밴드 협상 착수 8월 (전성진)"]], links: [{ label: "C-207 개체 카드", code: "C-207" }, { label: "FC-08 갱신 가격", scr: "forecast" }, { label: "거래처 대원강업", code: "CL-02" }] },
+          { id: "dl7", code: "DL-R02", c1: "C-114 통근버스 갱신 (2027.01 만료)", c2: "코스 공통", amt: 3.3, stage: 2, next: "시장 임차가 조사 (AN-203 -8%)", nextDue: "7/30", won: 65, src: "갱신 · 활성 계약", renew: "C-114",
+            kv: [["계약 생애주기", "활성 · 만료 D-186 — 재협상 여지 (AN-203)"], ["다음 활동", "시장 임차가 조사 7/30"]], links: [{ label: "C-114 개체 카드", code: "C-114" }, { label: "AN-203 인사이트", scr: "laborcost" }] }
+        ];
+        const deals = deals0.map((d) => stOv[d.id] ? { ...d, stage: stOv[d.id] } : d);
+        const stages = ["리드", "접촉·실사", "제안", "협상", "계약 전환", "Lost"];
+        const open = deals.filter((d) => d.stage < 4);
+        const weighted = open.reduce((a, d) => a + d.amt * d.won / 100, 0);
+        const noAct = open.filter((d) => !d.next).length;
+        return { title: "영업 파이프라인", action: { label: "딜 등록", onRun: () => this.objNewOpen("딜") }, cols: ["딜", "고객", "단계", "다음 활동"],
+          stats: [
+            { label: "진행 딜", v: String(open.length) },
+            { label: "가중 파이프라인", v: "₩" + weighted.toFixed(1) + "M" },
+            { label: "무활동 경고", v: String(noAct), tone: noAct > 0 ? "danger" : undefined },
+            { label: "갱신 딜 (활성 계약)", v: "2건 · D-186 최단", tone: "warn" },
+            { label: "이번 분기 전환", v: "1건 · C-311" }
+          ],
+          lanes: [
+            { label: "리드 · 무활동 경고", tone: "danger", ids: deals.filter((d) => d.stage === 1).map((d) => d.id) },
+            { label: "접촉 · 실사 진행", tone: "warn", ids: deals.filter((d) => d.stage === 2).map((d) => d.id) },
+            { label: "제안 · 협상 — 전환 임박", tone: "ok", ids: deals.filter((d) => d.stage >= 3 && d.stage < 5).map((d) => d.id) }
+          ],
+          rows: deals.map((d) => ({
+            id: d.id, code: d.code, c1: d.c1, c2: d.c2, c3: d.stage === 5 ? "Lost" : stages[d.stage - 1] + " · " + d.won + "%",
+            st: d.stage === 5 ? "Lost — " + d.lost.split(" — ")[0] : (d.next ? d.nextDue + " " + d.next.slice(0, 14) : "다음 활동 없음"),
+            tone: d.stage === 5 ? "neutral" : d.next ? (d.stage >= 3 ? "ok" : "info") : "danger",
+            en: [["단계", d.stage === 5 ? "Lost" : stages[d.stage - 1]], ["유입", d.src]],
+            flow: d.stage === 5 ? undefined : { steps: stages.slice(0, 5).map((sname, i) => ({ l: sname, st: i + 1 < d.stage ? "done" : i + 1 === d.stage ? "cur" : "next" })) },
+            kv: d.kv, links: d.links,
+            acts: d.stage === 5 ? [] : [
+              { label: "다음 단계로 — 근거 필수", onRun: () => this.setState({ crmMove: { id: d.id, code: d.code, from: stages[d.stage - 1], to: stages[Math.min(d.stage, 3)], toStage: Math.min(d.stage + 1, 4), note: "" } }) },
+              { label: "다음 활동 등록", onRun: () => { this.setState({ screen: "mywork" }); this.showToast(d.code + " — 만들기 > 할 일에서 활동 등록 (딜 코드 참조 첨부)", false); } },
+              { label: d.renew ? "갱신 계약 기안" : "계약 전환 기안", appr: "contract", title: d.c1 + (d.renew ? " — 갱신 체결" : " — 계약 체결") }
+            ]
+          })) };
+      })(),
       field: { title: "고객·현장", action: { label: "이슈 접수", scr: "ingest" }, cols: ["현장", "고객", "계약", "SLA"], stats: [{ label: "SLA 위반", v: "0" }, { label: "진행 이슈", v: "2", tone: "warn" }, { label: "상주 현장", v: "12" }], rows: [
         { id: "fs1", code: "ST-01", c1: "대원강업 상주", c2: "대원강업", c3: "C-207 경비", st: "이슈 1", tone: "warn", en: [["서비스", "경비"]], kv: [["상주", "경비 44명 · 이종호"], ["이슈", "7/3 결원 → 대근 편성"], ["SLA", "100% · 무위반"]], links: [{ label: "거래처 대원강업", code: "CL-02" }, { label: "그래프 — 현장 체인", node: "site_dw" }, { label: "C-207", code: "C-207" }, { label: "근태 현황", scr: "att" }, { label: "지도에서 보기", scr: "map", extra: { mapOv: "iss", mapSel: "dw" } }], acts: [] },
         { id: "fs2", code: "ST-04", c1: "평택항 물류센터", c2: "대한제강", c3: "지게차 임대", st: "회신 대기", tone: "warn", en: [["서비스", "지게차 임대"]], kv: [["요청", "임대 연장 조건 회신 — CS-118"], ["담당", "정하늘"]], links: [{ label: "거래처 대한제강", code: "CL-01" }, { label: "CS-118", code: "CS-118" }, { label: "메일 스레드", scr: "mail" }, { label: "담당 정하늘", person: "정하늘" }, { label: "지도에서 보기", scr: "map", extra: { mapOv: "ct", mapSel: "pt" } }], acts: [{ label: "연장 계약 기안", appr: "contract", title: "대한제강 지게차 임대 연장" }] },
@@ -11367,6 +11458,7 @@ class Component extends DCLogic {
     const trigOut = { label: this.wfTrigText(b.trigger), icon: b.trigger.icon, type: b.trigger.type, short: b.trigger.short || b.trigger.base, key: b.trigger.key, cfg: b.trigger.cfg, params: b.trigger.params };
     const whenOut = b.when.map((c) => ({ label: this.wfCondText(c), type: this.wfCondMeta(c.field).type === "number" ? "수치" : "속성", field: c.field, op: c.op, value: c.value }));
     const thenOut = b.then.map((a) => ({ label: this.wfActText(a), icon: a.icon, type: a.type, short: this.wfActShort(a), key: a.key, cfg: a.cfg, params: a.params }));
+    const polOut = b.policy || undefined;
     if (b.editId) {
       const nm2 = b.editName || name;
       this.setState((s) => ({ workflows: s.workflows.map((w) => (w.id === b.editId ? { ...w, pendingRev: { trigger: trigOut, when: whenOut, then: thenOut, chain } } : w)), autoSel: b.editId, wfBuilder: null }));
@@ -11385,7 +11477,7 @@ class Component extends DCLogic {
       return;
     }
     const wf = { id: "wfx" + (Date.now() % 100000), name, active: false, draft: true, runs: 0, lastRun: "—", lastResult: "ok", chain,
-      trigger: trigOut, when: whenOut, then: thenOut };
+      trigger: trigOut, when: whenOut, then: thenOut, policy: polOut };
     this.setState((s) => ({ workflows: [wf, ...s.workflows], autoSel: wf.id, wfBuilder: null }));
     this.logEvent({ action: "자동화 규칙 초안", cat: "policy", target: { type: "워크플로", label: name }, decision: "permit", reason: "no-code 블록 캔버스 · 초안(비활성) — 활성화 = 게시 승인·감사 (§3.9.0)" });
     this.showToast("「" + name + "」 초안 저장 — 「활성화」 = 게시 승인 · 트리거 감시 시작", false);
@@ -13011,7 +13103,7 @@ class Component extends DCLogic {
       { label: "하단으로 분할", dir: "bottom", d: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M3 14h18" }
     ];
     const opts = (this.state.panels.length > 0 ? optsAll.slice(0, 2) : optsAll).map((o) => ({ label: o.label, d: o.d, onPick: () => this.cardModeSet(scr, { kind: "split", id, dir: o.dir }) }));
-    return { on: true, btns, menuOn: this.state.cardSplitMenu &amp;&amp; !fl, opts, pos, x, y };
+    return { on: true, btns, menuOn: this.state.cardSplitMenu && !fl, opts, pos, x, y };
   }
 
   h32(str) {
@@ -13022,7 +13114,7 @@ class Component extends DCLogic {
 
   attStatus(name, m, d, dow, teamKey, ovDay) {
     if (dow === 0 || dow === 6) return "we";
-    if (m === 7 &amp;&amp; d > 3) return ovDay === "lv" ? "plv" : "fu";
+    if (m === 7 && d > 3) return ovDay === "lv" ? "plv" : "fu";
     if (ovDay) return ovDay;
     const r = (this.h32(name + "·" + m + "·" + d) % 10000) / 10000;
     const tb = (this.h32(teamKey) % 100) / 100;
@@ -13058,11 +13150,11 @@ class Component extends DCLogic {
     return s.ingestJobs.filter((j) => {
       const f = s.ingestFilter;
       const st = j.stage;
-      if (f === "review" &amp;&amp; st !== "review" &amp;&amp; st !== "map") return false;
-      if (f === "processing" &amp;&amp; ["uploaded", "parse", "sanitize", "classify"].indexOf(st) < 0) return false;
-      if (f === "done" &amp;&amp; st !== "committed") return false;
-      if (f === "failed" &amp;&amp; st !== "failed") return false;
-      if (q &amp;&amp; (j.file + j.code + j.docType + j.srcName + (j.target ? j.target.label : "")).indexOf(q) < 0) return false;
+      if (f === "review" && st !== "review" && st !== "map") return false;
+      if (f === "processing" && ["uploaded", "parse", "sanitize", "classify"].indexOf(st) < 0) return false;
+      if (f === "done" && st !== "committed") return false;
+      if (f === "failed" && st !== "failed") return false;
+      if (q && (j.file + j.code + j.docType + j.srcName + (j.target ? j.target.label : "")).indexOf(q) < 0) return false;
       return true;
     });
   }
@@ -13097,13 +13189,13 @@ class Component extends DCLogic {
   }
   ingTplAll() {
     const s = this.state;
-    return this.ING_TPLS().map((t) => (s.ingTplOv &amp;&amp; s.ingTplOv[t.id] ? { ...t, ...s.ingTplOv[t.id] } : t)).concat(s.ingTplUser || []);
+    return this.ING_TPLS().map((t) => (s.ingTplOv && s.ingTplOv[t.id] ? { ...t, ...s.ingTplOv[t.id] } : t)).concat(s.ingTplUser || []);
   }
   ingTplOf(id) { return this.ingTplAll().find((t) => t.id === id) || null; }
   ingTplUsage(name) { return this.state.ingestJobs.filter((j) => (j.template || "") === name); }
   ingTplOpen(id) {
     const first = this.ingTplAll()[0];
-    this.setState((s) => ({ ingTplModal: true, ingTplSel: id || s.ingTplSel || (first &amp;&amp; first.id) }));
+    this.setState((s) => ({ ingTplModal: true, ingTplSel: id || s.ingTplSel || (first && first.id) }));
   }
   ingTplOpenByName(name) {
     const t = this.ingTplAll().find((x) => x.name === name);
@@ -13145,13 +13237,13 @@ class Component extends DCLogic {
   ingTplNew(name) {
     const n = (this.state.ingTplUser || []).length;
     const id = "tpu" + (n + 1);
-    const t = { id, code: "TP-" + (11 + n), name: (name &amp;&amp; String(name).trim()) || "새 매핑 템플릿", docType: "미분류", tgtType: "접수", ver: 0, stage: "draft", steward: this.viewerNow().name, maps: [["", "", "없음"]] };
+    const t = { id, code: "TP-" + (11 + n), name: (name && String(name).trim()) || "새 매핑 템플릿", docType: "미분류", tgtType: "접수", ver: 0, stage: "draft", steward: this.viewerNow().name, maps: [["", "", "없음"]] };
     this.setState((s) => ({ ingTplUser: [...(s.ingTplUser || []), t], ingTplModal: true, ingTplSel: id }));
     this.logEvent({ action: "매핑 템플릿 초안 생성", cat: "submit", target: { type: "매핑 템플릿", label: t.name, code: t.code }, decision: "permit", reason: "초안 — 게시 전 파이프라인 비적용 (§3.9)" });
   }
   ingTplPublish(id) {
     const t = this.ingTplOf(id); if (!t || t.stage !== "draft") return;
-    const done = (t.maps || []).filter((m) => m[0] &amp;&amp; m[1]);
+    const done = (t.maps || []).filter((m) => m[0] && m[1]);
     if (!(t.name || "").trim() || t.name === "새 매핑 템플릿" || !done.length) { this.showToast("템플릿명·완성 매핑 1행 이상 필요 — 게시 불가 (fail-closed)", false); return; }
     this.setState((s) => ({ ingTplUser: s.ingTplUser.map((u) => (u.id === id ? { ...u, stage: "active", ver: 1 } : u)) }));
     this.logEvent({ action: "매핑 템플릿 게시", cat: "submit", target: { type: "매핑 템플릿", label: t.name + " v1", code: t.code }, decision: "permit", reason: "게시 권한 행위 — 자동 분류·파이프라인 소비 시작 (§3.9.0-④)" });
@@ -13193,8 +13285,8 @@ class Component extends DCLogic {
     const out = [];
     const numRe = /금액|기본급|수당|공제|지급액|추정가|입금/;
     const dateRe = /일시|일자|마감|기간|발효/;
-    out.push({ name: "스키마 매핑 완전성", sev: "severe", pass: fs.length > 0 &amp;&amp; fs.every((f) => !!f.tgt), note: fs.length === 0 ? "추출 필드 0 — 재처리 필요" : (fs.every((f) => !!f.tgt) ? fs.length + "필드 전량 온톨로지 타깃 매핑" : "타깃 미지정 필드 존재") });
-    out.push({ name: "필수값 비어있지 않음", sev: "severe", pass: fs.length > 0 &amp;&amp; fs.every((f) => String(f.val || "").trim().length > 0), note: fs.length ? (fs.every((f) => String(f.val || "").trim().length > 0) ? "널 필드 0" : "빈 값 필드 — 검증·수정 필요") : "평가 불가" });
+    out.push({ name: "스키마 매핑 완전성", sev: "severe", pass: fs.length > 0 && fs.every((f) => !!f.tgt), note: fs.length === 0 ? "추출 필드 0 — 재처리 필요" : (fs.every((f) => !!f.tgt) ? fs.length + "필드 전량 온톨로지 타깃 매핑" : "타깃 미지정 필드 존재") });
+    out.push({ name: "필수값 비어있지 않음", sev: "severe", pass: fs.length > 0 && fs.every((f) => String(f.val || "").trim().length > 0), note: fs.length ? (fs.every((f) => String(f.val || "").trim().length > 0) ? "널 필드 0" : "빈 값 필드 — 검증·수정 필요") : "평가 불가" });
     const nums = fs.filter((f) => numRe.test(f.k));
     if (nums.length) { const ok = nums.every((f) => parseFloat(String(f.val).replace(/[^0-9.]/g, "")) > 0); out.push({ name: "금액 > 0 (범위)", sev: "moderate", pass: ok, note: nums.length + "개 금액 필드" + (ok ? " 전량 양수" : " — 0 이하 존재") }); }
     const dts = fs.filter((f) => dateRe.test(f.k));
@@ -13207,17 +13299,17 @@ class Component extends DCLogic {
     if (low > 0) { this.showToast("저확신 " + low + "개 필드를 먼저 검증하세요", false); return; }
     // 기대치 게이트 (§3.10 fail-closed): Severe 실패 = 적재 중단 · Moderate 실패 = 경고 감사 후 진행
     const exps = this.ingExpectations(j);
-    const sevFail = exps.filter((e) => !e.pass &amp;&amp; e.sev === "severe");
+    const sevFail = exps.filter((e) => !e.pass && e.sev === "severe");
     if (sevFail.length) {
       this.logEvent({ action: "온톨로지 적재 중단 — 기대치 실패", cat: "forbid", decision: "forbid", target: { type: "인제스트", label: j.file, code: j.code }, reason: "data expectation Severe 실패: " + sevFail.map((e) => e.name + " (" + e.note + ")").join(" · ") + " — 하류 오염 방지 fail-closed · 해소: 필드 수정·재처리 후 재적재" });
       this.showToast("적재 중단 — 기대치 실패: " + sevFail[0].name + " · " + sevFail[0].note, true);
       return;
     }
-    const modFail = exps.filter((e) => !e.pass &amp;&amp; e.sev === "moderate");
+    const modFail = exps.filter((e) => !e.pass && e.sev === "moderate");
     if (modFail.length) this.logEvent({ action: "기대치 경고 — 적재 진행", cat: "system", target: { type: "인제스트", label: j.file, code: j.code }, decision: "permit", reason: "Moderate 실패: " + modFail.map((e) => e.name).join(" · ") + " — 경고 기록 후 진행 (Severe만 중단)" });
     const pfx = ({ "계약": "C-", "접수": "IN-", "회계 전표": "IN-", "입찰": "Bid-", "경비 청구": "AP-", "급여 회차": "PS-", "정비 증빙": "WO-", "명세": "PS-", "레코드": "IN-", "증빙": "WO-" })[j.target.type] || "IN-";
     const seq = 630 + this.state.ingestJobs.filter((x) => x.stage === "committed").length + 1;
-    const code = /^(C-|IN-|WO-|PS-|Bid-|AP-)/.test(j.target.code || "") &amp;&amp; !/후보|Batch/.test(j.target.code) ? j.target.code : (pfx + seq);
+    const code = /^(C-|IN-|WO-|PS-|Bid-|AP-)/.test(j.target.code || "") && !/후보|Batch/.test(j.target.code) ? j.target.code : (pfx + seq);
     this.setState((s) => ({ ingestJobs: s.ingestJobs.map((x) => (x.id === id ? { ...x, stage: "committed", committedCode: code, note: j.target.label + " 적재 완료" } : x)) }));
     this.logEvent({ action: "온톨로지 적재", cat: "submit", target: { type: j.target.type || "개체", label: j.file + " → " + j.target.label, code }, decision: "permit", reason: "데이터 인제스트 파이프라인 · 원본 provenance·무결성 해시 링크", cls: j.cls });
     this.showToast(code + " — " + j.target.label + " 온톨로지 적재 · 생애주기 검토 단계 진입 · 원본 링크·감사 기록", false);
@@ -13252,7 +13344,7 @@ class Component extends DCLogic {
   // §18.1 모듈 행 → 엔진 타입 (컴플라이언스는 「구분」으로 CP/RG/FW 분기 — everything-is-ontology)
   _modRowType(scr, r) {
     const base = this.MOD_TYPEOF()[scr] || "기록물";
-    if (scr === "forecast" &amp;&amp; (r.en || []).some((p) => p[1] === "파생 인사이트")) return "분석";
+    if (scr === "forecast" && (r.en || []).some((p) => p[1] === "파생 인사이트")) return "분석";
     if (scr === "compliance") {
       const g = ((r.en || []).find((p) => p[0] === "구분") || [])[1];
       if (g === "규제 파라미터") return "규제 파라미터";
@@ -13298,7 +13390,7 @@ class Component extends DCLogic {
   }
   // ── §4-15 지속 개체(시리즈) = 인스턴스의 부모 — 반복 청구·정비·의무의 이력·추세·다음 예정 (Palantir time-series object) ──
   OBJ_SERIES() {
-    const us = (this.state &amp;&amp; this.state.userSeries) || {};
+    const us = (this.state && this.state.userSeries) || {};
     return Object.assign({
       "SR-201": { code: "SR-201", title: "통근버스 임대료 — 진영·창원", unit: "월 청구", rule: "매월 25일 청구 · C-114 고정가", linked: ["C-114", "VC-2605"], trend: "6개월 고정가 ₩3.3M · 변동 0% — 시장 임차 −8% · 재협상 여지 (AN-203)",
         inst: [{ code: "", label: "3월", v: "3.3", pct: 76 }, { code: "", label: "4월", v: "3.3", pct: 76 }, { code: "AP-3055", label: "5월", v: "3.3", pct: 76 }, { code: "AP-3116", label: "6월", v: "3.3", pct: 76, cur: true }], next: { label: "7월 · 25일 예정", v: "3.3", pct: 76 } },
@@ -13326,7 +13418,7 @@ class Component extends DCLogic {
     const subN = (this.state.subAssignments || []).length;
     const labor207 = 137.6 + subN * 0.18;
     const margin207 = Math.max(0, (1 - labor207 / 186.0 - 0.14) * 100);
-    const gapN = Math.max(0, this.HR_ISSUES.filter((x) => x.type === "미출근" &amp;&amp; (this.state.hrHandled || []).indexOf(x.id) < 0).length - subN);
+    const gapN = Math.max(0, this.HR_ISSUES.filter((x) => x.type === "미출근" && (this.state.hrHandled || []).indexOf(x.id) < 0).length - subN);
     return [
       { code: "C-207", name: "NK보안 경비용역", ent: "코스", rev: "186.0M", labor: labor207.toFixed(1) + "M", margin: margin207.toFixed(1) + "%", mTx: margin207 < 12 ? "var(--warn-tx)" : "var(--ink)", head: "44", gap: gapN > 0 ? "결원 " + gapN : subN > 0 ? "대근 " + subN : "", gapOn: gapN > 0, go: () => this.exploreGo("c207") },
       { code: "C-114", name: "통근버스 임대차", ent: "코스", rev: "42.5M", labor: "28.9M", margin: "18.2%", mTx: "var(--ink)", head: "8", gap: "", gapOn: false, go: () => this.setState({ screen: "docs" }) },
@@ -13343,7 +13435,7 @@ class Component extends DCLogic {
     return {
       xLine: (TM / X1 * 100).toFixed(1) + "%", yLine: (TR / Y1 * 100).toFixed(1) + "%",
       pts: pts.map((p) => {
-        const bad = p.m < TM &amp;&amp; p.r > TR, good = p.m >= TM &amp;&amp; p.r <= TR;
+        const bad = p.m < TM && p.r > TR, good = p.m >= TM && p.r <= TR;
         const tc = this.TONE(bad ? "danger" : good ? "ok" : "warn");
         return { code: p.code, left: Math.min(94, Math.max(5, p.m / X1 * 100)).toFixed(1) + "%", bottom: Math.min(90, Math.max(7, p.r / Y1 * 100)).toFixed(1) + "%",
           sz: Math.max(9, Math.min(18, Math.sqrt(p.rev) * 1.6)).toFixed(0) + "px", bg: tc[0], bd: tc[1], tx: tc[2],
@@ -13367,19 +13459,19 @@ class Component extends DCLogic {
       try { this._ogBuild(); } finally { this._ogBuilding = false; }
     }
     const base = this._ogBase;
-    const un = (this.state &amp;&amp; this.state.userNodes) || [];
-    const ol = (this.state &amp;&amp; this.state.objLinks) || {};
-    const ovAll = (this.state &amp;&amp; this.state.objOverrides) || {};
-    const olKeys = Object.keys(ol).filter((c) => ol[c] &amp;&amp; ol[c].length);
-    const ovKeys = Object.keys(ovAll).filter((c) => ovAll[c] &amp;&amp; ovAll[c].status === "applied");
-    if (!un.length &amp;&amp; !olKeys.length &amp;&amp; !ovKeys.length) return base;
-    if (this._ogMemo &amp;&amp; this._ogMemo.b === base &amp;&amp; this._ogMemo.u === un &amp;&amp; this._ogMemo.l === ol &amp;&amp; this._ogMemo.o === ovAll) return this._ogMemo.g;
+    const un = (this.state && this.state.userNodes) || [];
+    const ol = (this.state && this.state.objLinks) || {};
+    const ovAll = (this.state && this.state.objOverrides) || {};
+    const olKeys = Object.keys(ol).filter((c) => ol[c] && ol[c].length);
+    const ovKeys = Object.keys(ovAll).filter((c) => ovAll[c] && ovAll[c].status === "applied");
+    if (!un.length && !olKeys.length && !ovKeys.length) return base;
+    if (this._ogMemo && this._ogMemo.b === base && this._ogMemo.u === un && this._ogMemo.l === ol && this._ogMemo.o === ovAll) return this._ogMemo.g;
     const g2 = {}; Object.keys(base).forEach((k) => { g2[k] = base[k]; });
     const ix = Object.assign({}, this._ogIx);
     un.forEach((n) => { g2[n.id] = n; if (n.code) ix[n.code] = n.id; });
     olKeys.forEach((c) => {
       const k = ix[c]; if (!k || !g2[k]) return;
-      const extra = ol[c].map((l) => ({ to: ix[l.code], rel: l.rel || "수동 연결" })).filter((e) => e.to &amp;&amp; e.to !== k &amp;&amp; !(g2[k].edges || []).some((x) => x.to === e.to));
+      const extra = ol[c].map((l) => ({ to: ix[l.code], rel: l.rel || "수동 연결" })).filter((e) => e.to && e.to !== k && !(g2[k].edges || []).some((x) => x.to === e.to));
       if (extra.length) g2[k] = { ...g2[k], edges: (g2[k].edges || []).concat(extra) };
     });
     // 발효된 데이터 오버라이드(사유·승인·감사 완료)만 값 교체 — 이전 값은 감사 이벤트에 보존 (§3.10)
@@ -13411,12 +13503,12 @@ class Component extends DCLogic {
     const addEdge = (fid, code, rel) => { const tid = codeIx[code]; if (!tid || tid === fid) return; if (g[fid].edges.some((e) => e.to === tid) || (g[tid].edges || []).some((e) => e.to === fid)) return; g[fid].edges.push({ to: tid, rel: rel || "연결" }); };
     Object.keys(T).forEach((scr) => { const cfg = MODS[scr]; if (!cfg) return; cfg.rows.forEach((r) => {
       const fid = codeIx[r.code]; if (!fid || !g[fid].scr) return;
-      (r.links || []).forEach((l) => { if (l.code) addEdge(fid, l.code, l.label); else if (l.node &amp;&amp; g[l.node] &amp;&amp; !g[fid].edges.some((e) => e.to === l.node)) g[fid].edges.push({ to: l.node, rel: l.label || "연결" }); });
+      (r.links || []).forEach((l) => { if (l.code) addEdge(fid, l.code, l.label); else if (l.node && g[l.node] && !g[fid].edges.some((e) => e.to === l.node)) g[fid].edges.push({ to: l.node, rel: l.label || "연결" }); });
       (r.kv || []).forEach((p) => { (String(p[1]).match(RX) || []).forEach((c) => addEdge(fid, c, p[0])); });
     }); });
     this.DASH_INSIGHTS().forEach((n) => { (n.chain || []).forEach((c) => addEdge("an_" + n.id, c, "근거")); });
     Object.keys(SER).forEach((k) => { const sr = SER[k]; (sr.linked || []).forEach((c) => addEdge("sr_" + k, c, "대상")); (sr.inst || []).forEach((x) => { if (x.code) addEdge("sr_" + k, x.code, "인스턴스"); }); });
-    this.CLIENTS().forEach((cl) => { (cl.chain || []).forEach((c) => addEdge("cl_" + cl.code, c, "거래")); const st = Object.keys(g).find((k) => g[k].label === cl.site); if (st &amp;&amp; !g["cl_" + cl.code].edges.some((e) => e.to === st)) g["cl_" + cl.code].edges.push({ to: st, rel: "현장" }); });
+    this.CLIENTS().forEach((cl) => { (cl.chain || []).forEach((c) => addEdge("cl_" + cl.code, c, "거래")); const st = Object.keys(g).find((k) => g[k].label === cl.site); if (st && !g["cl_" + cl.code].edges.some((e) => e.to === st)) g["cl_" + cl.code].edges.push({ to: st, rel: "현장" }); });
     this._ogBase = g;
     this._ogIx = codeIx;
   }
@@ -13534,7 +13626,7 @@ class Component extends DCLogic {
     const cur = (this.ONT_TYPES()[label] || { props: [] }).props;
     if (cur.some((p) => p[0] === nm)) { this.showToast("「" + nm + "」 — 이미 있는 속성", false); return; }
     const t = (this.state.ontTypes || []).find((x) => x.code === code);
-    const active = t &amp;&amp; t.stage === "active";
+    const active = t && t.stage === "active";
     if (active) {
       this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; return { ontDefPend: { ...p, [code]: { ...e, props: [...(e.props || []), [nm, dt]] } }, omPropName: "" }; });
       this.logEvent({ action: "타입 속성 개정 상신", cat: "policy", target: { type: "개체 타입", label: label + " · +" + nm + ":" + dt, code }, decision: "permit", reason: "개정 대기(스테이징) — 적용 승인 시 v+1 발효 (§4-20)" });
@@ -13548,7 +13640,7 @@ class Component extends DCLogic {
     const label = this._ontLabelOf(code); if (!label) return;
     const nm = (label2 || "").trim(); if (!nm) { this.showToast("액션 이름을 입력하세요", true); return; }
     const t = (this.state.ontTypes || []).find((x) => x.code === code);
-    const active = t &amp;&amp; t.stage === "active";
+    const active = t && t.stage === "active";
     if (active) {
       this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; return { ontDefPend: { ...p, [code]: { ...e, actions: [...(e.actions || []), [key || "explore", nm]] } }, omActLabel: "" }; });
       this.logEvent({ action: "액션 정의 개정 상신", cat: "policy", target: { type: "개체 타입", label: label + " · " + nm, code }, decision: "permit", reason: "개정 대기(스테이징) — 적용 승인 시 v+1 발효" });
@@ -13562,7 +13654,7 @@ class Component extends DCLogic {
     const label = this._ontLabelOf(code); if (!label) return;
     const nm = (pLabel || "").trim(); if (!nm) { this.showToast("파라미터 이름을 입력하세요", true); return; }
     const t = (this.state.ontTypes || []).find((x) => x.code === code);
-    const active = t &amp;&amp; t.stage === "active";
+    const active = t && t.stage === "active";
     const addP = (cur) => { const m = { ...(cur || {}) }; m[actKey] = [...(m[actKey] || []), { k: nm, kind: "text" }]; return m; };
     if (active) {
       this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; return { ontDefPend: { ...p, [code]: { ...e, actParams: addP(e.actParams) } }, omParamVal: "" }; });
@@ -13580,7 +13672,7 @@ class Component extends DCLogic {
     const rev = (this.state.lcLinkRev || "").trim();
     if (!rel || !to) { this.showToast("관계 이름과 대상 타입을 입력하세요", true); return; }
     const t = (this.state.ontTypes || []).find((x) => x.code === code);
-    const active = t &amp;&amp; t.stage === "active";
+    const active = t && t.stage === "active";
     if (active) {
       this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; return { ontDefPend: { ...p, [code]: { ...e, links: [...e.links, [rel, to, card, rev]] } }, lcLinkRel: "", lcLinkTo: "", lcLinkCard: "1:N", lcLinkRev: "" }; });
       this.logEvent({ action: "관계 유형 개정 상신", cat: "policy", target: { type: "개체 타입", label: label + " · " + rel + " " + card + " " + to, code }, decision: "permit", reason: "개정 대기(스테이징) — 카디널리티 " + card + " · 적용 승인 시 v+1 발효 (§4-20)" });
@@ -13593,7 +13685,7 @@ class Component extends DCLogic {
     const label = this._ontLabelOf(code); if (!label) return;
     const nm = (this.state.lcAnaVal || "").trim(); if (!nm) { this.showToast("분석 정의(산식)를 입력하세요", true); return; }
     const t = (this.state.ontTypes || []).find((x) => x.code === code);
-    const active = t &amp;&amp; t.stage === "active";
+    const active = t && t.stage === "active";
     if (active) {
       this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; return { ontDefPend: { ...p, [code]: { ...e, analytics: [...e.analytics, ["u" + e.analytics.length, nm]] } }, lcAnaVal: "" }; });
       this.logEvent({ action: "분석 정의 개정 상신", cat: "policy", target: { type: "개체 타입", label: label + " · " + nm, code }, decision: "permit", reason: "개정 대기(스테이징) — 적용 승인 시 v+1 발효 (§4-20)" });
@@ -13606,11 +13698,11 @@ class Component extends DCLogic {
   ontDepr(code, kind, key) {
     const label = this._ontLabelOf(code); if (!label || !key) return;
     const t = (this.state.ontTypes || []).find((x) => x.code === code);
-    const active = t &amp;&amp; t.stage === "active";
+    const active = t && t.stage === "active";
     const cur = ((this.state.ontTypeDefs || {})[label] || {}).depr || [];
-    if (cur.some((d) => d[0] === kind &amp;&amp; d[1] === key)) { this.showToast(key + " — 이미 일몰 예고됨", true); return; }
+    if (cur.some((d) => d[0] === kind && d[1] === key)) { this.showToast(key + " — 이미 일몰 예고됨", true); return; }
     if (active) {
-      this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; const dd = e.depr || []; if (dd.some((d) => d[0] === kind &amp;&amp; d[1] === key)) return {}; return { ontDefPend: { ...p, [code]: { ...e, depr: [...dd, [kind, key]] } } }; });
+      this.setState((s) => { const p = s.ontDefPend || {}; const e = p[code] || { links: [], analytics: [] }; const dd = e.depr || []; if (dd.some((d) => d[0] === kind && d[1] === key)) return {}; return { ontDefPend: { ...p, [code]: { ...e, depr: [...dd, [kind, key]] } } }; });
       this.logEvent({ action: "정의 일몰 개정 상신", cat: "policy", target: { type: "개체 타입", label: label + " · " + kind + " " + key + " 일몰", code }, decision: "permit", reason: "제거 = deprecated 일몰 창 30일(8/09) → 보관 — 하드삭제 금지 · 소비자 재바인딩 유예 (§18.2)" });
       this.showToast(key + " — 일몰 개정 대기 · 적용 승인 시 30일 유예(8/09) 후 보관", false);
     } else {
@@ -13663,7 +13755,7 @@ class Component extends DCLogic {
     const nm = (o.name || "").trim();
     if (!nm) { this.setState((s) => ({ objNew: { ...s.objNew, err: "이름을 입력하세요 (fail-closed)" } })); return; }
     const def = this.ONT_TYPES()[o.type] || { props: [] };
-    if (o.edit &amp;&amp; o.mode === "override") {
+    if (o.edit && o.mode === "override") {
       const rsn = (o.reason || "").trim();
       if (!rsn) { this.setState((s) => ({ objNew: { ...s.objNew, err: "오버라이드 사유를 입력하세요 (fail-closed · §3.10)" } })); return; }
       const props2 = Object.keys(o.props).filter((k) => (o.props[k] || "").trim()).map((k) => [k, o.props[k].trim()]);
@@ -13761,7 +13853,7 @@ class Component extends DCLogic {
   // 소비자: 객체 탐색 그래프 · 타입 스키마 카드 · 정책(principal/resource) · 워크플로 블록 · 모듈 서피스.
   ONT_TYPES() {
     const _s = this.state || {};
-    if (this._ontTypesMemo &amp;&amp; this._ontTypesMemo.a === _s.ontTypes &amp;&amp; this._ontTypesMemo.b === _s.ontTypeDefs) return this._ontTypesMemo.out;
+    if (this._ontTypesMemo && this._ontTypesMemo.a === _s.ontTypes && this._ontTypesMemo.b === _s.ontTypeDefs) return this._ontTypesMemo.out;
     const base = {
       "계약": { ot: "OT-01", props: [["거래처", "text"], ["법인", "enum"], ["월 계약금", "money"], ["기간", "daterange"], ["상태", "lifecycle"], ["인건비율", "percent"]], linkTypes: [["수행 현장", "사업장", "1:N"], ["인원편성", "편성", "1:N"], ["수익성 환류", "분석", "1:1"], ["변경계약", "계약", "N:1"]], actions: [["lifecycle", "생애주기 관리"], ["profit", "수익성 분석"], ["renew", "갱신 검토 기안", { params: [{ k: "인상률", kind: "enum", options: ["+4.8%", "+5.5%", "+6.2%"] }, { k: "협상 사유", kind: "text" }], crit: { clearance: ["민감정보", "비밀"], label: "민감정보+ 등급 · 계약 편집 권한" }, fx: { notify: true, appr: "general" } }]], analytics: [["margin", "마진 = 1 − 인건비율 − 간접비"], ["laborRatio", "인건비율 = 인건비 ÷ 계약금"]] },
       "사업장": { ot: "OT-02", props: [["법인", "enum"], ["서비스", "enum"], ["상주 인원", "number"], ["커버리지", "percent"]], linkTypes: [["소속 팀", "조직"], ["수행 계약", "계약"]], actions: [["map", "운영 지도"], ["roster", "근무 현황"]], analytics: [["coverage", "커버리지 = 출근 ÷ 정원"]] },
@@ -13777,6 +13869,7 @@ class Component extends DCLogic {
       "인력풀": { ot: "OT-03", props: [["유형", "enum"], ["일당", "money"], ["평점", "number"], ["재고용", "number"], ["자격", "text"]], linkTypes: [], actions: [["sub", "대근 편성"], ["workforce", "인력풀"]], analytics: [] },
       "공고": { ot: "OT-14", props: [["충원", "number"], ["채용 확정", "number"], ["지원자", "number"], ["상태", "lifecycle"]], linkTypes: [["지원자", "지원자"]], actions: [["recruit", "채용"]], analytics: [["fill", "충원율 = 채용 ÷ 충원"]] },
       "지원자": { ot: "OT-14", props: [["공고", "text"], ["단계", "enum"], ["평가", "text"], ["오퍼", "enum"]], linkTypes: [], actions: [["recruit", "채용 파이프라인"]], analytics: [] },
+      "딜": { ot: "OT-33", props: [["고객", "text"], ["월 규모", "money"], ["단계", "enum"], ["다음 활동", "text"], ["승률", "percent"], ["유입 경로", "enum"]], linkTypes: [["거래처", "거래처", "N:1"], ["전환 계약", "계약", "1:1"], ["근거 예측", "분석", "N:1"]], actions: [["crm", "영업 파이프라인"], ["appr", "계약 전환 기안"]], analytics: [["weighted", "가중액 = 규모 × 승률"], ["velocity", "사이클 = 전환일 − 유입일"]] },
       "정책": { ot: "OT-05", props: [["규칙", "text"], ["효과", "enum"], ["조건", "text"]], linkTypes: [], actions: [["policy", "권한·정책"]], analytics: [] },
       "거래처": { ot: "OT-12", props: [["등급", "enum"], ["거래 조건", "text"], ["주 현장", "text"], ["여신", "money"]], linkTypes: [["거래 계약", "계약", "1:N"], ["현장", "사업장", "1:N"]], actions: [["client", "고객·현장"]], analytics: [["ar", "미수금 = Σ 매출채권"]] },
       "컴플라이언스": { ot: "OT-10", props: [["구분", "enum"], ["근거", "text"], ["기한", "date"], ["상태", "lifecycle"], ["소관", "person"], ["대상 인원", "number"]], linkTypes: [["근거 규제", "규제 파라미터", "N:1"], ["대상 개체", "직원", "1:N"], ["이행 기안", "결재", "1:N"], ["증거", "인제스트", "1:N"]], actions: [["compliance", "컴플라이언스"], ["appr", "이행 기안"], ["audit", "감사 로그"]], analytics: [["fulfil", "이행률 = 완료 ÷ 대상"], ["due", "잔여일 = 기한 − 오늘"]] },
@@ -13840,7 +13933,7 @@ class Component extends DCLogic {
     const label = this.ONT_ACTION_LABEL()[f.key] || (this.ONT_TYPES()[f.node.type].actions.find((a) => a[0] === f.key) || [])[1] || f.key;
     // submission criteria — clearance 술어 (fail-closed)
     const crit = f.cfg.crit;
-    if (crit &amp;&amp; crit.clearance &amp;&amp; crit.clearance.indexOf(this.viewerNow().clearance) < 0) {
+    if (crit && crit.clearance && crit.clearance.indexOf(this.viewerNow().clearance) < 0) {
       this.logEvent({ action: "액션 제출 차단 — submission criteria", cat: "forbid", decision: "forbid", target: { type: f.node.type, label: f.node.label, code: f.node.code || "" }, reason: "「" + label + "」 기준 미충족: " + crit.label + " (현재 " + this.viewerNow().clearance + ") — fail-closed" });
       this.showToast("제출 차단 — " + crit.label + " 필요 (현재 " + this.viewerNow().clearance + ")", true);
       return;
@@ -13850,9 +13943,9 @@ class Component extends DCLogic {
     const pStr = (f.cfg.params || []).map((p) => p.k + "=" + f.vals[p.k]).join(" · ");
     this.logEvent({ action: "개체 액션 실행 — 폼 제출", cat: "submit", target: { type: f.node.type, label: f.node.label, code: f.node.code || "" }, decision: "permit", reason: "「" + label + "」 파라미터: " + pStr + " · 기준 통과(" + (crit ? crit.label : "없음") + ")" });
     // side effects — 알림 · 기안 프리필
-    if (f.cfg.fx &amp;&amp; f.cfg.fx.notify) this.setState((s) => ({ notifs: [{ id: "nact" + (Date.now() % 100000), cat: "액션", text: "[액션] " + f.node.label + " — " + label + " 제출 (" + pStr + ")", time: "방금", unread: true }, ...s.notifs] }));
+    if (f.cfg.fx && f.cfg.fx.notify) this.setState((s) => ({ notifs: [{ id: "nact" + (Date.now() % 100000), cat: "액션", text: "[액션] " + f.node.label + " — " + label + " 제출 (" + pStr + ")", time: "방금", unread: true }, ...s.notifs] }));
     this.setState({ actForm: null, lcObj: null });
-    if (f.cfg.fx &amp;&amp; f.cfg.fx.appr) { this.modApprPrefill(f.cfg.fx.appr, f.node.label + " — " + label + " (" + pStr + ") — "); return; }
+    if (f.cfg.fx && f.cfg.fx.appr) { this.modApprPrefill(f.cfg.fx.appr, f.node.label + " — " + label + " (" + pStr + ") — "); return; }
     this.showToast(label + " 제출 — " + pStr + " · 감사 기록", false);
   }
   ogActionRun(id, node, key) {
@@ -13861,14 +13954,14 @@ class Component extends DCLogic {
     const tDef = this.ONT_TYPES()[node.type] || {};
     const actDef = (tDef.actions || []).find((a) => a[0] === key);
     const extraP = ((tDef.actParams || {})[key] || []);
-    if (actDef &amp;&amp; (actDef[2] || extraP.length) &amp;&amp; !this.state.actForm) {
+    if (actDef && (actDef[2] || extraP.length) && !this.state.actForm) {
       const base = actDef[2] || { params: [], fx: { notify: true } };
       this.actFormOpen(node, key, { ...base, params: [...(base.params || []), ...extraP] });
       return;
     }
     this.logEvent({ action: "개체 액션 실행", cat: "system", target: { type: node.type, label: node.label, code: code }, decision: "permit", reason: "온톨로지 액션 「" + (this.ONT_ACTION_LABEL()[key] || key) + "」 — 타입 정의 파생 (single engine)" });
     switch (key) {
-      case "lifecycle": if (code &amp;&amp; this.lcKnown(code)) this.lcOpen(code); else this.showToast("생애주기 미등록 개체", false); return;
+      case "lifecycle": if (code && this.lcKnown(code)) this.lcOpen(code); else this.showToast("생애주기 미등록 개체", false); return;
       case "profit": case "explore": this.exploreGo("profit"); return;
       case "analysis": this.setState({ screen: "laborcost", lcObj: null }); return;
       case "map": this.setState({ screen: "map", lcObj: null }); return;
@@ -13905,7 +13998,7 @@ class Component extends DCLogic {
       case "posting": this.setState({ screen: "postings", lcObj: null }); return;
       case "forecast": this.setState({ screen: "laborcost", lcObj: null }); return;
       case "renew": this.setState({ lcObj: null }); this.modApprPrefill("general", "계약 갱신 검토 — " + node.label); return;
-      default: { this.ONTOLOGY_GRAPH(); const ix = this._ogIx || {}; this.setState({ lcObj: null }); if (code &amp;&amp; ix[code]) this.exploreGo(ix[code]); else this.setState({ screen: "explore" }); }
+      default: { this.ONTOLOGY_GRAPH(); const ix = this._ogIx || {}; this.setState({ lcObj: null }); if (code && ix[code]) this.exploreGo(ix[code]); else this.setState({ screen: "explore" }); }
     }
   }
   OG_STATIC() {
@@ -13950,7 +14043,7 @@ class Component extends DCLogic {
     ];
   }
   // 인력풀 단일 조회 지점 (§4-19 chokepoint): 시드 + 채용 경유 등재(wpJoined) 병합 — 재직 명부와 분리된 레지스트리
-  wpAll() { return this.WORKFORCE_POOL().concat((this.state &amp;&amp; this.state.wpJoined) || []); }
+  wpAll() { return this.WORKFORCE_POOL().concat((this.state && this.state.wpJoined) || []); }
   subOpen(gap) { this.setState({ subModal: gap || { site: "대원강업 상주", ent: "코스", role: "경비", from: 11.5, to: 18, who: "조이슨", reason: "무단결근" }, subPoolQ: "" }); }
   // 대근 커버 플래너 — D+7 포워드 큐 (승인 부재 × 상주 커버 필수 × 편성 상태 · 레인 13)
   coverPlan() {
@@ -13964,14 +14057,14 @@ class Component extends DCLogic {
       const decided = (s.leaveHandled || {})[r.id];
       if (decided === "return" || decided === "reject") return;
       const date = (r.when || "").split(" ")[0];
-      const assigned = (s.subAssignments || []).some((a) => a.coveredWho === r.who &amp;&amp; (a.date === date || (!a.date &amp;&amp; date === "오늘")));
+      const assigned = (s.subAssignments || []).some((a) => a.coveredWho === r.who && (a.date === date || (!a.date && date === "오늘")));
       // 반차 = 부분 커버 시간대 (오전 09–13 · 오후 13–18) — 대근 편성 창에 그대로 전달
       const half = r.type === "반차" ? (String(r.when).indexOf("오전") >= 0 ? [9, 13] : [13, 18]) : null;
       rows.push({ id: r.id, who: r.who, type: r.type, when: r.when, date, team: emp.team || r.team, approved: decided === "approve", assigned, ent: emp.ent || "코스", role: emp.job || emp.title || "현장", from: half ? half[0] : 9, to: half ? half[1] : 18, partial: !!half });
     });
     Object.keys(s.hrSepCases || {}).forEach((nm) => {
       const c = s.hrSepCases[nm];
-      if (c.stage !== "active" &amp;&amp; c.stage !== "settle") return;
+      if (c.stage !== "active" && c.stage !== "settle") return;
       const { emp, cov } = covOf(nm);
       if (!cov) return;
       rows.push({ id: "sep_" + nm, who: nm, type: c.kind === "sep" ? "퇴사" : "휴직", when: c.eff + " ~", date: c.eff, team: emp.team, approved: true, assigned: false, longTerm: true, ent: emp.ent || "코스", role: emp.job || emp.title || "현장" });
@@ -13993,7 +14086,7 @@ class Component extends DCLogic {
       subModal: null,
       notifs: [{ id: "nsub" + n, cat: "결재", text: ref + " " + g.site + " 대근 — " + w.name + "(" + w.type + ") 투입 · " + g.who + " 결원 대체", time: "방금", unread: true, link: null }, ...s.notifs.filter((n2) => n2.id !== "nslo1")]
     }));
-    this.logEvent({ action: "대근 편성", cat: "submit", target: { type: "근태", label: g.site + " · " + w.name + "(" + w.type + ") 대근 투입", code: ref }, decision: "permit", reason: g.who + " " + g.reason + " 결원 대체 · " + hhmm(g.from) + "–" + hhmm(g.to) + (g.date &amp;& g.date !== "오늘" ? " · " + g.date + " 예약 편성 (커버 플래너)" : "") });
+    this.logEvent({ action: "대근 편성", cat: "submit", target: { type: "근태", label: g.site + " · " + w.name + "(" + w.type + ") 대근 투입", code: ref }, decision: "permit", reason: g.who + " " + g.reason + " 결원 대체 · " + hhmm(g.from) + "–" + hhmm(g.to) + (g.date && g.date !== "오늘" ? " · " + g.date + " 예약 편성 (커버 플래너)" : "") });
     this.showToast(ref + " — " + g.site + " 대근 편성 · " + w.name + "(" + w.type + ") 투입 · 건별 근로계약 수신함 발행 · 급여·근태 자동 반영", false);
   }
 
@@ -14879,6 +14972,7 @@ class Component extends DCLogic {
       if (this.state.sheet) { this.setState({ sheet: null }); return; }
       if (this.state.twEdit) { this.setState({ twEdit: null }); return; }
       if (this.state.pb) { this.setState({ pb: null }); return; }
+      if (this.state.crmMove) { this.setState({ crmMove: null }); return; }
       if (this.state.wfPre) { this.setState({ wfPre: null }); return; }
       if (this.state.doaEdit) { this.setState({ doaEdit: null }); return; }
       if (this.state.pField) { this.setState({ pField: null }); return; }
@@ -15102,7 +15196,7 @@ class Component extends DCLogic {
 
   // 완전 추적성 — 텍스트 속 @멘션·개체 코드는 전부 실링크 (DESIGN §4.7-10)
   msgParts(text) {
-    return text.split(/(@[가-힣A-Za-z0-9_]+|\b(?:AP|WO|AT|CS|JL|PS|IN|DX|MD|Bid|NT|RV|EV|MT|SR|PO|IV|FL|CP|VC|DSR|ST|CL|OT|C|R)-\d+\b)/g).filter((s) => s.length > 0).map((s) => {
+    return text.split(/(@[\uAC00-\uD7A3A-Za-z0-9_]+|\b(?:AP|WO|AT|CS|JL|PS|IN|DX|MD|Bid|NT|RV|EV|MT|SR|PO|IV|FL|CP|VC|DSR|ST|CL|OT|C|R)-\d+\b)/g).filter((s) => s.length > 0).map((s) => {
       if (s.startsWith("@")) return { t: s, c: "var(--teal)", fw: "800", cursor: "pointer", onClick: () => this.openPerson(s) };
       if (/^(?:AP|WO|AT|CS|JL|PS|IN|DX|Bid|C|R)-\d+$/.test(s)) return { t: s, c: "var(--info-tx)", fw: "800", cursor: "pointer", onClick: () => this.objectLinkGo(s) };
       return { t: s, c: "inherit", fw: "inherit", cursor: "inherit", onClick: undefined };
@@ -15264,30 +15358,30 @@ class Component extends DCLogic {
     const fCount = (k) => k === "star" ? allMails.filter((m) => m.star && m.folder !== "trash").length : allMails.filter((m) => (m.folder || "inbox") === k).length;
     const fUnread = (k) => k === "star" ? allMails.filter((m) => m.star && m.unread && m.folder !== "trash").length : allMails.filter((m) => (m.folder || "inbox") === k && m.unread).length;
     const folderDefs = [
-      { key: "inbox", label: "받은편지함", icon: "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M22 7l-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" },
-      { key: "star", label: "별표", icon: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" },
-      { key: "sent", label: "보낸편지함", icon: "M22 2 11 13 M22 2l-7 20-4-9-9-4z" },
+      { key: "inbox", label: "\ubc1b\uc740\ud3b8\uc9c0\ud568", icon: "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M22 7l-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" },
+      { key: "star", label: "\ubcc4\ud45c", icon: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" },
+      { key: "sent", label: "\ubcf4\ub0b8\ud3b8\uc9c0\ud568", icon: "M22 2 11 13 M22 2l-7 20-4-9-9-4z" },
       { key: "sched", label: "예약됨", icon: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M12 6v6l4 2" },
-      { key: "draft", label: "임시보관함", icon: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z M14 2v4a2 2 0 0 0 2 2h4" },
-      { key: "archive", label: "아카이브", icon: "M21 8v13H3V8 M1 3h22v5H1z M10 12h4" },
-      { key: "spam", label: "스패", icon: "M12 2 2 20h20L12 2z M12 9v4 M12 17h.01" },
-      { key: "trash", label: "휴지통", icon: "M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" }
+      { key: "draft", label: "\uc784\uc2dc\ubcf4\uad00\ud568", icon: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z M14 2v4a2 2 0 0 0 2 2h4" },
+      { key: "archive", label: "\uc544\uce74\uc774\ube0c", icon: "M21 8v13H3V8 M1 3h22v5H1z M10 12h4" },
+      { key: "spam", label: "\uc2a4\ud338", icon: "M12 2 2 20h20L12 2z M12 9v4 M12 17h.01" },
+      { key: "trash", label: "\ud734\uc9c0\ud1b5", icon: "M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" }
     ];
     const mailFolders = folderDefs.filter((f) => f.key !== "sched" || fCount("sched") > 0 || mFolder === "sched").map((f) => ({ key: f.key, label: f.label, icon: f.icon, active: mFolder === f.key, count: String(fCount(f.key)), countOn: fCount(f.key) > 0, unread: String(fUnread(f.key)), unreadOn: fUnread(f.key) > 0, bg: mFolder === f.key ? "var(--muted)" : "transparent", tx: mFolder === f.key ? "var(--ink)" : "var(--steel)", fw: mFolder === f.key ? "800" : "600", onGo: () => this.mailFolderSet(f.key) }));
     const labelCount = {};
     allMails.forEach((m) => (m.labels || []).forEach((l) => { labelCount[l] = (labelCount[l] || 0) + 1; }));
-    const labelColor = { "계약": "var(--info-tx)", "구매": "var(--teal)", "급여": "var(--purple-tx)", "인사": "var(--steel)", "보안": "var(--danger-solid)", "정책": "var(--danger-tx)", "세무": "var(--warn-solid)", "4대보험": "var(--teal)", "복지": "var(--ok-solid)", "노무": "var(--purple-tx)", "컴플라이언스": "var(--warn-tx)" };
+    const labelColor = { "\uacc4\uc57d": "var(--info-tx)", "\uad6c\ub9e4": "var(--teal)", "\uae09\uc5ec": "var(--purple-tx)", "\uc778\uc0ac": "var(--steel)", "\ubcf4\uc548": "var(--danger-solid)", "\uc815\ucc45": "var(--danger-tx)", "\uc138\ubb34": "var(--warn-solid)", "4\ub300\ubcf4\ud5d8": "var(--teal)", "\ubcf5\uc9c0": "var(--ok-solid)", "\ub178\ubb34": "var(--purple-tx)", "\ucef4\ud50c\ub77c\uc774\uc5b8\uc2a4": "var(--warn-tx)" };
     const mailLabels = Object.keys(labelCount).map((l) => ({ label: l, count: String(labelCount[l]), color: labelColor[l] || "var(--faint)" }));
     const mFlag = s.mailFlag || "all";
-    const mailFlags = [{ k: "all", l: "전체" }, { k: "unread", l: "안읽음" }, { k: "star", l: "별표" }, { k: "attach", l: "첨부" }, { k: "conf", l: "대외비·민감" }].map((f) => ({ k: f.k, l: f.l, active: mFlag === f.k, bg: mFlag === f.k ? "var(--ink)" : "transparent", tx: mFlag === f.k ? "var(--surface)" : "var(--steel)", bd: mFlag === f.k ? "var(--ink)" : "var(--border)", onPick: () => this.mailFlagSet(f.k) }));
+    const mailFlags = [{ k: "all", l: "\uc804\uccb4" }, { k: "unread", l: "\uc548\uc77d\uc74c" }, { k: "star", l: "\ubcc4\ud45c" }, { k: "attach", l: "\ucca8\ubd80" }, { k: "conf", l: "\ub300\uc678\ube44\u00b7\ubbfc\uac10" }].map((f) => ({ k: f.k, l: f.l, active: mFlag === f.k, bg: mFlag === f.k ? "var(--ink)" : "transparent", tx: mFlag === f.k ? "var(--surface)" : "var(--steel)", bd: mFlag === f.k ? "var(--ink)" : "var(--border)", onPick: () => this.mailFlagSet(f.k) }));
     const mailQv = (s.mailQ || "").trim().toLowerCase();
     let mailRows0 = allMails.filter((m) => mFolder === "star" ? (m.star && m.folder !== "trash") : (m.folder || "inbox") === mFolder);
     if (mFlag === "unread") mailRows0 = mailRows0.filter((m) => m.unread);
     else if (mFlag === "star") mailRows0 = mailRows0.filter((m) => m.star);
     else if (mFlag === "attach") mailRows0 = mailRows0.filter((m) => (m.att || []).length > 0);
-    else if (mFlag === "conf") mailRows0 = mailRows0.filter((m) => m.cls === "대외비" || m.cls === "민감" || m.cls === "격리");
+    else if (mFlag === "conf") mailRows0 = mailRows0.filter((m) => m.cls === "\ub300\uc678\ube44" || m.cls === "\ubbfc\uac10" || m.cls === "\uaca9\ub9ac");
     if (mailQv) mailRows0 = mailRows0.filter((m) => (m.subj + " " + m.from + " " + (m.snippet || "") + " " + (m.labels || []).join(" ")).toLowerCase().includes(mailQv));
-    const mClsChip = (cls) => cls === "대외비" ? ["var(--danger-bg)", "var(--danger-bd)", "var(--danger-tx)"] : cls === "민감" ? ["var(--purple-bg)", "var(--purple-bd)", "var(--purple-tx)"] : cls === "격리" ? ["var(--warn-bg)", "var(--warn-bd)", "var(--warn-tx)"] : ["var(--muted)", "var(--border-soft)", "var(--steel)"];
+    const mClsChip = (cls) => cls === "\ub300\uc678\ube44" ? ["var(--danger-bg)", "var(--danger-bd)", "var(--danger-tx)"] : cls === "\ubbfc\uac10" ? ["var(--purple-bg)", "var(--purple-bd)", "var(--purple-tx)"] : cls === "\uaca9\ub9ac" ? ["var(--warn-bg)", "var(--warn-bd)", "var(--warn-tx)"] : ["var(--muted)", "var(--border-soft)", "var(--steel)"];
     const mSecBad = (m) => !!(m.sec && (m.sec.dmarc === "fail" || m.sec.spf === "fail"));
     const mThKey = (m) => (m.subj || "").replace(/^\s*((re|fw|fwd|회신|전달)\s*:\s*)+/i, "").trim().toLowerCase();
     const mThAll = (key) => allMails.filter((x) => mThKey(x) === key && x.folder !== "trash" && x.folder !== "spam");
@@ -15299,7 +15393,7 @@ class Component extends DCLogic {
       checkBg: s.mailChecked.includes(m.id) ? "var(--ink)" : "transparent", checkBd: s.mailChecked.includes(m.id) ? "var(--ink)" : "var(--border)", checkOn: s.mailChecked.includes(m.id),
       initial: (m.from || "?").slice(0, 1), avatarBg: mSecBad(m) ? "var(--danger-bg)" : "var(--muted)", avatarTx: mSecBad(m) ? "var(--danger-tx)" : "var(--steel)",
       attOn: (m.att || []).length > 0, labels: (m.labels || []).slice(0, 2).map((l) => ({ l })),
-      clsOn: !!(m.cls && m.cls !== "일반"), cls: m.cls, clsBg: cc[0], clsBd: cc[1], clsTx: cc[2],
+      clsOn: !!(m.cls && m.cls !== "\uc77c\ubc18"), cls: m.cls, clsBg: cc[0], clsBd: cc[1], clsTx: cc[2],
       secBadOn: mSecBad(m), holdOn: !!m.hold,
       sw: this.swipe(() => this.mailSwipeArchive(m.id)),
       onOpen: () => this.mailScreenOpen(m.id), onStar: (e) => this.mailStar(m.id, e), onCheck: (e) => this.mailCheck(m.id, e)
@@ -15307,23 +15401,23 @@ class Component extends DCLogic {
     const selMail = allMails.find((m) => m.id === s.mailScreenSel);
     let mailDetail = null;
     if (selMail) { const m = selMail; const cc = mClsChip(m.cls); const msec = m.sec || {};
-      const scv = (v) => v === "pass" ? "통과" : v === "fail" ? "실패" : v === "none" ? "없음" : v;
+      const scv = (v) => v === "pass" ? "\ud1b5\uacfc" : v === "fail" ? "\uc2e4\ud328" : v === "none" ? "\uc5c6\uc74c" : v;
       const secChips = [];
-      ["spf", "dkim", "dmarc"].forEach((k) => { const v = msec[k]; if (v && v !== "—") secChips.push({ label: k.toUpperCase() + " " + scv(v), bg: v === "pass" ? "var(--ok-bg)" : (v === "fail" || v === "none") ? "var(--danger-bg)" : "var(--muted)", bd: v === "pass" ? "var(--ok-bd)" : (v === "fail" || v === "none") ? "var(--danger-bd)" : "var(--border-soft)", tx: v === "pass" ? "var(--ok-tx)" : (v === "fail" || v === "none") ? "var(--danger-tx)" : "var(--steel)" }); });
-      if (msec.tls && msec.tls !== "—" && msec.tls !== "없음") secChips.push({ label: msec.tls, bg: "var(--info-bg)", bd: "var(--info-bd)", tx: "var(--info-tx)" });
+      ["spf", "dkim", "dmarc"].forEach((k) => { const v = msec[k]; if (v && v !== "\u2014") secChips.push({ label: k.toUpperCase() + " " + scv(v), bg: v === "pass" ? "var(--ok-bg)" : (v === "fail" || v === "none") ? "var(--danger-bg)" : "var(--muted)", bd: v === "pass" ? "var(--ok-bd)" : (v === "fail" || v === "none") ? "var(--danger-bd)" : "var(--border-soft)", tx: v === "pass" ? "var(--ok-tx)" : (v === "fail" || v === "none") ? "var(--danger-tx)" : "var(--steel)" }); });
+      if (msec.tls && msec.tls !== "\u2014" && msec.tls !== "\uc5c6\uc74c") secChips.push({ label: msec.tls, bg: "var(--info-bg)", bd: "var(--info-bd)", tx: "var(--info-tx)" });
       const bad = mSecBad(m);
       mailDetail = {
         id: m.id, subj: m.subj, from: m.from, addr: m.addr || "", to: m.to || "", cc: m.cc || "", ccOn: !!m.cc, time: m.time, date: m.date || "",
         initial: (m.from || "?").slice(0, 1), starFill: m.star ? "var(--warn-solid)" : "none", starColor: m.star ? "var(--warn-solid)" : "var(--faint)",
         body: (m.body || []).map((p) => ({ p })), labels: (m.labels || []).map((l) => ({ l })), labelsOn: (m.labels || []).length > 0,
-        clsOn: !!(m.cls && m.cls !== "일반"), cls: m.cls, clsBg: cc[0], clsBd: cc[1], clsTx: cc[2],
+        clsOn: !!(m.cls && m.cls !== "\uc77c\ubc18"), cls: m.cls, clsBg: cc[0], clsBd: cc[1], clsTx: cc[2],
         secChips, secBad: bad, secPanelBg: bad ? "var(--danger-bg)" : "var(--ok-bg)", secPanelBd: bad ? "var(--danger-bd)" : "var(--ok-bd)", secIcon: bad ? "var(--danger-tx)" : "var(--ok-tx)",
-        secNote: bad ? "발신자 인증 실패 — 사칭·피싱 의심. 링크·첨부 열람 주의." : "", secNoteOn: bad,
-        att: (m.att || []).map((a) => ({ n: a.n, sz: a.sz, gated: (m.cls === "대외비" || m.cls === "민감"), onIngest: (e) => this.mailAttIngest(a.n, e), onEvidence: (e) => this.mailAttEvidence(a.n, e) })),
+        secNote: bad ? "\ubc1c\uc2e0\uc790 \uc778\uc99d \uc2e4\ud328 \u2014 \uc0ac\uce6d\u00b7\ud53c\uc2f1 \uc758\uc2ec. \ub9c1\ud06c\u00b7\ucca8\ubd80 \uc5f4\ub78c \uc8fc\uc758." : "", secNoteOn: bad,
+        att: (m.att || []).map((a) => ({ n: a.n, sz: a.sz, gated: (m.cls === "\ub300\uc678\ube44" || m.cls === "\ubbfc\uac10"), onIngest: (e) => this.mailAttIngest(a.n, e), onEvidence: (e) => this.mailAttEvidence(a.n, e) })),
         attOn: (m.att || []).length > 0, attN: String((m.att || []).length),
         links: (m.links || []).map((l) => ({ label: l.label, onGo: (e) => this.mailLinkGo(l, e) })), linksOn: (m.links || []).length > 0,
-        hold: !!m.hold, retain: m.retain || "5년", retainOn: !!(m.retain && m.retain !== "—"), govOn: !!(m.hold || (m.retain && m.retain !== "—")),
-        pbac: m.cls === "대외비" ? "열람 인가: 임원·보안팀 · 비밀 구역 deny-by-omission" : m.cls === "민감" ? "열람 인가: 본인·인사·급여 담당" : "열람 인가: 법인 구성원",
+        hold: !!m.hold, retain: m.retain || "5\ub144", retainOn: !!(m.retain && m.retain !== "—"), govOn: !!(m.hold || (m.retain && m.retain !== "—")),
+        pbac: m.cls === "\ub300\uc678\ube44" ? "\uc5f4\ub78c \uc778\uac00: \uc784\uc6d0\u00b7\ubcf4\uc548\ud300 \u00b7 \ube44\ubc00 \uad6c\uc5ed deny-by-omission" : m.cls === "\ubbfc\uac10" ? "\uc5f4\ub78c \uc778\uac00: \ubcf8\uc778\u00b7\uc778\uc0ac\u00b7\uae09\uc5ec \ub2f4\ub2f9" : "\uc5f4\ub78c \uc778\uac00: \ubc95\uc778 \uad6c\uc131\uc6d0",
         thPrev: mThAll(mThKey(m)).filter((x) => x.id !== m.id).map((x) => ({
           from: x.from, time: x.time, snippet: x.snippet || (x.body || [])[0] || "",
           initial: (x.from || "?").slice(0, 1),
@@ -15334,16 +15428,16 @@ class Component extends DCLogic {
         isSpam: m.folder === "spam", isDraft: m.folder === "draft", notSpam: m.folder !== "spam",
         isSched: m.folder === "sched", schedWhen: m.sched || "", onSchedCancel: () => this.mailSchedCancel(m.id),
         onReply: () => this.mailComposeOpen("reply", m.id), onForward: () => this.mailComposeOpen("forward", m.id),
-        onArchive: () => this.mailMove(m.id, "archive", "아카이브"), onTrash: () => this.mailMove(m.id, "trash", "휴지통"),
-        onSpam: () => this.mailMove(m.id, "spam", "스패 신고"), onNotSpam: () => this.mailMove(m.id, "inbox", "정상 메일로 이동"),
+        onArchive: () => this.mailMove(m.id, "archive", "\uc544\uce74\uc774\ube0c"), onTrash: () => this.mailMove(m.id, "trash", "\ud734\uc9c0\ud1b5"),
+        onSpam: () => this.mailMove(m.id, "spam", "\uc2a4\ud338 \uc2e0\uace0"), onNotSpam: () => this.mailMove(m.id, "inbox", "\uc815\uc0c1 \uba54\uc77c\ub85c \uc774\ub3d9"),
         onStar: (e) => this.mailStar(m.id, e), onEditDraft: () => this.mailComposeOpen("new", m.id)
       };
     }
     const mCompose = s.mailCompose;
     const mailEg = this.mailEgressEval(mCompose);
     const mailDlpText = mCompose ? (mCompose.dlp || mailEg.warn) : null;
-    const mailClsOpts = ["일반", "대외비", "민감"].map((c) => ({ c, bg: mCompose && mCompose.cls === c ? "var(--ink)" : "transparent", tx: mCompose && mCompose.cls === c ? "var(--surface)" : "var(--steel)", bd: mCompose && mCompose.cls === c ? "var(--ink)" : "var(--border)", onPick: () => this.mailComposeField("cls", c) }));
-    const mailComposeTitle = mCompose ? (mCompose.mode === "reply" ? "회신" : mCompose.mode === "forward" ? "전달" : "새 메일") : "";
+    const mailClsOpts = ["\uc77c\ubc18", "\ub300\uc678\ube44", "\ubbfc\uac10"].map((c) => ({ c, bg: mCompose && mCompose.cls === c ? "var(--ink)" : "transparent", tx: mCompose && mCompose.cls === c ? "var(--surface)" : "var(--steel)", bd: mCompose && mCompose.cls === c ? "var(--ink)" : "var(--border)", onPick: () => this.mailComposeField("cls", c) }));
+    const mailComposeTitle = mCompose ? (mCompose.mode === "reply" ? "\ud68c\uc2e0" : mCompose.mode === "forward" ? "\uc804\ub2ec" : "\uc0c8 \uba54\uc77c") : "";
     // ── 조직 변경 생애주기 (Draft→Archive) ──
     const oc = s.orgChange;
     let orgChangeV = null;
@@ -16310,6 +16404,7 @@ class Component extends DCLogic {
       { label: "현장 운영", items: [
         navItem("배차", I.truck, { active: s.screen === "dispatch", badge: dispatchPending, onClick: () => this.setState({ screen: "dispatch" }) }),
         navItem("정비", I.wrench, { active: s.screen === "maintenance", onClick: () => this.setState({ screen: "maintenance" }) }),
+        navItem("영업 파이프라인", I.trend, { active: s.screen === "crm", badge: 1, badgeTone: "danger", onClick: () => this.setState({ screen: "crm" }) }),
         navItem("고객·현장", I.mapPin, { active: s.screen === "field", onClick: () => this.setState({ screen: "field" }) }),
         navItem("운영 지도", I.share, { active: s.screen === "map", onClick: () => this.setState({ screen: "map" }) })
       ] },
@@ -17008,24 +17103,24 @@ class Component extends DCLogic {
       railPos: isMobile ? "fixed" : "relative",
       railTransform: isMobile ? (s.mobileDrawer === "rail" ? "translateX(0)" : "translateX(101%)") : "none",
       railZ: isMobile ? "82" : "auto",
-      railShadow: (isMobile &amp;&amp; s.mobileDrawer === "rail") ? "var(--shadow-pop)" : "none",
+      railShadow: (isMobile && s.mobileDrawer === "rail") ? "var(--shadow-pop)" : "none",
       onRailToggle: () => { if (isMobile) this.setState((ps) => ({ mobileDrawer: ps.mobileDrawer === "rail" ? null : "rail", railView: "home" })); else this.setState({ railUser: !railC, railView: "home" }); },
       onStripMsgr: () => this.setState({ railUser: false, railView: "home" }),
       onStripMail: () => this.setState({ railUser: false, railView: "home" }),
       onStripAlerts: () => this.setState({ railUser: false, railView: "home" }),
-      railHome: railOpenB &amp;&amp; railView === "home",
-      railThread: railOpenB &amp;&amp; railView === "thread",
-      railMailRead: railOpenB &amp;&amp; railView === "mailread",
+      railHome: railOpenB && railView === "home",
+      railThread: railOpenB && railView === "thread",
+      railMailRead: railOpenB && railView === "mailread",
       msgrDotOn: msgrUnread > 0,
       mailDotOn: mailUnread > 0,
       msgrCount: String(msgrUnread), msgrCountOn: msgrUnread > 0,
       mailCount: String(mailUnread), mailCountOn: mailUnread > 0,
       threads, mails, notifs, notices,
       noticeCount: String(noticeUnread), noticeCountOn: noticeUnread > 0,
-      onNoticeMore: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState({ screen: "board" }); },
-      onMarkAll: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.markAllNotifs(); },
-      onNewChat: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState({ paletteOpen: true, paletteQ: "" }); },
-      onNewMail: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.mailComposeOpen("new"); },
+      onNoticeMore: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ screen: "board" }); },
+      onMarkAll: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.markAllNotifs(); },
+      onNewChat: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ paletteOpen: true, paletteQ: "" }); },
+      onNewMail: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.mailComposeOpen("new"); },
 
       threadName: activeThread ? activeThread.name : "",
       threadMeta: activeThread ? "실시간 · 멤버 5" : "",
@@ -17033,18 +17128,18 @@ class Component extends DCLogic {
       msgs,
       composerVal: s.composerVal,
       onComposerInput: (e) => this.onComposerChange(e.target.value),
-      onComposerKey: (e) => { if (e.key === "Enter" &amp;&amp; !this.state.cMentionOpen) this.sendMsg(); if (e.key === "Enter" &amp;&amp; this.state.cMentionOpen &amp;&amp; cMentionList[0]) { e.preventDefault(); this.pickCMention(cMentionList[0].name); } },
+      onComposerKey: (e) => { if (e.key === "Enter" && !this.state.cMentionOpen) this.sendMsg(); if (e.key === "Enter" && this.state.cMentionOpen && cMentionList[0]) { e.preventDefault(); this.pickCMention(cMentionList[0].name); } },
       onSend: () => this.sendMsg(),
       composerRef: this.composerRef,
-      cMentionOpen: s.cMentionOpen &amp;&amp; cMentionList.length > 0,
+      cMentionOpen: s.cMentionOpen && cMentionList.length > 0,
       cMentions: cMentionList.map((m) => ({ name: m.name, team: m.team, initial: m.name.slice(0, 1), onPick: () => this.pickCMention(m.name) })),
 
       mailSubj: activeMail ? activeMail.subj : "",
       mailFrom: activeMail ? activeMail.from : "",
       mailTime: activeMail ? activeMail.time : "",
-      mailTag: activeMail &amp;&amp; activeMail.tag ? activeMail.tag + " 연결" : "",
-      mailTagOn: !!(activeMail &amp;&amp; activeMail.tag),
-      onMailTag: () => { const am = this.state.mails.find((m) => m.id === this.state.activeMailId); if (am &amp;&amp; am.itemId) this.setState((ps) => ({ filter: "all", selectedId: am.itemId, railView: "home", modal: ps.modal &amp;&amp; ps.modal.type === "mail" ? null : ps.modal })); },
+      mailTag: activeMail && activeMail.tag ? activeMail.tag + " 연결" : "",
+      mailTagOn: !!(activeMail && activeMail.tag),
+      onMailTag: () => { const am = this.state.mails.find((m) => m.id === this.state.activeMailId); if (am && am.itemId) this.setState((ps) => ({ filter: "all", selectedId: am.itemId, railView: "home", modal: ps.modal && ps.modal.type === "mail" ? null : ps.modal })); },
       calOpen: s.calOpen,
       onCalOpen: () => this.setState({ calOpen: true, calMonth: 6, calSelDate: this.WEEK_DATES[this.state.selDay] }),
       onCalClose: () => this.setState({ calOpen: false }),
@@ -17056,7 +17151,7 @@ class Component extends DCLogic {
       calCells,
       calSelLabel,
       calSelItems,
-      calSelEmpty: calSelItems.length === 0 &amp;&amp; calWIdx >= 0,
+      calSelEmpty: calSelItems.length === 0 && calWIdx >= 0,
       calInWeek: calWIdx >= 0,
       calOutWeek: calWIdx < 0,
       calAddVal: s.calAddVal,
@@ -17064,16 +17159,16 @@ class Component extends DCLogic {
       onCalAddKey: (e) => { if (e.key === "Enter") this.addTodoToDay(calWIdx, this.state.calAddVal); },
       onCalViewToggle: () => this.setState({ screen: "att" }),
       mailBody: (activeMail ? activeMail.body : []).map((t) => ({ segs: this.msgParts(t).map((sg) => ({ t: sg.t, c: sg.c || "inherit", fw: sg.fw || "inherit", cur: sg.cursor || "inherit", onClick: sg.onClick || (() => {}) })) })),
-      mailReplied: !!(activeMail &amp;&amp; activeMail.replied),
-      mailNotReplied: !(activeMail &amp;&amp; activeMail.replied),
+      mailReplied: !!(activeMail && activeMail.replied),
+      mailNotReplied: !(activeMail && activeMail.replied),
       replyVal: s.replyVal,
       onReplyInput: (e) => this.setState({ replyVal: e.target.value }),
       onReplyKey: (e) => { if (e.key === "Enter") this.sendReply(); },
       onReplySend: () => this.sendReply(),
 
-      modalOn: !!s.modal &amp;&amp; s.modal.type !== "mail",
-      modalApproval: !!s.modal &amp;&amp; s.modal.type === "approval",
-      modalDispatch: !!s.modal &amp;&amp; s.modal.type === "dispatch",
+      modalOn: !!s.modal && s.modal.type !== "mail",
+      modalApproval: !!s.modal && s.modal.type === "approval",
+      modalDispatch: !!s.modal && s.modal.type === "dispatch",
       onModalBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ modal: null, mErr: false, mAddOpen: false, mTagOpen: false }); },
       onModalClose: () => this.setState({ modal: null, mErr: false, mAddOpen: false, mTagOpen: false }),
       onModalDock: () => this.dockModal(),
@@ -17090,11 +17185,11 @@ class Component extends DCLogic {
           sub: dIsHr ? (dIss ? dIss.time : "") : (it ? ((it.who || "") + (it.due ? " · 마감 " + it.due : "")) : ""), draft: (d.comment || "").trim() };
         return {
           kind: pk.kind, chipBg: pk.cBg, chipBd: pk.cBd, chipTx: pk.cTx, ref: pk.ref, title: pk.title,
-          draftOn: !!((d.comment &amp;&amp; d.comment.trim()) || (d.tags &amp;&amp; d.tags.length) || (d.extras &amp;&amp; d.extras.length)),
+          draftOn: !!((d.comment && d.comment.trim()) || (d.tags && d.tags.length) || (d.extras && d.extras.length)),
           onEnter: (e) => { const r = e.currentTarget.getBoundingClientRect(); this.setState({ trayPeek: Object.assign({ x: Math.max(10, r.left - 10) }, pk) }); },
           onLeave: () => this.setState({ trayPeek: null }),
           onDragStart: (e) => { try { e.dataTransfer.setData("text/plain", "[" + pk.ref + " " + pk.title + "]"); e.dataTransfer.effectAllowed = "move"; } catch (err) {} },
-          onDragEnd: (e) => { this.setState({ trayPeek: null }); if (e.clientY &amp;&amp; (window.innerHeight - e.clientY) > 140) this.restoreDock(d.id); },
+          onDragEnd: (e) => { this.setState({ trayPeek: null }); if (e.clientY && (window.innerHeight - e.clientY) > 140) this.restoreDock(d.id); },
           onRestore: () => this.restoreDock(d.id),
           onDismiss: () => this.setState((ps) => ({ docked: ps.docked.filter((x) => x.id !== d.id), trayPeek: null }))
         };
@@ -17107,7 +17202,7 @@ class Component extends DCLogic {
       scrOverview: s.screen === "overview",
       scrHr: s.screen === "hr",
       scrOrg: s.screen === "org",
-      orgColMin: (s.vw < 1024 || (s.panels &amp;&amp; s.panels.length > 0)) ? "180px" : "0",
+      orgColMin: (s.vw < 1024 || (s.panels && s.panels.length > 0)) ? "180px" : "0",
       scrRecruit: s.screen === "recruit",
       scrReview: s.screen === "review",
       scrAtt: s.screen === "att",
@@ -17121,7 +17216,7 @@ class Component extends DCLogic {
       dzToolOn: toolDz.on, dzToolPos: toolDz.pos, dzToolX: toolDz.x, dzToolY: toolDz.y, dzToolBtns: toolDz.btns, dzSplitMenuOn: toolDz.menuOn, dzSplitOpts: toolDz.opts,
       onDzToolKeep: () => this.cardToolKeep(),
       onDzToolLeave: () => this.cardToolLeave(),
-      dzModalBackOn: !!(s.cardMode.docs &amp;&amp; s.cardMode.docs.kind === "modal"),
+      dzModalBackOn: !!(s.cardMode.docs && s.cardMode.docs.kind === "modal"),
       onDzToolRestore: () => this.cardModeSet("docs", null),
       ingestScr: scrWrapOf2("ingest"),
       ingestAutoOn: s.ingestAuto, ingestAutoLabel: s.ingestAuto ? "자동 인제스트 켜짐" : "자동 인제스트",
@@ -17161,7 +17256,7 @@ class Component extends DCLogic {
       shOn: !!s.sheet,
       shV: (() => {
         const sh = s.sheet; if (!sh) return { cols: [], rows: [], sums: [], src: "", ver: "", dirtyOn: false };
-        const numCols = sh.cols.map((c, i) => sh.rows.length > 0 &amp;&amp; sh.rows.every((r) => r[i] === "" || !isNaN(parseFloat(String(r[i]).replace(/,/g, "")))));
+        const numCols = sh.cols.map((c, i) => sh.rows.length > 0 && sh.rows.every((r) => r[i] === "" || !isNaN(parseFloat(String(r[i]).replace(/,/g, "")))));
         return {
           src: sh.src, ver: "v" + sh.ver, dirtyOn: !!sh.dirty,
           collabs: ["전성진", "김성아"].map((n) => ({ i: n.slice(0, 1), n })),
@@ -17214,12 +17309,12 @@ class Component extends DCLogic {
             n: String(i + 1), label: OPL[st.k], desc: st.k === "filter" ? st.col + " " + st.op + " " + st.val : st.k === "rename" ? st.col + " → " + st.val : st.k === "derive" ? st.col + " → " + (st.val || "파생") : st.k === "agg" ? st.col + " 그룹별" : st.col + " 키",
             sel: pb.cfg === i,
             onSel: () => upd({ cfg: pb.cfg === i ? null : i }),
-            onRm: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); upd({ steps: pb.steps.filter((x, j) => j !== i), cfg: null }); },
-            cfgOn: pb.cfg === i &amp;&amp; st.k !== "join",
+            onRm: (e) => { if (e && e.stopPropagation) e.stopPropagation(); upd({ steps: pb.steps.filter((x, j) => j !== i), cfg: null }); },
+            cfgOn: pb.cfg === i && st.k !== "join",
             cols: this.PB_INPUTS()[pb.input].cols.map((c) => ({ c, bg: st.col === c ? "var(--ink)" : "transparent", tx: st.col === c ? "var(--surface)" : "var(--steel)", onPick: () => upd({ steps: pb.steps.map((x, j) => (j === i ? { ...x, col: c } : x)) }) })),
             ops: st.k === "filter" ? [">", "<", "포함"].map((o) => { const ov = o === "포함" ? "has" : o; return { o, bg: st.op === ov ? "var(--ink)" : "transparent", tx: st.op === ov ? "var(--surface)" : "var(--steel)", onPick: () => upd({ steps: pb.steps.map((x, j) => (j === i ? { ...x, op: ov } : x)) }) }; }) : st.k === "derive" ? [{ o: "방향", v: "sign" }, { o: "절대값", v: "abs" }, { o: "반올림(천)", v: "round" }, { o: "구간", v: "bucket" }, { o: "길이", v: "len" }, { o: "접두 4자", v: "prefix" }].map((d) => ({ o: d.o, bg: st.op === d.v ? "var(--ink)" : "transparent", tx: st.op === d.v ? "var(--surface)" : "var(--steel)", onPick: () => upd({ steps: pb.steps.map((x, j) => (j === i ? { ...x, op: d.v } : x)) }) })) : [],
             opsOn: st.k === "filter" || st.k === "derive",
-            val: st.val || "", valOn: st.k !== "join" &amp;&amp; st.k !== "agg",
+            val: st.val || "", valOn: st.k !== "join" && st.k !== "agg",
             onVal: (e) => { const v = e.target.value; upd({ steps: pb.steps.map((x, j) => (j === i ? { ...x, val: v } : x)) }); }
           })),
           menu: !!pb.menu,
@@ -17231,7 +17326,7 @@ class Component extends DCLogic {
           outs: ["전표", "입찰", "분석"].map((o) => ({ o, bg: pb.out === o ? "var(--ink)" : "transparent", tx: pb.out === o ? "var(--surface)" : "var(--steel)", onPick: () => upd({ out: o }) })),
           onBuild: () => this.pbBuild(),
           onBranch: () => this.pbBranchSave(),
-          branches: (s.pbSaved || []).map((b) => ({ name: b.name, at: b.at, onLoad: () => this.setState((ps) => ({ pb: { ...ps.pb, input: b.input, steps: b.steps.map((x) => ({ ...x })), out: b.out, cfg: null } })), onRm: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState((ps) => ({ pbSaved: ps.pbSaved.filter((x) => x.id !== b.id) })); } })),
+          branches: (s.pbSaved || []).map((b) => ({ name: b.name, at: b.at, onLoad: () => this.setState((ps) => ({ pb: { ...ps.pb, input: b.input, steps: b.steps.map((x) => ({ ...x })), out: b.out, cfg: null } })), onRm: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState((ps) => ({ pbSaved: ps.pbSaved.filter((x) => x.id !== b.id) })); } })),
           branchesOn: (s.pbSaved || []).length > 0,
           onSheet: () => { const o = this.pbApply(pb); this.shOpen(o.cols, o.rows, this.PB_INPUTS()[pb.input].label); },
           onCancel: () => this.setState({ pb: null }),
@@ -17296,10 +17391,10 @@ class Component extends DCLogic {
           schPend ? [{ t: "스키마 v+1 (" + schPend.length + "항)" }] : []
         );
         const deprL = ((s.ontTypeDefs || {})[T ? T.label : ""] || {}).depr || [];
-        const deprHas = (kind, key) => deprL.some((d) => d[0] === kind &amp;&amp; d[1] === key);
+        const deprHas = (kind, key) => deprL.some((d) => d[0] === kind && d[1] === key);
         const baseN = { props: def.props.length, links: def.linkTypes.length, acts: def.actions.length, ana: def.analytics.length, inst: inst.length, autos: autos.length };
         const selTone = T ? stC(T.stage) : this.TONE("neutral");
-        const active = T &amp;&amp; T.stage === "active";
+        const active = T && T.stage === "active";
         return {
           tabSeg: [{ id: "types", label: "타입 · 매니저" }, { id: "graph", label: "그래프 · 탐색" }].map((m) => ({ label: m.label, bg: tab === m.id ? "var(--surface)" : "transparent", tx: tab === m.id ? "var(--ink)" : "var(--steel)", sh: tab === m.id ? "var(--shadow)" : "none", onPick: () => this.setState({ ontTab: m.id }) })),
           typesDisp: tab === "types" ? "flex" : "none",
@@ -17344,10 +17439,10 @@ class Component extends DCLogic {
           cardOpts: [{ v: "1:1" }, { v: "1:N" }, { v: "N:1" }, { v: "N:N" }],
           typeOpts: Object.keys(this.ONT_TYPES()).map((t) => ({ v: t })),
           onLinkAdd: () => this.ontLinkAdd(selCode),
-          acts: def.actions.map((a) => { const pN = ((a[2] &amp;&amp; a[2].params) || []).length + (((def.actParams || {})[a[0]]) || []).length; const seld = s.omActSel === a[0]; return {
-            key: a[0], label: a[1], pN: String(pN), cfgOn: pN > 0 || !!(a[2] &amp;&amp; a[2].crit), sel: seld,
-            critL: a[2] &amp;&amp; a[2].crit ? a[2].crit.label : "기준 없음 — 권한 게이트만",
-            pChips: [...((a[2] &amp;&amp; a[2].params) || []), ...(((def.actParams || {})[a[0]]) || [])].map((p) => ({ k: p.k })),
+          acts: def.actions.map((a) => { const pN = ((a[2] && a[2].params) || []).length + (((def.actParams || {})[a[0]]) || []).length; const seld = s.omActSel === a[0]; return {
+            key: a[0], label: a[1], pN: String(pN), cfgOn: pN > 0 || !!(a[2] && a[2].crit), sel: seld,
+            critL: a[2] && a[2].crit ? a[2].crit.label : "기준 없음 — 권한 게이트만",
+            pChips: [...((a[2] && a[2].params) || []), ...(((def.actParams || {})[a[0]]) || [])].map((p) => ({ k: p.k })),
             onSel: () => this.setState((ps) => ({ omActSel: ps.omActSel === a[0] ? null : a[0] })),
             paramVal: s.omParamVal || "",
             onParamVal: (e) => this.setState({ omParamVal: e.target.value }),
@@ -17361,7 +17456,7 @@ class Component extends DCLogic {
           ana: def.analytics.map((a) => ({ label: a[1] })),
           anaVal: s.lcAnaVal || "", onAnaVal: (e) => this.setState({ lcAnaVal: e.target.value }),
           onAnaKey: (e) => { if (e.key === "Enter") { e.preventDefault(); this.ontAnaAdd(selCode); } },
-          inst: inst.slice(0, 30).map((n) => ({ code: n.code, codeOn: !!n.code, label: n.label, meta: n.meta, onGo: () => { if (n.code &amp;&amp; this.lcKnown(n.code)) this.lcOpen(n.code); else if (n.code) this.objectLinkGo(n.code); else this.setState({ ontTab: "graph", exploreCenter: n.id }); } })),
+          inst: inst.slice(0, 30).map((n) => ({ code: n.code, codeOn: !!n.code, label: n.label, meta: n.meta, onGo: () => { if (n.code && this.lcKnown(n.code)) this.lcOpen(n.code); else if (n.code) this.objectLinkGo(n.code); else this.setState({ ontTab: "graph", exploreCenter: n.id }); } })),
           autos: autos.map((w) => { const c = w.active ? this.TONE("ok") : this.TONE("neutral"); return { name: w.name, st: w.active ? "활성" : "중지", stBg: c[0], stBd: c[1], stTx: c[2], onGo: () => this.setState({ screen: "auto", autoTab: "workflow", autoSel: w.id, wfBuilder: null }) }; }),
           onAutoNew: () => { const lbl = T ? T.label : ""; this.setState({ screen: "auto", autoTab: "workflow", wfBuilder: { trigger: null, when: [], then: [], menu: null, err: false, scope: "corp" } }, () => { const i = this.WF_BLOCKS().trigger.findIndex((x) => x.type === lbl); if (i >= 0) this.wfBuilderPick("trigger", i); }); }
         };
@@ -17378,8 +17473,8 @@ class Component extends DCLogic {
         const reg = s.ontTypes || [];
         const mk = (t) => { const c = exTypeC(t.tone); return { label: t.label, dot: c[1], stageOn: t.stage !== "active", stageLabel: t.stage === "draft" ? "초안" : "보관", op: t.stage === "archived" ? "0.55" : "1", onGo: () => this.lcOpen(t.code) }; };
         const used = {};
-        const gs = LAYERS.map((L) => ({ layer: L[0], items: reg.filter((t) => t.stage !== "archived" &amp;&amp; L[1].indexOf(t.label) >= 0).map((t) => { used[t.label] = 1; return mk(t); }) }));
-        const rest = reg.filter((t) => t.stage !== "archived" &amp;&amp; !used[t.label]).map(mk);
+        const gs = LAYERS.map((L) => ({ layer: L[0], items: reg.filter((t) => t.stage !== "archived" && L[1].indexOf(t.label) >= 0).map((t) => { used[t.label] = 1; return mk(t); }) }));
+        const rest = reg.filter((t) => t.stage !== "archived" && !used[t.label]).map(mk);
         if (rest.length) gs.push({ layer: "기타", items: rest });
         const arch = reg.filter((t) => t.stage === "archived").map(mk);
         if (arch.length) gs.push({ layer: "보관", items: arch });
@@ -17407,8 +17502,8 @@ class Component extends DCLogic {
       exRelVal: s.exRelVal || "",
       onExRelVal: (e) => this.setState({ exRelVal: e.target.value }),
       onExRelKey: (e) => { if (e.key !== "Enter") return; e.preventDefault(); const v = (this.state.exRelVal || "").trim(); if (!v) return; if (!exC.code) { this.showToast("중심 개체에 코드가 없음 — 코드형 개체에서 연결하세요", true); return; } this.objLinkAdd(exC.code, v.toUpperCase()); this.setState({ exRelVal: "" }); },
-      onExploreSchema: () => { const d = this.ONT_TYPES()[exC.type]; const ot = d &amp;&amp; d.ot; if (ot &amp;&amp; (this.state.ontTypes || []).some((t) => t.code === ot)) this.setState({ ontTab: "types", ontMgrSel: ot, omTabSel: "props" }); else this.setState({ ontTab: "types" }); },
-      exploreLcOn: !!(exC.code &amp;&amp; this.lcKnown(exC.code)),
+      onExploreSchema: () => { const d = this.ONT_TYPES()[exC.type]; const ot = d && d.ot; if (ot && (this.state.ontTypes || []).some((t) => t.code === ot)) this.setState({ ontTab: "types", ontMgrSel: ot, omTabSel: "props" }); else this.setState({ ontTab: "types" }); },
+      exploreLcOn: !!(exC.code && this.lcKnown(exC.code)),
       exploreLcLabel: (() => { if (!exC.code || !this.lcKnown(exC.code)) return ""; const d = this.lcOf(exC.code); return (({ draft: "초안", review: "검토·결재", active: "활성", archived: "보관", disposed: "폐기" })[d.stage] || d.stage) + " · v" + d.ver; })(),
       exploreLcGo: () => this.lcOpen(exC.code),
       ontTypeVal: s.ontTypeVal,
@@ -17420,7 +17515,7 @@ class Component extends DCLogic {
       onExploreNewVal: (e) => this.setState({ exploreNewVal: e.target.value }),
       onExploreNewType: (e) => this.setState({ exploreNewType: e.target.value }),
       onExploreNewKey: (e) => { if (e.key === "Enter") { e.preventDefault(); this.objNewOpen(this.state.exploreNewType); } },
-      onExploreDrop: (e) => { e.preventDefault(); this.setState({ exDropHot: false }); const txt = (e.dataTransfer &amp;&amp; e.dataTransfer.getData ? e.dataTransfer.getData("text/plain") : "") || this.dragPayload || ""; const m = String(txt).match(/\b(?:AP|WO|AT|CS|JL|PS|IN|DX|VC|PO|IV|FL|CP|NT|FC|AN|OB|Bid|C)-\d+\b/); if (m &amp;&amp; exC.code) this.objLinkAdd(exC.code, m[0]); else if (m) this.showToast("중심 개체에 코드가 없어 연결할 수 없습니다", false); },
+      onExploreDrop: (e) => { e.preventDefault(); this.setState({ exDropHot: false }); const txt = (e.dataTransfer && e.dataTransfer.getData ? e.dataTransfer.getData("text/plain") : "") || this.dragPayload || ""; const m = String(txt).match(/\b(?:AP|WO|AT|CS|JL|PS|IN|DX|VC|PO|IV|FL|CP|NT|FC|AN|OB|Bid|C)-\d+\b/); if (m && exC.code) this.objLinkAdd(exC.code, m[0]); else if (m) this.showToast("중심 개체에 코드가 없어 연결할 수 없습니다", false); },
       onExploreDragOver: (e) => e.preventDefault(),
       onExploreDragEnter: () => { if (!this.state.exDropHot) this.setState({ exDropHot: true }); },
       onExploreDragLeave: () => { if (this.state.exDropHot) this.setState({ exDropHot: false }); },
@@ -17453,7 +17548,7 @@ class Component extends DCLogic {
       onMailCompose: () => this.mailComposeOpen("new"),
       mailHasSel: !!mailDetail, mailNoSel: !mailDetail, mailDetail,
       mailComposeOn: !!mCompose, mailCompose: mCompose, mailClsOpts, mailComposeTitle,
-      mailComposeDlpOn: !!mailDlpText, mailDlpText: mailDlpText || "", mailComposeErr: !!(mCompose &amp;&amp; mCompose.err),
+      mailComposeDlpOn: !!mailDlpText, mailDlpText: mailDlpText || "", mailComposeErr: !!(mCompose && mCompose.err),
       mailAtts: mCompose ? (mCompose.atts || []).map((code) => {
         const d = s.egressDocs.find((x) => x.code === code); if (!d) return null;
         const blocked = mailEg.blockers.some((b) => b.code === code);
@@ -17463,7 +17558,7 @@ class Component extends DCLogic {
           stBg: pub ? "var(--ok-bg)" : "var(--warn-bg)", stBd: pub ? "var(--ok-bd)" : "var(--warn-bd)", stTx: pub ? "var(--ok-tx)" : "var(--warn-tx)",
           onRemove: () => this.mailAttRemove(d.code) };
       }).filter(Boolean) : [],
-      mailAttMenuOn: !!(mCompose &amp;&amp; mCompose.attMenu),
+      mailAttMenuOn: !!(mCompose && mCompose.attMenu),
       onMailAttMenu: () => this.mailAttMenuToggle(),
       mailAttOpts: mCompose ? s.egressDocs.filter((d) => (mCompose.atts || []).indexOf(d.code) < 0).map((d) => {
         const pub = d.state === "게시" || d.state === "승인";
@@ -17481,8 +17576,8 @@ class Component extends DCLogic {
       onMailEgOvrSubmit: () => {
         const c = this.state.mailCompose; const rsn = (this.state.egOvr || "").trim();
         if (!rsn) { this.showToast("예외 사유를 입력하세요 — 요청 불가 (fail-closed)", true); return; }
-        const ref = this._autoAP("egress 예외 승인 — " + ((c &amp;&amp; c.subj) || "외부 발송"), "일반", ["보안팀 검토", "임원 승인 (DoA)"]);
-        this.logEvent({ action: "egress 예외 요청", cat: "submit", target: { type: "메일", label: (c &amp;&amp; c.subj) || "외부 발송", code: ref }, decision: "permit", reason: "사유: " + rsn + " — 차단 유지 · 상위 승인(DoA) 시 발송 가능 (§3.10 override)" });
+        const ref = this._autoAP("egress 예외 승인 — " + ((c && c.subj) || "외부 발송"), "일반", ["보안팀 검토", "임원 승인 (DoA)"]);
+        this.logEvent({ action: "egress 예외 요청", cat: "submit", target: { type: "메일", label: (c && c.subj) || "외부 발송", code: ref }, decision: "permit", reason: "사유: " + rsn + " — 차단 유지 · 상위 승인(DoA) 시 발송 가능 (§3.10 override)" });
         this.setState({ egOvr: "" });
         this.showToast(ref + " 예외 승인 상신 — 차단 유지 · 승인 시 발송 가능", false);
       },
@@ -17490,7 +17585,7 @@ class Component extends DCLogic {
       mailSendTx: mailEg.blockers.length ? "var(--faint)" : "var(--surface)",
       mailSendCur: mailEg.blockers.length ? "not-allowed" : "pointer",
       onMailComposeBackdrop: (e) => { if (e.target === e.currentTarget) this.mailComposeCancel(); },
-      onMailComposeStop: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); },
+      onMailComposeStop: (e) => { if (e && e.stopPropagation) e.stopPropagation(); },
       onMailComposeCancel: () => this.mailComposeCancel(),
       onMailSend: () => this.mailSend(),
       mailSchedOn: !!s.mailSchedOn,
@@ -17511,20 +17606,20 @@ class Component extends DCLogic {
       ].map((f) => ({ label: f.label, bg: s.docFilter === f.id ? "var(--ink)" : "transparent", tx: s.docFilter === f.id ? "var(--surface)" : "var(--steel)", bd: s.docFilter === f.id ? "var(--ink)" : "var(--border)", fw: s.docFilter === f.id ? "800" : "600", onPick: () => this.setState({ docFilter: f.id }) })),
       docQ: s.docQ,
       onDocQ: (e) => this.setState({ docQ: e.target.value }),
-      docRows: [...s.docRegistered, ...this.DOCS()].filter((d) => (s.docFilter === "all" || d.type === s.docFilter) &amp;&amp; (!s.docQ.trim() || (d.code + d.title + d.who + d.type).includes(s.docQ.trim()))).map((d) => ({
+      docRows: [...s.docRegistered, ...this.DOCS()].filter((d) => (s.docFilter === "all" || d.type === s.docFilter) && (!s.docQ.trim() || (d.code + d.title + d.who + d.type).includes(s.docQ.trim()))).map((d) => ({
         code: d.code, title: d.title, type: d.type, who: d.who, closed: d.closed, keep: d.keep, ent: d.ent,
         pendingOn: !!d.pending,
-        disposedOn: !!(s.lcReg[d.code] &amp;&amp; s.lcReg[d.code].stage === "disposed"),
-        expiredOn: !!d.expired &amp;&amp; !(s.lcReg[d.code] &amp;&amp; s.lcReg[d.code].stage === "disposed"),
-        rowOp: (s.lcReg[d.code] &amp;&amp; s.lcReg[d.code].stage === "disposed") ? "0.45" : "1",
+        disposedOn: !!(s.lcReg[d.code] && s.lcReg[d.code].stage === "disposed"),
+        expiredOn: !!d.expired && !(s.lcReg[d.code] && s.lcReg[d.code].stage === "disposed"),
+        rowOp: (s.lcReg[d.code] && s.lcReg[d.code].stage === "disposed") ? "0.45" : "1",
         typeBg: d.type === "결재" ? "var(--accent-bg)" : d.type === "공지" ? "var(--warn-bg)" : d.type === "계약" ? "var(--purple-bg)" : d.type === "업무일지" ? "var(--ok-bg)" : d.type === "증거" ? "var(--danger-bg)" : "var(--info-bg)",
         typeBd: d.type === "결재" ? "var(--accent-bd)" : d.type === "공지" ? "var(--warn-bd)" : d.type === "계약" ? "var(--purple-bd)" : d.type === "업무일지" ? "var(--ok-bd)" : "var(--info-bd)",
         typeTx: d.type === "결재" ? "var(--accent-tx)" : d.type === "공지" ? "var(--warn-tx)" : d.type === "계약" ? "var(--purple-tx)" : d.type === "업무일지" ? "var(--ok-tx)" : "var(--info-tx)",
         closedColor: d.pending ? "var(--warn-tx)" : "var(--faint)",
-        keepColor: (d.expired &amp;&amp; !(s.lcReg[d.code] &amp;&amp; s.lcReg[d.code].stage === "disposed")) ? "var(--warn-tx)" : d.keep === "영구" ? "var(--steel)" : "var(--faint)",
+        keepColor: (d.expired && !(s.lcReg[d.code] && s.lcReg[d.code].stage === "disposed")) ? "var(--warn-tx)" : d.keep === "영구" ? "var(--steel)" : "var(--faint)",
         onOpen: () => this.lcOpen(d.code)
       })),
-      docCount: [...s.docRegistered, ...this.DOCS()].filter((d) => (s.docFilter === "all" || d.type === s.docFilter) &amp;&amp; (!s.docQ.trim() || (d.code + d.title + d.who + d.type).includes(s.docQ.trim()))).length,
+      docCount: [...s.docRegistered, ...this.DOCS()].filter((d) => (s.docFilter === "all" || d.type === s.docFilter) && (!s.docQ.trim() || (d.code + d.title + d.who + d.type).includes(s.docQ.trim()))).length,
       onDocReg: () => this.docRegOpen(),
       docRegOn: !!s.docReg,
       objNewOn: !!s.objNew,
@@ -17544,7 +17639,7 @@ class Component extends DCLogic {
           const ana = def.analytics || [];
           if (!ana.length) return [];
           const numOf = (v) => { const m = String(v).replace(/[,₩\s%]/g, "").match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
-          const mk2 = fieldKeys.map((k) => ({ k, t: typeOfK[k], v: o.props[k] })).filter((x) => (x.t === "money" || x.t === "percent") &amp;&amp; (x.v || "").trim() &amp;&amp; numOf(x.v) != null);
+          const mk2 = fieldKeys.map((k) => ({ k, t: typeOfK[k], v: o.props[k] })).filter((x) => (x.t === "money" || x.t === "percent") && (x.v || "").trim() && numOf(x.v) != null);
           if (!mk2.length) return ana.slice(0, 2).map((a) => ({ l: a[1], v: "money·percent 속성 입력 시 산출" })).concat([{ l: "가정", v: "EWMA σ8% · t(ν=4) fat-tail" }]);
           const base = numOf(mk2[0].v);
           const sigma = Math.abs(base) * 0.08;
@@ -17564,9 +17659,9 @@ class Component extends DCLogic {
         onBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ objNew: null }); }
       }; })(),
       docReg: s.docReg || { title: "", type: "계약", keep: "5년", ent: "코스", reason: "", file: "", err: false },
-      docRegFileOn: !!(s.docReg &amp;&amp; s.docReg.file),
-      docRegTypes: ["계약", "결재", "공지", "업무일지", "접수"].map((t) => ({ label: t, sel: !!(s.docReg &amp;&amp; s.docReg.type === t), bg: (s.docReg &amp;&amp; s.docReg.type === t) ? "var(--ink)" : "transparent", tx: (s.docReg &amp;&amp; s.docReg.type === t) ? "var(--surface)" : "var(--steel)", bd: (s.docReg &amp;&amp; s.docReg.type === t) ? "var(--ink)" : "var(--border)", onPick: () => this.docRegField("type", t) })),
-      docRegKeeps: ["3년", "5년", "10년", "영구"].map((k) => ({ label: k, sel: !!(s.docReg &amp;&amp; s.docReg.keep === k), bg: (s.docReg &amp;&amp; s.docReg.keep === k) ? "var(--ink)" : "transparent", tx: (s.docReg &amp;&amp; s.docReg.keep === k) ? "var(--surface)" : "var(--steel)", bd: (s.docReg &amp;&amp; s.docReg.keep === k) ? "var(--ink)" : "var(--border)", onPick: () => this.docRegField("keep", k) })),
+      docRegFileOn: !!(s.docReg && s.docReg.file),
+      docRegTypes: ["계약", "결재", "공지", "업무일지", "접수"].map((t) => ({ label: t, sel: !!(s.docReg && s.docReg.type === t), bg: (s.docReg && s.docReg.type === t) ? "var(--ink)" : "transparent", tx: (s.docReg && s.docReg.type === t) ? "var(--surface)" : "var(--steel)", bd: (s.docReg && s.docReg.type === t) ? "var(--ink)" : "var(--border)", onPick: () => this.docRegField("type", t) })),
+      docRegKeeps: ["3년", "5년", "10년", "영구"].map((k) => ({ label: k, sel: !!(s.docReg && s.docReg.keep === k), bg: (s.docReg && s.docReg.keep === k) ? "var(--ink)" : "transparent", tx: (s.docReg && s.docReg.keep === k) ? "var(--surface)" : "var(--steel)", bd: (s.docReg && s.docReg.keep === k) ? "var(--ink)" : "var(--border)", onPick: () => this.docRegField("keep", k) })),
       onDocRegTitle: (e) => this.docRegField("title", e.target.value),
       onDocRegReason: (e) => this.docRegField("reason", e.target.value),
       onDocRegDrop: () => this.docRegDrop("스캔본.pdf"),
@@ -17581,27 +17676,27 @@ class Component extends DCLogic {
       polBOn: !!s.polBuilder,
       polBRule: this.polRuleText(s.polBuilder) || "블록을 선택해 규칙 구성",
       polBRuleTx: this.polRuleText(s.polBuilder) ? "var(--ink)" : "var(--faint)",
-      polBP: (s.polBuilder &amp;&amp; s.polBuilder.principal) || "누가",
-      polBPOn: !!(s.polBuilder &amp;&amp; s.polBuilder.principal),
-      polBR: (s.polBuilder &amp;&amp; s.polBuilder.resource) || "무엇을",
-      polBROn: !!(s.polBuilder &amp;&amp; s.polBuilder.resource),
-      polBA: (s.polBuilder &amp;&amp; s.polBuilder.action) || "액션",
-      polMenuP: !!(s.polBuilder &amp;&amp; s.polBuilder.menu === "principal"),
-      polMenuR: !!(s.polBuilder &amp;&amp; s.polBuilder.menu === "resource"),
-      polMenuA: !!(s.polBuilder &amp;&amp; s.polBuilder.menu === "action"),
+      polBP: (s.polBuilder && s.polBuilder.principal) || "누가",
+      polBPOn: !!(s.polBuilder && s.polBuilder.principal),
+      polBR: (s.polBuilder && s.polBuilder.resource) || "무엇을",
+      polBROn: !!(s.polBuilder && s.polBuilder.resource),
+      polBA: (s.polBuilder && s.polBuilder.action) || "액션",
+      polMenuP: !!(s.polBuilder && s.polBuilder.menu === "principal"),
+      polMenuR: !!(s.polBuilder && s.polBuilder.menu === "resource"),
+      polMenuA: !!(s.polBuilder && s.polBuilder.menu === "action"),
       onPolMenuP: () => this.polMenu("principal"),
       onPolMenuR: () => this.polMenu("resource"),
       onPolMenuA: () => this.polMenu("action"),
       polOptsP: this.POL_BLOCKS().principal.map((v) => ({ v, onPick: () => this.polPick("principal", v) })),
       polOptsR: this.POL_BLOCKS().resource.map((v) => ({ v, onPick: () => this.polPick("resource", v) })),
       polOptsA: this.POL_BLOCKS().action.map((v) => ({ v, onPick: () => this.polPick("action", v) })),
-      polEffs: ["허용", "금지"].map((v) => { const on = !!(s.polBuilder &amp;&amp; s.polBuilder.effect === v); return { v, bg: on ? (v === "허용" ? "var(--ok-bg)" : "var(--danger-bg)") : "transparent", bd: on ? (v === "허용" ? "var(--ok-bd)" : "var(--danger-bd)") : "var(--border)", tx: on ? (v === "허용" ? "var(--ok-tx)" : "var(--danger-tx)") : "var(--steel)", onPick: () => this.polPick("effect", v) }; }),
-      polConds: this.POL_BLOCKS().cond.map((c) => { const on = !!(s.polBuilder &amp;&amp; s.polBuilder.conds.indexOf(c) >= 0); return { c, bg: on ? "var(--ink)" : "transparent", bd: on ? "var(--ink)" : "var(--border)", tx: on ? "var(--surface)" : "var(--steel)", onToggle: () => this.polCondToggle(c) }; }),
-      polBSimOn: !!(s.polBuilder &amp;&amp; s.polBuilder.sim),
-      polBSimWho: (s.polBuilder &amp;&amp; s.polBuilder.sim) ? s.polBuilder.sim.who : "",
-      polBSimText: (s.polBuilder &amp;&amp; s.polBuilder.sim) ? s.polBuilder.sim.text : "",
-      polBSimScope: (s.polBuilder &amp;&amp; s.polBuilder.sim) ? s.polBuilder.sim.scope : "",
-      polBErrOn: !!(s.polBuilder &amp;&amp; s.polBuilder.err),
+      polEffs: ["허용", "금지"].map((v) => { const on = !!(s.polBuilder && s.polBuilder.effect === v); return { v, bg: on ? (v === "허용" ? "var(--ok-bg)" : "var(--danger-bg)") : "transparent", bd: on ? (v === "허용" ? "var(--ok-bd)" : "var(--danger-bd)") : "var(--border)", tx: on ? (v === "허용" ? "var(--ok-tx)" : "var(--danger-tx)") : "var(--steel)", onPick: () => this.polPick("effect", v) }; }),
+      polConds: this.POL_BLOCKS().cond.map((c) => { const on = !!(s.polBuilder && s.polBuilder.conds.indexOf(c) >= 0); return { c, bg: on ? "var(--ink)" : "transparent", bd: on ? "var(--ink)" : "var(--border)", tx: on ? "var(--surface)" : "var(--steel)", onToggle: () => this.polCondToggle(c) }; }),
+      polBSimOn: !!(s.polBuilder && s.polBuilder.sim),
+      polBSimWho: (s.polBuilder && s.polBuilder.sim) ? s.polBuilder.sim.who : "",
+      polBSimText: (s.polBuilder && s.polBuilder.sim) ? s.polBuilder.sim.text : "",
+      polBSimScope: (s.polBuilder && s.polBuilder.sim) ? s.polBuilder.sim.scope : "",
+      polBErrOn: !!(s.polBuilder && s.polBuilder.err),
       onPolSim: () => this.polSim(),
       onPolSave: () => this.polSave(),
       onPolCancel: () => this.setState({ polBuilder: null }),
@@ -17618,15 +17713,15 @@ class Component extends DCLogic {
         openOn: s.policyOpen === p.id,
         chev: s.policyOpen === p.id ? "m18 15-6-6-6 6" : "m6 9 6 6 6-6",
         onToggle: () => this.setState((ps) => ({ policyOpen: ps.policyOpen === p.id ? null : p.id })),
-        onEdit: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.polBuilderOpen(p); },
-        onSim: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.showToast("시뮬레이션 — " + this.polSimWho(p.principal) + " → " + p.resource + " " + p.action + " " + p.effect + " · 화면·검색·집계 재평가 (실제 적용 없음)", false); }
+        onEdit: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.polBuilderOpen(p); },
+        onSim: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.showToast("시뮬레이션 — " + this.polSimWho(p.principal) + " → " + p.resource + " " + p.action + " " + p.effect + " · 화면·검색·집계 재평가 (실제 적용 없음)", false); }
       })),
       onPolicyNew: () => this.polBuilderOpen(null),
       // 정책 토큰 (TK-) — 일회성·한시 권한 개체 (PII 백로그 「권한 부여 유형 = 개체」)
       onTkNew: () => this.setState({ tkForm: { who: null, scope: null, dur: null, err: false } }),
       onTkCancel: () => this.setState({ tkForm: null }),
       tkFormOn: !!s.tkForm,
-      tkErrOn: !!(s.tkForm &amp;&amp; s.tkForm.err),
+      tkErrOn: !!(s.tkForm && s.tkForm.err),
       // 대상 = 타입어헤드 (프로덕션 규모 — 전 인원 열거 금지): 검색 매치 상위 4 + 외부 프리셋 · 선택값 유지
       tkWhoQ: s.tkWhoQ || "",
       onTkWhoQ: (e) => this.setState({ tkWhoQ: e.target.value }),
@@ -17635,7 +17730,7 @@ class Component extends DCLogic {
         const q = (s.tkWhoQ || "").trim();
         const pool = Object.keys(this.PEOPLE).map((nm) => nm + " (" + (this.PEOPLE[nm].team || "") + ")").concat(["외부 감사인", "외부 노무사"]);
         const list = q ? pool.filter((v) => v.indexOf(q) >= 0).slice(0, 4) : (s.tkForm.who ? [s.tkForm.who] : pool.slice(0, 2).concat(["외부 감사인"]));
-        const uniq = list.indexOf(s.tkForm.who) < 0 &amp;&amp; s.tkForm.who ? [s.tkForm.who, ...list] : list;
+        const uniq = list.indexOf(s.tkForm.who) < 0 && s.tkForm.who ? [s.tkForm.who, ...list] : list;
         return uniq.slice(0, 5).map((v) => { const on = s.tkForm.who === v; return { v, bd: on ? "var(--signal)" : "var(--border)", bg: on ? "var(--muted)" : "var(--surface)", tx: "var(--ink)", onPick: () => this.setState((ps) => ({ tkForm: { ...ps.tkForm, who: v, err: false }, tkWhoQ: "" })) }; });
       })(),
       tkScopes: (s.tkForm ? ["감사 로그 — 읽기", "급여 명부 — 읽기", "C-207 계약 — 읽기", "인제스트 큐 — 처리"] : []).map((v) => { const on = s.tkForm.scope === v; return { v, bd: on ? "var(--signal)" : "var(--border)", bg: on ? "var(--muted)" : "var(--surface)", tx: "var(--ink)", onPick: () => this.setState((ps) => ({ tkForm: { ...ps.tkForm, scope: v, err: false } })) }; }),
@@ -17675,10 +17770,10 @@ class Component extends DCLogic {
       dsrReqs: (s.dsrReqs || []).map((r) => ({ ref: r.ref, label: r.label, due: "기한 " + r.due, onGo: () => this.setState({ dsrOn: false, screen: "audit", auditQ: r.ref, auditFilter: "all" }) })),
       dsrConsents: this.DSR_CONSENTS().map((c, i) => {
         const revokedAt = (s.dsrConsentOv || {})[i];
-        return { label: c.label, meta: c.meta, dot: c.required ? "var(--steel)" : revokedAt ? "var(--border)" : "var(--ok-solid)", bg: revokedAt ? "var(--muted)" : "var(--canvas)", canRevoke: !c.required &amp;&amp; !revokedAt, revoked: !!revokedAt, revokedAt: revokedAt || "", required: !!c.required, onRevoke: () => this.dsrRevoke(i) };
+        return { label: c.label, meta: c.meta, dot: c.required ? "var(--steel)" : revokedAt ? "var(--border)" : "var(--ok-solid)", bg: revokedAt ? "var(--muted)" : "var(--canvas)", canRevoke: !c.required && !revokedAt, revoked: !!revokedAt, revokedAt: revokedAt || "", required: !!c.required, onRevoke: () => this.dsrRevoke(i) };
       }),
       inboxFilters: inbFilterDefs.map((f) => ({ label: f.label, n: String(f.n), nOn: f.n > 0, bg: s.inboxFilter === f.id ? "var(--ink)" : "transparent", tx: s.inboxFilter === f.id ? "var(--surface)" : "var(--steel)", bd: s.inboxFilter === f.id ? "var(--ink)" : "var(--border)", fw: s.inboxFilter === f.id ? "800" : "600", nbg: s.inboxFilter === f.id ? "rgba(255,255,255,0.22)" : "var(--muted)", ntx: s.inboxFilter === f.id ? "var(--surface)" : "var(--steel)", onPick: () => this.setState({ inboxFilter: f.id }) })),
-      inboxDocsList: inbListDocs.map((d) => { const m = inbKindMeta(d.kind); const conf = !!d.confirmed; const locked = d.legal &amp;&amp; !conf; const sel = d.id === inbSelId; return {
+      inboxDocsList: inbListDocs.map((d) => { const m = inbKindMeta(d.kind); const conf = !!d.confirmed; const locked = d.legal && !conf; const sel = d.id === inbSelId; return {
         id: d.id, ref: d.ref, title: d.title, sub: d.from + " · " + d.date,
         kindLabel: m.label, kindBg: m.bg, kindBd: m.bd, kindTx: m.tx, icon: m.icon,
         rowBg: sel ? "var(--muted)" : "transparent", ring: sel ? "inset 2.5px 0 0 var(--signal)" : "inset 2.5px 0 0 transparent",
@@ -17688,15 +17783,15 @@ class Component extends DCLogic {
       inboxEmpty: inbListDocs.length === 0,
       inbSelOn: !!inbSelDoc,
       inboxListView: s.inboxView !== "doc",
-      inboxDocView: s.inboxView === "doc" &amp;&amp; !!inbSelDoc,
+      inboxDocView: s.inboxView === "doc" && !!inbSelDoc,
       onInboxBack: () => this.inboxBack(),
       inbSel: inbSelView,
       inbLockedOn: inbLocked,
-      inbUnlockedOn: !!inbSelDoc &amp;&amp; !inbLocked,
-      inbBodyOn: !!(inbSelDoc &amp;&amp; !inbLocked &amp;&amp; !inbSelView.payOn &amp;&amp; inbSelDoc.body),
-      inbSelBody: (inbSelDoc &amp;&amp; !inbLocked &amp;&amp; inbSelDoc.body) ? inbSelDoc.body.map((t) => ({ t })) : [],
-      inbLinksOn: !!(inbSelDoc &amp;&amp; !inbLocked &amp;&amp; inbSelDoc.links &amp;&amp; inbSelDoc.links.length),
-      inbSelLinks: (inbSelDoc &amp;&amp; !inbLocked &amp;&amp; inbSelDoc.links) ? inbSelDoc.links.map((l) => ({ kind: l.kind, label: l.label, onOpen: () => this.inboxLinkGo(l) })) : [],
+      inbUnlockedOn: !!inbSelDoc && !inbLocked,
+      inbBodyOn: !!(inbSelDoc && !inbLocked && !inbSelView.payOn && inbSelDoc.body),
+      inbSelBody: (inbSelDoc && !inbLocked && inbSelDoc.body) ? inbSelDoc.body.map((t) => ({ t })) : [],
+      inbLinksOn: !!(inbSelDoc && !inbLocked && inbSelDoc.links && inbSelDoc.links.length),
+      inbSelLinks: (inbSelDoc && !inbLocked && inbSelDoc.links) ? inbSelDoc.links.map((l) => ({ kind: l.kind, label: l.label, onOpen: () => this.inboxLinkGo(l) })) : [],
       onInbUnlock: () => { if (inbSelId) this.pkStart(inbSelId); },
       fingerprintIcon: I.fingerprint, gavelIcon: I.gavel,
       pkModalOn: !!s.pkModal,
@@ -17718,8 +17813,8 @@ class Component extends DCLogic {
 
       bodyPadRightPx: bodyPadRight + "px",
       bodyPadBottomPx: (isMobile ? Math.max(bodyPadBottom, (s.kbInset || 0) > 0 ? 8 : 64) + (s.kbInset || 0) : bodyPadBottom) + "px",
-      mTabsOn: isMobile &amp;&amp; !((s.kbInset || 0) > 0),
-      mMoreOn: isMobile &amp;&amp; !!s.mobileMore,
+      mTabsOn: isMobile && !((s.kbInset || 0) > 0),
+      mMoreOn: isMobile && !!s.mobileMore,
       onMMoreClose: () => this.setState({ mobileMore: false }),
       mMoreDrag: this.sheetDrag(() => this.setState({ mobileMore: false })),
       mMoreItems: [
@@ -17764,7 +17859,7 @@ class Component extends DCLogic {
         const thRow = (th) => {
           const last = th.msgs.length ? th.msgs[th.msgs.length - 1] : null;
           const other = (th.members || []).find((m) => m !== "전성진");
-          return { name: th.name, unreadOn: th.unread > 0 &amp;&amp; !th.muted, unread: String(th.unread), mutedOn: !!th.muted,
+          return { name: th.name, unreadOn: th.unread > 0 && !th.muted, unread: String(th.unread), mutedOn: !!th.muted,
             last: last ? (last.me ? "나: " : "") + last.text : "",
             t: last ? last.t : "",
             presBg: this.PRESENCE()[other] ? "var(--ok-tx)" : "var(--border)",
@@ -17774,7 +17869,7 @@ class Component extends DCLogic {
         };
         const chs = s.threads.filter((th) => this.thVisible(th)).filter((th) => th.kind === "channel").filter(match).map(thRow);
         const mts = s.threads.filter((th) => this.thVisible(th)).filter((th) => th.kind === "meeting").filter(match).map((th) => ({ ...thRow(th), liveOn: th.live === true, endedOn: th.live === false, ended: th.ended || "" }));
-        const dms = s.threads.filter((th) => this.thVisible(th)).filter((th) => th.kind !== "channel" &amp;&amp; th.kind !== "meeting").filter(match).map(thRow);
+        const dms = s.threads.filter((th) => this.thVisible(th)).filter((th) => th.kind !== "channel" && th.kind !== "meeting").filter(match).map(thRow);
         return { msgrChs: chs, msgrChsOn: chs.length > 0, msgrMts: mts, msgrMtsOn: mts.length > 0, msgrDms: dms, msgrDmsOn: dms.length > 0 };
       })(),
       msgrQ: s.msgrQ || "",
@@ -17799,8 +17894,8 @@ class Component extends DCLogic {
         if (actTh) actTh.msgs.forEach((m) => { (m.text.match(/\b(?:AP|WO|AT|CS|JL|PS|IN|DX|MT|Bid|C|R)-\d+\b/g) || []).forEach((c) => { if (!seen[c]) { seen[c] = 1; codes.push(c); } }); });
         return { msgrObjsOn: codes.length > 0, msgrObjs: codes.slice(0, 6).map((c) => ({ c, onGo: () => this.objectLinkGo(c) })) };
       })(),
-      mtgOn: !!(s.mtg &amp;&amp; s.mtg.thId === s.activeThreadId),
-      mtgOff: !(s.mtg &amp;&amp; s.mtg.thId === s.activeThreadId),
+      mtgOn: !!(s.mtg && s.mtg.thId === s.activeThreadId),
+      mtgOff: !(s.mtg && s.mtg.thId === s.activeThreadId),
       mtgCode: s.mtg ? s.mtg.code : "",
       onMtgStart: () => this.mtgStart(),
       onMtgEnd: () => this.mtgEnd(),
@@ -17830,11 +17925,11 @@ class Component extends DCLogic {
       onMapNewKey: (e) => { if (e.key === "Enter") { e.preventDefault(); this.mapSiteAdd(this.state.mapNewVal); } },
       onMapCanvasOver: (e) => { if (this.state.mapEdit) e.preventDefault(); },
       onMapCanvasDrop: (e) => { if (!this.state.mapEdit || !this._mapDragId) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); const x = Math.max(3, Math.min(96, Math.round(((e.clientX - r.left) / r.width) * 1000) / 10)); const y = Math.max(5, Math.min(92, Math.round(((e.clientY - r.top) / r.height) * 1000) / 10)); this.mapSiteMove(this._mapDragId, x, y); this._mapDragId = null; },
-      onMapCanvasCtx: (e) => { if (e.target.closest &amp;&amp; e.target.closest("button")) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); this.setState({ mapCtx: { id: null, x: Math.min(e.clientX - r.left, r.width - 190), y: Math.min(e.clientY - r.top, r.height - 120), px: Math.round(((e.clientX - r.left) / r.width) * 10) * 10, py: Math.round(((e.clientY - r.top) / r.height) * 10) * 10 } }); },
+      onMapCanvasCtx: (e) => { if (e.target.closest && e.target.closest("button")) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); this.setState({ mapCtx: { id: null, x: Math.min(e.clientX - r.left, r.width - 190), y: Math.min(e.clientY - r.top, r.height - 120), px: Math.round(((e.clientX - r.left) / r.width) * 10) * 10, py: Math.round(((e.clientY - r.top) / r.height) * 10) * 10 } }); },
       mapCtxOn: !!s.mapCtx,
       mapCtxX: s.mapCtx ? Math.max(6, s.mapCtx.x) + "px" : "0px",
       mapCtxY: s.mapCtx ? Math.max(6, s.mapCtx.y) + "px" : "0px",
-      mapCtxTitle: s.mapCtx &amp;&amp; s.mapCtx.id ? ((this.mapSiteAll().find((m) => m.id === s.mapCtx.id) || {}).name || "") : "지도 저작",
+      mapCtxTitle: s.mapCtx && s.mapCtx.id ? ((this.mapSiteAll().find((m) => m.id === s.mapCtx.id) || {}).name || "") : "지도 저작",
       mapCtxItems: (() => {
         const c = s.mapCtx; if (!c) return [];
         if (!c.id) return [{ label: "+ 현장 추가 — 여기 (제안)", onRun: () => this.mapSiteAdd("새 현장", c.px, c.py) }];
@@ -17849,12 +17944,12 @@ class Component extends DCLogic {
         if (m.draft) base.push({ label: "개편 결재로 확정", onRun: () => { this.setState({ mapCtx: null }); this.orgChangeOpen(0); } });
         return base;
       })(),
-      onMapCtxClose: (e) => { if (e &amp;&amp; e.preventDefault) e.preventDefault(); this.setState({ mapCtx: null }); },
-      mapSelOn: !!s.mapSel &amp;&amp; this.mapSiteAll().some((m) => m.id === s.mapSel),
+      onMapCtxClose: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ mapCtx: null }); },
+      mapSelOn: !!s.mapSel && this.mapSiteAll().some((m) => m.id === s.mapSel),
       mapSelCard: (() => {
         const m = this.mapSiteAll().find((x) => x.id === s.mapSel); if (!m) return { name: "", rows: [], draftOn: false, onGo: () => {}, onAppr: () => {}, onClose: () => {} };
         const toneTx = (t) => t === "danger" ? "var(--danger-tx)" : t === "warn" ? "var(--warn-tx)" : t === "ok" ? "var(--ok-tx)" : "var(--steel)";
-        const rows = [["커버리지", m.cov, m.covT], ["이슈", m.iss, m.issT], ["계약", m.ct, m.ctT], ["정비·배차", m.wo, m.woT]].filter((r) => r[1] &amp;&amp; r[1] !== "—").map((r) => ({ k: r[0], v: r[1], tx: toneTx(r[2]) }));
+        const rows = [["커버리지", m.cov, m.covT], ["이슈", m.iss, m.issT], ["계약", m.ct, m.ctT], ["정비·배차", m.wo, m.woT]].filter((r) => r[1] && r[1] !== "—").map((r) => ({ k: r[0], v: r[1], tx: toneTx(r[2]) }));
         return { name: m.name, rows, draftOn: !!m.draft, onGo: () => this.modLinkGo(m.go), onAppr: () => this.orgChangeOpen(0), onClose: () => this.setState({ mapSel: null }) };
       })(),
       mapStats: [
@@ -17879,9 +17974,9 @@ class Component extends DCLogic {
             { code: "WO-2643", label: "유압 누유 긴급 — 인천 제2센터", st: "SLA 38분", tone: "danger", sel: "inc2", item: "d1" },
             { code: "WO-2641", label: "타이어 교체 — 인천 제1센터", st: "내일 10:00", tone: "warn", sel: "inc1", item: "d2" },
             { code: "WO-2638", label: "예방정비 — 안산공장 (김성호)", st: "D-2 배정됨", tone: "ok", sel: "ansan", item: "w1" }
-          ].map((r) => { const c = toneC2(r.tone); return { code: r.code, codeOn: true, label: r.label, st: r.st, dot: c[0], bgc: c[1], bd: c[2], tx: c[3], bg2: s.mapSel === r.sel ? "var(--muted)" : "transparent", onSel: () => this.setState({ mapSel: r.sel }), actOn: true, onAct: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.openDetail(r.item); } }; });
+          ].map((r) => { const c = toneC2(r.tone); return { code: r.code, codeOn: true, label: r.label, st: r.st, dot: c[0], bgc: c[1], bd: c[2], tx: c[3], bg2: s.mapSel === r.sel ? "var(--muted)" : "transparent", onSel: () => this.setState({ mapSel: r.sel }), actOn: true, onAct: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.openDetail(r.item); } }; });
         }
-        return this.MAP_SITES().filter((m) => m[ov] &amp;&amp; m[ov] !== "—").map((m) => { const t = m[ov + "T"] || "neutral"; const c = toneC2(t); return { code: "", codeOn: false, label: m.name, st: m[ov], dot: c[0], bgc: c[1], bd: c[2], tx: c[3], bg2: s.mapSel === m.id ? "var(--muted)" : "transparent", onSel: () => this.setState({ mapSel: m.id }), actOn: true, onAct: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.modLinkGo(m.go); } }; });
+        return this.MAP_SITES().filter((m) => m[ov] && m[ov] !== "—").map((m) => { const t = m[ov + "T"] || "neutral"; const c = toneC2(t); return { code: "", codeOn: false, label: m.name, st: m[ov], dot: c[0], bgc: c[1], bd: c[2], tx: c[3], bg2: s.mapSel === m.id ? "var(--muted)" : "transparent", onSel: () => this.setState({ mapSel: m.id }), actOn: true, onAct: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.modLinkGo(m.go); } }; });
       })(),
       notifScr: scrWrapOf2("notif"),
       notifRows: s.notifs.filter((n) => s.notifF !== "unread" || n.unread).map((n) => ({
@@ -17896,18 +17991,18 @@ class Component extends DCLogic {
       onNotifAllRead: () => this.markAllNotifs(),
       msgrMsgs: (() => {
         const th = s.threads.find((x) => x.id === s.activeThreadId);
-        const msgs = (th &amp;&amp; th.msgs) || [];
-        const divIdx = (s.msgrDiv &amp;&amp; th &amp;&amp; s.msgrDiv.id === th.id) ? s.msgrDiv.idx : -1;
+        const msgs = (th && th.msgs) || [];
+        const divIdx = (s.msgrDiv && th && s.msgrDiv.id === th.id) ? s.msgrDiv.idx : -1;
         return msgs.map((m, i) => ({
           me: m.me, other: !m.me,
-          headOn: !m.me &amp;&amp; !m.sys &amp;&amp; (i === 0 || msgs[i - 1].from !== m.from || msgs[i - 1].me !== m.me),
+          headOn: !m.me && !m.sys && (i === 0 || msgs[i - 1].from !== m.from || msgs[i - 1].me !== m.me),
           from: m.from, t: m.t,
-          divOn: i === divIdx &amp;&amp; divIdx > 0,
+          divOn: i === divIdx && divIdx > 0,
           sysOn: !!m.sys, plainOn: !m.sys,
           mtCode: m.mt ? m.mt.code : "", mtDur: m.mt ? m.mt.dur : "", mtAtt: m.mt ? m.mt.att : "",
           mtDecs: m.mt ? m.mt.decisions.map((d) => ({ t: d })) : [],
           mtActs: m.mt ? m.mt.actions.map((a) => ({ t: a, onTodo: () => this.msgrTodo(th ? th.name : "", a) })) : [],
-          segs: this.msgParts(m.text).map((sg) => ({ t: sg.t, c: m.me &amp;&amp; sg.c === "inherit" ? "inherit" : sg.c, fw: sg.fw, cur: sg.cursor, onClick: sg.onClick || (() => {}) })),
+          segs: this.msgParts(m.text).map((sg) => ({ t: sg.t, c: m.me && sg.c === "inherit" ? "inherit" : sg.c, fw: sg.fw, cur: sg.cursor, onClick: sg.onClick || (() => {}) })),
           rowJc: m.me ? "flex-end" : "flex-start",
           bg: m.me ? "var(--ink)" : "var(--muted)", tx: m.me ? "var(--surface)" : "var(--ink)",
           quoteOn: !!m.quote, qFrom: m.quote ? m.quote.from : "", qText: m.quote ? m.quote.text : "",
@@ -17932,7 +18027,7 @@ class Component extends DCLogic {
       ...(() => {
         const mt = s.msgrTh;
         const th2 = mt ? s.threads.find((x) => x.id === mt.th) : null;
-        const pm = th2 &amp;&amp; th2.id === s.activeThreadId ? (th2.msgs || [])[mt.mi] : null;
+        const pm = th2 && th2.id === s.activeThreadId ? (th2.msgs || [])[mt.mi] : null;
         if (!pm) return { msgrThOn: false, msgrThParentSegs: [], msgrThReplies: [], msgrThParentFrom: "", msgrThParentT: "", msgrThVal: "", msgrThN: "0", msgrThRepliesOn: false, onMsgrThClose: () => {}, onMsgrThInput: () => {}, onMsgrThKey: () => {}, onMsgrThSend: () => {} };
         const segsOf = (txt) => this.msgParts(txt).map((sg) => ({ t: sg.t, c: sg.c || "inherit", fw: sg.fw || "inherit", cur: sg.cursor || "inherit", onClick: sg.onClick || (() => {}) }));
         return {
@@ -17976,7 +18071,7 @@ class Component extends DCLogic {
           msgrAcList: (ac || []).map((o, i) => ({ label: o.label, sub: o.sub, bg: i === acIx ? "var(--muted)" : "transparent", onPick: () => this.msgrAcPick(o.v) })),
           onMsgrInput: (e) => this.setState({ msgrVal: e.target.value, msgrAcOff: false, msgrAcIx: 0 }),
           onMsgrKey: (e) => {
-            if (ac &amp;&amp; ac.length) {
+            if (ac && ac.length) {
               if (e.key === "ArrowDown") { e.preventDefault(); this.setState((ps) => ({ msgrAcIx: Math.min((ps.msgrAcIx || 0) + 1, ac.length - 1) })); return; }
               if (e.key === "ArrowUp") { e.preventDefault(); this.setState((ps) => ({ msgrAcIx: Math.max((ps.msgrAcIx || 0) - 1, 0) })); return; }
               if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.msgrAcPick(ac[acIx].v); return; }
@@ -17992,7 +18087,7 @@ class Component extends DCLogic {
       ...(() => {
         const h = (s.huddles || {})[s.activeThreadId];
         const me2 = this.viewerNow().name;
-        const on = !!(h &amp;& h.on);
+        const on = !!(h && h.on);
         return {
           msgrHudOn: on,
           msgrHudMembers: on ? h.members.map((m) => ({ m })) : [],
@@ -18517,6 +18612,26 @@ class Component extends DCLogic {
       onWfPolicy: () => { if (autoWf && autoWf.policy === "DoA-E1") { this.setState({ doaEdit: { ...(s.doaE1 || { sev: "P0", timeout: 15, cap: 2000000, ver: 1 }) } }); return; } this.hoPolOpen(); },
       // 정책 파라미터 파생 라벨 (directive — 로직=구성 가능·granular): DoA-E1 편집이 규칙 라벨·실행에 즉시 반영
       autoWf: autoWf ? { name: autoWf.name, active: autoWf.active, triggerLabel: autoWf.trigger.label, triggerIcon: iconOf(autoWf.trigger.icon), runs: String(autoWf.runs), lastRun: autoWf.lastRun, when: autoWf.when.map((c) => { const P = s.doaE1 || { sev: "P0", timeout: 15, cap: 2000000 }; let label = c.label; if (c.pol === "sev") label = "심각도=" + P.sev + " (" + (P.sev === "P0" ? "P1 이하" : "P2 이하") + "=익영업일 큐 — 결정적 분기)"; if (c.pol === "cap") label = "DoA 긴급 조항 E1 — 선조치 한도 ₩" + P.cap.toLocaleString("ko-KR"); return { label }; }), then: autoWf.then.map((a) => { const P = s.doaE1 || { timeout: 15 }; return { label: a.pol === "timeout" ? "② " + P.timeout + "분 무응답 = 차상위 자동 에스컬 (당직표 순위)" : a.label, icon: iconOf(a.icon) }; }) } : { name: "", active: false, triggerLabel: "", triggerIcon: "", runs: "0", lastRun: "", when: [], then: [] },
+      // CRM 단계 전이 — 전이 근거 필수 (HubSpot "documented evidence of progress" · §4-27-②)
+      crmMoveOn: !!s.crmMove,
+      crmMoveV: (() => {
+        const c = s.crmMove; if (!c) return { title: "", note: "", onNote: () => {}, onGo: () => {}, onCancel: () => {}, onBackdrop: () => {}, goOp: "0.45" };
+        const can = (c.note || "").trim().length >= 4;
+        return {
+          title: c.code + " — " + c.from + " → " + ["리드", "접촉·실사", "제안", "협상"][c.toStage - 1],
+          note: c.note, onNote: (e) => this.setState((ps) => ({ crmMove: { ...ps.crmMove, note: e.target.value } })),
+          goOp: can ? "1" : "0.45",
+          onGo: () => {
+            if (!can) return;
+            const cm = this.state.crmMove;
+            this.setState((ps) => ({ crmMove: null, crmStage: { ...(ps.crmStage || {}), [cm.id]: cm.toStage } }));
+            this.logEvent({ action: "딜 단계 전이", cat: "policy", target: { type: "딜", label: cm.code + " → " + ["리드", "접촉·실사", "제안", "협상"][cm.toStage - 1], code: cm.code }, decision: "permit", reason: "전이 근거(필수): " + cm.note.trim() + " — documented evidence of progress · 전환율 지표 반영" });
+            this.showToast(cm.code + " 단계 전이 — 근거 기록 · 전환율 지표 반영", false);
+          },
+          onCancel: () => this.setState({ crmMove: null }),
+          onBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ crmMove: null }); }
+        };
+      })(),
       // §4-29 프리플라이트 (자동화 활성화)
       wfPreOn: !!s.wfPre,
       wfPreV: (() => {
@@ -18551,6 +18666,13 @@ class Component extends DCLogic {
           cap: d.cap.toLocaleString("ko-KR"), onCap: (e) => { const n = parseInt(e.target.value.replace(/[^\d]/g, "").slice(0, 9) || "0", 10); this.setState((ps) => ({ doaEdit: { ...ps.doaEdit, cap: n } })); },
           onApply: () => {
             const d2 = this.state.doaEdit; const ver = (d2.ver || 1) + 1;
+            if (d2.newCode) {
+              // #39 — 새 조항 저작: 발번·원장 합류·현재 빌더 규칙에 즉시 연결
+              this.setState((ps) => ({ doaEdit: null, doaCustom: [...(ps.doaCustom || []), { code: d2.newCode, sev: d2.sev, timeout: d2.timeout, cap: d2.cap, ver: 1 }], wfBuilder: ps.wfBuilder ? { ...ps.wfBuilder, policy: d2.newCode } : ps.wfBuilder }));
+              this.logEvent({ action: "설정 개체 저작 (four-eyes)", cat: "approve", target: { type: "설정 개체", label: d2.newCode + " v1 — " + d2.sev + " · " + d2.timeout + "분 · ₩" + d2.cap.toLocaleString("ko-KR"), code: d2.newCode }, decision: "permit", reason: "커스텀 긴급 조항 저작 — 규칙 빌더 정책 연결에 즉시 사용 가능 · §4-28 결정적 파라미터 · 보관=비파괴" });
+              this.showToast(d2.newCode + " v1 저작 — 현재 규칙에 연결됨", false);
+              return;
+            }
             this.setState({ doaE1: { ...d2, ver }, doaEdit: null });
             this.logEvent({ action: "정책 개정 적용 (four-eyes)", cat: "approve", target: { type: "설정 개체", label: "DoA 긴급 조항 E1 · v" + ver + " — " + d2.sev + " · " + d2.timeout + "분 · ₩" + d2.cap.toLocaleString("ko-KR"), code: "DoA-E1" }, decision: "permit", reason: "P0 프로토콜 파라미터 개정 — 심각도 분기·에스컬 타임아웃·선조치 한도 = 결정적 규칙 구성 (§4-28) · 이전 버전 감사 보존" });
             this.showToast("DoA-E1 v" + ver + " 발효 — 규칙 라벨·실행에 즉시 반영", false);
@@ -18624,6 +18746,14 @@ class Component extends DCLogic {
       wfbSaveLabel: s.wfBuilder && s.wfBuilder.editId ? "개정 저장 — 승인 대기" : (s.wfBuilder && s.wfBuilder.scope === "personal" ? "저장 — 즉시 활성 (개인)" : "초안 저장"),
       wfbScopeOn: !!(s.wfBuilder && !s.wfBuilder.editId),
       wfbScopeSeg: [{ id: "corp", label: "전사" }, { id: "personal", label: "개인" }].map((m) => { const cur = (s.wfBuilder && s.wfBuilder.scope) || "corp"; return { label: m.label, bg: cur === m.id ? "var(--surface)" : "transparent", tx: cur === m.id ? "var(--ink)" : "var(--steel)", sh: cur === m.id ? "var(--shadow)" : "none", onPick: () => this.setState((ps) => ps.wfBuilder ? ({ wfBuilder: { ...ps.wfBuilder, scope: m.id } }) : {}) }; }),
+      // #39 — 정책(설정 개체) 연결·저작: 규칙에 커스텀 조항 연결 + 「+ 새 조항」 = DoA 모달 재사용(복제 시드·발번)
+      wfbPol: (s.wfBuilder && s.wfBuilder.policy) || "없음",
+      wfbPolOpts: ["없음", "HO-01", "DoA-E1"].concat((s.doaCustom || []).map((c) => c.code)).map((v) => ({ v })),
+      onWfbPol: (e) => { const v = e.target.value; this.setState((ps) => ({ wfBuilder: { ...ps.wfBuilder, policy: v === "없음" ? null : v } })); },
+      onWfbPolNew: () => {
+        const code = "DoA-E" + (2 + (s.doaCustom || []).length);
+        this.setState({ doaEdit: { ...(s.doaE1 || { sev: "P0", timeout: 15, cap: 2000000 }), ver: 0, newCode: code } });
+      },
       wfbErrOn: !!(s.wfBuilder && s.wfBuilder.err),
       onWfbSim: () => this.wfBuilderSim(),
       onWfbSave: () => this.wfBuilderSave(),
@@ -19009,13 +19139,13 @@ class Component extends DCLogic {
         late: String(r.late), absent: String(r.absent),
         lateOn: r.late > 0,
         absOn: r.absent > 0,
-        cleanOn: r.late === 0 &amp;&amp; r.absent === 0,
+        cleanOn: r.late === 0 && r.absent === 0,
         dotBg: r.tone === "danger" ? "var(--danger-solid)" : (r.tone === "warn" ? "var(--warn-solid)" : "var(--border)"),
         lateColor: r.late > 0 ? "var(--warn-tx)" : "var(--faint)",
         absColor: r.absent > 0 ? "var(--danger-tx)" : "var(--faint)",
         note: r.note || "", noteOn: !!r.note,
         noteColor: r.tone === "danger" ? "var(--danger-tx)" : "var(--faint)",
-        actOn: !!r.act &amp;&amp; r.absent > 0 &amp;&amp; s.attSubbed.indexOf(r.id) === -1,
+        actOn: !!r.act && r.absent > 0 && s.attSubbed.indexOf(r.id) === -1,
         subbedOn: s.attSubbed.indexOf(r.id) >= 0,
         onSite: () => this.setState({ teamCard: { name: r.site, head: "-", hc: "오늘 출근 " + r.inn + " / 예정 " + r.plan, path: this.ENTITIES[r.entity].label + " · 지각 " + r.late + " · 결원 " + r.absent } }),
         onAct: () => { this.setState((ps) => ({ attSubbed: ps.attSubbed.indexOf(r.id) >= 0 ? ps.attSubbed : [...ps.attSubbed, r.id] })); this.showToast(r.site + " 대근 편성 요청 발송 — 회신은 알림으로 도착합니다", false); }
@@ -19026,9 +19156,9 @@ class Component extends DCLogic {
         projColor: w.tone === "danger" ? "var(--danger-tx)" : w.tone === "warn" ? "var(--warn-tx)" : "var(--faint)",
         curW: Math.min(100, Math.round(w.cur / 52 * 100)) + "%",
         fillBg: w.tone === "danger" ? "var(--danger-solid)" : w.tone === "warn" ? "var(--warn-solid)" : "var(--ok-solid)",
-        actOn: w.tone === "danger" &amp;&amp; s.att52Handled.indexOf(w.id) === -1,
+        actOn: w.tone === "danger" && s.att52Handled.indexOf(w.id) === -1,
         handledOn: s.att52Handled.indexOf(w.id) >= 0,
-        noneOn: w.tone !== "danger" &amp;&amp; s.att52Handled.indexOf(w.id) === -1,
+        noneOn: w.tone !== "danger" && s.att52Handled.indexOf(w.id) === -1,
         onWho: () => this.openPerson(w.who),
         onAct: () => {
           this.setState((ps) => {
@@ -19048,8 +19178,8 @@ class Component extends DCLogic {
         { ent: "HR 스태핑", done: true, meta: "7/2 10:44 · 박수진" },
         { ent: "㈜코스", done: s.attCossClosed, meta: s.attCossClosed ? "방금 · 전성진" : "근태 예외 " + attIssuesLeft + "건 미처리" }
       ].map((c) => ({ ent: c.ent, meta: c.meta, doneOn: c.done, waitOn: !c.done, metaColor: c.done ? "var(--faint)" : "var(--warn-tx)" })),
-      attCloseReady: attIssuesLeft === 0 &amp;&amp; !s.attCossClosed,
-      attCloseBlockedOn: attIssuesLeft > 0 &amp;&amp; !s.attCossClosed,
+      attCloseReady: attIssuesLeft === 0 && !s.attCossClosed,
+      attCloseBlockedOn: attIssuesLeft > 0 && !s.attCossClosed,
       attCloseBlockedText: "근태 예외 " + attIssuesLeft + "건 처리 후 마감할 수 있습니다",
       attCloseDoneOn: s.attCossClosed,
       onAttConfirmClose: () => this.attConfirmClose(),
@@ -19062,7 +19192,7 @@ class Component extends DCLogic {
       paySteps: ["근태 마감", "계산", "예외 검토", "결재", "이체"].map((label, i) => {
         const st = stStates[i];
         const m2 = stepMeta[st] || stepMeta.locked;
-        const clickable = (i === 0 &amp;&amp; st === "active") || (i === 3 &amp;&amp; s.paySubmitted);
+        const clickable = (i === 0 && st === "active") || (i === 3 && s.paySubmitted);
         return {
           num: String(i + 1), label,
           sub: stSubs[i],
@@ -19073,16 +19203,16 @@ class Component extends DCLogic {
           doneOn: st === "done", numOn: st !== "done",
           lineOn: i < 4, lineBg: st === "done" ? "var(--ink)" : "var(--border)",
           cursor: clickable ? "pointer" : "default",
-          tip: i === 0 &amp;&amp; st === "active" ? "근태 화면에서 마감을 진행합니다" : (i === 3 &amp;&amp; s.paySubmitted ? "결재 문서 열기" : ""),
+          tip: i === 0 && st === "active" ? "근태 화면에서 마감을 진행합니다" : (i === 3 && s.paySubmitted ? "결재 문서 열기" : ""),
           onClick: clickable ? (i === 0 ? () => this.setState({ screen: "att" }) : () => this.openDetail("pa1")) : () => {}
         };
       }),
       payCtaBtnOn: !!payCta,
       payCtaLabel: payCta ? payCta.label : "",
-      payCtaBg: payCta &amp;&amp; payCta.kind === "primary" ? "var(--signal)" : "transparent",
-      payCtaTx: payCta &amp;&amp; payCta.kind === "primary" ? "#141a21" : "var(--ink)",
-      payCtaBd: payCta &amp;&amp; payCta.kind === "primary" ? "transparent" : "var(--border)",
-      payCtaAnim: payCta &amp;&amp; payCta.anim ? "pulse-dot 1.2s ease-in-out infinite" : "none",
+      payCtaBg: payCta && payCta.kind === "primary" ? "var(--signal)" : "transparent",
+      payCtaTx: payCta && payCta.kind === "primary" ? "#141a21" : "var(--ink)",
+      payCtaBd: payCta && payCta.kind === "primary" ? "transparent" : "var(--border)",
+      payCtaAnim: payCta && payCta.anim ? "pulse-dot 1.2s ease-in-out infinite" : "none",
       onPayCta: () => { if (payCta) payCta.run(); },
       payCtaChipOn: !!payChip,
       payCtaChipText: payChip ? payChip.text : "",
@@ -19100,9 +19230,9 @@ class Component extends DCLogic {
       onPayGate: () => { if (!this.state.attCossClosed) this.setState({ screen: "att" }); else this.payRunCalc(); },
       payExRows: this.PAY_EX.map((ex) => {
         const st = s.payExDone[ex.id];
-        const open = s.payExOpen === ex.id &amp;&amp; !st;
+        const open = s.payExOpen === ex.id && !st;
         // #17 — 연장 승인(AT-0702-07) 처리 시 px1에 자동 반영 표시 (자동화 wf3 산출)
-        const otApp = ex.id === "px1" &amp;&amp; (s.otApplied || []).indexOf("AT-0702-07") >= 0;
+        const otApp = ex.id === "px1" && (s.otApplied || []).indexOf("AT-0702-07") >= 0;
         return {
           type: ex.type, who: ex.who, team: ex.team, oneline: otApp ? "6월 연장 14.5h + 승인분 2.1h (AT-0702-07 · wf3 자동 반영)" : ex.oneline, amt: otApp ? "+₩438,000" : ex.amt,
           bg: exBgOf(ex.tone), bd: exBdOf(ex.tone), tx: exTxOf(ex.tone),
@@ -19119,12 +19249,12 @@ class Component extends DCLogic {
           stTx: st === "hold" ? "var(--warn-tx)" : "var(--ok-tx)",
           actOn: !st,
           whoOn: !ex.noPerson, whoOff: !!ex.noPerson,
-          onWho: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.openPerson(ex.who); },
+          onWho: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.openPerson(ex.who); },
           onToggle: () => { if (this.state.payExDone[ex.id]) return; this.setState((ps) => ({ payExOpen: ps.payExOpen === ex.id ? null : ex.id })); },
           lines: ex.lines.map((t) => ({ t })),
-          chips: ex.chips.map((c) => ({ kind: c.kind, label: c.label, onOpen: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); if (c.hr) this.openHrIssue(c.hr); else if (c.thread) this.openThread(c.thread); else if (c.person) this.openPerson(c.person); else this.showToast("「" + c.label + "」 객체 보기는 다음 단계 범위입니다"); } })),
-          onOk: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.payExAct(ex.id, "ok"); },
-          onHold: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.payExAct(ex.id, "hold"); }
+          chips: ex.chips.map((c) => ({ kind: c.kind, label: c.label, onOpen: (e) => { if (e && e.stopPropagation) e.stopPropagation(); if (c.hr) this.openHrIssue(c.hr); else if (c.thread) this.openThread(c.thread); else if (c.person) this.openPerson(c.person); else this.showToast("「" + c.label + "」 객체 보기는 다음 단계 범위입니다"); } })),
+          onOk: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.payExAct(ex.id, "ok"); },
+          onHold: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.payExAct(ex.id, "hold"); }
         };
       }),
       payQ: s.payQ,
@@ -19150,8 +19280,8 @@ class Component extends DCLogic {
       }) : undefined })),
       payRows: paySorted.map((r) => {
         const exDef = r.ex ? this.PAY_EX.find((x) => x.id === r.ex) : null;
-        const flagOn = !!(exDef &amp;&amp; !s.payExDone[r.ex]);
-        const holdOn = !!(r.ex &amp;&amp; s.payExDone[r.ex] === "hold");
+        const flagOn = !!(exDef && !s.payExDone[r.ex]);
+        const holdOn = !!(r.ex && s.payExDone[r.ex] === "hold");
         return {
           initial: r.who.slice(0, 1), who: r.who, title: r.title, ent: r.ent,
           base: r.base, allow: r.allow, ded: r.ded, net: r.net,
@@ -19160,9 +19290,9 @@ class Component extends DCLogic {
           flagBg: exDef ? exBgOf(exDef.tone) : "transparent",
           flagBd: exDef ? exBdOf(exDef.tone) : "transparent",
           flagTx: exDef ? exTxOf(exDef.tone) : "inherit",
-          onFlag: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState({ payExOpen: r.ex }); },
+          onFlag: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ payExOpen: r.ex }); },
           holdOn,
-          deltaOn: !flagOn &amp;&amp; !holdOn,
+          deltaOn: !flagOn && !holdOn,
           delta: r.delta,
           deltaColor: r.dTone === "warn" ? "var(--warn-tx)" : "var(--faint)",
           rowBg: s.paySel === r.who ? "var(--muted)" : "transparent",
@@ -19176,7 +19306,7 @@ class Component extends DCLogic {
       payAcctColor: s.payExDone.px5 === "ok" ? "var(--ok-tx)" : (s.payExDone.px5 === "hold" ? "var(--warn-tx)" : "var(--danger-tx)"),
       paySched: [
         { d: "7/3", t: "계산 · 예외 검토", st: payStageN > 3 ? "done" : "now" },
-        { d: "7/8", t: "결재 기한 16:00", st: payApproved ? "done" : (s.paySubmitted &amp;&amp; !payRejected ? "now" : "wait") },
+        { d: "7/8", t: "결재 기한 16:00", st: payApproved ? "done" : (s.paySubmitted && !payRejected ? "now" : "wait") },
         { d: "7/9", t: "이체 파일 은행 제출", st: payApproved ? "now" : "wait" },
         { d: "7/10", t: "04:00 이체 · 명세서 발송", st: "wait" }
       ].map((r) => ({
@@ -19219,7 +19349,7 @@ class Component extends DCLogic {
       attDayGrid: s.attDayCols ? s.attDayCols.map((w) => w + "px").join(" ") : "minmax(120px, 1.4fr) 76px minmax(70px, 0.9fr) minmax(90px, 1.1fr) 84px",
       attDayMinW: s.attDayCols ? (s.attDayCols.reduce((a, w) => a + w, 0) + 62) + "px" : "0",
       attDayActFull: !s.attDayCols || s.attDayCols[4] >= 84,
-      attDayActMini: !!s.attDayCols &amp;&amp; s.attDayCols[4] < 84,
+      attDayActMini: !!s.attDayCols && s.attDayCols[4] < 84,
       attDayCol: {
         h0: (e) => this.attDayColStart(0, e),
         h1: (e) => this.attDayColStart(1, e),
@@ -19234,7 +19364,7 @@ class Component extends DCLogic {
       hrToolOn: toolHr.on, hrToolPos: toolHr.pos, hrToolX: toolHr.x, hrToolY: toolHr.y, hrToolBtns: toolHr.btns, hrSplitMenuOn: toolHr.menuOn, hrSplitOpts: toolHr.opts,
       onHrToolKeep: () => this.cardToolKeep(),
       onHrToolLeave: () => this.cardToolLeave(),
-      hrModalBackOn: !!(s.cardMode.hr &amp;&amp; s.cardMode.hr.kind === "modal"),
+      hrModalBackOn: !!(s.cardMode.hr && s.cardMode.hr.kind === "modal"),
       onHrToolRestore: () => this.cardModeSet("hr", null),
       hrLayCustom: this.layCustom("hr"),
       onHrLayReset: () => this.cardLayoutReset("hr"),
@@ -19246,7 +19376,7 @@ class Component extends DCLogic {
       rvToolOn: toolRv.on, rvToolPos: toolRv.pos, rvToolX: toolRv.x, rvToolY: toolRv.y, rvToolBtns: toolRv.btns, rvSplitMenuOn: toolRv.menuOn, rvSplitOpts: toolRv.opts,
       onRvToolKeep: () => this.cardToolKeep(),
       onRvToolLeave: () => this.cardToolLeave(),
-      rvModalBackOn: !!(s.cardMode.review &amp;&amp; s.cardMode.review.kind === "modal"),
+      rvModalBackOn: !!(s.cardMode.review && s.cardMode.review.kind === "modal"),
       onRvToolRestore: () => this.cardModeSet("review", null),
       rvLayCustom: this.layCustom("review"),
       onRvLayReset: () => this.cardLayoutReset("review"),
@@ -19260,7 +19390,7 @@ class Component extends DCLogic {
       attToolOn: toolAtt.on, attToolPos: toolAtt.pos, attToolX: toolAtt.x, attToolY: toolAtt.y, attToolBtns: toolAtt.btns, attSplitMenuOn: toolAtt.menuOn, attSplitOpts: toolAtt.opts,
       onAttToolKeep: () => this.cardToolKeep(),
       onAttToolLeave: () => this.cardToolLeave(),
-      attModalBackOn: !!(s.cardMode.att &amp;&amp; s.cardMode.att.kind === "modal"),
+      attModalBackOn: !!(s.cardMode.att && s.cardMode.att.kind === "modal"),
       onAttToolRestore: () => this.cardModeSet("att", null),
       attLayCustom: this.layCustom("att"),
       onAttLayReset: () => this.cardLayoutReset("att"),
@@ -19274,7 +19404,7 @@ class Component extends DCLogic {
       payToolOn: toolPay.on, payToolPos: toolPay.pos, payToolX: toolPay.x, payToolY: toolPay.y, payToolBtns: toolPay.btns, paySplitMenuOn: toolPay.menuOn, paySplitOpts: toolPay.opts,
       onPayToolKeep: () => this.cardToolKeep(),
       onPayToolLeave: () => this.cardToolLeave(),
-      payModalBackOn: !!(s.cardMode.pay &amp;&amp; s.cardMode.pay.kind === "modal"),
+      payModalBackOn: !!(s.cardMode.pay && s.cardMode.pay.kind === "modal"),
       onPayToolRestore: () => this.cardModeSet("pay", null),
       payLayCustom: this.layCustom("pay"),
       onPayLayReset: () => this.cardLayoutReset("pay"),
@@ -19287,7 +19417,7 @@ class Component extends DCLogic {
       lvToolOn: toolLv.on, lvToolPos: toolLv.pos, lvToolX: toolLv.x, lvToolY: toolLv.y, lvToolBtns: toolLv.btns, lvSplitMenuOn: toolLv.menuOn, lvSplitOpts: toolLv.opts,
       onLvToolKeep: () => this.cardToolKeep(),
       onLvToolLeave: () => this.cardToolLeave(),
-      lvModalBackOn: !!(s.cardMode.leave &amp;&amp; s.cardMode.leave.kind === "modal"),
+      lvModalBackOn: !!(s.cardMode.leave && s.cardMode.leave.kind === "modal"),
       onLvToolRestore: () => this.cardModeSet("leave", null),
       lvLayCustom: this.layCustom("leave"),
       onLvLayReset: () => this.cardLayoutReset("leave"),
@@ -19296,33 +19426,33 @@ class Component extends DCLogic {
       attScr: scrWrapOf("att"),
       payScr: scrWrapOf("pay"),
       trayOn: true,
-      trayEmptyOn: s.docked.length === 0 &amp;&amp; s.cardMin.length === 0,
+      trayEmptyOn: s.docked.length === 0 && s.cardMin.length === 0,
       minChips: s.cardMin.map((q) => {
         const tag = ({ hr: "인사", review: "평가", att: "근태", pay: "급여", leave: "연차", benefit: "복리후생", docs: "문서" })[q.scr] || q.scr;
-        const label = (this.CARD_TITLES[q.scr] &amp;&amp; this.CARD_TITLES[q.scr][q.id]) || "카드";
+        const label = (this.CARD_TITLES[q.scr] && this.CARD_TITLES[q.scr][q.id]) || "카드";
         const restore = () => { this.setState({ screen: q.scr, trayPeek: null }); this.cardPopOut(q.scr, q.id); };
         return { tag, label, onRestore: restore,
           onEnter: (e) => { const r = e.currentTarget.getBoundingClientRect(); this.setState({ trayPeek: { x: Math.max(10, r.left - 10), kind: tag, cBg: "var(--muted)", cBd: "var(--border)", cTx: "var(--steel)", ref: "", title: label, sub: tag + " 화면 · 최소화된 카드", draft: "" } }); },
           onLeave: () => this.setState({ trayPeek: null }),
           onDragStart: (e) => { try { e.dataTransfer.setData("text/plain", "[" + label + "]"); e.dataTransfer.effectAllowed = "move"; } catch (err) {} },
-          onDragEnd: (e) => { this.setState({ trayPeek: null }); if (e.clientY &amp;&amp; (window.innerHeight - e.clientY) > 140) restore(); }
+          onDragEnd: (e) => { this.setState({ trayPeek: null }); if (e.clientY && (window.innerHeight - e.clientY) > 140) restore(); }
         };
       }),
       trayPeekOn: !!s.trayPeek,
       trayPeek: s.trayPeek || { kind: "", cBg: "var(--muted)", cBd: "var(--border)", cTx: "var(--steel)", ref: "", title: "", sub: "", draft: "" },
-      trayPeekX: ((s.trayPeek &amp;&amp; s.trayPeek.x) || 0) + "px",
-      trayPeekRefOn: !!(s.trayPeek &amp;&amp; s.trayPeek.ref),
-      trayPeekSubOn: !!(s.trayPeek &amp;&amp; s.trayPeek.sub),
-      trayPeekDraftOn: !!(s.trayPeek &amp;&amp; s.trayPeek.draft),
+      trayPeekX: ((s.trayPeek && s.trayPeek.x) || 0) + "px",
+      trayPeekRefOn: !!(s.trayPeek && s.trayPeek.ref),
+      trayPeekSubOn: !!(s.trayPeek && s.trayPeek.sub),
+      trayPeekDraftOn: !!(s.trayPeek && s.trayPeek.draft),
       trayHasItems: s.docked.length > 0 || s.cardMin.length > 0,
       supPostOn: !!s.supPost,
       supPostV: s.supPost || { title: "" },
       onSupPostBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ supPost: null }); },
       onSupPostClose: () => this.setState({ supPost: null }),
       onSupPostTitle: (e) => this.setState((ps) => ps.supPost ? ({ supPost: { ...ps.supPost, title: e.target.value, err: false } }) : {}),
-      supPostTypes: ["기술 지원", "계정 지원", "기능 요청", "버그 리포트"].map((v) => { const on = !!(s.supPost &amp;&amp; s.supPost.type === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.setState((ps) => ps.supPost ? ({ supPost: { ...ps.supPost, type: v } }) : {}) }; }),
-      supPostSevs: ["낮음", "보통", "긴급"].map((v) => { const on = !!(s.supPost &amp;&amp; s.supPost.sev === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.setState((ps) => ps.supPost ? ({ supPost: { ...ps.supPost, sev: v } }) : {}) }; }),
-      supPostErrOn: !!(s.supPost &amp;&amp; s.supPost.err),
+      supPostTypes: ["기술 지원", "계정 지원", "기능 요청", "버그 리포트"].map((v) => { const on = !!(s.supPost && s.supPost.type === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.setState((ps) => ps.supPost ? ({ supPost: { ...ps.supPost, type: v } }) : {}) }; }),
+      supPostSevs: ["낮음", "보통", "긴급"].map((v) => { const on = !!(s.supPost && s.supPost.sev === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.setState((ps) => ps.supPost ? ({ supPost: { ...ps.supPost, sev: v } }) : {}) }; }),
+      supPostErrOn: !!(s.supPost && s.supPost.err),
       onSupPostSubmit: () => this.supPostSave(),
       zoneEdgeOn: s.dragSnapKind !== "obj",
       onLayMenuClose: () => this.setState({ layMenuFor: null }),
@@ -19345,9 +19475,9 @@ class Component extends DCLogic {
           entBd: open ? "var(--signal)" : "var(--border)",
           expandHint: open ? "클릭: 3단계 보기로 접기" : "클릭: 전체 조직 펼치기",
           onEnt: () => this.setState((ps) => ({ orgOpen: ps.orgOpen.indexOf(ci) >= 0 ? ps.orgOpen.filter((x) => x !== ci) : [...ps.orgOpen, ci] })),
-          onInfo: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState({ entCard: ci, ecFinOpen: false }); },
+          onInfo: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ entCard: ci, ecFinOpen: false }); },
           onEntRename: (e) => this.orgRenameEnt(ci, e.target.value),
-          onAddSite: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.orgAddSite(ci); },
+          onAddSite: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.orgAddSite(ci); },
           sites: col.sites.map((sitem, si) => {
             const sKey = ci + "-" + si;
             const sOpen = open || s.siteOpen.indexOf(sKey) >= 0;
@@ -19361,18 +19491,18 @@ class Component extends DCLogic {
             onSite: () => this.setState((ps) => ({ siteOpen: ps.siteOpen.indexOf(sKey) >= 0 ? ps.siteOpen.filter((x) => x !== sKey) : [...ps.siteOpen, sKey] })),
             onSiteRename: (e) => this.orgRenameSite(ci, si, e.target.value),
             onDropTeam: (e) => { e.preventDefault(); if (this.dragKind === "orgteam") this.orgMoveTeam(ci, si); },
-            onAddTeam: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.orgTouched(ci); this.setState((ps) => ({ orgData: ps.orgData.map((c, i) => (i === ci ? { ...c, sites: c.sites.map((st, j) => (j === si ? { ...st, teams: [...st.teams, { name: "새 팀", head: "-", hc: "0" }] } : st)) } : c)) })); },
+            onAddTeam: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.orgTouched(ci); this.setState((ps) => ({ orgData: ps.orgData.map((c, i) => (i === ci ? { ...c, sites: c.sites.map((st, j) => (j === si ? { ...st, teams: [...st.teams, { name: "새 팀", head: "-", hc: "0" }] } : st)) } : c)) })); },
             teams: sOpen ? sitem.teams.map((t, ti) => ({
               onOpen: this.state.orgEdit ? undefined : (() => this.setState({ teamCard: { name: t.name, head: t.head, hc: t.hc, path: col.ent + " › " + sitem.name } })),
               outerOn: si === col.sites.length - 1 ? "none" : "block",
               name: t.name, hc: t.hc, head: t.head,
               headOn: t.head !== "-",
               spineB: ti === sitem.teams.length - 1 ? "50%" : "0",
-              onHead: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); if (this.state.orgEdit) { this.showToast("책임자 변경은 인사 발령(전자결재)으로 처리됩니다"); } else { this.openPerson(t.head); } },
+              onHead: (e) => { if (e && e.stopPropagation) e.stopPropagation(); if (this.state.orgEdit) { this.showToast("책임자 변경은 인사 발령(전자결재)으로 처리됩니다"); } else { this.openPerson(t.head); } },
               dragOn: this.state.orgEdit ? "true" : "false",
               onDrag: (e) => { this.dragKind = "orgteam"; this.orgDrag = { ci, si, ti }; try { e.dataTransfer.setData("text/plain", ""); } catch (err) {} },
               onRemove: (e) => {
-                if (e &amp;&amp; e.stopPropagation) e.stopPropagation();
+                if (e && e.stopPropagation) e.stopPropagation();
                 // 삭제 가드 (fail-closed §3.9.1): 인원 잔존 팀 = 재배치 전 삭제 불가
                 const hcN = parseInt(String(t.hc).replace(/[^0-9]/g, ""), 10) || 0;
                 if (hcN > 0) {
@@ -19398,7 +19528,7 @@ class Component extends DCLogic {
         const dirty = this.state.orgDirty || 0;
         this.setState((ps) => ({ orgEdit: !ps.orgEdit }));
         // 편집 종료 + 변경 잔존 = 개편 결재 확정 플로 자동 개시 (diff → §3.9 파이프라인)
-        if (closing &amp;&amp; dirty > 0) {
+        if (closing && dirty > 0) {
           const ci = this.state.orgDirtyCi || 0;
           this.setState({ orgDirty: 0 });
           this.orgChangeOpen(ci);
@@ -19456,7 +19586,7 @@ class Component extends DCLogic {
         const f = s.ecField; if (!f) return { label: "", val: "", onVal: () => {}, onKey: () => {}, onApply: () => {}, onCancel: () => {}, onBackdrop: () => {} };
         const apply = () => {
           const v = (this.state.ecField.val || "").trim();
-          if (f.mask === "biz" &amp;&amp; v &amp;&amp; !/^\d{3}-\d{2}-\d{5}$/.test(v)) { this.showToast("사업자번호 형식: 000-00-00000", true); return; }
+          if (f.mask === "biz" && v && !/^\d{3}-\d{2}-\d{5}$/.test(v)) { this.showToast("사업자번호 형식: 000-00-00000", true); return; }
           this.setState((ps) => ({ ecField: null, entExtra: (ps.entExtra || []).map((x, i) => i === f.idx ? { ...x, [f.k]: v } : x) }));
           this.logEvent({ action: "법인 정보 편집", cat: "policy", target: { type: "법인", label: ((s.entExtra || [])[f.idx] || {}).label + " · " + f.label, code: "ENT" }, decision: "permit", reason: "셋업 중(초안) 직접 편집 — §3.9.0-③ · 확정 후에는 개정 결재 경유" });
           this.showToast(f.label + " 반영 — 셋업 중 직접 편집 · 감사 기록", false);
@@ -19484,7 +19614,7 @@ class Component extends DCLogic {
       tcPath: s.teamCard ? s.teamCard.path : "",
       tcHc: s.teamCard ? s.teamCard.hc + "명" : "",
       tcHead: s.teamCard ? s.teamCard.head : "",
-      tcHeadOn: !!(s.teamCard &amp;&amp; s.teamCard.head !== "-"),
+      tcHeadOn: !!(s.teamCard && s.teamCard.head !== "-"),
       onTcHead: () => { const n = s.teamCard ? s.teamCard.head : ""; this.setState({ teamCard: null }); this.openPerson(n); },
       onTcClose: () => this.setState({ teamCard: null }),
       onTcPin: () => this.snapTo("right"),
@@ -19507,7 +19637,7 @@ class Component extends DCLogic {
         return {
           title: isEntry ? v.entry : ev.title, code: v.code,
           fit: ev.fit || "", fitBg: tc[0], fitBd: tc[1], fitTx: tc[2],
-          isVideo: !isEntry &amp;&amp; m.kind === "video", isAudio: !isEntry &amp;&amp; m.kind === "audio", isEntry,
+          isVideo: !isEntry && m.kind === "video", isAudio: !isEntry && m.kind === "audio", isEntry,
           seekDisp: isEntry ? "none" : "flex",
           entry: v.entry || "", meta: isEntry ? ((ev.entries || []).find((x) => x.path === v.entry) || {}).sz || "" : (m.meta || ""),
           deriv: ev.deriv || "",
@@ -19544,7 +19674,7 @@ class Component extends DCLogic {
       orgDirtyOn: (s.orgDirty || 0) > 0,
       orgDirtyN: String(s.orgDirty || 0),
       onOrgDirtyAppr: () => this.orgChangeOpen(s.orgDirtyCi || 0),
-      onEntDetail: () => { const ci = this.state.entCard; const en = (ci !== null &amp;&amp; this.state.orgCols &amp;&amp; this.state.orgCols[ci]) ? this.state.orgCols[ci].ent : ""; this.setState({ entCard: null, screen: "hr", hrQ: en || "" }); },
+      onEntDetail: () => { const ci = this.state.entCard; const en = (ci !== null && this.state.orgCols && this.state.orgCols[ci]) ? this.state.orgCols[ci].ent : ""; this.setState({ entCard: null, screen: "hr", hrQ: en || "" }); },
       rcPosts: s.rcData.map((rp) => {
         const open = s.rcOpen === rp.id;
         const stN = [0, 0, 0, 0];
@@ -19576,11 +19706,11 @@ class Component extends DCLogic {
             bd: c.rejected ? "var(--danger-bd)" : c.st === 3 ? "var(--ok-bd)" : (c.st === 2 ? "var(--purple-bd)" : (c.st === 1 ? "var(--info-bd)" : "var(--border)")),
             tx: c.rejected ? "var(--danger-tx)" : c.st === 3 ? "var(--ok-tx)" : (c.st === 2 ? "var(--purple-tx)" : (c.st === 1 ? "var(--info-tx)" : "var(--steel)")),
             nextLabel: c.rejected ? "재검토" : c.st >= 3 ? (rp.pool ? "인력풀 등재" : "입사 확정") : labels[c.st + 1] + "로 이동",
-            onOpen: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.rcCandOpen(rp.id, c.id); },
+            onOpen: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.rcCandOpen(rp.id, c.id); },
             onNext: (e) => {
-              if (e &amp;&amp; e.stopPropagation) e.stopPropagation();
+              if (e && e.stopPropagation) e.stopPropagation();
               if (c.rejected) { this.setState({ rcCand: { pid: rp.id, cid: c.id } }); this.rcReconsider(); return; }
-              if (c.st === 2 &amp;&amp; !c.assess) { this.rcCandOpen(rp.id, c.id); this.setState({ rcCandErr: "면접 평가 기록 후 오퍼 제안 가능 (fail-closed)" }); return; }
+              if (c.st === 2 && !c.assess) { this.rcCandOpen(rp.id, c.id); this.setState({ rcCandErr: "면접 평가 기록 후 오퍼 제안 가능 (fail-closed)" }); return; }
               if (c.st === 2) { this.rcCandOpen(rp.id, c.id); return; }
               this.rcAdvance(rp.id, c.id);
             },
@@ -19588,15 +19718,15 @@ class Component extends DCLogic {
             docOn: !!c.docReq,
             holdLabel: c.hold ? "보류 해제" : "보류 (다음 라운드 대기)",
             menuOn: s.rcActFor === c.id,
-            onMenu: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState((ps) => ({ rcActFor: ps.rcActFor === c.id ? null : c.id })); },
-            onMenuClose: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.setState({ rcActFor: null }); },
-            onDoc: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.rcCandAct(rp.id, c.id, "doc"); },
-            onHold: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.rcCandAct(rp.id, c.id, "hold"); },
-            onReject: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.rcCandOpen(rp.id, c.id); this.setState({ rcRejMenu: true }); }
+            onMenu: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState((ps) => ({ rcActFor: ps.rcActFor === c.id ? null : c.id })); },
+            onMenuClose: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ rcActFor: null }); },
+            onDoc: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.rcCandAct(rp.id, c.id, "doc"); },
+            onHold: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.rcCandAct(rp.id, c.id, "hold"); },
+            onReject: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.rcCandOpen(rp.id, c.id); this.setState({ rcRejMenu: true }); }
           }))
         };
       }),
-      rcCandOn: !!(s.rcCand &amp;&amp; (() => { const rp = s.rcData.find((r) => r.id === s.rcCand.pid); return rp &amp;&amp; rp.cands.some((x) => x.id === s.rcCand.cid); })()),
+      rcCandOn: !!(s.rcCand && (() => { const rp = s.rcData.find((r) => r.id === s.rcCand.pid); return rp && rp.cands.some((x) => x.id === s.rcCand.cid); })()),
       rcC: (() => {
         if (!s.rcCand) return {};
         const rp = s.rcData.find((r) => r.id === s.rcCand.pid); if (!rp) return {};
@@ -19605,17 +19735,17 @@ class Component extends DCLogic {
         return {
           name: c.name, initial: c.name.slice(0, 1), role: rp.role, site: rp.ent + " · " + rp.site,
           rejectedOn: !!c.rejected, rejReason: c.rejReason || "", activeOn: !c.rejected,
-          steps: stages.map((lb, i) => ({ label: lb, dotBg: c.rejected ? "var(--border)" : i < c.st ? "var(--ok-solid)" : i === c.st ? "var(--signal)" : "var(--border)", tx: !c.rejected &amp;&amp; i === c.st ? "var(--ink)" : "var(--faint)", fw: !c.rejected &amp;&amp; i === c.st ? "800" : "600", lineOn: i > 0, lineBg: !c.rejected &amp;&amp; i <= c.st ? "var(--ok-bd)" : "var(--border-soft)" })),
+          steps: stages.map((lb, i) => ({ label: lb, dotBg: c.rejected ? "var(--border)" : i < c.st ? "var(--ok-solid)" : i === c.st ? "var(--signal)" : "var(--border)", tx: !c.rejected && i === c.st ? "var(--ink)" : "var(--faint)", fw: !c.rejected && i === c.st ? "800" : "600", lineOn: i > 0, lineBg: !c.rejected && i <= c.st ? "var(--ok-bd)" : "var(--border-soft)" })),
           rs: (c.rs || []).map((t) => ({ t })), file: c.file || "이력서.pdf",
           onFile: () => { this.logEvent({ action: "열람", cat: "view", target: { type: "지원자", label: c.name + " 제출 원본 " + (c.file || "") }, decision: "permit", reason: "provenance 원본 (경계 포맷) — 구조화 프로필이 1급 개체 · 해시 검증 · 열람 감사" }); this.showToast("제출 원본 「" + (c.file || "이력서.pdf") + "」 — provenance · 구조화 필드는 인제스트 매핑", false); },
           assessOn: !!c.assess, assessTxt: c.assess ? c.assess.by + " · " + c.assess.at : "",
           scores: ["적합", "보통", "부적합"].map((sc) => {
-            const on = !!(c.assess &amp;&amp; c.assess.score === sc);
+            const on = !!(c.assess && c.assess.score === sc);
             const tone = sc === "적합" ? "ok" : sc === "부적합" ? "danger" : "warn";
             return { sc, bg: on ? "var(--" + tone + "-bg)" : "transparent", bd: on ? "var(--" + tone + "-bd)" : "var(--border)", tx: on ? "var(--" + tone + "-tx)" : "var(--steel)", onPick: () => this.rcAssess(sc) };
           }),
-          offerOn: c.st >= 3 &amp;&amp; !c.rejected,
-          offerAmt: (c.offer &amp;&amp; c.offer.amt) || "",
+          offerOn: c.st >= 3 && !c.rejected,
+          offerAmt: (c.offer && c.offer.amt) || "",
           offerStatusOn: !!c.offer, offerStatus: c.offer ? c.offer.status + " · 발송 " + c.offer.sent : "",
           offerEdit: s.rcOfferEdit,
           onOfferEdit: (e) => this.setState({ rcOfferEdit: e.target.value }),
@@ -19689,19 +19819,19 @@ class Component extends DCLogic {
       onRcPostReqVal: (e) => this.rcPostField("reqVal", e.target.value),
       onRcPostReqKey: (e) => { if (e.key === "Enter") { e.preventDefault(); this.rcPostReqAdd(); } },
       onRcPostReqAdd: () => this.rcPostReqAdd(),
-      rcPostReqs: ((s.rcPost &amp;&amp; s.rcPost.req) || []).map((r) => ({ r, onX: () => this.rcPostReqRemove(r) })),
-      rcPostEnts: ["코스", "BESTEC", "KNL", "그룹", "스태핑"].map((v) => { const on = !!(s.rcPost &amp;&amp; s.rcPost.ent === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.rcPostField("ent", v) }; }),
-      rcPostEmps: ["정규직", "상주 교대", "파트타임", "일용직 (인력풀)"].map((v) => { const on = !!(s.rcPost &amp;&amp; s.rcPost.emp === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.rcPostField("emp", v) }; }),
-      rcPostScopes: [{ v: "외부 공개", k: "external" }, { v: "내부 공모", k: "internal" }].map((o) => { const on = !!(s.rcPost &amp;&amp; s.rcPost.scope === o.k); return { v: o.v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.rcPostField("scope", o.k) }; }),
-      rcPostNeed: String((s.rcPost &amp;&amp; s.rcPost.need) || 1),
-      onRcPostNeedMinus: () => this.rcPostField("need", Math.max(1, ((this.state.rcPost &amp;&amp; this.state.rcPost.need) || 1) - 1)),
-      onRcPostNeedPlus: () => this.rcPostField("need", ((this.state.rcPost &amp;&amp; this.state.rcPost.need) || 1) + 1),
-      rcPostPoolOn: !!(s.rcPost &amp;&amp; (s.rcPost.emp || "").indexOf("일용직") >= 0),
-      rcPostIntOn: !!(s.rcPost &amp;&amp; s.rcPost.scope === "internal"),
-      rcPostErrOn: !!(s.rcPost &amp;&amp; s.rcPost.err),
+      rcPostReqs: ((s.rcPost && s.rcPost.req) || []).map((r) => ({ r, onX: () => this.rcPostReqRemove(r) })),
+      rcPostEnts: ["코스", "BESTEC", "KNL", "그룹", "스태핑"].map((v) => { const on = !!(s.rcPost && s.rcPost.ent === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.rcPostField("ent", v) }; }),
+      rcPostEmps: ["정규직", "상주 교대", "파트타임", "일용직 (인력풀)"].map((v) => { const on = !!(s.rcPost && s.rcPost.emp === v); return { v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.rcPostField("emp", v) }; }),
+      rcPostScopes: [{ v: "외부 공개", k: "external" }, { v: "내부 공모", k: "internal" }].map((o) => { const on = !!(s.rcPost && s.rcPost.scope === o.k); return { v: o.v, bg: on ? "var(--ink)" : "transparent", tx: on ? "var(--surface)" : "var(--steel)", bd: on ? "var(--ink)" : "var(--border)", onPick: () => this.rcPostField("scope", o.k) }; }),
+      rcPostNeed: String((s.rcPost && s.rcPost.need) || 1),
+      onRcPostNeedMinus: () => this.rcPostField("need", Math.max(1, ((this.state.rcPost && this.state.rcPost.need) || 1) - 1)),
+      onRcPostNeedPlus: () => this.rcPostField("need", ((this.state.rcPost && this.state.rcPost.need) || 1) + 1),
+      rcPostPoolOn: !!(s.rcPost && (s.rcPost.emp || "").indexOf("일용직") >= 0),
+      rcPostIntOn: !!(s.rcPost && s.rcPost.scope === "internal"),
+      rcPostErrOn: !!(s.rcPost && s.rcPost.err),
       onRcPostDraft: () => this.rcPostSave(false),
       onRcPostPublish: () => this.rcPostSave(true),
-      rcPostPubLabel: (s.rcPost &amp;&amp; s.rcPost.scope === "internal") ? "게시 — 내부 공모 시작" : "게시 — 모집 시작",
+      rcPostPubLabel: (s.rcPost && s.rcPost.scope === "internal") ? "게시 — 내부 공모 시작" : "게시 — 모집 시작",
       hrQ: s.hrQ,
       onHrQ: (e) => this.setState({ hrQ: e.target.value }),
       onHrNew: () => this.setState({ hrNew: { name: "", ent: "코스", team: "", job: "", title: "사원", joined: "2026-08-01", err: null } }),
@@ -19714,8 +19844,8 @@ class Component extends DCLogic {
           name: f.name, team: f.team, job: f.job, joined: f.joined,
           onName: set("name"), onTeam: set("team"), onJob: set("job"), onJoined: set("joined"),
           ents: ["코스", "KNL", "BESTEC", "스태핑"].map((x) => ({ x, bg: f.ent === x ? "var(--ink)" : "transparent", tx: f.ent === x ? "var(--surface)" : "var(--steel)", onPick: () => this.setState((ps) => ({ hrNew: { ...ps.hrNew, ent: x } })) })),
-          titles: ["사원", "주임", "대리", "과장", "차장"].concat(f.titleExtra &amp;&amp; ["사원", "주임", "대리", "과장", "차장"].indexOf(f.titleExtra) < 0 ? [f.titleExtra] : []).map((x) => ({ x, bg: f.title === x ? "var(--ink)" : "transparent", tx: f.title === x ? "var(--surface)" : "var(--steel)", onPick: () => this.setState((ps) => ({ hrNew: { ...ps.hrNew, title: x } })) })),
-          emps: ["정규직", "계약직", "일용직", "파견"].concat(f.empExtra &amp;&amp; ["정규직", "계약직", "일용직", "파견"].indexOf(f.empExtra) < 0 ? [f.empExtra] : []).map((x) => ({ x, bg: (f.emp || "정규직") === x ? "var(--ink)" : "transparent", tx: (f.emp || "정규직") === x ? "var(--surface)" : "var(--steel)", onPick: () => this.setState((ps) => ({ hrNew: { ...ps.hrNew, emp: x } })) })),
+          titles: ["사원", "주임", "대리", "과장", "차장"].concat(f.titleExtra && ["사원", "주임", "대리", "과장", "차장"].indexOf(f.titleExtra) < 0 ? [f.titleExtra] : []).map((x) => ({ x, bg: f.title === x ? "var(--ink)" : "transparent", tx: f.title === x ? "var(--surface)" : "var(--steel)", onPick: () => this.setState((ps) => ({ hrNew: { ...ps.hrNew, title: x } })) })),
+          emps: ["정규직", "계약직", "일용직", "파견"].concat(f.empExtra && ["정규직", "계약직", "일용직", "파견"].indexOf(f.empExtra) < 0 ? [f.empExtra] : []).map((x) => ({ x, bg: (f.emp || "정규직") === x ? "var(--ink)" : "transparent", tx: (f.emp || "정규직") === x ? "var(--surface)" : "var(--steel)", onPick: () => this.setState((ps) => ({ hrNew: { ...ps.hrNew, emp: x } })) })),
           // 형식 강제 (directive — 이탈 불가능): 휴대폰=자동 하이픈·숫자만, 기본급=자동 천단위·숫자만
           phone: f.phone || "", onPhone: (e) => { const d = e.target.value.replace(/[^\d]/g, "").slice(0, 11); const v = d.length > 7 ? d.slice(0, 3) + "-" + d.slice(3, 7) + "-" + d.slice(7) : d.length > 3 ? d.slice(0, 3) + "-" + d.slice(3) : d; this.setState((ps) => ({ hrNew: { ...ps.hrNew, phone: v, err: null } })); },
           basePay: f.basePay || "", onBasePay: (e) => { const d = e.target.value.replace(/[^\d]/g, "").slice(0, 9); this.setState((ps) => ({ hrNew: { ...ps.hrNew, basePay: d ? Number(d).toLocaleString("ko-KR") : "", err: null } })); },
@@ -19736,7 +19866,7 @@ class Component extends DCLogic {
         initial: emp.name.slice(0, 1), name: emp.name, title: emp.title, team: emp.team, job: emp.job || "", ent: emp.ent,
         rowBg: s.hrSel === emp.name ? "var(--muted)" : "transparent",
         ring: s.hrSel === emp.name ? "inset 2.5px 0 0 var(--signal)" : "none",
-        op: (emp.empSt &amp;&amp; emp.empSt !== "재직") ? "0.62" : "1",
+        op: (emp.empSt && emp.empSt !== "재직") ? "0.62" : "1",
         status: emp.st,
         stBg: emp.tone === "neutral" ? "var(--muted)" : emp.tone === "ok" ? "var(--ok-bg)" : emp.tone === "info" ? "var(--info-bg)" : emp.tone === "warn" ? "var(--warn-bg)" : "var(--danger-bg)",
         stBd: emp.tone === "neutral" ? "var(--border)" : emp.tone === "ok" ? "var(--ok-bd)" : emp.tone === "info" ? "var(--info-bd)" : emp.tone === "warn" ? "var(--warn-bd)" : "var(--danger-bd)",
@@ -19771,7 +19901,7 @@ class Component extends DCLogic {
         { label: "재직 인원", value: "1,284", sub: "이번 주 +2 · −1 · 비활성 비합산", valueColor: "var(--ink)", subColor: "var(--steel)", onClick: () => this.setState({ screen: "laborcost" }) },
         { label: "오늘 근무", value: "1,108", sub: "", valueColor: "var(--ink)", subColor: "var(--faint)", onClick: () => this.setState({ screen: "att" }) },
         { label: "근태 이상", value: String(this.HR_ISSUES.length - s.hrHandled.length), sub: "", valueColor: this.HR_ISSUES.length - s.hrHandled.length > 0 ? "var(--danger-tx)" : "var(--ink)", subColor: "var(--faint)", onClick: () => {} },
-        { label: "인사 결재 대기", value: String(this.pendingOf(scoped).filter((it) => it.kind === "approval" &amp;&amp; /연차|검진|대근/.test(it.title)).length), sub: "", valueColor: "var(--ink)", subColor: "var(--faint)", onClick: () => this.setState({ screen: "overview", filter: "approval" }) }
+        { label: "인사 결재 대기", value: String(this.pendingOf(scoped).filter((it) => it.kind === "approval" && /연차|검진|대근/.test(it.title)).length), sub: "", valueColor: "var(--ink)", subColor: "var(--faint)", onClick: () => this.setState({ screen: "overview", filter: "approval" }) }
       ],
       hrIssueCount: String(this.HR_ISSUES.length - s.hrHandled.length),
       hrIssues: this.HR_ISSUES.map((iw) => ({
@@ -19783,8 +19913,8 @@ class Component extends DCLogic {
         actOn: s.hrHandled.indexOf(iw.id) === -1,
         doneOn: s.hrHandled.indexOf(iw.id) >= 0,
         onOpen: () => this.openHrIssue(iw.id),
-        onWho: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.openPerson(iw.who); },
-        onHandle: (e) => { if (e &amp;&amp; e.stopPropagation) e.stopPropagation(); this.openHrIssue(iw.id); }
+        onWho: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.openPerson(iw.who); },
+        onHandle: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.openHrIssue(iw.id); }
       })),
       hrPlan: [
         { d: "7/6 월", t: "박수진 연차 — 결재 대기 AP-3108", hint: "결재 열기", go: () => { this.setState({ screen: "overview", filter: "approval" }); this.openDetail("a5"); } },
@@ -19827,7 +19957,7 @@ class Component extends DCLogic {
       onZoneOverLeft: (e) => { e.preventDefault(); if (this.state.dragZone !== "left") this.setState({ dragZone: "left" }); },
       onZoneOverRight: (e) => { e.preventDefault(); if (this.state.dragZone !== "right") this.setState({ dragZone: "right" }); },
       onZoneOverNone: (e) => { e.preventDefault(); if (this.state.dragZone !== null) this.setState({ dragZone: null }); },
-      zpOn: s.dragSnap &amp;&amp; !!s.dragZone,
+      zpOn: s.dragSnap && !!s.dragZone,
       zpLabel: ({ top: "패널 상단에 고정", bottom: "패널 하단에 고정", left: "패널 좌측에 고정", right: "패널 우측에 고정", tl: "패널 좌상단에 고정", tr: "패널 우상단에 고정", bl: "패널 좌하단에 고정", br: "패널 우하단에 고정" })[s.dragZone] || "",
       zpTop: (s.dragZone === "bottom" || s.dragZone === "bl" || s.dragZone === "br") ? "auto" : "62px",
       zpBottom: (s.dragZone === "top" || s.dragZone === "tl" || s.dragZone === "tr") ? "auto" : "12px",
@@ -19844,21 +19974,21 @@ class Component extends DCLogic {
       onQuickDrop: (e) => { e.preventDefault(); const t = this.dropToken(e); if (t) this.setState((ps) => ({ quickVal: (ps.quickVal ? ps.quickVal + " " : "") + t + " " })); },
       onReplyDrop: (e) => { e.preventDefault(); const t = this.dropToken(e); if (t) this.setState((ps) => ({ replyVal: (ps.replyVal ? ps.replyVal + " " : "") + t + " " })); },
       onMCommentDrop: (e) => { e.preventDefault(); const t = this.dropToken(e); if (t) this.setState((ps) => ({ mComment: (ps.mComment ? ps.mComment + " " : "") + t + " " })); },
-      mailModalOn: !!s.modal &amp;&amp; s.modal.type === "mail",
+      mailModalOn: !!s.modal && s.modal.type === "mail",
       onMailExpand: () => this.setState({ modal: { type: "mail" } }),
       mailInitial: activeMail ? activeMail.from.slice(0, 1) : "",
       punchedOutOn: s.punchedOut,
-      pOtherOn: !!person &amp;&amp; !person.me,
+      pOtherOn: !!person && !person.me,
       onLogout: () => { this.setState({ personName: null }); this.showToast("로그아웃은 프로토타입 범위 밖입니다", false); },
       mAddOpen: s.mAddOpen,
       onMAddToggle: () => this.setState((ps) => ({ mAddOpen: !ps.mAddOpen, mAddRole: null, mTagOpen: false, mRoleMenuFor: null })),
       mAddList,
-      mAddStageAction: s.mAddOpen &amp;&amp; !s.mAddRole,
-      mAddStagePerson: s.mAddOpen &amp;&amp; !!s.mAddRole,
+      mAddStageAction: s.mAddOpen && !s.mAddRole,
+      mAddStagePerson: s.mAddOpen && !!s.mAddRole,
       mAddRoles,
       mAddRoleLabel: s.mAddRole || "",
       onMAddBack: () => this.setState({ mAddRole: null }),
-      wzWrap: (s.vw >= 1024 &amp;&amp; s.panels.length === 0) ? "nowrap" : "wrap",
+      wzWrap: (s.vw >= 1024 && s.panels.length === 0) ? "nowrap" : "wrap",
       mFilesOn: mFilesArr.length > 0,
       mFiles: mFilesArr.map((f) => ({ name: f.name, size: f.size, onOpen: () => { this.logEvent({ action: "열람", cat: "view", target: { type: "증빙", label: f.name }, decision: "permit", reason: "원본 해시 검증 · 열람 감사" }); this.showToast("「" + f.name + "」 열람 — 원본 해시 검증 · 감사 기록", false); } })),
       mEvidOn: mEvidArr.length > 0,
@@ -19873,7 +20003,7 @@ class Component extends DCLogic {
       mSparkCy: sparkCy,
       mStatSummary: mStats ? mStats.summary : "",
       mStatDelta: mStats ? (mStats.delta || "") : "",
-      mStatDeltaOn: !!(mStats &amp;&amp; mStats.delta),
+      mStatDeltaOn: !!(mStats && mStats.delta),
       mStatDeltaColor: toneColor(mStats ? mStats.tone : ""),
       mTags: s.mTags.map((t) => ({ kind: t.kind, label: t.label, onRemove: (e) => { e.stopPropagation(); this.setState((ps) => ({ mTags: ps.mTags.filter((x) => x.label !== t.label) })); } })),
       mTagOpen: s.mTagOpen,
@@ -19885,7 +20015,7 @@ class Component extends DCLogic {
       pInitial: (s.personName || " ").slice(0, 1),
       pTitle: person ? person.title : "",
       // #18 — 평가 이력 (PBAC: 민감정보·비밀 등급 · 시드+제출분 병합)
-      pRevOn: !!person &amp;&amp; ["민감정보", "비밀"].indexOf(this.viewerNow().clearance) >= 0 &amp;&amp; (((s.rvHist || {})[s.personName] || []).length > 0 || !!({ "조이슨": 1, "최민석": 1, "김성아": 1 })[s.personName]),
+      pRevOn: !!person && ["민감정보", "비밀"].indexOf(this.viewerNow().clearance) >= 0 && (((s.rvHist || {})[s.personName] || []).length > 0 || !!({ "조이슨": 1, "최민석": 1, "김성아": 1 })[s.personName]),
       pRevRows: (() => {
         if (!person) return [];
         const seed = ({ "조이슨": [{ code: "RV-2501", cycle: "2025 하반기 · 정기", grade: "A", by: "정하늘", at: "26-01" }], "최민석": [{ code: "RV-2502", cycle: "2025 하반기 · 정기", grade: "B", by: "김성호", at: "26-01" }], "김성아": [{ code: "RV-2503", cycle: "2025 하반기 · 정기", grade: "S", by: "전성진", at: "26-01" }] })[s.personName] || [];
@@ -19895,7 +20025,7 @@ class Component extends DCLogic {
         }));
       })(),
       pPhotoId: "photo-" + (s.personName || "none"),
-      pPhoneOn: !!(person &amp;&amp; person.phone), pPhone: person ? (person.phone || "미등록 — 클릭") : "",
+      pPhoneOn: !!(person && person.phone), pPhone: person ? (person.phone || "미등록 — 클릭") : "",
       onPPhoneEdit: () => {
         if (!s.personName) return;
         this.setState({ pField: { name: s.personName, k: "phone", label: "휴대폰", val: (this.PEOPLE[s.personName] || {}).phone || "", mask: "phone" } });
@@ -19905,7 +20035,7 @@ class Component extends DCLogic {
         const f = s.pField; if (!f) return { label: "", val: "", onVal: () => {}, onKey: () => {}, onApply: () => {}, onCancel: () => {}, onBackdrop: () => {} };
         const apply = () => {
           const v = (this.state.pField.val || "").trim();
-          if (v &amp;&amp; !/^01\d-\d{3,4}-\d{4}$/.test(v)) { this.showToast("휴대폰 형식: 010-0000-0000", true); return; }
+          if (v && !/^01\d-\d{3,4}-\d{4}$/.test(v)) { this.showToast("휴대폰 형식: 010-0000-0000", true); return; }
           if (this.PEOPLE[f.name]) this.PEOPLE[f.name].phone = v;
           this.setState({ pField: null });
           this.logEvent({ action: "인사 정보 편집 — 연락처", cat: "policy", target: { type: "직원", label: f.name + " · 휴대폰", code: "HR" }, decision: "permit", reason: "개인 연락처 = 직행 화이트리스트(§3.9.0-①) · 직급·소속 변경은 발령 기안 경유" });
@@ -19920,7 +20050,7 @@ class Component extends DCLogic {
           onBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ pField: null }); }
         };
       })(),
-      pEmpOn: !!(person &amp;&amp; person.emp), pEmp: person ? (person.emp || "") : "",
+      pEmpOn: !!(person && person.emp), pEmp: person ? (person.emp || "") : "",
       // #20 — 컴팩트 모드 (출입시스템 연동 뷰)
       pCompactOn: !!s.pCompact,
       pFullOn: !s.pCompact,
@@ -19933,18 +20063,18 @@ class Component extends DCLogic {
       pTeam: person ? person.team : "",
       pEntity: person ? person.entity : "",
       // #10 — 조직 표기 = 개체 drill (팀 카드·법인 카드)
-      onPTeamOpen: () => { if (!person || !person.team) return; const tm = person.team; const hc = Object.keys(this.PEOPLE).filter((n) => this.PEOPLE[n].team === tm).length; this.setState({ personName: null, teamCard: { name: tm, head: (Object.keys(this.PEOPLE).find((n) => this.PEOPLE[n].team === tm &amp;&amp; /팀장|반장/.test(this.PEOPLE[n].title || "")) || "-"), hc: String(hc), path: (person.entity || "") + " › " + tm } }); },
+      onPTeamOpen: () => { if (!person || !person.team) return; const tm = person.team; const hc = Object.keys(this.PEOPLE).filter((n) => this.PEOPLE[n].team === tm).length; this.setState({ personName: null, teamCard: { name: tm, head: (Object.keys(this.PEOPLE).find((n) => this.PEOPLE[n].team === tm && /팀장|반장/.test(this.PEOPLE[n].title || "")) || "-"), hc: String(hc), path: (person.entity || "") + " › " + tm } }); },
       onPEntOpen: () => { if (!person || !person.entity) return; const ei = this.state.orgData.findIndex((c) => c.ent.indexOf(person.entity) >= 0 || person.entity.indexOf(c.ent.replace("㈜", "")) >= 0); if (ei >= 0) this.setState({ personName: null, entCard: ei, ecFinOpen: false }); else this.showToast(person.entity + " — 법인 카드 미등록 (그룹 공통)", false); },
       pExt: person ? person.ext : "",
       pEmail: person ? person.email : "",
       pJoined: person ? person.joined : "",
-      pMeOn: !!(person &amp;&amp; person.me),
+      pMeOn: !!(person && person.me),
       pAdminOpen: s.pAdminOpen,
-      pJob: (() => { const emp = this.EMPLOYEES.find((e2) => e2.name === s.personName); return emp &amp;&amp; emp.job ? emp.job : (person ? person.title : "-"); })(),
-      pEmpNo: person ? ("OY-" + (person.ext &amp;&amp; person.ext !== "-" ? "20" + person.ext : "2400")) : "",
+      pJob: (() => { const emp = this.EMPLOYEES.find((e2) => e2.name === s.personName); return emp && emp.job ? emp.job : (person ? person.title : "-"); })(),
+      pEmpNo: person ? ("OY-" + (person.ext && person.ext !== "-" ? "20" + person.ext : "2400")) : "",
       pKpiHours: (() => { const w = this.WEEK52.find((x) => x.who === s.personName); return w ? w.cur.toFixed(1) + "h" : "40.0h"; })(),
-      pKpiOpen: String(s.items.filter((it) => it.who === s.personName &amp;&amp; !it.done).length),
-      pKpiDone: String(s.items.filter((it) => it.who === s.personName &amp;&amp; it.done).length),
+      pKpiOpen: String(s.items.filter((it) => it.who === s.personName && !it.done).length),
+      pKpiDone: String(s.items.filter((it) => it.who === s.personName && it.done).length),
       pWork: s.items.filter((it) => it.who === s.personName).slice(0, 3).map((it) => ({
         ref: it.ref, title: it.title,
         st: it.done ? (it.doneLabel || "완료") : "진행",
@@ -19979,7 +20109,7 @@ class Component extends DCLogic {
         // 급여 (민감 — 금액은 마스크 유지·회차 링크만)
         if (this.PAY_ROWS.some((r) => r.who === nm)) push("7/10", "급여", "neutral", "7월 정기 회차 편성 — 명세 PS- (열람=감사)", "", () => this.setState({ personName: null, screen: "pay", payQ: nm }));
         // 결재 (본인 기안 AP-)
-        (s.items || []).filter((it) => it.kind === "approval" &amp;& it.who === nm).forEach((it) => push(it.done ? "처리" : "진행", "결재", it.done ? "neutral" : "accent", it.title + (it.done ? " — " + (it.doneLabel || "종결") : " — 결재 중"), it.ref, () => this.openDetail(it.id)));
+        (s.items || []).filter((it) => it.kind === "approval" && it.who === nm).forEach((it) => push(it.done ? "처리" : "진행", "결재", it.done ? "neutral" : "accent", it.title + (it.done ? " — " + (it.doneLabel || "종결") : " — 결재 중"), it.ref, () => this.openDetail(it.id)));
         return L.slice(0, 10);
       })(),
       pActions: ["정보 수정", "발령·이동", "연차 부여", "징계·포상", "휴직 처리", "퇴사 처리"].map((label) => ({
