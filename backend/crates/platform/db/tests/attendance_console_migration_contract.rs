@@ -14,8 +14,8 @@ use tokio::{
 };
 use uuid::Uuid;
 
-const MIGRATION_0198: &str =
-    include_str!("../migrations/0198_platform_force_command_and_fk_closure.sql");
+const MIGRATION_0196: &str =
+    include_str!("../migrations/0196_platform_force_command_and_fk_closure.sql");
 const FORCE_MIGRATOR_PASSWORD: &str = "platform-force-migration-owner-a198";
 const ORG_A: Uuid = Uuid::from_u128(0x1880_0000_0000_0000_0000_0000_0000_0001);
 const ORG_B: Uuid = Uuid::from_u128(0x1880_0000_0000_0000_0000_0000_0000_0002);
@@ -1026,7 +1026,7 @@ async fn platform_force_migration_rejects_superuser_on_mnt_app_owned_database(po
     .unwrap();
 
     let mut dba_replay = pool.begin().await.unwrap();
-    let rejected = sqlx::raw_sql(MIGRATION_0198)
+    let rejected = sqlx::raw_sql(MIGRATION_0196)
         .execute(&mut *dba_replay)
         .await
         .expect_err(
@@ -1058,10 +1058,10 @@ async fn platform_force_migration_rejects_superuser_on_mnt_app_owned_database(po
         .unwrap();
     assert_eq!(identity.get::<String, _>("current_user"), "mnt_app");
     assert_eq!(identity.get::<String, _>("session_user"), "mnt_app");
-    sqlx::raw_sql(MIGRATION_0198)
+    sqlx::raw_sql(MIGRATION_0196)
         .execute(&migrator)
         .await
-        .expect("the exact 0198 migration must replay through the direct mnt_app login");
+        .expect("the exact 0196 migration must replay through the direct mnt_app login");
 
     let owners: Vec<String> = sqlx::query_scalar(
         "SELECT owner.rolname \
@@ -1109,7 +1109,7 @@ async fn platform_force_migration_rejects_dba_owned_production_shaped_database(p
         .execute(&mut *unmarked)
         .await
         .unwrap();
-    let unmarked_replay = sqlx::raw_sql(MIGRATION_0198).execute(&mut *unmarked).await;
+    let unmarked_replay = sqlx::raw_sql(MIGRATION_0196).execute(&mut *unmarked).await;
     unmarked.rollback().await.unwrap();
     let unmarked_error =
         unmarked_replay.expect_err("a superuser migration without the exact test marker must fail");
@@ -1149,7 +1149,7 @@ async fn platform_force_migration_rejects_dba_owned_production_shaped_database(p
         .execute(&production)
         .await
         .unwrap();
-    let production_replay = sqlx::raw_sql(MIGRATION_0198).execute(&production).await;
+    let production_replay = sqlx::raw_sql(MIGRATION_0196).execute(&production).await;
     production.close().await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "DROP DATABASE \"{production_database}\""
@@ -1233,7 +1233,7 @@ async fn platform_force_migration_rejects_partially_drifted_force_table_owner(po
         .connect_with(migrator_options)
         .await
         .unwrap();
-    let drifted_replay = sqlx::raw_sql(MIGRATION_0198).execute(&migrator).await;
+    let drifted_replay = sqlx::raw_sql(MIGRATION_0196).execute(&migrator).await;
     let drifted_error =
         drifted_replay.expect_err("one drifted force-removal table owner must fail closed");
     assert_eq!(
