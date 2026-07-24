@@ -95,6 +95,7 @@ export function Sidebar({
   return (
     <div
       data-cshell-sidebar
+      id={mobile ? "console-navigation-drawer" : undefined}
       data-collapsed={collapsed}
       data-cshell-drawer={mobile ? "left" : undefined}
       data-cshell-drawer-open={mobile && drawerOpen ? "true" : undefined}

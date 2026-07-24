@@ -21,7 +21,9 @@ export function Topbar({
   userRoleLabel,
   userTeamLabel,
   onOpenNavigation,
+  navigationDrawerOpen = false,
   onOpenComms,
+  commsDrawerOpen = false,
 }: {
   kbdLabel: string;
   onOpenPalette: () => void;
@@ -38,7 +40,9 @@ export function Topbar({
   /** Team affiliation, rendered as `team · role` when present (else role only). */
   userTeamLabel?: string;
   onOpenNavigation?: () => void;
+  navigationDrawerOpen?: boolean;
   onOpenComms?: () => void;
+  commsDrawerOpen?: boolean;
 }) {
   const scopeRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +80,8 @@ export function Topbar({
           type="button"
           onClick={onOpenNavigation}
           aria-label={S.sidebar.open}
+          aria-controls="console-navigation-drawer"
+          aria-expanded={navigationDrawerOpen}
           className="cshell-mobile-trigger cshell-hoverable cshell-focusable"
         >
           <Icon name="chevronsRight" size={18} strokeWidth={2} />
@@ -243,6 +249,8 @@ export function Topbar({
           type="button"
           onClick={onOpenComms}
           aria-label={S.rail.open}
+          aria-controls="console-comms-drawer"
+          aria-expanded={commsDrawerOpen}
           className="cshell-mobile-trigger cshell-hoverable cshell-focusable"
         >
           <Icon name="msg" size={18} strokeWidth={2} />

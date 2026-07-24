@@ -379,6 +379,7 @@ export function ConsoleShell({
                 }
               : undefined
           }
+          navigationDrawerOpen={activeDrawer === "left"}
           onOpenComms={
             mobile && !suppressCommsRail
               ? () => {
@@ -386,6 +387,7 @@ export function ConsoleShell({
                 }
               : undefined
           }
+          commsDrawerOpen={activeDrawer === "right"}
         />
 
         {/* URL-driven body, constrained to evidence-exposed + authorized nav. */}
@@ -404,6 +406,7 @@ export function ConsoleShell({
       {!suppressCommsRail && <aside
         aria-label={S.rail.label}
         data-cshell-rail
+        id={mobile ? "console-comms-drawer" : undefined}
         data-cshell-rail-open={(mobile || railOpen) || undefined}
         data-cshell-drawer={mobile ? "right" : undefined}
         data-cshell-drawer-open={mobile && activeDrawer === "right" ? "true" : undefined}
