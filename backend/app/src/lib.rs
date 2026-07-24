@@ -4536,6 +4536,7 @@ mod readiness_tests {
             .expect("separate readiness pool connects")
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn api_readiness_fails_closed_when_either_command_pool_degrades(pool: PgPool) {
         let leave = separate_pool(&pool).await;
@@ -4991,6 +4992,7 @@ mod migration_database_budget_tests {
         }
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = false)]
     async fn migration_pool_applies_and_restores_session_budgets(pool: PgPool) {
         // Snapshot before the test body performs any session mutation. This
@@ -5059,6 +5061,7 @@ mod serving_database_timeout_tests {
         assert_eq!(transaction, "45s");
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = false)]
     async fn serving_pool_rejects_overrides_and_restores_role_defaults_after_release(pool: PgPool) {
         let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")

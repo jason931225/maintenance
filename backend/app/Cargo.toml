@@ -24,6 +24,9 @@ name = "mnt_app"
 path = "src/lib.rs"
 
 [features]
+# Enables the inline PostgreSQL integration suite. This is intentionally inert
+# by default so normal unit tests need no database topology.
+test-postgres = []
 # Local role-switch dev-auth endpoint. NOT in `default` (there is no `default`
 # key here, so cargo's implicit default feature set is empty) and MUST NEVER be
 # added to one — `mnt-gate-dev-auth-absence` asserts this via `cargo metadata`

@@ -141,6 +141,27 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             GENERATOR.requires_postgres("mnt-production-rest", "test.unit")
         )
 
+    def test_mnt_app_inline_postgres_variant_is_feature_gated(self) -> None:
+        variant = GENERATOR.INLINE_TEST_VARIANTS["mnt-app"][0]
+        app_dir = Path(GENERATOR.REPO) / "backend" / "app"
+        manifest = GENERATOR.load(app_dir)
+        app_source = (app_dir / "src").glob("**/*.rs")
+        source_text = "\n".join(path.read_text(encoding="utf-8") for path in app_source)
+
+        self.assertEqual("itest-inline-postgres", variant["name"])
+        self.assertEqual("test-postgres", variant["feature"])
+        self.assertEqual("postgres", variant["resource"])
+        self.assertEqual([], manifest["features"]["test-postgres"])
+        self.assertNotIn("default", manifest["features"])
+        self.assertEqual(17, source_text.count("#[sqlx::test"))
+        self.assertEqual(17, source_text.count('#[cfg(feature = "test-postgres")]'))
+
+    def test_inline_test_variants_reject_missing_manifest_features(self) -> None:
+        with self.assertRaisesRegex(ValueError, "feature is absent"):
+            GENERATOR.validate_inline_test_variants(
+                {"mnt-app": {"features": {}}}
+            )
+
 
 class TestTaxonomy(unittest.TestCase):
     def test_every_test_has_exactly_one_type_and_resource_label(self) -> None:

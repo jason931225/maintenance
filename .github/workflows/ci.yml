@@ -427,10 +427,11 @@ jobs:
         # explicitly so its code path still compiles and its own tests
         # (including the route-present-under-the-feature session tests) run.
         # `set -e` would abort on the first failing invocation and hide the rest;
-        # run all three, recording failure, then propagate the real exit code so
+        # run all four, recording failure, then propagate the real exit code so
         # one run reports every failing suite (no exit-code masking).
         run: |
           rc=0
+          SQLX_OFFLINE=true cargo 'test' -p mnt-app --features test-postgres --lib --no-fail-fast -- --test-threads=1 || rc=1
           SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast -- --test-threads=1 || rc=1
           SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast -- --test-threads=1 || rc=1
           SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast -- --test-threads=1 || rc=1

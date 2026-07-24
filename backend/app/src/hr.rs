@@ -8302,6 +8302,7 @@ E-001,홍길동,본사,2026-07-01,25:99
         );
         Ok(())
     }
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn attendance_import_resolves_dedups_and_enforces_runtime_guards(
         pool: sqlx::PgPool,
@@ -9162,6 +9163,7 @@ E-001,홍길동,본사,2026-07-01,abc
         );
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn employee_import_batch_rolls_back_mid_batch_then_retries_atomically(
         pool: sqlx::PgPool,
@@ -9402,6 +9404,7 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn legacy_employee_import_audits_roster_only_apply_and_skips_exact_replay(
         pool: sqlx::PgPool,
@@ -9502,6 +9505,7 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn home_branch_assignment_is_explicit_versioned_and_audited(
         pool: sqlx::PgPool,
@@ -9907,6 +9911,7 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn settlement_recalculation_reverts_certification(
         pool: sqlx::PgPool,
@@ -9995,6 +10000,7 @@ E-001,홍길동,본사,2026-07-01,abc
         Ok(())
     }
 
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn certification_honored_only_when_digest_binds_current_numbers(
         pool: sqlx::PgPool,
@@ -10164,6 +10170,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// proving migration 0094's `enforce_settlement_certification_reset()` BEFORE
     /// UPDATE trigger fires for ANY write path, not just the two app statements.
     /// This asserts the STORED row (not merely the read-path demotion).
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn direct_covered_field_update_resets_stored_certification(
         pool: sqlx::PgPool,
@@ -10287,6 +10294,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// FAILS if either payload fails to flip to CERTIFIED once a matching
     /// digest is recorded — proving the marker derives from the single
     /// effective-status computation rather than being hand-placed per payload.
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn generated_payloads_carry_the_uncertified_draft_marker(
         pool: sqlx::PgPool,
@@ -10529,6 +10537,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// US-005 per-endpoint capability matrix, checked as capabilities against a
     /// real case's branch as `mnt_rt`: a role lacking each new capability is
     /// rejected on the corresponding endpoint's gate.
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn exit_endpoints_reject_roles_lacking_the_new_capabilities(
         pool: sqlx::PgPool,
@@ -10607,6 +10616,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// the decision derives from the persisted status + `hr_confirmed_by`, not
     /// the client flag. Covers (a) same-actor HQ rejected, (b) out-of-order HQ
     /// (still REPORTED) rejected, (c) a distinct HQ actor allowed.
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn exit_confirmation_two_tier_uses_stored_state_not_client_flag(
         pool: sqlx::PgPool,
@@ -10845,6 +10855,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// Seeding runs as the superuser pool role; the assertions run strictly as
     /// `mnt_rt` (via `arm_mnt_rt`), so a broken `org_isolation` policy cannot be
     /// masked by BYPASSRLS.
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn g009_tables_isolate_tenants_as_mnt_rt(pool: sqlx::PgPool) -> Result<(), String> {
         let (org_a, branch_a, emp_a, user_a) = seed_g009_base(&pool).await?;
@@ -10968,6 +10979,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// certification state. This drives the real handlers through the test pool
     /// role (audit emission is role-independent); the RLS proof is the dedicated
     /// `mnt_rt` test above.
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn exit_workflow_handlers_emit_audit_events(pool: sqlx::PgPool) -> Result<(), String> {
         use mnt_platform_authz::Role;
@@ -11146,6 +11158,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// employee_id, work_date, source)) AND rewrites no existing row (the
     /// IS DISTINCT FROM guard on the ON CONFLICT UPDATE), proving a repeated
     /// dashboard GET cannot write-storm.
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn absence_alert_materializer_is_idempotent_and_write_bounded(
         pool: sqlx::PgPool,
@@ -11278,6 +11291,7 @@ E-001,홍길동,본사,2026-07-01,abc
     /// emit an audit event that records the changed row count/ids + source facts.
     /// A SECOND read over unchanged imports must emit NO further event, so the
     /// idempotency / write-storm guard is preserved (audit real mutations only).
+    #[cfg(feature = "test-postgres")]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn dashboard_materializer_emits_audit_on_changed_facts(
         pool: sqlx::PgPool,

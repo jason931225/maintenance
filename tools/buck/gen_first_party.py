@@ -153,7 +153,7 @@ TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
 # enumerated explicitly; missing or stale metadata fails generation.
 TEST_RESOURCE_REQUIREMENTS = {
     'mnt-app': {
-        'unit': 'postgres',
+        'unit': 'none',
         'integration': {
             'tests/action_inbox_api.rs': 'postgres',
             'tests/audit_api.rs': 'postgres',
@@ -840,6 +840,34 @@ TEST_RESOURCE_REQUIREMENTS = {
 TEST_TYPE_LABELS = frozenset({"test.unit", "test.integration"})
 RESOURCE_LABELS = frozenset({"resource.none", "resource.postgres"})
 
+# Inline database tests remain in their crate source tree, but cannot share the
+# hermetic unit target. Each declared variant is compiled with its inert Cargo
+# feature and emitted as a separately schedulable integration target.
+INLINE_TEST_VARIANTS = {
+    "mnt-app": ({
+        "name": "itest-inline-postgres",
+        "feature": "test-postgres",
+        "resource": "postgres",
+    },),
+}
+
+
+def validate_inline_test_variants(metadata):
+    """Require each emitted inline variant to name an inert manifest feature."""
+    for package_name, variants in INLINE_TEST_VARIANTS.items():
+        try:
+            manifest = metadata[package_name]
+        except KeyError as error:
+            raise ValueError("inline test variant has no workspace package: {}".format(package_name)) from error
+        declared_features = manifest.get("features", {})
+        for variant in variants:
+            if variant["feature"] not in declared_features:
+                raise ValueError(
+                    "inline test variant feature is absent from {}: {}".format(
+                        package_name, variant["feature"]
+                    )
+                )
+
 
 def resource_requirement(package_name, test_type, test_file=None):
     """Return a reviewed resource requirement for exactly one generated test."""
@@ -1088,6 +1116,7 @@ def _block(
     crate_root,
     external=None,
     labels=None,
+    features=None,
 ):
     lines = [
         "{}(".format(rule),
@@ -1105,6 +1134,8 @@ def _block(
         lines.append("    env = {" + items + "},")
     if labels:
         lines.append("    labels = [" + ", ".join('"{}"'.format(x) for x in labels) + "],")
+    if features:
+        lines.append("    features = [" + ", ".join('"{}"'.format(x) for x in features) + "],")
     if deps:
         lines.append("    deps = [")
         lines += ['        "{}",'.format(t) for t in sorted(set(deps))]
@@ -1125,6 +1156,9 @@ def main():
         name = m["package"]["name"]
         first_party[name] = "//{}:{}".format(os.path.relpath(d, REPO), name)
         meta[d] = (name, m)
+
+    packages = {name: metadata for name, metadata in meta.values()}
+    validate_inline_test_variants(packages)
 
     discovered = set()
     for d in members:
@@ -1193,9 +1227,7 @@ def emit(d, name, deps, named, dev_deps, dev_named):
     test_deps = sorted(set(deps + dev_deps))
     test_named = {**named, **dev_named}
 
-    # Unit tests: recompile the lib srcs with --test (only if inline tests exist).
-    # SQL-backed suites are emitted and labeled rather than hidden: the migration
-    # input is hermetic at compile time, while execution still requires Postgres.
+    # Unit tests recompile the library without non-default test features.
     if tree_has(src, "#[cfg(test)]"):
         uses_postgres = requires_postgres(name, "test.unit")
         labels = test_labels(package, "test.unit", uses_postgres)
@@ -1205,6 +1237,27 @@ def emit(d, name, deps, named, dev_deps, dev_named):
                       test_deps, test_named, env, package=package,
                       crate_root=package + "/" + unit_root,
                       external=lib_external, labels=labels)
+
+    # Feature-gated inline suites are separate integration targets. This keeps
+    # the default unit binary hermetic while retaining database coverage.
+    for variant in INLINE_TEST_VARIANTS.get(name, ()):
+        if variant["resource"] != "postgres":
+            raise ValueError("unknown inline test resource: {}".format(variant["resource"]))
+        out.append("")
+        out += _block(
+            "rust_test",
+            "{}-{}".format(name, variant["name"]),
+            globstr(lib_pats, exclude=unit_excl),
+            ident,
+            test_deps,
+            test_named,
+            env,
+            package=package,
+            crate_root=package + "/" + unit_root,
+            external=lib_external,
+            labels=test_labels(package, "test.integration", True),
+            features=[variant["feature"]],
+        )
 
     # Integration tests: one rust_test per tests/*.rs with a test marker; non-test
     # helper files (tests/config.rs, tests/common/**) are added to srcs so their
