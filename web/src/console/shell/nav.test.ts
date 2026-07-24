@@ -34,7 +34,7 @@ describe("console nav deny-by-omission", () => {
   it("exposes only the ADR-0025-reviewed sales vertical slice", () => {
     const s = screens(grants([ROLES.MEMBER]));
     expect(MOUNTED_SCREEN_KEYS).toEqual(
-      expect.arrayContaining(["overview", "mywork", "sales", "mail"]),
+      expect.arrayContaining(["overview", "mywork", "people", "sales", "mail"]),
     );
     expect(EXPOSED_SCREEN_KEYS).toEqual(["sales"]);
     // The sole exposed screen remains deny-by-omission for a no-grant member.
@@ -50,7 +50,7 @@ describe("console nav deny-by-omission", () => {
     expect(s.has("policy")).toBe(false);
     expect(s.has("audit")).toBe(false);
     expect(s.has("compliance")).toBe(false);
-    expect(s.has("hr")).toBe(false);
+    expect(s.has("people")).toBe(false);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("workflow")).toBe(false);
     // planned operational surfaces stay DARK even with an otherwise sufficient grant
@@ -59,7 +59,7 @@ describe("console nav deny-by-omission", () => {
 
   it("shows management analytics + HR to ADMIN, but never RoleManage surfaces", () => {
     const s = screens(grants([ROLES.ADMIN]), MOUNTED_SCREEN_KEYS);
-    expect(s.has("hr")).toBe(false);
+    expect(s.has("people")).toBe(true);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(true);
     expect(s.has("dashboard")).toBe(true);
@@ -85,7 +85,7 @@ describe("console nav deny-by-omission", () => {
       MOUNTED_SCREEN_KEYS,
     );
     expect(s.has("dashboard")).toBe(true);
-    expect(s.has("hr")).toBe(false);
+    expect(s.has("people")).toBe(true);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(false); // different feature — still hidden
   });
@@ -134,7 +134,7 @@ describe("console nav deny-by-omission", () => {
 
     expect(MOUNTED_SCREEN_KEYS.every((key) => registered.has(key))).toBe(true);
     expect(declared.filter((key) => !exposed.has(key))).toEqual(
-      expect.arrayContaining(["hr", "recruit", "dispatch", "docs", "notif", "directory"]),
+      expect.arrayContaining(["people", "recruit", "dispatch", "docs", "notif", "directory"]),
     );
 
     for (const role of Object.values(ROLES)) {

@@ -88,6 +88,7 @@ export const MOUNTED_SCREEN_KEYS = [
   "inbox",
   "leave",
   "benefit",
+  "people",
   "sales",
   "finance",
   "asset",
@@ -148,7 +149,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
     labelId: "hr",
     items: [
       {
-        screen: "hr",
+        screen: "people",
         labelKey: "console.shell.nav.hr",
         icon: "users",
         gate: g(DIRECTORY_ROLES, [FEATURES.EMPLOYEE_DIRECTORY_READ]),
