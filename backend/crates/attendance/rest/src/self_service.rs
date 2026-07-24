@@ -99,7 +99,7 @@ impl From<OwnAttendanceExceptionRead> for OwnExceptionDto {
 }
 
 #[derive(Serialize)]
-struct OwnExceptionPageDto {
+pub(super) struct OwnExceptionPageDto {
     items: Vec<OwnExceptionDto>,
     total: i64,
     limit: i64,
@@ -114,6 +114,35 @@ struct OwnWeek52Dto {
     tone: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     acknowledged_at: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OwnWeek52Status {
+    Available,
+    NotAvailable,
+}
+
+#[derive(Serialize)]
+pub(super) struct OwnWeek52Response {
+    status: OwnWeek52Status,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    projection: Option<OwnWeek52Dto>,
+}
+
+impl From<Option<OwnWeek52Read>> for OwnWeek52Response {
+    fn from(value: Option<OwnWeek52Read>) -> Self {
+        match value {
+            Some(projection) => Self {
+                status: OwnWeek52Status::Available,
+                projection: Some(OwnWeek52Dto::from(projection)),
+            },
+            None => Self {
+                status: OwnWeek52Status::NotAvailable,
+                projection: None,
+            },
+        }
+    }
 }
 
 impl From<OwnWeek52Read> for OwnWeek52Dto {
@@ -164,7 +193,7 @@ pub(super) async fn read_own_week52(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     AttendanceQuery(query): AttendanceQuery<OwnWeek52Query>,
-) -> Result<Json<Option<OwnWeek52Dto>>, RestError> {
+) -> Result<Json<OwnWeek52Response>, RestError> {
     let principal = principal(&state, &headers).await?;
     let week_start = parse_date(&query.week_start, "week_start")?;
     let query = ReadOwnWeek52::new(week_start).map_err(validation)?;
@@ -174,7 +203,7 @@ pub(super) async fn read_own_week52(
         .read_own_week52(self_scope(&principal), query)
         .await
         .map_err(RestError::store)?;
-    Ok(Json(result.map(OwnWeek52Dto::from)))
+    Ok(Json(OwnWeek52Response::from(result)))
 }
 
 fn own_list_range(query: &OwnExceptionsQuery) -> Result<AttendanceDateRange, RestError> {
@@ -227,4 +256,43 @@ fn rfc3339(value: time::OffsetDateTime) -> String {
     value
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mnt_attendance_application::{OwnWeek52Read, Week52Tone};
+    use serde_json::json;
+    use time::{Date, Month};
+
+    #[test]
+    fn own_week52_available_response_has_only_status_and_projection() {
+        let projection = OwnWeek52Read {
+            week_start: Date::from_calendar_date(2026, Month::July, 20).unwrap(),
+            current_hours: 24.0,
+            projected_hours: 32.0,
+            tone: Week52Tone::Warn,
+            acknowledged_at: None,
+        };
+        assert_eq!(
+            serde_json::to_value(OwnWeek52Response::from(Some(projection))).unwrap(),
+            json!({
+                "status": "available",
+                "projection": {
+                    "week_start": "2026-07-20",
+                    "current_hours": 24.0,
+                    "projected_hours": 32.0,
+                    "tone": "WARN"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn own_week52_not_available_response_omits_projection() {
+        assert_eq!(
+            serde_json::to_value(OwnWeek52Response::from(None)).unwrap(),
+            json!({"status": "not_available"})
+        );
+    }
 }
