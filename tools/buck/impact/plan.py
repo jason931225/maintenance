@@ -160,7 +160,7 @@ def receipt(
     *,
     normalized_stdout: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    value = {
         "name": name,
         "argv": argv,
         "exit_code": result.returncode,
@@ -169,8 +169,15 @@ def receipt(
         # otherwise equivalent immutable snapshots produce nondeterministic
         # manifests solely because their temporary directory names differ.
         "stdout_sha256": sha256(result.stdout if normalized_stdout is None else normalized_stdout),
-        "stderr_sha256": sha256(result.stderr),
+        "stderr_sha256": sha256("" if result.returncode == 0 else result.stderr),
+        "stderr_policy": "omitted_on_success" if result.returncode == 0 else "retained_on_failure",
     }
+    if result.returncode != 0:
+        # Planner errors already surface this text; retaining a bounded copy in
+        # a receipt keeps asynchronous callers actionable without allowing an
+        # unbounded tool error to inflate the manifest.
+        value["stderr"] = result.stderr[:4096]
+    return value
 
 
 def canonical_cell_map(worktree: Path, raw_audit_cell: str) -> dict[str, str]:
