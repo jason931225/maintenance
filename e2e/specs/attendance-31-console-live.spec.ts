@@ -52,6 +52,9 @@ const openNoShowCandidateId = randomUUID();
 const overlapCandidateId = randomUUID();
 const otherBranchId = randomUUID();
 const leaveDeciderId = randomUUID();
+const memberUserId = randomUUID();
+const memberEmployeeId = randomUUID();
+const memberExceptionId = randomUUID();
 const blockedEmployeeName = `E2E 근태 결원 ${runId.slice(0, 8)}`;
 const riskEmployeeName = `E2E 주52시간 ${runId.slice(0, 8)}`;
 const eligibleCandidateName = `E2E 후보 가능 ${runId.slice(0, 8)}`;
@@ -63,6 +66,11 @@ const overlapCandidateName = `E2E 후보 중복 ${runId.slice(0, 8)}`;
 const coverExceptionCode = `AT-E2E-COVER-${runId.slice(0, 8).toUpperCase()}`;
 const closeExceptionCode = `AT-E2E-CLOSE-${runId.slice(0, 8).toUpperCase()}`;
 const reason = `e2e 근태 확인 ${runId}`;
+const memberEmployeeName = `E2E 본인 근태 ${runId.slice(0, 8)}`;
+const memberExceptionCode = `AT-E2E-MEMBER-${runId.slice(0, 8).toUpperCase()}`;
+const memberExceptionDetail = `e2e 본인 지각 확인 ${runId}`;
+const memberEvidenceName = `e2e 출입기록 ${runId}.pdf`;
+const memberPhone = `dev-auth:${ORG_ID}:MEMBER`;
 
 const SEOUL_DATE = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul",
@@ -248,6 +256,49 @@ function seedAttendanceStory(): void {
   execSql(sql);
 }
 
+function seedMemberSelfServiceStory(): void {
+  assertDevOnlyEnvironment();
+  execSql(`
+    BEGIN;
+    SET LOCAL app.current_org = ${sqlLiteral(ORG_ID)};
+    -- The MEMBER dev principal is identified by the deterministic phone the
+    -- local dev-auth provisioner upserts. Preserve that row's employee link,
+    -- while deliberately leaving both home_branch_id and user_branches empty:
+    -- self-service must derive identity without a manager branch scope.
+    INSERT INTO employees (
+      id, org_id, company, name, source_filename, source_sheet, source_row,
+      source_key, employment_status, org_unit, home_branch_id
+    ) VALUES (
+      ${sqlLiteral(memberEmployeeId)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(memberEmployeeName)},
+      'attendance-member-live-e2e', 'attendance', 99, ${sqlLiteral(`attendance-member-live-e2e-${runId}`)},
+      'ACTIVE', 'E2E 본인 근태', NULL
+    );
+    INSERT INTO users (id, display_name, phone, roles, is_active, org_id, employee_id)
+    VALUES (
+      ${sqlLiteral(memberUserId)}, ${sqlLiteral(memberEmployeeName)}, ${sqlLiteral(memberPhone)},
+      ARRAY['MEMBER'], true, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(memberEmployeeId)}
+    )
+    ON CONFLICT (phone) WHERE phone IS NOT NULL
+    DO UPDATE SET display_name = EXCLUDED.display_name,
+                  roles = EXCLUDED.roles,
+                  is_active = true,
+                  employee_id = EXCLUDED.employee_id;
+    DELETE FROM user_branches
+      WHERE user_id = (SELECT id FROM users WHERE phone = ${sqlLiteral(memberPhone)});
+    INSERT INTO attendance_exceptions (
+      id, org_id, code, kind, status, employee_id, branch_id, work_date,
+      detail, evidence, links, idempotency_key, request_fingerprint, created_by
+    ) VALUES (
+      ${sqlLiteral(memberExceptionId)}, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(memberExceptionCode)}, 'LATE', 'OPEN',
+      ${sqlLiteral(memberEmployeeId)}, NULL, ${sqlLiteral(todayValue)}::date,
+      ${sqlLiteral(memberExceptionDetail)}, ${sqlLiteral(JSON.stringify([{ name: memberEvidenceName, size: "24KB" }]))}::jsonb, '[]'::jsonb,
+      ${sqlLiteral(`attendance-member-live-e2e-${runId}`)}, repeat('f', 64),
+      (SELECT id FROM users WHERE phone = ${sqlLiteral(memberPhone)})
+    );
+    COMMIT;
+  `);
+}
+
 function scalar(sql: string): string {
   return execSql(`BEGIN; SET LOCAL app.current_org = ${sqlLiteral(ORG_ID)}; ${sql}; COMMIT;`);
 }
@@ -256,8 +307,22 @@ async function loginAs(page: Page, role: DevRole): Promise<void> {
   await page.goto("/login");
   await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
   await page.getByRole("combobox").selectOption({ label: role });
-  await page.getByLabel(/지점 ID/).fill(BRANCH_ID);
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  await page.getByLabel("지점").selectOption(BRANCH_ID);
+  await page.getByRole("button", { name: /로그인$/ }).click();
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
+}
+
+async function loginAsMemberWithoutBranch(page: Page): Promise<void> {
+  await page.goto("/login");
+  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
+  await page.getByRole("combobox").selectOption({ label: "일반 멤버" });
+  await page.getByRole("button", { name: "고급 설정" }).click();
+  await page.getByLabel("조직 ID").fill(ORG_ID);
+  await page.getByLabel("지점 ID (쉼표로 구분)").fill("");
+  await expect(
+    page.getByText("지점 ID를 비워두면 조직 전체 범위로 로그인합니다."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /로그인$/ }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 
@@ -487,46 +552,101 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   consoleGuard.assertClean();
 });
 
-  test("ATTENDANCE-31 MEMBER direct route falls back to the canonical overview", async ({
+});
+
+test.describe("ATTENDANCE-31 live MEMBER self-service story", () => {
+  test.beforeAll(() => {
+    seedMemberSelfServiceStory();
+  });
+
+  test("ATTENDANCE-31 MEMBER reads only their linked attendance without a branch", async ({
     page,
   }) => {
-    const attendanceRequests: string[] = [];
+    const consoleGuard = attachConsoleGuard(page);
+    const ownAttendanceRequests: URL[] = [];
     page.on("request", (request) => {
-      const path = new URL(request.url()).pathname;
+      if (request.method() !== "GET") return;
+      const url = new URL(request.url());
       if (
-        path.startsWith("/api/v1/attendance") ||
-        path === "/api/v1/hr/attendance-summary"
+        url.pathname === "/api/v1/attendance/me/exceptions" ||
+        url.pathname === "/api/v1/attendance/me/week52"
       ) {
-        attendanceRequests.push(path);
+        ownAttendanceRequests.push(url);
       }
     });
-    await loginAs(page, "일반 멤버");
-    await page.goto("/console/attendance");
-
-    // A bare MEMBER has no console nav grant. ConsoleShell canonicalizes an
-    // inaccessible or unshipped direct destination to the working console
-    // overview instead of rendering a misleading in-surface denial.
-    await expect(page).toHaveURL(/\/console\/overview(?:$|[?#])/, {
+    await loginAsMemberWithoutBranch(page);
+    expect(
+      scalar(
+        `SELECT employee_id::text FROM users WHERE phone = ${sqlLiteral(memberPhone)}`,
+      ),
+    ).toBe(memberEmployeeId);
+    expect(
+      scalar(
+        `SELECT count(*) FROM user_branches WHERE user_id = (SELECT id FROM users WHERE phone = ${sqlLiteral(memberPhone)})`,
+      ),
+    ).toBe("0");
+    await page.goto("/attendance");
+    await expect(page).toHaveURL(/\/attendance(?:$|[?#])/, {
       timeout: 15_000,
     });
-    const overviewBody = page.getByLabel("화면 본문");
-    await expect(overviewBody).toBeVisible();
-    await expect(overviewBody).toHaveAttribute(
-      "data-cshell-screen",
-      "overview",
-    );
+    const selfService = page.getByLabel("내 근태");
+    await expect(selfService).toBeVisible({ timeout: 15_000 });
     await expect(
-      overviewBody.getByRole("heading", { name: "업무·운영 개요", level: 1 }),
-    ).toBeVisible();
-    await page.waitForLoadState("networkidle", { timeout: 15_000 });
-    await expect(page.getByLabel("근태")).toHaveCount(0);
-    expect(attendanceRequests).toEqual([]);
+      selfService.getByRole("button", { name: new RegExp(memberExceptionDetail) }),
+    ).toBeVisible({ timeout: 15_000 });
+    // The linked active employee has no punches: a zero-hour projection is
+    // available, not the unlinked principal's unavailable state.
+    await expect(selfService.getByText(/0\.0시간/)).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "근태", level: 1 }),
+      selfService.getByText("현재 주간 근태 집계가 연결되지 않았습니다."),
     ).toHaveCount(0);
+
+    expect(ownAttendanceRequests.map((url) => url.pathname)).toEqual(
+      expect.arrayContaining([
+        "/api/v1/attendance/me/exceptions",
+        "/api/v1/attendance/me/week52",
+      ]),
+    );
+    for (const url of ownAttendanceRequests) {
+      for (const selector of [
+        "employee_id",
+        "branch_id",
+        "actor_id",
+        "manager_id",
+        "org_id",
+      ]) {
+        expect(url.searchParams.has(selector), `${url} leaked ${selector}`).toBe(false);
+      }
+    }
+
+    await selfService
+      .getByRole("button", { name: new RegExp(memberExceptionDetail) })
+      .click();
+    const detail = page.getByRole("dialog", { name: "예외 상세" });
+    await expect(detail).toBeVisible();
+    await expect(detail.getByText(memberExceptionDetail, { exact: true })).toBeVisible();
+    await expect(detail.getByText(memberEvidenceName, { exact: false })).toBeVisible();
+    await expect(detail.getByText(memberExceptionId, { exact: true })).toHaveCount(0);
+    await expect(detail.getByLabel("처리 사유")).toHaveCount(0);
+    await expect(detail.getByRole("button", { name: "확인 처리" })).toHaveCount(0);
+    await expect(detail.getByRole("button", { name: "대근 편성" })).toHaveCount(0);
+
+    // The same signed MEMBER principal becomes unlinked after its first real
+    // self-service read. A document reload must render the strict unavailable
+    // Week52 envelope rather than retaining the prior projection.
+    expect(
+      scalar(
+        `UPDATE users SET employee_id = NULL WHERE phone = ${sqlLiteral(memberPhone)} RETURNING id::text`,
+      ),
+    ).toMatch(/^[0-9a-f-]{36}$/i);
+    await page.reload();
+    await expect(
+      page.getByText("현재 주간 근태 집계가 연결되지 않았습니다."),
+    ).toBeVisible({ timeout: 15_000 });
     await assertNoRawI18nKeys(page);
     await assertNoAxeViolations(page, {
-      context: "attendance MEMBER direct-route canonical fallback",
+      context: "attendance MEMBER self-service linkage and unavailable states",
     });
+    consoleGuard.assertClean();
   });
 });
