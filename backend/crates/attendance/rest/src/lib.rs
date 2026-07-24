@@ -1357,6 +1357,11 @@ impl RestError {
                 "close_blocked",
                 "open exceptions or a prior close block this close",
             ),
+            AttendanceStoreError::InvalidCloseMonth => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation",
+                "close month is outside the supported date range",
+            ),
             AttendanceStoreError::Database(_) | AttendanceStoreError::Sql(_) => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal",
@@ -1472,6 +1477,17 @@ mod tests {
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
         assert_eq!(error.code, "invalid_query");
         assert_eq!(error.message, "query parameters are invalid");
+    }
+
+    #[test]
+    fn invalid_close_month_is_a_stable_validation_error() {
+        let error = RestError::store(AttendanceStoreError::InvalidCloseMonth);
+        assert_eq!(error.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(error.code, "validation");
+        assert_eq!(
+            error.message,
+            "close month is outside the supported date range"
+        );
     }
 
     #[test]
