@@ -8,12 +8,15 @@
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
+use base64::Engine as _;
 use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_test_support::runtime_role_pool;
 use mnt_production_rest::{
     PRODUCTION_CAPACITY_SLOTS_PATH, PRODUCTION_PLAN_PATH, PRODUCTION_PLANS_PATH,
-    PRODUCTION_SOURCE_INGRESS_PATH, ProductionRestState, router,
+    PRODUCTION_SOURCE_INGRESS_PATH, PRODUCTION_SOURCE_SYSTEM_DISABLE_PATH,
+    PRODUCTION_SOURCE_SYSTEM_ROTATE_PATH, PRODUCTION_SOURCE_SYSTEMS_PATH, ProductionRestState,
+    router,
 };
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -26,6 +29,7 @@ use uuid::Uuid;
 
 const ISSUER: &str = "mnt-platform-auth";
 const AUDIENCE: &str = "mnt-api";
+const SERVICE_PRINCIPAL_HMAC_KEY: [u8; 32] = [42; 32];
 
 struct Keys {
     private_pem: String,
@@ -95,7 +99,10 @@ fn app(pool: PgPool, keys: &Keys) -> axum::Router {
         keys.public_pem.as_bytes(),
     )
     .unwrap();
-    router(ProductionRestState::new(pool, Some(verifier)))
+    router(
+        ProductionRestState::new(pool, Some(verifier))
+            .with_service_principal_hmac_key(Some(SERVICE_PRINCIPAL_HMAC_KEY)),
+    )
 }
 
 async fn post(service: axum::Router, uri: &str, token: &str, body: Value) -> (StatusCode, Value) {
@@ -839,5 +846,172 @@ async fn human_reviewer_cannot_assert_production_source_truth(pool: PgPool) {
     assert_eq!(
         audit_count, 0,
         "a human reviewer creates no source ingress audit row"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn source_system_lifecycle_uses_typed_credentials_and_generation_cas(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let token = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+
+    let (status, registered) = post(
+        service.clone(),
+        PRODUCTION_SOURCE_SYSTEMS_PATH,
+        &token,
+        json!({"branch_id": fixture.branch, "source_system": "production-erp"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{registered:?}");
+    assert_eq!(registered["source_system"], "production-erp");
+    assert_eq!(registered["enabled"], true);
+    assert_eq!(registered["credential_generation"], 1);
+    assert!(registered.get("verifier").is_none());
+    assert!(registered.get("mac").is_none());
+    let registered_secret = registered["secret"].as_str().expect("credential secret");
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(registered_secret)
+            .unwrap()
+            .len(),
+        32
+    );
+    let principal_id = registered["id"].as_str().expect("principal id");
+
+    let rotate_uri =
+        PRODUCTION_SOURCE_SYSTEM_ROTATE_PATH.replace("{source_system_id}", principal_id);
+    let first_service = service.clone();
+    let first_token = token.clone();
+    let first_rotate_uri = rotate_uri.clone();
+    let first = tokio::spawn(async move {
+        post(
+            first_service,
+            &first_rotate_uri,
+            &first_token,
+            json!({"expected_generation": 1}),
+        )
+        .await
+    });
+    let second_service = service.clone();
+    let second_token = token.clone();
+    let second = tokio::spawn(async move {
+        post(
+            second_service,
+            &rotate_uri,
+            &second_token,
+            json!({"expected_generation": 1}),
+        )
+        .await
+    });
+    let (first_status, first_body) = first.await.unwrap();
+    let (second_status, second_body) = second.await.unwrap();
+    let mut statuses = [first_status, second_status];
+    statuses.sort();
+    assert_eq!(
+        statuses,
+        [StatusCode::OK, StatusCode::CONFLICT],
+        "{first_body:?} {second_body:?}"
+    );
+    let rotated = if first_status == StatusCode::OK {
+        first_body
+    } else {
+        second_body
+    };
+    let rotated_secret = rotated["secret"]
+        .as_str()
+        .expect("rotated credential secret");
+    assert_ne!(
+        rotated_secret, registered_secret,
+        "rotation must disclose a new one-time credential"
+    );
+    assert_eq!(rotated["credential_generation"], 2);
+    assert!(rotated.get("verifier").is_none());
+    assert!(rotated.get("mac").is_none());
+
+    let disable_uri =
+        PRODUCTION_SOURCE_SYSTEM_DISABLE_PATH.replace("{source_system_id}", principal_id);
+    let first_service = service.clone();
+    let first_token = token.clone();
+    let first_disable_uri = disable_uri.clone();
+    let first = tokio::spawn(async move {
+        post(
+            first_service,
+            &first_disable_uri,
+            &first_token,
+            json!({"expected_generation": 2}),
+        )
+        .await
+    });
+    let second_service = service.clone();
+    let second_token = token.clone();
+    let second = tokio::spawn(async move {
+        post(
+            second_service,
+            &disable_uri,
+            &second_token,
+            json!({"expected_generation": 2}),
+        )
+        .await
+    });
+    let (first_status, first_body) = first.await.unwrap();
+    let (second_status, second_body) = second.await.unwrap();
+    let mut statuses = [first_status, second_status];
+    statuses.sort();
+    assert_eq!(
+        statuses,
+        [StatusCode::OK, StatusCode::CONFLICT],
+        "{first_body:?} {second_body:?}"
+    );
+    let disabled = if first_status == StatusCode::OK {
+        first_body
+    } else {
+        second_body
+    };
+    assert_eq!(disabled["enabled"], false);
+    assert_eq!(disabled["credential_generation"], 2);
+    assert!(disabled.get("secret").is_none());
+    assert!(disabled.get("verifier").is_none());
+    assert!(disabled.get("mac").is_none());
+
+    let id = Uuid::parse_str(principal_id).unwrap();
+    let state: String = sqlx::query_scalar("SELECT state FROM service_principals WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "DISABLED");
+    let events: Vec<(String, Option<i32>, i32)> = sqlx::query_as(
+        "SELECT event_type,expected_generation,resulting_generation FROM service_principal_audit_events WHERE service_principal_id=$1 ORDER BY occurred_at,id",
+    )
+    .bind(id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![
+            ("REGISTERED".to_owned(), None, 1),
+            ("ROTATED".to_owned(), Some(1), 2),
+            ("DISABLED".to_owned(), Some(2), 2)
+        ]
+    );
+    let persisted_secret_or_verifier: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1 AND (row_to_json(service_principal_audit_events)::text LIKE '%' || $2 || '%' OR row_to_json(service_principal_audit_events)::text LIKE '%verifier%' OR row_to_json(service_principal_audit_events)::text LIKE '%mac%')",
+    )
+    .bind(id)
+    .bind(rotated_secret)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        persisted_secret_or_verifier, 0,
+        "credential material cannot enter the audit stream"
     );
 }
