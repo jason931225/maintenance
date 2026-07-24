@@ -23,7 +23,7 @@ use tokio::sync::Barrier;
 use uuid::Uuid;
 
 const ORG: Uuid = Uuid::from_u128(0x1A11_D3A0_0000_0000_0000_0000_0000_0001);
-const OTHER_ORG: Uuid = Uuid::from_u128(0x1A11_D3A0_0000_0000_0000_0000_0000_0002);
+const OTHER_ORG: Uuid = Uuid::from_u128(0x2A11_D3A0_0000_0000_0000_0000_0000_0002);
 const IDEMPOTENCY_KEY: &str = "inventory-consume-race-key";
 
 #[test]
@@ -148,7 +148,7 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
         org,
         store.consume_item(ConsumeInventoryCommand {
             quantity_consumed_milli: 200,
-            ..command
+            ..command.clone()
         }),
     )
     .await
@@ -710,7 +710,7 @@ fn consume_command(
 ) -> ConsumeInventoryCommand {
     ConsumeInventoryCommand {
         actor,
-        branch_scope: BranchScope::All,
+        branch_scope: BranchScope::single(branch),
         item_id,
         source: ConsumeInventorySource::WorkOrder { work_order_id },
         quantity_consumed_milli,

@@ -582,7 +582,9 @@ impl PgInventoryStore {
         let offset = query.offset.unwrap_or(0).max(0);
         let org = current_org().map_err(KernelError::from)?;
         with_org_conn::<_, _, PgInventoryError>(&self.pool, org, move |tx| Box::pin(async move {
-            let item = fetch_item_scoped_tx(tx, query.item_id, &query.branch_scope).await?.ok_or_else(|| KernelError::not_found("inventory item was not found"))?;
+            fetch_item_scoped_tx(tx, query.item_id, &query.branch_scope)
+                .await?
+                .ok_or_else(|| KernelError::not_found("inventory item was not found"))?;
             let mut builder = QueryBuilder::<Postgres>::new(r#"SELECT * FROM (
                 SELECT e.id, e.item_id, i.iv_code, 'ISSUE'::text AS kind, -e.quantity_consumed_milli AS quantity_delta_milli, e.quantity_before_milli, e.quantity_after_milli, e.work_order_id, e.dispatch_id, NULL::uuid AS cycle_count_id, NULL::text AS cc_code, NULL::text AS source_ref, e.consumed_by AS actor_id, e.occurred_at, e.memo
                 FROM inventory_consumption_events e JOIN inventory_items i ON i.id=e.item_id AND i.org_id=e.org_id WHERE e.item_id = "#);
@@ -1490,7 +1492,7 @@ async fn lock_cycle_count_tx(
                     label: r.try_get("stock_location_label")?,
                 },
                 status: CycleCountStatus::parse(&r.try_get::<String, _>("status")?)?,
-                version: r.try_get("version"),
+                version: r.try_get("version")?,
             })
         })
         .transpose()
