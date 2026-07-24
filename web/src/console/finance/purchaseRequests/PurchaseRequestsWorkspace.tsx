@@ -15,7 +15,7 @@ interface PurchaseRequestsWorkspaceProps {
  */
 export function PurchaseRequestsWorkspace({ api, roles }: PurchaseRequestsWorkspaceProps) {
   return (
-    <section aria-label={ko.financial.purchase.workspaceAria} className="px-6 pb-6">
+    <section aria-label={ko.financial.purchase.workspaceAria} className="purchase-requests-workspace">
       <PurchaseRequestPanel api={api} roles={roles} />
     </section>
   );

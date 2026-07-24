@@ -87,6 +87,14 @@
   color-scheme: light;
 }
 
+/* Finance purchase requests mount inside the console token scope rather than
+   inheriting utility classes from the legacy app shell. Keep page spacing in
+   the shared scale so this region follows theme and density changes. */
+.purchase-requests-workspace {
+  padding-inline: var(--sp-6);
+  padding-block-end: var(--sp-6);
+}
+
 /* Shared keyboard focus ring for window-model controls (§WCAG AA 2.4.11).
    Scoped to [data-window-control] so it rings only the window primitive's
    buttons/tray chips, not every console control. --ink flips per theme, so the

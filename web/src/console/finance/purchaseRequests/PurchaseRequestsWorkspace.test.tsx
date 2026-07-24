@@ -119,7 +119,9 @@ describe("PurchaseRequestsWorkspace", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "구매요청서" })).toBeVisible();
-    expect(screen.getByRole("region", { name: ko.financial.purchase.workspaceAria })).toBeVisible();
+    const workspace = screen.getByRole("region", { name: ko.financial.purchase.workspaceAria });
+    expect(workspace).toBeVisible();
+    expect(workspace).toHaveClass("purchase-requests-workspace");
     expect(GET).toHaveBeenCalledWith(
       "/api/v1/financial/purchase-requests",
       expect.objectContaining({
