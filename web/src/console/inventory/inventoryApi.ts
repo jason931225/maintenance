@@ -21,6 +21,17 @@ export interface InventoryListFilters {
   lowStock?: boolean;
 }
 
+export type InventoryMovement = {
+  id: string; item_id: string; iv_code: string; kind: "ISSUE" | "RECEIPT" | "ADJUSTMENT";
+  quantity_delta_milli: number; quantity_before_milli: number; quantity_after_milli: number;
+  source: { kind: "work_order"; work_order_id: string } | { kind: "p1_dispatch"; dispatch_id: string; work_order_id: string } | { kind: "cycle_count"; cycle_count_id: string; cc_code: string } | { kind: "external_ref"; source_ref: string | null };
+  actor: string; occurred_at: string; memo: string | null;
+};
+export type InventoryMrpLine = { item_id: string; iv_code: string; display_name: string; unit_code: string; quantity_on_hand_milli: number; safety_stock_milli: number; inbound_expected_milli: number; reserved_outbound_milli: number; monthly_usage_milli: number; cover_months_centi: number | null; short: boolean; proposed_order_milli: number };
+export type CycleCountStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CANCELLED";
+export type CycleCountDetail = { count: { id: string; cc_code: string; branch_id: string; stock_location: { id: string; label: string }; status: CycleCountStatus; version: number; opened_by: string; submitted_by: string | null; decided_by: string | null; decision_memo: string | null; line_count: number; variance_line_count: number; created_at: string; updated_at: string }; lines: Array<{ id: string; item_id: string; iv_code: string; display_name: string; unit_code: string; system_quantity_milli: number; counted_quantity_milli: number; variance_milli: number; reason: "DAMAGE" | "LOSS" | "MISCOUNT" | "FOUND" | "OTHER" | null; note: string | null; recorded_by: string; recorded_at: string }>; applied_movement_ids: string[] };
+type UntypedApi = { GET: (path: string, options?: unknown) => Promise<{ data?: unknown; error?: unknown; response: Response }>; POST: (path: string, options?: unknown) => Promise<{ data?: unknown; error?: unknown; response: Response }> };
+
 /** A 2xx response that does not satisfy the generated contract at runtime. */
 export class InventoryApiContractError extends Error {
   constructor(readonly operation: string) {
@@ -47,6 +58,18 @@ function isOptionalString(value: unknown): boolean {
 
 function isOptionalNumber(value: unknown): boolean {
   return value == null || isNumber(value);
+}
+
+function isMovement(value: unknown): value is InventoryMovement {
+  return isRecord(value) && isString(value.id) && isString(value.item_id) && isString(value.iv_code) && ["ISSUE", "RECEIPT", "ADJUSTMENT"].includes(String(value.kind)) && isNumber(value.quantity_delta_milli) && isNumber(value.quantity_before_milli) && isNumber(value.quantity_after_milli) && isRecord(value.source) && isString(value.source.kind) && isString(value.actor) && isString(value.occurred_at) && isOptionalString(value.memo);
+}
+function isMrpLine(value: unknown): value is InventoryMrpLine {
+  return isRecord(value) && isString(value.item_id) && isString(value.iv_code) && isString(value.display_name) && isString(value.unit_code) && ["quantity_on_hand_milli", "safety_stock_milli", "inbound_expected_milli", "reserved_outbound_milli", "monthly_usage_milli", "proposed_order_milli"].every((key) => isNumber(value[key])) && isOptionalNumber(value.cover_months_centi) && typeof value.short === "boolean";
+}
+function isCycleDetail(value: unknown): value is CycleCountDetail {
+  if (!isRecord(value) || !isRecord(value.count) || !Array.isArray(value.lines) || !Array.isArray(value.applied_movement_ids)) return false;
+  const count = value.count;
+  return isString(count.id) && isString(count.cc_code) && isString(count.branch_id) && isRecord(count.stock_location) && isString(count.stock_location.id) && isString(count.stock_location.label) && ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"].includes(String(count.status)) && isNumber(count.version) && value.lines.every((line) => isRecord(line) && isString(line.id) && isString(line.item_id) && isString(line.iv_code) && isString(line.display_name) && isString(line.unit_code) && isNumber(line.system_quantity_milli) && isNumber(line.counted_quantity_milli) && isNumber(line.variance_milli)) && value.applied_movement_ids.every(isString);
 }
 
 function isInventoryItem(value: unknown): value is InventoryItem {
@@ -240,6 +263,28 @@ export async function consumeInventoryItem(
     isInventoryConsumptionResult,
   );
 }
+
+// These signed routes are intentionally isolated behind a local port until the
+// reviewed OpenAPI/client generation catches up. Every response is still checked.
+function inventoryPort(api: ConsoleApiClient): UntypedApi { return api as unknown as UntypedApi; }
+export async function listInventoryMovements(api: ConsoleApiClient, itemId: string, signal?: AbortSignal): Promise<InventoryMovement[]> {
+  return requireData("inventory movement ledger", await inventoryPort(api).GET(`/api/v1/inventory/items/${itemId}/movements`, { signal }), (value): value is InventoryMovement[] => Array.isArray(value) && value.every(isMovement));
+}
+export async function receiveInventoryItem(api: ConsoleApiClient, itemId: string, request: { quantity_received_milli: number; source_ref?: string; memo?: string; idempotency_key: string }): Promise<{ item: InventoryItem; movement: InventoryMovement }> {
+  return requireData("inventory receipt", await inventoryPort(api).POST(`/api/v1/inventory/items/${itemId}/receipts`, { body: request }), (value): value is { item: InventoryItem; movement: InventoryMovement } => isRecord(value) && isInventoryItem(value.item) && isMovement(value.movement));
+}
+export async function getInventoryMrp(api: ConsoleApiClient, branchId: string, signal?: AbortSignal): Promise<InventoryMrpLine[]> {
+  return requireData("inventory MRP", await inventoryPort(api).GET("/api/v1/inventory/mrp", { params: { query: { branch_id: branchId } }, signal }), (value): value is InventoryMrpLine[] => Array.isArray(value) && value.every(isMrpLine));
+}
+export async function listCycleCounts(api: ConsoleApiClient, branchId: string, signal?: AbortSignal): Promise<CycleCountDetail["count"][]> {
+  return requireData("cycle count list", await inventoryPort(api).GET("/api/v1/inventory/cycle-counts", { params: { query: { branch_id: branchId, limit: 50, offset: 0 } }, signal }), (value): value is { items: CycleCountDetail["count"][] } => isRecord(value) && Array.isArray(value.items) && value.items.every((count) => isCycleDetail({ count, lines: [], applied_movement_ids: [] }))).items;
+}
+export async function openCycleCount(api: ConsoleApiClient, branchId: string, stockLocationId: string): Promise<CycleCountDetail> { return requireData("open cycle count", await inventoryPort(api).POST("/api/v1/inventory/cycle-counts", { body: { branch_id: branchId, stock_location_id: stockLocationId } }), isCycleDetail); }
+export async function getCycleCount(api: ConsoleApiClient, id: string): Promise<CycleCountDetail> { return requireData("cycle count", await inventoryPort(api).GET(`/api/v1/inventory/cycle-counts/${id}`), isCycleDetail); }
+export async function upsertCycleLine(api: ConsoleApiClient, id: string, body: { item_id: string; counted_quantity_milli: number; reason?: string; note?: string }): Promise<CycleCountDetail> { return requireData("cycle count line", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/lines`, { body }), isCycleDetail); }
+export async function submitCycleCount(api: ConsoleApiClient, id: string, expected_version: number): Promise<CycleCountDetail> { return requireData("cycle count submit", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/submit`, { body: { expected_version } }), isCycleDetail); }
+export async function decideCycleCount(api: ConsoleApiClient, id: string, body: { expected_version: number; decision: "APPROVE" | "REJECT"; memo?: string; idempotency_key?: string }): Promise<CycleCountDetail> { return requireData("cycle count decision", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/decision`, { body }), isCycleDetail); }
+export async function cancelCycleCount(api: ConsoleApiClient, id: string): Promise<CycleCountDetail> { return requireData("cycle count cancel", await inventoryPort(api).POST(`/api/v1/inventory/cycle-counts/${id}/cancel`), isCycleDetail); }
 
 export function isAccessDenied(error: unknown): boolean {
   return error instanceof ApiCallError && error.status === 403;

@@ -7,6 +7,10 @@ import {
   listInventoryConsumptions,
   listInventoryItems,
   listOpenWorkOrders,
+  listInventoryMovements,
+  getInventoryMrp,
+  openCycleCount,
+  submitCycleCount,
 } from "./inventoryApi";
 
 const item = {
@@ -112,6 +116,18 @@ describe("inventoryApi", () => {
         idempotency_key: "request-1",
       }),
     ).resolves.toMatchObject({ event: { id: "event-1" } });
+  });
+
+  it("uses the signed inventory operational routes and fails closed on their object responses", async () => {
+    const count = { id: "cc-1", cc_code: "CC-1", branch_id: "branch-1", stock_location: { id: "loc", label: "A-01" }, status: "DRAFT", version: 1, opened_by: "user-1", submitted_by: null, decided_by: null, decision_memo: null, line_count: 0, variance_line_count: 0, created_at: "2026-07-24T00:00:00Z", updated_at: "2026-07-24T00:00:00Z" };
+    const detail = { count, lines: [], applied_movement_ids: [] };
+    const GET = vi.fn((path: string) => response(path === "/api/v1/inventory/mrp" ? [{ item_id: item.id, iv_code: item.iv_code, display_name: item.display_name, unit_code: item.unit_code, quantity_on_hand_milli: 1, safety_stock_milli: 2, inbound_expected_milli: 0, reserved_outbound_milli: 0, monthly_usage_milli: 1, cover_months_centi: 100, short: true, proposed_order_milli: 2 }] : [{ id: "move-1", item_id: item.id, iv_code: item.iv_code, kind: "RECEIPT", quantity_delta_milli: 1, quantity_before_milli: 0, quantity_after_milli: 1, source: { kind: "external_ref", source_ref: "PO-1" }, actor: "user-1", occurred_at: "2026-07-24T00:00:00Z", memo: null }]));
+    const POST = vi.fn(() => response(detail));
+    await expect(listInventoryMovements({ GET } as never, item.id)).resolves.toHaveLength(1);
+    await expect(getInventoryMrp({ GET } as never, item.branch_id)).resolves.toHaveLength(1);
+    await expect(openCycleCount({ POST } as never, item.branch_id, "loc")).resolves.toMatchObject({ count: { id: "cc-1" } });
+    await expect(submitCycleCount({ POST } as never, "cc-1", 1)).resolves.toMatchObject({ count: { version: 1 } });
+    expect(GET).toHaveBeenCalledWith("/api/v1/inventory/mrp", expect.objectContaining({ params: { query: { branch_id: item.branch_id } } }));
   });
 
   it("rejects malformed 2xx inventory, work-order, trace, and consumption bodies", async () => {

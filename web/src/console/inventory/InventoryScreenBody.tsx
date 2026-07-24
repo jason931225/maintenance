@@ -17,7 +17,19 @@ import {
   listInventoryConsumptions,
   listInventoryItems,
   listOpenWorkOrders,
+  listInventoryMovements,
+  receiveInventoryItem,
+  getInventoryMrp,
+  listCycleCounts,
+  openCycleCount,
+  getCycleCount,
+  upsertCycleLine,
+  submitCycleCount,
+  decideCycleCount,
+  cancelCycleCount,
   milliUnits,
+  type CycleCountDetail,
+  type InventoryMovement,
   type InventoryConsumptionEvent,
   type InventoryItem,
   type WorkOrderSummary,
@@ -563,6 +575,7 @@ function InventoryDetail({
           }}
         />
       ) : null}
+      <InventoryOperations api={api} item={item} />
       <div style={{ padding: "var(--sp-4)" }}>
         <h3 style={{ margin: "0 0 var(--sp-3)", fontSize: "var(--text-base)" }}>
           {T.traceTitle}
@@ -602,6 +615,36 @@ function InventoryDetail({
       </div>
     </section>
   );
+}
+
+function InventoryOperations({ api, item }: { api: ConsoleApiClient; item: InventoryItem }) {
+  const [movements, setMovements] = useState<InventoryMovement[] | null>(null);
+  const [mrp, setMrp] = useState<Awaited<ReturnType<typeof getInventoryMrp>> | null>(null);
+  const [counts, setCounts] = useState<CycleCountDetail["count"][]>([]);
+  const [count, setCount] = useState<CycleCountDetail | null>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [showCount, setShowCount] = useState(false);
+  const [amount, setAmount] = useState(""); const [sourceRef, setSourceRef] = useState(""); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const [counted, setCounted] = useState(""); const [reason, setReason] = useState(""); const [memo, setMemo] = useState("");
+  const load = async () => {
+    setMessage(null);
+    try { const [nextMovements, nextMrp, nextCounts] = await Promise.all([listInventoryMovements(api, item.id), getInventoryMrp(api, item.branch_id), listCycleCounts(api, item.branch_id)]); setMovements(nextMovements); setMrp(nextMrp); setCounts(nextCounts); }
+    catch (error) { setMessage(isAccessDenied(error) ? "이 지점의 재고 운영 정보를 조회할 권한이 없습니다." : "재고 운영 정보를 안전하게 확인하지 못했습니다."); }
+  };
+  useEffect(() => { void load(); }, [api, item.id, item.branch_id]);
+  async function receipt() { const milli = milliUnits(amount); if (milli == null) { setMessage("입고 수량은 0보다 큰 셋째 자리 단위여야 합니다."); return; } setBusy(true); try { await receiveInventoryItem(api, item.id, { quantity_received_milli: milli, source_ref: sourceRef.trim() || undefined, idempotency_key: crypto.randomUUID() }); setShowReceipt(false); setAmount(""); setSourceRef(""); await load(); } catch (error) { setMessage(isAccessDenied(error) ? "입고 권한이 없습니다." : "입고가 저장되지 않았습니다. 다시 제출하면 중복을 방지합니다."); } finally { setBusy(false); } }
+  async function openCount() { setBusy(true); try { setCount(await openCycleCount(api, item.branch_id, item.stock_location.id)); setShowCount(true); await load(); } catch (error) { setMessage(isAccessDenied(error) ? "실사 개설 권한이 없습니다." : "실사 개설에 실패했습니다."); } finally { setBusy(false); } }
+  async function line() { if (!count) return; const milli = milliUnits(counted); if (milli == null) { setMessage("실사 수량은 0 이상 정수/소수 셋째 자리로 입력하세요."); return; } setBusy(true); try { setCount(await upsertCycleLine(api, count.count.id, { item_id: item.id, counted_quantity_milli: milli, reason: reason || undefined, note: memo.trim() || undefined })); } catch (error) { setMessage(isAccessDenied(error) ? "실사 라인을 변경할 권한이 없습니다." : "실사 라인이 저장되지 않았습니다. 최신 상태를 다시 확인하세요."); } finally { setBusy(false); } }
+  async function transition(action: "submit" | "approve" | "reject" | "cancel") { if (!count) return; setBusy(true); try { const next = action === "submit" ? await submitCycleCount(api, count.count.id, count.count.version) : action === "cancel" ? await cancelCycleCount(api, count.count.id) : await decideCycleCount(api, count.count.id, { expected_version: count.count.version, decision: action === "approve" ? "APPROVE" : "REJECT", memo: memo.trim() || undefined, idempotency_key: action === "approve" ? crypto.randomUUID() : undefined }); setCount(next); await load(); } catch (error) { setMessage(isAccessDenied(error) ? "이 전환을 수행할 권한이 없습니다." : "동시 변경 또는 정책 검증으로 전환이 거부되었습니다. 최신 실사를 다시 확인하세요."); } finally { setBusy(false); } }
+  return <section style={{ padding: "var(--sp-4)", borderBottom: "1px solid var(--border-soft)", display: "grid", gap: "var(--sp-3)" }} aria-label="재고 운영">
+    <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-2)", flexWrap: "wrap" }}><h3 style={{ margin: 0, fontSize: "var(--text-base)" }}>입고 · 이동 · 실사 · MRP</h3><button type="button" style={buttonStyle} onClick={() => void load()}>운영 정보 새로고침</button></div>
+    {message ? <div role="alert" style={errorStyle}>{message}</div> : null}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}><button type="button" style={primaryButtonStyle} onClick={() => setShowReceipt((value) => !value)}>{showReceipt ? "입고 닫기" : "입고 기록"}</button><button type="button" style={buttonStyle} onClick={() => void openCount()} disabled={busy}>이 위치 실사 개설</button>{counts.map((entry) => <button key={entry.id} type="button" style={buttonStyle} onClick={() => void getCycleCount(api, entry.id).then(setCount).catch(() => setMessage("실사 상세를 불러오지 못했습니다."))}>{entry.cc_code} · {entry.status}</button>)}</div>
+    {showReceipt ? <form onSubmit={(event) => { event.preventDefault(); void receipt(); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(12rem,1fr))", gap: "var(--sp-2)" }} aria-label="재고 입고 기록"><label>입고 수량 ({item.unit_code})<input required value={amount} onChange={(event) => setAmount(event.target.value)} style={inputStyle} inputMode="decimal" /></label><label>원천 문서 (선택)<input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} style={inputStyle} placeholder="PO-118" /></label><button type="submit" style={primaryButtonStyle} disabled={busy}>{busy ? "저장 중" : "입고 저장"}</button></form> : null}
+    {count ? <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: "var(--sp-3)", display: "grid", gap: "var(--sp-2)" }}><strong>{count.count.cc_code} · {count.count.status} · 버전 {count.count.version}</strong><p style={{ margin: 0, color: "var(--steel)" }}>개설자 {count.count.opened_by}. 제출자와 결정자는 분리되어야 하며, 승인 시 조정 원장이 생성됩니다.</p>{count.count.status === "DRAFT" ? <><label>실사 수량 ({item.unit_code})<input value={counted} onChange={(event) => setCounted(event.target.value)} style={inputStyle} inputMode="decimal" /></label><label>차이 사유 (차이가 있을 때 필수)<select value={reason} onChange={(event) => setReason(event.target.value)} style={inputStyle}><option value="">선택</option>{["DAMAGE","LOSS","MISCOUNT","FOUND","OTHER"].map((value) => <option key={value}>{value}</option>)}</select></label><button type="button" style={buttonStyle} onClick={() => void line()} disabled={busy}>실사 라인 저장</button><button type="button" style={primaryButtonStyle} onClick={() => void transition("submit")} disabled={busy || count.lines.length === 0}>실사 제출</button></> : null}<label>결정 메모{count.count.status === "SUBMITTED" ? <input value={memo} onChange={(event) => setMemo(event.target.value)} style={inputStyle} /> : null}</label>{count.count.status === "SUBMITTED" ? <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}><button type="button" style={primaryButtonStyle} onClick={() => void transition("approve")} disabled={busy}>별도 검토자 승인</button><button type="button" style={buttonStyle} onClick={() => void transition("reject")} disabled={busy}>반려</button></div> : null}{["DRAFT", "SUBMITTED"].includes(count.count.status) ? <button type="button" style={buttonStyle} onClick={() => void transition("cancel")} disabled={busy}>실사 취소</button> : null}</div> : null}
+    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>통합 이동 원장</caption><thead><tr><th style={thStyle}>시각</th><th style={thStyle}>유형</th><th style={thStyle}>증감</th><th style={thStyle}>변경 후</th></tr></thead><tbody>{movements?.map((movement) => <tr key={movement.id}><td style={tdStyle}>{formatTime(movement.occurred_at)}</td><td style={tdStyle}>{movement.kind}</td><td style={tdStyle}>{quantity(movement.quantity_delta_milli, item.unit_code)}</td><td style={tdStyle}>{quantity(movement.quantity_after_milli, item.unit_code)}</td></tr>)}</tbody></table></div>
+    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><caption style={{ textAlign: "left", padding: "var(--sp-2) 0" }}>결정론적 MRP 권고</caption><thead><tr><th style={thStyle}>품목</th><th style={thStyle}>월 사용량</th><th style={thStyle}>입고 예정 / 예약</th><th style={thStyle}>권고</th></tr></thead><tbody>{mrp?.map((line) => <tr key={line.item_id}><td style={tdStyle}>{line.iv_code} · {line.display_name}</td><td style={tdStyle}>{quantity(line.monthly_usage_milli, line.unit_code)}</td><td style={tdStyle}>{quantity(line.inbound_expected_milli, line.unit_code)} / {quantity(line.reserved_outbound_milli, line.unit_code)}</td><td style={tdStyle}>{line.short ? quantity(line.proposed_order_milli, line.unit_code) : "발주 불필요"}</td></tr>)}</tbody></table></div>
+  </section>;
 }
 
 function DetailMetric({ label, value }: { label: string; value: string }) {
