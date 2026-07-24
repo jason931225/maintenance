@@ -60,9 +60,9 @@ assert(fixture.includes("LIVE_ORG_SLUGS"), "persona fixture exports live org slu
 assert(fixture.includes("PERSONA_UI_STATES"), "persona fixture exports required UI states", `${fixturePath} must export PERSONA_UI_STATES`);
 
 const admin19SharedScheduleId = "00000000-0000-0000-0000-0000000ab001";
-const mechanicInspectionDeletes =
+const mechanicInspectionOwnedDeletes =
   mechanicNavSpec.match(
-    /DELETE FROM (?:inspection_rounds|regular_inspection_schedules)[\s\S]*?;/g,
+    /DELETE FROM (?:inspection_rounds|regular_inspection_schedules|registry_equipment)[\s\S]*?;/g,
   ) ?? [];
 assert(
   !mechanicNavSpec.includes(admin19SharedScheduleId),
@@ -75,12 +75,14 @@ assert(
   `${mechanicNavSpecPath} must use its dedicated namespaced schedule id`,
 );
 assert(
-  mechanicInspectionDeletes.length === 4 &&
-    mechanicInspectionDeletes.every((statement) =>
-      statement.includes("${MECHANIC_INSPECTION_SCHEDULE_ID}"),
+  mechanicInspectionOwnedDeletes.length === 6 &&
+    mechanicInspectionOwnedDeletes.every((statement) =>
+      statement.includes("registry_equipment")
+        ? statement.includes("${MECHANIC_INSPECTION_EQUIPMENT_ID}")
+        : statement.includes("${MECHANIC_INSPECTION_SCHEDULE_ID}"),
     ),
-  "mechanic inspection cleanup is scoped to its owned schedule",
-  `${mechanicNavSpecPath} may delete inspection rows only through MECHANIC_INSPECTION_SCHEDULE_ID`,
+  "mechanic inspection cleanup is scoped to its owned schedule and equipment",
+  `${mechanicNavSpecPath} may delete inspection fixtures only through its dedicated ids`,
 );
 assert(
   !/UPDATE\s+regular_inspection_schedules/i.test(mechanicNavSpec),
@@ -92,6 +94,26 @@ assert(
     mechanicNavSpec.includes("team = ${sqlLiteral(previousTeam)}"),
   "mechanic inspection story restores the captured prior team",
   `${mechanicNavSpecPath} must restore the mechanic team from captured prior state`,
+);
+assert(
+  mechanicNavSpec.includes('MECHANIC_INSPECTION_MANAGEMENT_NO = "E2E-INS-4881"') &&
+    !mechanicNavSpec.includes('"E2E-001"') &&
+    mechanicNavSpec.includes(
+      ".filter({ hasText: MECHANIC_INSPECTION_MANAGEMENT_NO })",
+    ) &&
+    mechanicNavSpec.includes("await expect(assignedRounds).toHaveCount(1)"),
+  "mechanic inspection story locates exactly one dedicated equipment row",
+  `${mechanicNavSpecPath} must locate exactly one story-owned management number, never shared E2E-001`,
+);
+assert(
+  mechanicNavSpec.includes(
+    "`/api/v1/inspections/schedules/${MECHANIC_INSPECTION_SCHEDULE_ID}/rounds`",
+  ) &&
+    mechanicNavSpec.includes(
+      "expect(completedRound.schedule_id).toBe(MECHANIC_INSPECTION_SCHEDULE_ID)",
+    ),
+  "mechanic inspection completion proves its owned schedule id",
+  `${mechanicNavSpecPath} must verify the completion response path and schedule id`,
 );
 
 const requiredOrgSlugs = [

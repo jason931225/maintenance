@@ -23,8 +23,12 @@ import {
 const ADMIN_ONLY_ROUTES = ["/settings/users", "/approvals"] as const;
 const MECHANIC_ID = "00000000-0000-0000-0000-0000000d0002";
 const ADMIN_ID = "00000000-0000-0000-0000-0000000d0003";
-const EQUIPMENT_ID = "00000000-0000-0000-0000-000000ee0003";
+const CUSTOMER_ID = "00000000-0000-0000-0000-000000ee0001";
+const SITE_ID = "00000000-0000-0000-0000-000000ee0002";
 const DENIED_EQUIPMENT_ID = "00000000-0000-4000-8000-0000000e4882";
+const MECHANIC_INSPECTION_EQUIPMENT_ID =
+  "00000000-0000-4000-8000-0000000e4883";
+const MECHANIC_INSPECTION_MANAGEMENT_NO = "E2E-INS-4881";
 const MECHANIC_INSPECTION_SCHEDULE_ID =
   "00000000-0000-4000-8000-0000000e4881";
 
@@ -94,14 +98,28 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
        WHERE schedule_id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
      DELETE FROM regular_inspection_schedules
        WHERE id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
+     DELETE FROM registry_equipment
+       WHERE id = '${MECHANIC_INSPECTION_EQUIPMENT_ID}';
      UPDATE users SET team = '예방' WHERE id = '${MECHANIC_ID}';
+     INSERT INTO registry_equipment (
+       id, branch_id, customer_id, site_id, equipment_no, management_no, model,
+       manufacturer_code, kind_code, power_code, status, specification,
+       ton_text, ton_milli, source_sheet, source_row, org_id
+     )
+     VALUES (
+       '${MECHANIC_INSPECTION_EQUIPMENT_ID}', '${TENANT_BRANCH_ID}',
+       '${CUSTOMER_ID}', '${SITE_ID}', 'TSTIN-4881',
+       '${MECHANIC_INSPECTION_MANAGEMENT_NO}', 'E2E 예방정비 전용 장비',
+       'E2E-MAKER', 'FORK', 'ELEC', '임대', '15t/6m', '15t', 15000,
+       'e2e-mechanic-inspection', 4881, '${TENANT_ORG_ID}'
+     );
      INSERT INTO regular_inspection_schedules (
        id, branch_id, equipment_id, mechanic_id, cycle, interval_days,
        due_date, status, note, created_by, created_at, org_id
      )
      VALUES (
        '${MECHANIC_INSPECTION_SCHEDULE_ID}', '${TENANT_BRANCH_ID}',
-       '${EQUIPMENT_ID}', '${MECHANIC_ID}', 'WEEKLY', 7,
+       '${MECHANIC_INSPECTION_EQUIPMENT_ID}', '${MECHANIC_ID}', 'WEEKLY', 7,
        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date + 1,
        'SCHEDULED', 'E2E 정비사 전용 예방정비 라운드',
        '${ADMIN_ID}', now(), '${TENANT_ORG_ID}'
@@ -132,9 +150,11 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
 
     const workspace = page.getByRole("region", { name: "정기 예방정비" });
     await expect(workspace).toBeVisible();
-    const assignedRound = workspace
+    const assignedRounds = workspace
       .getByRole("listitem")
-      .filter({ hasText: "E2E-001" });
+      .filter({ hasText: MECHANIC_INSPECTION_MANAGEMENT_NO });
+    await expect(assignedRounds).toHaveCount(1);
+    const assignedRound = assignedRounds.first();
     await expect(assignedRound).toContainText("E2E사업장");
     await expect(
       assignedRound.getByRole("button", { name: "점검 완료" }),
@@ -195,7 +215,15 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
       );
     });
     await submit.click();
-    expect((await completion).status()).toBe(201);
+    const completionResponse = await completion;
+    expect(completionResponse.status()).toBe(201);
+    expect(new URL(completionResponse.url()).pathname).toBe(
+      `/api/v1/inspections/schedules/${MECHANIC_INSPECTION_SCHEDULE_ID}/rounds`,
+    );
+    const completedRound = (await completionResponse.json()) as {
+      schedule_id?: string;
+    };
+    expect(completedRound.schedule_id).toBe(MECHANIC_INSPECTION_SCHEDULE_ID);
     await expect(
       assignedRound.getByText("완료", { exact: true }),
     ).toBeVisible();
@@ -207,6 +235,8 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
          WHERE schedule_id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
        DELETE FROM regular_inspection_schedules
          WHERE id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
+       DELETE FROM registry_equipment
+         WHERE id = '${MECHANIC_INSPECTION_EQUIPMENT_ID}';
        UPDATE users SET team = ${sqlLiteral(previousTeam)}
          WHERE id = '${MECHANIC_ID}';
        COMMIT;`,
