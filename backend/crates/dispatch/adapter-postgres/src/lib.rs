@@ -177,31 +177,45 @@ impl PgDispatchStore {
         command: RespondP1DispatchCommand,
         timers: DispatchTimerConfig,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
-        let head = dispatch_head(&self.pool, command.dispatch_id).await?;
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        let event = dispatch_audit_event(
-            "p1_dispatch.respond",
-            Some(command.actor),
-            head.branch_id,
-            command.dispatch_id,
-            command.trace.clone(),
-            command.occurred_at,
-        )?
-        .with_org(org)
-        .with_snapshots(None, Some(response_after_snapshot(command.response)));
         let actor = command.actor;
         let dispatch_id = command.dispatch_id;
         let response = command.response;
         let occurred_at = command.occurred_at;
         let trace = command.trace.clone();
 
-        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+        with_audits::<_, P1DispatchSummary, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let mut dispatch = lock_dispatch(tx, dispatch_id).await?;
-                dispatch.record_response(response, occurred_at)?;
                 ensure_technician_target(tx, dispatch_id, actor).await?;
+                if let Some(existing_response) = response_for_target(tx, dispatch_id, actor).await?
+                {
+                    if existing_response != response {
+                        return Err(KernelError::conflict(
+                            "dispatch target already responded with a different response",
+                        )
+                        .into());
+                    }
+                    return Ok((
+                        fetch_dispatch_summary_tx(tx, dispatch_id).await?,
+                        Vec::new(),
+                    ));
+                }
+
+                dispatch.record_response(response, occurred_at)?;
                 insert_response(tx, dispatch_id, actor, response, occurred_at, org_uuid).await?;
+
+                let event = dispatch_audit_event(
+                    "p1_dispatch.respond",
+                    Some(actor),
+                    branch_for_work_order_tx(tx, dispatch.work_order_id).await?,
+                    dispatch_id,
+                    trace.clone(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(None, Some(response_after_snapshot(response)));
 
                 let accepted_count = accepted_count_tx(tx, dispatch_id).await?;
                 if response == DispatchResponseKind::Accept
@@ -221,7 +235,10 @@ impl PgDispatchStore {
                     update_score_columns(tx, dispatch_id, score).await?;
                 }
 
-                fetch_dispatch_summary_tx(tx, dispatch_id).await
+                Ok((
+                    fetch_dispatch_summary_tx(tx, dispatch_id).await?,
+                    vec![event],
+                ))
             })
         })
         .await
@@ -1443,6 +1460,25 @@ async fn ensure_technician_target(
     } else {
         Ok(())
     }
+}
+
+async fn response_for_target(
+    tx: &mut Transaction<'_, Postgres>,
+    dispatch_id: P1DispatchId,
+    user_id: UserId,
+) -> Result<Option<DispatchResponseKind>, PgDispatchError> {
+    let response = sqlx::query_scalar::<_, String>(
+        "SELECT response FROM p1_dispatch_responses WHERE dispatch_id = $1 AND user_id = $2",
+    )
+    .bind(*dispatch_id.as_uuid())
+    .bind(*user_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    response
+        .as_deref()
+        .map(DispatchResponseKind::from_db_str)
+        .transpose()
+        .map_err(Into::into)
 }
 
 async fn insert_response(
