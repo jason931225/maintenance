@@ -23,5 +23,5 @@
     "from_str": "8 arms for the snake_case keys",
     "tests/policy.rs": "import list + 8 all-deny matrix rows + Feature::ALL.len() assertions 80 -> 88"
   },
-  "feature_catalog": "The 8 keys are registered by migration 0185_create_equipment_3r.sql (ON CONFLICT DO NOTHING)."
+  "feature_catalog": "The 8 keys are registered by migration 0182_create_equipment_3r.sql (ON CONFLICT DO NOTHING)."
 }
