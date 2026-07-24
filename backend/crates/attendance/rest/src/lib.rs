@@ -221,20 +221,41 @@ fn parse_month_range(month: &str) -> Result<AttendanceDateRange, RestError> {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct ListQuery {
-    month: String,
+    month: Option<String>,
     from_date: Option<String>,
     to_date: Option<String>,
+    work_date: Option<String>,
+    status: Option<String>,
+    employee_id: Option<Uuid>,
     branch_id: Option<Uuid>,
     limit: Option<i64>,
     offset: Option<i64>,
 }
 fn list_range(q: &ListQuery) -> Result<AttendanceDateRange, RestError> {
-    match (&q.from_date, &q.to_date) {
-        (None, None) => parse_month_range(&q.month),
-        (Some(from), Some(to)) => {
-            AttendanceDateRange::new(parse_date(from, "fromDate")?, parse_date(to, "toDate")?)
+    let selectors = usize::from(q.month.is_some())
+        + usize::from(q.work_date.is_some())
+        + usize::from(q.from_date.is_some() || q.to_date.is_some());
+    if selectors != 1 {
+        return Err(RestError::kernel(KernelError::validation(
+            "supply exactly one date selector",
+        )));
+    }
+    match (&q.month, &q.work_date, &q.from_date, &q.to_date) {
+        (Some(month), None, None, None) => parse_month_range(month),
+        (None, Some(day), None, None) => {
+            let date = parse_date(day, "work_date")?;
+            AttendanceDateRange::new(date, date + Duration::days(1)).map_err(|e| {
+                RestError::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "validation",
+                    e.to_string(),
+                )
+            })
+        }
+        (None, None, Some(from), Some(to)) => {
+            AttendanceDateRange::new(parse_date(from, "from_date")?, parse_date(to, "to_date")?)
                 .map_err(|e| {
                     RestError::new(
                         StatusCode::UNPROCESSABLE_ENTITY,
@@ -244,7 +265,7 @@ fn list_range(q: &ListQuery) -> Result<AttendanceDateRange, RestError> {
                 })
         }
         _ => Err(RestError::kernel(KernelError::validation(
-            "fromDate and toDate must be provided together",
+            "invalid date selector",
         ))),
     }
 }
@@ -445,7 +466,24 @@ async fn list_exceptions(
     require_for_branch(&p, READ, q.branch_id)?;
     let page = state
         .store
-        .list_exceptions(&scope(&p), list_range(&q)?, q.branch_id)
+        .list_exceptions(
+            &scope(&p),
+            ListExceptions::new(
+                list_range(&q)?,
+                q.branch_id,
+                q.status.clone(),
+                q.employee_id,
+                q.limit,
+                q.offset,
+            )
+            .map_err(|e| {
+                RestError::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "validation",
+                    e.to_string(),
+                )
+            })?,
+        )
         .await
         .map_err(RestError::store)?;
     Ok(Json(ExceptionPageDto {
@@ -1202,9 +1240,12 @@ mod tests {
     #[test]
     fn explicit_range_needs_both_bounds() {
         let q = ListQuery {
-            month: "2026-07".to_owned(),
+            month: Some("2026-07".to_owned()),
             from_date: Some("2026-07-01".to_owned()),
             to_date: None,
+            work_date: None,
+            status: None,
+            employee_id: None,
             branch_id: None,
             limit: None,
             offset: None,
@@ -1214,9 +1255,12 @@ mod tests {
     #[test]
     fn no_implicit_unbounded_listing() {
         let q = ListQuery {
-            month: "2026-07".to_owned(),
+            month: Some("2026-07".to_owned()),
             from_date: None,
             to_date: None,
+            work_date: None,
+            status: None,
+            employee_id: None,
             branch_id: None,
             limit: None,
             offset: None,
@@ -1289,5 +1333,42 @@ mod tests {
                 "{family}"
             );
         }
+    }
+    #[test]
+    fn list_query_modes_are_mutually_exclusive() {
+        let q = |month: Option<&str>, from: Option<&str>, to: Option<&str>| ListQuery {
+            month: month.map(str::to_owned),
+            from_date: from.map(str::to_owned),
+            to_date: to.map(str::to_owned),
+            work_date: None,
+            status: None,
+            employee_id: None,
+            branch_id: None,
+            limit: None,
+            offset: None,
+        };
+        assert!(list_range(&q(Some("2026-07"), None, None)).is_ok());
+        assert!(list_range(&q(None, Some("2026-07-01"), Some("2026-07-08"))).is_ok());
+        assert!(list_range(&q(None, None, None)).is_err());
+        assert!(list_range(&q(Some("2026-07"), Some("2026-07-01"), Some("2026-07-08"))).is_err());
+        assert!(list_range(&q(None, Some("2026-07-01"), None)).is_err());
+    }
+    #[test]
+    fn work_date_selector_is_exclusive() {
+        let q = |month: Option<&str>, work_date: Option<&str>| ListQuery {
+            month: month.map(str::to_owned),
+            from_date: None,
+            to_date: None,
+            work_date: work_date.map(str::to_owned),
+            status: None,
+            employee_id: None,
+            branch_id: None,
+            limit: None,
+            offset: None,
+        };
+        let range = list_range(&q(None, Some("2026-07-09"))).unwrap();
+        assert_eq!(range.from.to_string(), "2026-07-09");
+        assert_eq!(range.to_exclusive.to_string(), "2026-07-10");
+        assert!(list_range(&q(Some("2026-07"), Some("2026-07-09"))).is_err());
     }
 }

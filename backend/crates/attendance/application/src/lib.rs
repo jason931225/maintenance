@@ -46,6 +46,42 @@ impl ListSubstitutions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListExceptions {
+    pub range: AttendanceDateRange,
+    pub branch_id: Option<Uuid>,
+    pub status: Option<String>,
+    pub employee_id: Option<Uuid>,
+    pub limit: i64,
+    pub offset: i64,
+}
+impl ListExceptions {
+    pub fn new(
+        range: AttendanceDateRange,
+        branch_id: Option<Uuid>,
+        status: Option<String>,
+        employee_id: Option<Uuid>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Self, AttendanceApplicationError> {
+        let status = status.map(|value| value.trim().to_owned());
+        if status
+            .as_deref()
+            .is_some_and(|value| value != "OPEN" && value != "RESOLVED")
+        {
+            return Err(AttendanceApplicationError::InvalidText("status"));
+        }
+        Ok(Self {
+            range,
+            branch_id,
+            status,
+            employee_id,
+            limit: limit.unwrap_or(50).clamp(1, 200),
+            offset: offset.unwrap_or(0).clamp(0, 1_000_000),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RaiseException {
     pub kind: ExceptionKind,
     pub employee_id: Uuid,
@@ -429,5 +465,33 @@ mod idempotency_tests {
             idempotency_decision(Some("a"), "b"),
             IdempotencyDecision::Conflict
         );
+    }
+    #[test]
+    fn exception_list_normalizes_status_and_pagination_bounds() {
+        let range = AttendanceDateRange::new(
+            time::Date::from_calendar_date(2026, time::Month::July, 1).unwrap(),
+            time::Date::from_calendar_date(2026, time::Month::July, 2).unwrap(),
+        )
+        .unwrap();
+        let defaulted =
+            ListExceptions::new(range.clone(), None, Some(" OPEN ".into()), None, None, None)
+                .unwrap();
+        assert_eq!(defaulted.status.as_deref(), Some("OPEN"));
+        assert_eq!((defaulted.limit, defaulted.offset), (50, 0));
+        let clamped = ListExceptions::new(
+            range.clone(),
+            None,
+            Some("RESOLVED".into()),
+            None,
+            Some(-2),
+            Some(-1),
+        )
+        .unwrap();
+        assert_eq!((clamped.limit, clamped.offset), (1, 0));
+        let maximum =
+            ListExceptions::new(range.clone(), None, None, None, Some(999), Some(9_999_999))
+                .unwrap();
+        assert_eq!((maximum.limit, maximum.offset), (200, 1_000_000));
+        assert!(ListExceptions::new(range, None, Some("open".into()), None, None, None).is_err());
     }
 }

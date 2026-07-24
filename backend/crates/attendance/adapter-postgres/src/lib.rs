@@ -9,8 +9,8 @@ use mnt_attendance_application::{
     self as app, AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence,
     AttendanceExceptionRead, AttendanceObjectLink, AttendancePage, CallerScope, CancelSubstitution,
     CloseAmendmentRead, CloseCheckRead, CloseChecks, CloseMonth, ClosePreflightRead,
-    ExceptionResolutionRead, ListSubstitutions, MonthCloseRead, RaiseException, ResolveException,
-    Week52AcknowledgementRead, Week52Input, Week52Read,
+    ExceptionResolutionRead, ListExceptions, ListSubstitutions, MonthCloseRead, RaiseException,
+    ResolveException, Week52AcknowledgementRead, Week52Input, Week52Read,
 };
 use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, HistoricalAbsence};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
@@ -73,19 +73,11 @@ impl PgAttendanceStore {
     pub async fn list_exceptions(
         &self,
         caller: &CallerScope,
-        range: AttendanceDateRange,
-        branch_id: Option<Uuid>,
+        query: ListExceptions,
     ) -> Result<AttendancePage<AttendanceExceptionRead>, AttendanceStoreError> {
-        app::ensure_scope(caller, branch_id)?;
+        app::ensure_scope(caller, query.branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
-        with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let rows = sqlx::query(&exception_projection("WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) ORDER BY e.work_date DESC,e.created_at DESC LIMIT 200"))
-                .bind(range.from).bind(range.to_exclusive).bind(branch_id).fetch_all(tx.as_mut()).await?;
-            let total: i64 = sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions e WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3)")
-                .bind(range.from).bind(range.to_exclusive).bind(branch_id).fetch_one(tx.as_mut()).await?;
-            let items = rows.iter().map(exception_read).collect::<Result<Vec<_>, _>>()?;
-            Ok(AttendancePage { items, total, limit: 200, offset: 0 })
-        })).await
+        with_org_conn::<_,_,AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move { let where_clause="WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) AND ($4::text IS NULL OR e.status=$4) AND ($5::uuid IS NULL OR e.employee_id=$5) ORDER BY e.work_date DESC,e.created_at DESC,e.id DESC LIMIT $6 OFFSET $7"; let rows=sqlx::query(&exception_projection(where_clause)).bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(&query.status).bind(query.employee_id).bind(query.limit).bind(query.offset).fetch_all(tx.as_mut()).await?; let total:i64=sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions e WHERE e.work_date >= $1 AND e.work_date < $2 AND ($3::uuid IS NULL OR e.branch_id=$3) AND ($4::text IS NULL OR e.status=$4) AND ($5::uuid IS NULL OR e.employee_id=$5)").bind(query.range.from).bind(query.range.to_exclusive).bind(query.branch_id).bind(&query.status).bind(query.employee_id).fetch_one(tx.as_mut()).await?; Ok(AttendancePage{items:rows.iter().map(exception_read).collect::<Result<Vec<_>,_>>()?,total,limit:query.limit,offset:query.offset})})).await
     }
 
     pub async fn raise_exception(
