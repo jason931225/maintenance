@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
 import type { components } from "@maintenance/api-client-ts";
 
 import { useAuth } from "../../context/auth";
+import { toLocalDateTimeInput } from "./facilitiesDate";
 
 export type FacilitiesCase = components["schemas"]["FacilitiesCase"];
 type FacilitiesApi = ReturnType<typeof useAuth>["api"];
@@ -41,8 +42,7 @@ function dueTone(value: string): string {
 }
 
 function localDateTime(): string {
-  const now = new Date(Date.now() + 60 * 60 * 1000);
-  return now.toISOString().slice(0, 16);
+  return toLocalDateTimeInput(new Date());
 }
 
 /**
@@ -116,8 +116,15 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
     }
   }, [api]);
 
-  useEffect(() => { void refreshList(); }, [refreshList]);
-  useEffect(() => { if (selectedId) void refreshDetail(selectedId); else setSelected(undefined); }, [refreshDetail, selectedId]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refreshList(); }, 0);
+    return () => { window.clearTimeout(timer); };
+  }, [refreshList]);
+  useEffect(() => {
+    if (!selectedId) return undefined;
+    const timer = window.setTimeout(() => { void refreshDetail(selectedId); }, 0);
+    return () => { window.clearTimeout(timer); };
+  }, [refreshDetail, selectedId]);
 
   const refreshCase = useCallback(async (caseId: string) => {
     await Promise.all([refreshList(), refreshDetail(caseId)]);
@@ -139,7 +146,7 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
     } finally { setPending(undefined); }
   }, [refreshCase]);
 
-  async function createCase(event: FormEvent<HTMLFormElement>) {
+  async function createCase(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!obligationId.trim()) { setNotice({ kind: "error", text: "활성 HVAC 의무 ID를 입력해야 합니다." }); return; }
     const key = `create:${obligationId}`;
@@ -157,9 +164,9 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
   const can = useMemo(() => ({
     triage: selected?.status === "DUE" || selected?.status === "TRIAGED",
     assign: selected?.status === "SCHEDULED",
-    start: selected?.status === "ASSIGNED",
+    start: selected?.status === "ASSIGNED" || selected?.status === "REWORK_REQUIRED",
     observe: selected?.status === "IN_PROGRESS",
-    submit: selected?.status === "IN_PROGRESS" || selected?.status === "REWORK_REQUIRED",
+    submit: selected?.status === "IN_PROGRESS",
     accept: selected?.status === "AWAITING_ACCEPTANCE",
   }), [selected?.status]);
 
@@ -178,7 +185,7 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
       <h2 id="facilities-intake-title" className="text-base font-bold text-ink">의무 기반 사례 접수</h2>
       <p className="mt-1 text-sm text-steel">활성 HVAC 의무 ID를 사용합니다. 임의 사례나 데모 데이터는 생성하지 않습니다.</p>
       <form className="mt-3 flex flex-wrap gap-3" onSubmit={(event) => { void createCase(event); }}>
-        <label className="grid min-w-[min(100%,32rem)] flex-1 gap-1 text-sm font-medium text-ink">활성 HVAC 의무 ID<input required value={obligationId} onChange={(event) => setObligationId(event.target.value)} className="rounded-md border border-line px-3 py-2 font-mono text-sm" aria-describedby="facilities-intake-help" /></label>
+        <label className="grid min-w-[min(100%,32rem)] flex-1 gap-1 text-sm font-medium text-ink">활성 HVAC 의무 ID<input required value={obligationId} onChange={(event) => { setObligationId(event.target.value); }} className="rounded-md border border-line px-3 py-2 font-mono text-sm" aria-describedby="facilities-intake-help" /></label>
         <div className="flex items-end"><button type="submit" disabled={Boolean(pending)} className="rounded-md bg-brand-teal px-4 py-2 font-semibold text-white disabled:opacity-60">{pending?.startsWith("create:") ? "접수 중…" : "사례 접수"}</button></div>
       </form>
       <p id="facilities-intake-help" className="mt-2 text-xs text-steel">서버가 동일 요청을 멱등하게 처리하고, 새 사례의 SLA를 계산합니다.</p>
@@ -190,7 +197,7 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
         <div className="max-h-[58vh] overflow-auto p-2" aria-busy={loading}>
           {loading ? <p className="p-3 text-sm text-steel">사례를 불러오는 중…</p> : null}
           {!loading && cases.length === 0 ? <p className="p-3 text-sm text-steel">현재 권한 범위에 시설 사례가 없습니다.</p> : null}
-          {cases.map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={`grid w-full gap-2 rounded-lg p-3 text-left hover:bg-muted-panel ${selectedId === item.id ? "bg-brand-teal/10 ring-1 ring-brand-teal" : ""}`}>
+          {cases.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedId(item.id); }} className={`grid w-full gap-2 rounded-lg p-3 text-left hover:bg-muted-panel ${selectedId === item.id ? "bg-brand-teal/10 ring-1 ring-brand-teal" : ""}`}>
             <span className="flex items-center justify-between gap-3"><strong className="font-mono text-sm text-ink">{item.id.slice(0, 8)}</strong><span className="rounded-full border border-line px-2 py-0.5 text-xs font-semibold text-ink">{STATUS_LABEL[item.status]}</span></span>
             <span className={`rounded border px-2 py-1 text-xs ${dueTone(item.completionDueAt)}`}>완료 SLA {displayDate(item.completionDueAt)}</span>
             <span className="text-xs text-steel">{item.assigneeId ? `담당 ${item.assigneeId.slice(0, 8)}` : "담당자 미배정"}</span>
@@ -203,13 +210,13 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
         {selectedId && detailLoading && !selected ? <p className="text-sm text-steel">사례 상세를 불러오는 중…</p> : null}
         {selected ? <div className="grid gap-5">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-steel">Case {selected.id}</p><h2 className="mt-1 text-xl font-bold text-ink">{STATUS_LABEL[selected.status]}</h2></div><span className={`rounded-md border px-3 py-2 text-sm font-semibold ${dueTone(selected.completionDueAt)}`}>완료 SLA {displayDate(selected.completionDueAt)}</span></div>
-          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Metric label="응답 SLA" value={displayDate(selected.responseDueAt)} /><Metric label="인수 SLA" value={displayDate(selected.acceptanceDueAt)} /><Metric label="담당자" value={selected.assigneeId ?? "미배정"} mono /><Metric label="에너지 변화" value={selected.energyDeltaKwh === null ? "관측 전" : `${selected.energyDeltaKwh} kWh`} /><Metric label="누적 비용" value={`${selected.totalCostKrw.toLocaleString("ko-KR")} KRW`} /></dl>
-          {can.triage ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!scheduledFor) return; void command("triage", () => api.POST("/api/v1/facilities/cases/{case_id}/triage", { params: { path: { case_id: selected.id } }, body: { scheduledFor: new Date(scheduledFor).toISOString() } }), selected.id); }}><h3 className="font-bold text-ink">1. 분류 및 일정 확정</h3><label className="mt-3 grid max-w-sm gap-1 text-sm font-medium">현장 예정 시각<input type="datetime-local" required value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} className="rounded-md border border-line px-3 py-2" /></label><ActionButton pending={pending === "triage"}>일정 확정</ActionButton></form> : null}
-          {can.assign ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!assigneeId.trim()) return; void command("assign", () => api.POST("/api/v1/facilities/cases/{case_id}/assign", { params: { path: { case_id: selected.id } }, body: { assigneeId: assigneeId.trim() } }), selected.id); }}><h3 className="font-bold text-ink">2. 현장 담당 배정</h3><label className="mt-3 grid max-w-xl gap-1 text-sm font-medium">담당 사용자 ID<input required value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="rounded-md border border-line px-3 py-2 font-mono" /></label><ActionButton pending={pending === "assign"}>담당 배정</ActionButton></form> : null}
+          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Metric label="응답 SLA" value={displayDate(selected.responseDueAt)} /><Metric label="인수 SLA" value={displayDate(selected.acceptanceDueAt)} /><Metric label="담당자" value={selected.assigneeId ?? "미배정"} mono /><Metric label="에너지 변화" value={selected.energyDeltaKwh ? `${selected.energyDeltaKwh} kWh` : "관측 전"} /><Metric label="누적 비용" value={`${selected.totalCostKrw.toLocaleString("ko-KR")} KRW`} /></dl>
+          {can.triage ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!scheduledFor) return; void command("triage", () => api.POST("/api/v1/facilities/cases/{case_id}/triage", { params: { path: { case_id: selected.id } }, body: { scheduledFor: new Date(scheduledFor).toISOString() } }), selected.id); }}><h3 className="font-bold text-ink">1. 분류 및 일정 확정</h3><label className="mt-3 grid max-w-sm gap-1 text-sm font-medium">현장 예정 시각<input type="datetime-local" required value={scheduledFor} onChange={(event) => { setScheduledFor(event.target.value); }} className="rounded-md border border-line px-3 py-2" /></label><ActionButton pending={pending === "triage"}>일정 확정</ActionButton></form> : null}
+          {can.assign ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!assigneeId.trim()) return; void command("assign", () => api.POST("/api/v1/facilities/cases/{case_id}/assign", { params: { path: { case_id: selected.id } }, body: { assigneeId: assigneeId.trim() } }), selected.id); }}><h3 className="font-bold text-ink">2. 현장 담당 배정</h3><label className="mt-3 grid max-w-xl gap-1 text-sm font-medium">담당 사용자 ID<input required value={assigneeId} onChange={(event) => { setAssigneeId(event.target.value); }} className="rounded-md border border-line px-3 py-2 font-mono" /></label><ActionButton pending={pending === "assign"}>담당 배정</ActionButton></form> : null}
           {can.start ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">3. 안전 확인 후 작업 시작</h3><p className="mt-1 text-sm text-steel">작업을 시작할 수 있는 권한은 서버가 담당자 기준으로 재검증합니다.</p><ActionButton pending={pending === "start"} onClick={() => void command("start", () => api.POST("/api/v1/facilities/cases/{case_id}/start", { params: { path: { case_id: selected.id } } }), selected.id)}>작업 시작</ActionButton></section> : null}
           {can.observe ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); const cost = costKrw.trim() ? Number(costKrw) : undefined; if (cost !== undefined && (!Number.isSafeInteger(cost) || cost < 0)) { setNotice({ kind: "error", text: "비용은 0 이상의 정수 KRW여야 합니다." }); return; } void command("observe", () => api.POST("/api/v1/facilities/cases/{case_id}/observations", { params: { path: { case_id: selected.id } }, body: { observedAt: new Date().toISOString(), ...(preKwh.trim() ? { preKwh: preKwh.trim() } : {}), ...(postKwh.trim() ? { postKwh: postKwh.trim() } : {}), ...(cost !== undefined ? { costKrw: cost } : {}) } }), selected.id); }}><h3 className="font-bold text-ink">4. 에너지·비용 관측</h3><div className="mt-3 grid gap-3 sm:grid-cols-3"><Input label="작업 전 kWh" value={preKwh} onChange={setPreKwh} /><Input label="작업 후 kWh" value={postKwh} onChange={setPostKwh} /><Input label="비용 (KRW)" value={costKrw} onChange={setCostKrw} inputMode="numeric" /></div><ActionButton pending={pending === "observe"}>관측 기록</ActionButton></form> : null}
           {can.submit ? <form className="rounded-lg border border-line bg-muted-panel p-4" onSubmit={(event) => { event.preventDefault(); if (!safetyEvidenceId.trim() || !reportEvidenceId.trim()) { setNotice({ kind: "error", text: "안전 점검과 서비스 보고 증빙 ID가 모두 필요합니다." }); return; } void command("submit", () => api.POST("/api/v1/facilities/cases/{case_id}/submit", { params: { path: { case_id: selected.id } }, body: { safetyChecklistEvidenceId: safetyEvidenceId.trim(), serviceReportEvidenceId: reportEvidenceId.trim(), ...(photoEvidenceId.trim() ? { photoEvidenceId: photoEvidenceId.trim() } : {}) } }), selected.id); }}><h3 className="font-bold text-ink">5. 실행 증빙 제출</h3><div className="mt-3 grid gap-3 lg:grid-cols-3"><Input label="안전 점검 증빙 ID" value={safetyEvidenceId} onChange={setSafetyEvidenceId} required /><Input label="서비스 보고 증빙 ID" value={reportEvidenceId} onChange={setReportEvidenceId} required /><Input label="사진 증빙 ID (선택)" value={photoEvidenceId} onChange={setPhotoEvidenceId} /></div><ActionButton pending={pending === "submit"}>인수 요청 제출</ActionButton></form> : null}
-          {can.accept ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">6. 고객 인수 결정</h3><label className="mt-3 grid max-w-2xl gap-1 text-sm font-medium">반려 사유 (반려 시 기록)<textarea value={acceptanceReason} onChange={(event) => setAcceptanceReason(event.target.value)} className="min-h-20 rounded-md border border-line px-3 py-2" maxLength={1000} /></label><div className="mt-3 flex flex-wrap gap-2"><ActionButton pending={pending === "accepted"} onClick={() => void command("accepted", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "ACCEPTED" } }), selected.id)}>인수 및 종결</ActionButton><button type="button" disabled={Boolean(pending) || !acceptanceReason.trim()} onClick={() => void command("rejected", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "REJECTED", reason: acceptanceReason.trim() } }), selected.id)} className="rounded-md border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 disabled:opacity-60">{pending === "rejected" ? "반려 중…" : "재작업 요청"}</button></div></section> : null}
+          {can.accept ? <section className="rounded-lg border border-line bg-muted-panel p-4"><h3 className="font-bold text-ink">6. 고객 인수 결정</h3><label className="mt-3 grid max-w-2xl gap-1 text-sm font-medium">반려 사유 (반려 시 기록)<textarea value={acceptanceReason} onChange={(event) => { setAcceptanceReason(event.target.value); }} className="min-h-20 rounded-md border border-line px-3 py-2" maxLength={1000} /></label><div className="mt-3 flex flex-wrap gap-2"><ActionButton pending={pending === "accepted"} onClick={() => void command("accepted", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "ACCEPTED" } }), selected.id)}>인수 및 종결</ActionButton><button type="button" disabled={Boolean(pending) || !acceptanceReason.trim()} onClick={() => void command("rejected", () => api.POST("/api/v1/facilities/cases/{case_id}/acceptance", { params: { path: { case_id: selected.id } }, body: { decision: "REJECTED", reason: acceptanceReason.trim() } }), selected.id)} className="rounded-md border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 disabled:opacity-60">{pending === "rejected" ? "반려 중…" : "재작업 요청"}</button></div></section> : null}
           {selected.status === "CLOSED" ? <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-950"><h3 className="font-bold">종결된 사례</h3><p className="mt-1 text-sm">서버가 인수를 기록하고 종결 상태를 반환했습니다. 추가 상태 변경은 제공하지 않습니다.</p></section> : null}
         </div> : null}
       </section>
@@ -218,5 +225,5 @@ export function FacilitiesWorkflowSession({ api }: { api: FacilitiesApi }) {
 }
 
 function Metric({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { return <div className="rounded-lg border border-line bg-muted-panel p-3"><dt className="text-xs font-semibold text-steel">{label}</dt><dd className={`mt-1 break-all text-sm font-bold text-ink ${mono ? "font-mono" : ""}`}>{value}</dd></div>; }
-function Input({ label, value, onChange, required = false, inputMode }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; inputMode?: "numeric" }) { return <label className="grid gap-1 text-sm font-medium text-ink">{label}<input required={required} value={value} inputMode={inputMode} onChange={(event) => onChange(event.target.value)} className="rounded-md border border-line px-3 py-2 font-mono" /></label>; }
+function Input({ label, value, onChange, required = false, inputMode }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; inputMode?: "numeric" }) { return <label className="grid gap-1 text-sm font-medium text-ink">{label}<input required={required} value={value} inputMode={inputMode} onChange={(event) => { onChange(event.target.value); }} className="rounded-md border border-line px-3 py-2 font-mono" /></label>; }
 function ActionButton({ children, pending, onClick }: { children: string; pending: boolean; onClick?: () => void }) { return <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={pending} className="mt-3 rounded-md bg-brand-teal px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">{pending ? "처리 중…" : children}</button>; }
