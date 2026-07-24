@@ -184,6 +184,7 @@ export async function listDispatchQueue(
     "dispatch queue",
     await api.GET("/api/v1/console/dispatch/queue", {
       params: { query: { status: filters.status, limit: 50, after: filters.after } },
+      querySerializer: { array: { style: "form", explode: false } },
       signal,
     }),
     isQueuePage,

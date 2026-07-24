@@ -37,6 +37,7 @@ describe("dispatchApi", () => {
     await expect(listDispatchQueue(client(GET), { status: ["UNASSIGNED", "DELAYED"], after: "opaque-input" })).resolves.toEqual(queuePage);
     expect(GET).toHaveBeenCalledWith("/api/v1/console/dispatch/queue", expect.objectContaining({
       params: { query: { status: ["UNASSIGNED", "DELAYED"], limit: 50, after: "opaque-input" } },
+      querySerializer: { array: { style: "form", explode: false } },
     }));
   });
 

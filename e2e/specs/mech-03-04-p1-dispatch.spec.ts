@@ -63,7 +63,9 @@ test("MECH-03 mechanic accepts a P1 dispatch offer", async ({
 
   await offer.getByRole("button", { name: "수락", exact: true }).click();
 
-  await expect(page.getByRole("status")).toHaveText("배차를 수락했습니다.");
+  await expect(
+    page.getByRole("status").filter({ hasText: /^배차를 수락했습니다\.$/ }),
+  ).toHaveText("배차를 수락했습니다.");
   await expect(
     offerQueue.getByRole("link", { name: P1_OFFER_REQUEST_NUMBER }),
   ).not.toBeVisible();
@@ -87,7 +89,9 @@ test("MECH-04 mechanic declines a P1 dispatch offer", async ({
 
   await offer.getByRole("button", { name: "거절", exact: true }).click();
 
-  await expect(page.getByRole("status")).toHaveText("배차를 거절했습니다.");
+  await expect(
+    page.getByRole("status").filter({ hasText: /^배차를 거절했습니다\.$/ }),
+  ).toHaveText("배차를 거절했습니다.");
   await expect(
     offerQueue.getByRole("link", { name: P1_OFFER_REQUEST_NUMBER }),
   ).not.toBeVisible();
