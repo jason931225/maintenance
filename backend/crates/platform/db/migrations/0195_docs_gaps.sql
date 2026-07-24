@@ -77,3 +77,17 @@ ALTER TABLE docs_evidence_objects
 
 CREATE UNIQUE INDEX docs_evidence_objects_org_register_sequence
     ON docs_evidence_objects (org_id, register_sequence);
+
+CREATE OR REPLACE FUNCTION docs_evidence_object_register_sequence_guard()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.register_sequence IS DISTINCT FROM OLD.register_sequence THEN
+        RAISE EXCEPTION 'EV registration sequence is immutable for id=%', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER docs_evidence_objects_register_sequence_immutable
+    BEFORE UPDATE OF register_sequence ON docs_evidence_objects
+    FOR EACH ROW EXECUTE FUNCTION docs_evidence_object_register_sequence_guard();
