@@ -149,8 +149,12 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         .unwrap();
     let branch_id = seed_branch(&pool, "Read Region", "Read Branch").await;
     let other_branch_id = seed_branch(&pool, "Read Other Region", "Read Other Branch").await;
-    let second_visible_branch_id =
-        seed_branch(&pool, "Read Second Visible Region", "Read Second Visible Branch").await;
+    let second_visible_branch_id = seed_branch(
+        &pool,
+        "Read Second Visible Region",
+        "Read Second Visible Branch",
+    )
+    .await;
     let mechanic = UserId::new();
     let receptionist = UserId::new();
     let admin = UserId::new();
@@ -244,7 +248,10 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
     assert_eq!(first_page.status, StatusCode::OK, "{:?}", first_page.json);
     assert_eq!(first_page.json["total"], 3);
     assert_eq!(first_page.json["items"].as_array().unwrap().len(), 1);
-    assert_eq!(first_page.json["items"][0]["id"], second_visible.to_string());
+    assert_eq!(
+        first_page.json["items"][0]["id"],
+        second_visible.to_string()
+    );
     assert_eq!(first_page.json["items"][0]["priority"], "P1");
     assert_eq!(first_page.json["lens"]["object_type"], "work_order");
     assert_eq!(first_page.json["lens"]["aggregates"]["total_count"], 3);
@@ -319,19 +326,28 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         &token,
     )
     .await;
-    assert_eq!(requested_branch.status, StatusCode::OK, "{:?}", requested_branch.json);
+    assert_eq!(
+        requested_branch.status,
+        StatusCode::OK,
+        "{:?}",
+        requested_branch.json
+    );
     assert_eq!(requested_branch.json["total"], 2);
     assert_eq!(requested_branch.json["items"].as_array().unwrap().len(), 2);
-    assert!(requested_branch.json["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| item["branch_id"] == branch_id.to_string()));
-    assert!(requested_branch.json["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| item["id"] != second_visible.to_string()));
+    assert!(
+        requested_branch.json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["branch_id"] == branch_id.to_string())
+    );
+    assert!(
+        requested_branch.json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["id"] != second_visible.to_string())
+    );
 
     let foreign_branch = get_json(
         service.clone(),
@@ -339,7 +355,12 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
         &token,
     )
     .await;
-    assert_eq!(foreign_branch.status, StatusCode::OK, "{:?}", foreign_branch.json);
+    assert_eq!(
+        foreign_branch.status,
+        StatusCode::OK,
+        "{:?}",
+        foreign_branch.json
+    );
     assert_eq!(foreign_branch.json["total"], 0);
 
     let filtered = get_json(
