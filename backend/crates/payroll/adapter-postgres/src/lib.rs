@@ -1,15 +1,20 @@
 //! Postgres adapter for the payroll draft-run staging tables (migration
 //! 0074: `payroll_draft_runs`, `payroll_draft_lines`).
 //!
-//! Read-only. These tables are *pre-calculation* readiness/staging data —
+//! Its existing read APIs expose *pre-calculation* readiness/staging data —
 //! `payroll_draft_lines` stores work-day/hour counts and `*_source_present`
-//! booleans, never a computed won amount. The real per-employee deduction
-//! math lives in `mnt_payroll_domain::build_employee_payroll_draft`, which is
-//! a pure in-memory function with no persistence anywhere in this schema.
-//! Callers must not present anything read here as an issued payslip.
+//! booleans, never a computed won amount. The command seam below advances the
+//! existing run status only after an exact attendance close, payroll lock, and
+//! zero unresolved attendance exceptions. It still never manufactures a pay
+//! amount or invokes a payout provider. The real per-employee deduction math
+//! lives in `mnt_payroll_domain::build_employee_payroll_draft`; callers must
+//! not present readiness data as an issued payslip.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_kernel_core::{ErrorKind, KernelError, UserId};
+use mnt_payroll_domain::{
+    PayrollClosePrerequisites, PayrollRunCommand, PayrollRunStatus, transition_payroll_run,
+};
 use mnt_platform_db::{DbError, with_org_conn};
 use mnt_platform_request_context::current_org;
 use serde::Serialize;
@@ -137,6 +142,17 @@ pub struct MyPayrollLinePage {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+/// The persisted result of a close-to-payslip lifecycle command.
+///
+/// `idempotent` confirms a retry observed the already-requested state and did
+/// not create another approval or issuance transition. It does not claim that
+/// an external payment rail has transferred funds.
+#[derive(Debug, Clone, Serialize)]
+pub struct PayrollRunLifecycleResult {
+    pub status: String,
+    pub idempotent: bool,
 }
 
 #[derive(Clone)]
@@ -282,6 +298,192 @@ impl PgPayrollStore {
             offset,
         })
     }
+
+    /// Advance a staged payroll run to review only after the exact org/month
+    /// attendance close, its active payroll lock, and zero open attendance
+    /// exceptions are all observed under the same RLS-scoped transaction.
+    pub async fn calculate_run(
+        &self,
+        run_id: Uuid,
+    ) -> Result<PayrollRunLifecycleResult, PgPayrollError> {
+        self.advance_run(run_id, PayrollRunCommand::Calculate, None)
+            .await
+    }
+
+    /// Approve a reviewed payroll run. The run's creator may not approve it;
+    /// a missing creator is also rejected rather than silently weakening
+    /// separation of duties.
+    pub async fn approve_run(
+        &self,
+        run_id: Uuid,
+        approver: UserId,
+    ) -> Result<PayrollRunLifecycleResult, PgPayrollError> {
+        self.advance_run(
+            run_id,
+            PayrollRunCommand::Approve {
+                approver_is_creator: false,
+            },
+            Some(approver),
+        )
+        .await
+    }
+
+    /// Record issuance after approval. This updates the existing regulated run
+    /// lifecycle only; payout-provider execution remains a separate adapter.
+    pub async fn mark_run_issued(
+        &self,
+        run_id: Uuid,
+    ) -> Result<PayrollRunLifecycleResult, PgPayrollError> {
+        self.advance_run(run_id, PayrollRunCommand::MarkIssued, None)
+            .await
+    }
+
+    async fn advance_run(
+        &self,
+        run_id: Uuid,
+        command: PayrollRunCommand,
+        actor: Option<UserId>,
+    ) -> Result<PayrollRunLifecycleResult, PgPayrollError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgPayrollError>(&self.pool, org, move |tx| {
+            Box::pin(async move { advance_run_in_tx(tx, run_id, command, actor).await })
+        })
+        .await
+    }
+}
+
+/// Transaction-owned command seam for later audited REST composition. The
+/// caller must use an already-armed org-scoped transaction.
+pub async fn advance_run_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    run_id: Uuid,
+    command: PayrollRunCommand,
+    actor: Option<UserId>,
+) -> Result<PayrollRunLifecycleResult, PgPayrollError> {
+    let Some(row) = sqlx::query(
+        "SELECT period_start, period_end, status, created_by \
+         FROM payroll_draft_runs WHERE id = $1 FOR UPDATE",
+    )
+    .bind(run_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    else {
+        return Err(KernelError::not_found("payroll run not found").into());
+    };
+
+    let period_start: Date = row.try_get("period_start")?;
+    let period_end: Date = row.try_get("period_end")?;
+    let status = PayrollRunStatus::parse(row.try_get::<String, _>("status")?.as_str())?;
+    let created_by: Option<Uuid> = row.try_get("created_by")?;
+
+    let approval_actor_id = actor.map(|user| *user.as_uuid());
+    let command = match command {
+        PayrollRunCommand::Approve { .. } => {
+            let approver = approval_actor_id.ok_or_else(|| {
+                KernelError::validation("payroll approval requires an authenticated approver")
+            })?;
+            let creator = created_by.ok_or_else(|| {
+                KernelError::conflict("payroll approval requires a recorded run creator")
+            })?;
+            PayrollRunCommand::Approve {
+                approver_is_creator: creator == approver,
+            }
+        }
+        other => other,
+    };
+
+    let prerequisites = close_prerequisites_in_tx(tx, period_start, period_end).await?;
+    let transition = transition_payroll_run(status, command, prerequisites)?;
+    if transition.idempotent {
+        return Ok(PayrollRunLifecycleResult {
+            status: transition.status.as_str().to_owned(),
+            idempotent: true,
+        });
+    }
+
+    match command {
+        PayrollRunCommand::Calculate => {
+            sqlx::query(
+                "UPDATE payroll_draft_runs \
+                 SET status = $2, calculation_enabled = TRUE, updated_at = now() WHERE id = $1",
+            )
+            .bind(run_id)
+            .bind(transition.status.as_str())
+            .execute(tx.as_mut())
+            .await?;
+        }
+        PayrollRunCommand::Approve { .. } => {
+            let approver = approval_actor_id.ok_or_else(|| {
+                KernelError::internal("approved payroll transition lost its approver")
+            })?;
+            sqlx::query(
+                "UPDATE payroll_draft_runs \
+                 SET status = $2, approved_by = $3, approved_at = now(), updated_at = now() WHERE id = $1",
+            )
+            .bind(run_id)
+            .bind(transition.status.as_str())
+            .bind(approver)
+            .execute(tx.as_mut())
+            .await?;
+        }
+        PayrollRunCommand::MarkIssued => {
+            sqlx::query(
+                "UPDATE payroll_draft_runs SET status = $2, updated_at = now() WHERE id = $1",
+            )
+            .bind(run_id)
+            .bind(transition.status.as_str())
+            .execute(tx.as_mut())
+            .await?;
+        }
+    }
+
+    Ok(PayrollRunLifecycleResult {
+        status: transition.status.as_str().to_owned(),
+        idempotent: false,
+    })
+}
+
+async fn close_prerequisites_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    period_start: Date,
+    period_end: Date,
+) -> Result<PayrollClosePrerequisites, PgPayrollError> {
+    let org_month_close_present: bool = sqlx::query_scalar(
+        "SELECT EXISTS( \
+         SELECT 1 FROM attendance_month_closes \
+         WHERE month = $1 AND branch_id IS NULL)",
+    )
+    .bind(period_start)
+    .fetch_one(tx.as_mut())
+    .await?;
+    let active_exact_payroll_lock_present: bool = sqlx::query_scalar(
+        "SELECT EXISTS( \
+         SELECT 1 FROM period_locks \
+         WHERE domain = 'payroll' AND period_start = $1 AND period_end = $2 \
+           AND unlocked_at IS NULL)",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .fetch_one(tx.as_mut())
+    .await?;
+    let unresolved_attendance_exception_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM attendance_exceptions \
+         WHERE status = 'OPEN' AND work_date >= $1 AND work_date <= $2",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .fetch_one(tx.as_mut())
+    .await?;
+    let unresolved_attendance_exception_count =
+        u64::try_from(unresolved_attendance_exception_count)
+            .map_err(|_| KernelError::internal("attendance exception count was negative"))?;
+    Ok(PayrollClosePrerequisites {
+        period_start,
+        period_end,
+        org_month_close_present,
+        active_exact_payroll_lock_present,
+        unresolved_attendance_exception_count,
+    })
 }
 
 /// Query logic behind [`PgPayrollStore::list_runs`], factored out so a

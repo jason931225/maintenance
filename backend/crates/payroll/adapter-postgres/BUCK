@@ -18,6 +18,7 @@ rust_library(
     env = {"CARGO_MANIFEST_DIR": "backend/crates/payroll/adapter-postgres"},
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/payroll/domain:mnt-payroll-domain",
         "//backend/crates/platform/db:mnt-platform-db",
         "//backend/crates/platform/request-context:mnt-platform-request-context",
         "//third-party/rust:serde",
@@ -42,6 +43,7 @@ rust_test(
     labels = ["owner.backend.crates.payroll.adapter-postgres", "domain.payroll", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/payroll/domain:mnt-payroll-domain",
         "//backend/crates/platform/db:mnt-platform-db",
         "//backend/crates/platform/request-context:mnt-platform-request-context",
         "//backend/crates/platform/test-support:mnt-platform-test-support",
