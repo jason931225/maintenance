@@ -41,6 +41,23 @@ describe("console nav deny-by-omission", () => {
     expect(s).toEqual(new Set());
   });
 
+  it("shows personal Attendance to a no-grant member only in mounted inventory", () => {
+    const mounted = screens(grants([ROLES.MEMBER]), MOUNTED_SCREEN_KEYS);
+    const production = screens(grants([ROLES.MEMBER]));
+
+    expect(mounted.has("attendance")).toBe(true);
+    expect(mounted.has("people")).toBe(false);
+    expect(mounted.has("payroll")).toBe(false);
+    expect(mounted.has("policy")).toBe(false);
+    expect(mounted.has("workflow")).toBe(false);
+    expect(mounted.has("sales")).toBe(false);
+
+    // Product exposure remains unchanged: Attendance is mounted but DARK.
+    expect(production.has("attendance")).toBe(false);
+    expect(isExposedScreenKey("attendance")).toBe(false);
+    expect(EXPOSED_SCREEN_KEYS).toEqual(["sales"]);
+  });
+
   it("hides governance/identity surfaces from a non-privileged persona", () => {
     const s = screens(
       grants([ROLES.MECHANIC], [FEATURES.WORK_ORDER_READ_ALL]),

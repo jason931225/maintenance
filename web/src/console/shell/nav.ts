@@ -200,12 +200,10 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
         icon: "calc",
         gate: g(DIRECTORY_ROLES, [FEATURES.EMPLOYEE_DIRECTORY_READ]),
       },
-      {
-        screen: "attendance",
-        labelKey: "console.shell.nav.attendance",
-        icon: "clock",
-        gate: g(DIRECTORY_ROLES, [FEATURES.EMPLOYEE_DIRECTORY_READ]),
-      },
+      // Personal attendance self-service is available to every authenticated
+      // principal in the mounted inventory. Manager workspace access remains
+      // server-authorized and separately gated inside the screen.
+      { screen: "attendance", labelKey: "console.shell.nav.attendance", icon: "clock" },
       { screen: "leave", labelKey: "console.shell.nav.leave", icon: "calCheck" },
       { screen: "benefit", labelKey: "console.shell.nav.benefit", icon: "heart", gate: g(MANAGEMENT_ROLES, [FEATURES.BENEFIT_CATALOG_READ]) },
     ],
