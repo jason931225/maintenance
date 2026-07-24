@@ -84,6 +84,23 @@ impl Harness {
         )
     }
 
+    fn service_without_force_command(&self) -> Router {
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            self.public_pem.as_bytes(),
+        )
+        .unwrap();
+        router(PlatformRestState::new(
+            self.rt_pool.clone(),
+            Some(verifier),
+            PlatformProvisioner::new(Duration::minutes(15)),
+        ))
+    }
+
     fn token(&self, user_id: UserId, org_id: OrgId, platform: bool) -> String {
         let issuer = JwtIssuer::from_es256_pem(
             JwtSettings {
@@ -661,6 +678,24 @@ async fn direct_runtime_update_on_audit_events_is_still_rejected(owner_pool: PgP
 }
 
 // ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn force_removal_without_command_pool_fails_closed_and_preserves_target(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let admin = seed_platform_admin(&owner_pool).await;
+    let token = harness.token(admin, OrgId::platform(), true);
+    let configured = harness.service();
+    let org = onboard(&configured, &token, "no-force-pool").await;
+    archive_org(&configured, &token, org).await;
+    let (status, body) =
+        force_delete_org(&harness.service_without_force_command(), &token, org).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body:?}");
+    assert_eq!(body["error"]["code"], "platform_force_command_unavailable");
+    assert!(
+        org_exists(&owner_pool, org).await,
+        "missing command capability must not mutate target"
+    );
+}
+
 // FORCE removal (DELETE /api/platform/orgs/{id}?delete_data=true).
 // ===========================================================================
 
@@ -765,17 +800,22 @@ async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner
         force_audits, 1,
         "the force-removal must be audited exactly once, distinctly"
     );
-    let wiped_work_orders: i64 = sqlx::query_scalar(
-        "SELECT (before_snap->'wiped'->>'work_orders')::bigint FROM audit_events WHERE action = 'platform.tenant.force_remove' AND target_id = $1",
-    )
-    .bind(org_a.to_string())
-    .fetch_one(&owner_pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        wiped_work_orders, 1,
-        "atomic receipt must retain the pre-delete summary"
-    );
+    for key in [
+        "users",
+        "registry_customers",
+        "registry_sites",
+        "registry_equipment",
+        "work_orders",
+        "financial_rental_quotes",
+        "financial_purchase_requests",
+        "messenger_threads",
+        "evidence_media",
+        "audit_events",
+    ] {
+        let value: i64 = sqlx::query_scalar("SELECT (before_snap->'wiped'->>$1)::bigint FROM audit_events WHERE action = 'platform.tenant.force_remove' AND target_id = $2")
+            .bind(key).bind(org_a.to_string()).fetch_one(&owner_pool).await.unwrap();
+        assert!(value >= 1, "receipt key {key} must account for seeded rows");
+    }
 
     // THE CRITICAL ASSERTION: org B is byte-for-byte untouched.
     assert!(

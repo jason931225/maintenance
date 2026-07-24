@@ -290,8 +290,14 @@ BEGIN
     SELECT slug, name INTO v_slug, v_name FROM organizations WHERE id = p_id;
     SELECT jsonb_build_object(
         'users', (SELECT count(*) FROM users WHERE org_id = p_id),
+        'registry_customers', (SELECT count(*) FROM registry_customers WHERE org_id = p_id),
+        'registry_sites', (SELECT count(*) FROM registry_sites WHERE org_id = p_id),
+        'registry_equipment', (SELECT count(*) FROM registry_equipment WHERE org_id = p_id),
         'work_orders', (SELECT count(*) FROM work_orders WHERE org_id = p_id),
-        'attendance_exceptions', (SELECT count(*) FROM attendance_exceptions WHERE org_id = p_id),
+        'financial_rental_quotes', (SELECT count(*) FROM financial_rental_quotes WHERE org_id = p_id),
+        'financial_purchase_requests', (SELECT count(*) FROM financial_purchase_requests WHERE org_id = p_id),
+        'messenger_threads', (SELECT count(*) FROM messenger_threads WHERE org_id = p_id),
+        'evidence_media', (SELECT count(*) FROM evidence_media WHERE org_id = p_id),
         'audit_events', (SELECT count(*) FROM audit_events WHERE org_id = p_id)
     ) INTO v_wiped;
     v_outcome := platform_force_remove_organization(p_id);
