@@ -182,7 +182,14 @@ async fn attendance_console_contract_is_tenant_scoped_immutable_and_idempotent(p
     .execute(&mut *tx)
     .await;
     assert!(resolution.is_ok(), "a resolution is an append-only fact");
-    tx.commit().await.unwrap();
+    sqlx::query("UPDATE attendance_exceptions SET status = 'RESOLVED' WHERE id = $1")
+        .bind(exception_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit()
+        .await
+        .expect("matching resolution and RESOLVED state commit atomically");
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SELECT set_config('app.current_org', $1, true)")
         .bind(ORG_A.to_string())

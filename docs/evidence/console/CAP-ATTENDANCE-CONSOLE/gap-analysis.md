@@ -42,7 +42,7 @@ and what belongs to other owners (gap manifest — not this lane's code).
 | Attendance exception objects `AT-` (지각/미출근/무승인 연장/조퇴) with OPEN→RESOLVED and **mandatory-reason resolution** (OT additionally requires linked work scope) | ✗ (absence_alerts ≠ typed day exceptions; nothing stores resolutions) | NEW: `attendance_exceptions` + append-only `attendance_exception_resolutions` |
 | Monthly close gate per entity(branch-scope)×month with server-recomputed preflight, attest, fail-closed on open exceptions, post-close retro amendments | ✗ (period_locks is the freeze mechanism, not the close object/evidence) | NEW: `attendance_month_closes` (+ append-only `attendance_close_amendments`); closing arms a payroll `period_lock` and stores its id |
 | Personnel substitution (대근) assignments: gap × worker, date-keyed (future scheduling), AP-/contract linkage refs | ✗ | NEW: `attendance_substitutions` |
-| Week-52 "근무 조정 요청됨" handled state (survives refresh) | ✗ | NEW: `attendance_week52_acks` (tiny; week totals themselves are derived reads, no table) |
+| Week-52 "근무 조정 요청됨" handled state (survives refresh) | ✗ | NEW: `attendance_week52_acknowledgements` (`acknowledged_by_user_id`, `acknowledged_at`; tiny; week totals themselves are derived reads, no table) |
 | Week-52 weekly totals / projection | derivable from `employee_attendance_records` (+ plan OT) | Derived read endpoint in attendance/rest — no new state |
 | Day board plan-vs-actual composition | plans (workorder) + records/summary (hr) + new exceptions/substitutions | Frontend composes existing reads + new reads; no new backend aggregate |
 
