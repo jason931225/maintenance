@@ -7,7 +7,7 @@ use mnt_attendance_application::{
     self as app, AssignSubstitute, CallerScope, CloseChecks, CloseMonth, ListSubstitutions,
     RaiseException, ResolveException, Week52Input,
 };
-use mnt_attendance_domain::AttendanceDateRange;
+use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, HistoricalAbsence};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, KernelError, OrgId, TraceContext};
 use mnt_platform_db::{DbError, with_audits, with_org_conn};
 use serde_json::{Value, json};
@@ -92,6 +92,7 @@ impl PgAttendanceStore {
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
             let request=json!({"kind":command.kind,"employeeId":command.employee_id,"branchId":command.branch_id,"workDate":command.work_date,"detail":detail,"evidence":command.evidence}); let fp=fingerprint(&request);
+            idempotency_lock(tx, caller.org_id, &key).await?;
             if let Some((existing, stored))=sqlx::query_as::<_,(Uuid,String)>("SELECT id,request_fingerprint FROM attendance_exceptions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { return Ok((exception_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             let code=mint_code(tx, caller.org_id).await?;
             sqlx::query("INSERT INTO attendance_exceptions (id,org_id,code,kind,employee_id,branch_id,work_date,detail,evidence,links,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'[]'::jsonb,$10,$11,$12)")
@@ -111,9 +112,11 @@ impl PgAttendanceStore {
         let actor = caller.user_id;
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
             let row=sqlx::query("SELECT kind,branch_id,status FROM attendance_exceptions WHERE id=$1 FOR UPDATE").bind(command.exception_id).fetch_optional(tx.as_mut()).await?.ok_or(AttendanceStoreError::NotFound)?;
-            let branch=row.try_get::<Option<Uuid>,_>("branch_id")?; app::ensure_scope(caller,branch)?; if row.try_get::<String,_>("status")? != "OPEN" { return Err(AttendanceStoreError::Conflict); }
-            if command.action=="APPROVE_OVERTIME" && command.linked_work_ref.as_deref().is_none_or(str::is_empty) { return Err(AttendanceStoreError::Application(app::AttendanceApplicationError::InvalidText("linkedWorkRef"))); }
-            let inserted=sqlx::query("INSERT INTO attendance_exception_resolutions (id,org_id,exception_id,action,reason,linked_work_ref,ot_hours,actor_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (org_id,exception_id) DO NOTHING").bind(Uuid::new_v4()).bind(caller.org_id).bind(command.exception_id).bind(&command.action).bind(&reason).bind(&command.linked_work_ref).bind(&command.ot_hours).bind(actor).execute(tx.as_mut()).await?;
+            let branch=row.try_get::<Option<Uuid>,_>("branch_id")?; app::ensure_scope(&caller,branch)?; if row.try_get::<String,_>("status")? != "OPEN" { return Err(AttendanceStoreError::Conflict); }
+            let kind = ExceptionKind::parse(&row.try_get::<String,_>("kind")?).map_err(app::AttendanceApplicationError::from)?;
+            command.action.validate_for(kind, command.linked_work_ref.as_deref(), command.overtime_minutes).map_err(app::AttendanceApplicationError::from)?;
+            let overtime_hours = command.overtime_minutes.map(|m| format!("{:.2}", f64::from(m) / 60.0));
+            let inserted=sqlx::query("INSERT INTO attendance_exception_resolutions (id,org_id,exception_id,action,reason,linked_work_ref,ot_hours,actor_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (org_id,exception_id) DO NOTHING").bind(Uuid::new_v4()).bind(caller.org_id).bind(command.exception_id).bind(command.action.as_db()).bind(&reason).bind(&command.linked_work_ref).bind(overtime_hours).bind(actor).execute(tx.as_mut()).await?;
             if inserted.rows_affected()!=1 { return Err(AttendanceStoreError::Conflict); }
             sqlx::query("UPDATE attendance_exceptions SET status='RESOLVED' WHERE id=$1 AND status='OPEN'").bind(command.exception_id).execute(tx.as_mut()).await?;
             let view=exception_by_id(tx,command.exception_id).await?; Ok((view,vec![event(&caller,"attendance.exception.resolve","attendance_exception",command.exception_id,branch,Some(json!({"action":command.action})))?]))
@@ -134,7 +137,8 @@ impl PgAttendanceStore {
         let caller = caller.clone();
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move {
-            let request=json!({"window":command.window,"branchId":command.branch_id,"covered":command.covered_employee_id,"worker":command.worker_employee_id,"site":site,"role":role}); let fp=fingerprint(&request);
+            let request = substitution_fingerprint(&caller, &command, &site, &role, &name); let fp=fingerprint(&request);
+            idempotency_lock(tx, caller.org_id, &key).await?;
             if let Some((existing,stored))=sqlx::query_as::<_,(Uuid,String)>("SELECT id,request_fingerprint FROM attendance_substitutions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await? { if stored==fp { return Ok((substitution_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             ensure_historical_coverage(tx,command.covered_employee_id,&command.window,command.exception_id).await?;
             sqlx::query("INSERT INTO attendance_substitutions (id,org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,reason_detail,worker_employee_id,worker_name,worker_type,worker_rate,exception_id,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
@@ -166,10 +170,7 @@ impl PgAttendanceStore {
                 app::AttendanceApplicationError::MissingAttestation,
             ));
         }
-        let checks = self.close_checks(caller, &close).await?;
-        if !checks.ready() {
-            return Err(AttendanceStoreError::CloseBlocked);
-        }
+        app::ensure_scope(caller, close.branch_scope)?;
         let month = AttendanceDateRange::selected_month_with_buffer(&close.month)?.from;
         let next = month_after(month);
         let last = next - Duration::days(1);
@@ -177,6 +178,9 @@ impl PgAttendanceStore {
         let caller = caller.clone();
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
+            close_month_lock(tx, caller.org_id, month).await?;
+            let checks = close_checks(tx, month, close.branch_scope).await?;
+            if !checks.ready() { return Err(AttendanceStoreError::CloseBlocked); }
             let checks_json = json!([
                 {"key":"open_exceptions","ok":checks.open_exceptions == 0,"note":checks.open_exceptions},
                 {"key":"pending_leave","ok":true,"warn":checks.pending_leave > 0,"note":checks.pending_leave},
@@ -214,10 +218,12 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         week_start: Date,
+        branch_id: Option<Uuid>,
     ) -> Result<Vec<Week52Input>, AttendanceStoreError> {
+        app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         let end = week_start + Duration::days(7);
-        with_org_conn::<_,_,AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move { let rows=sqlx::query("SELECT employee_id, COALESCE(sum(EXTRACT(EPOCH FROM (clock_out-clock_in))/3600.0),0)::float8 AS hours FROM employee_attendance_daily WHERE work_date >= $1 AND work_date < $2 GROUP BY employee_id").bind(week_start).bind(end).fetch_all(tx.as_mut()).await?; rows.iter().map(|r|Ok(Week52Input{employee_id:r.try_get("employee_id")?,week_start,current_hours:r.try_get("hours")?,projected_hours:r.try_get("hours")?,acknowledged_at:None})).collect::<Result<Vec<_>,AttendanceStoreError>>() })).await
+        with_org_conn::<_,_,AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move { let rows=sqlx::query("SELECT employee_id, COALESCE(sum(EXTRACT(EPOCH FROM (clock_out-clock_in))/3600.0),0)::float8 AS hours FROM employee_attendance_daily WHERE work_date >= $1 AND work_date < $2 AND ($3::uuid IS NULL OR branch_id=$3) GROUP BY employee_id").bind(week_start).bind(end).bind(branch_id).fetch_all(tx.as_mut()).await?; rows.iter().map(|r|Ok(Week52Input{employee_id:r.try_get("employee_id")?,week_start,current_hours:r.try_get("hours")?,projected_hours:r.try_get("hours")?,acknowledged_at:None})).collect::<Result<Vec<_>,AttendanceStoreError>>() })).await
     }
 }
 
@@ -277,18 +283,71 @@ async fn ensure_historical_coverage(
     tx: &mut Transaction<'_, Postgres>,
     employee: Uuid,
     window: &mnt_attendance_domain::SubstitutionWindow,
-    exception_id: Option<Uuid>,
+    _exception_id: Option<Uuid>,
 ) -> Result<(), AttendanceStoreError> {
     if window.cover_date >= OffsetDateTime::now_utc().date() {
         return Ok(());
     }
-    let absence:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM leave_requests WHERE employee_id=$1 AND status IN ('approved','APPROVED') AND start_date <= $2 AND end_date >= $2) OR EXISTS(SELECT 1 FROM attendance_exceptions WHERE id=$3 AND employee_id=$1 AND work_date=$2 AND status='RESOLVED')").bind(employee).bind(window.cover_date).bind(exception_id).fetch_one(tx.as_mut()).await?;
-    if absence {
+    let row = sqlx::query("SELECT employee_id, COALESCE(start_minutes,0) AS from_minutes, COALESCE(end_minutes,1440) AS to_minutes FROM leave_requests WHERE employee_id=$1 AND status IN ('approved','APPROVED') AND start_date <= $2 AND end_date >= $2 ORDER BY start_date DESC LIMIT 1")
+        .bind(employee).bind(window.cover_date).fetch_optional(tx.as_mut()).await?;
+    let Some(row) = row else {
+        return Err(AttendanceStoreError::Conflict);
+    };
+    let absence = HistoricalAbsence::new(
+        row.try_get("employee_id")?,
+        window.cover_date,
+        row.try_get("from_minutes")?,
+        row.try_get("to_minutes")?,
+    )
+    .map_err(app::AttendanceApplicationError::from)?;
+    if absence.fully_covers(employee, window) {
         Ok(())
     } else {
         Err(AttendanceStoreError::Conflict)
     }
 }
+
+async fn close_month_lock(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    month: Date,
+) -> Result<(), AttendanceStoreError> {
+    let material = format!("attendance-close-v1|{}|{}", org_id, month);
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(material)
+        .execute(tx.as_mut())
+        .await?;
+    Ok(())
+}
+
+async fn idempotency_lock(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    normalized_key: &str,
+) -> Result<(), AttendanceStoreError> {
+    let material = format!(
+        "attendance-idempotency-v1|{}|{}|{}",
+        org_id,
+        normalized_key.len(),
+        normalized_key
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(material)
+        .execute(tx.as_mut())
+        .await?;
+    Ok(())
+}
+
+fn substitution_fingerprint(
+    caller: &CallerScope,
+    command: &AssignSubstitute,
+    site: &str,
+    role: &str,
+    worker_name: &str,
+) -> Value {
+    json!({"v":1,"orgId":caller.org_id,"branchPresent":command.branch_id.is_some(),"branchId":command.branch_id,"coverDate":command.window.cover_date,"from":command.window.from_minutes,"to":command.window.to_minutes,"coveredEmployeeId":command.covered_employee_id,"reasonKind":command.reason_kind.trim(),"reasonDetailPresent":command.reason_detail.is_some(),"reasonDetail":command.reason_detail.as_deref().map(str::trim),"site":site,"role":role,"workerEmployeePresent":command.worker_employee_id.is_some(),"workerEmployeeId":command.worker_employee_id,"workerName":worker_name,"workerType":command.worker_type.trim(),"workerRatePresent":command.worker_rate.is_some(),"workerRate":command.worker_rate.as_deref().map(str::trim),"exceptionPresent":command.exception_id.is_some(),"exceptionId":command.exception_id})
+}
+
 async fn close_checks(
     tx: &mut Transaction<'_, Postgres>,
     month: Date,
@@ -334,4 +393,98 @@ fn substitution_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStore
     Ok(
         json!({"id":r.try_get::<Uuid,_>("id")?,"site":r.try_get::<String,_>("site")?,"branchId":r.try_get::<Option<Uuid>,_>("branch_id")?,"role":r.try_get::<String,_>("role")?,"coverDate":r.try_get::<Date,_>("cover_date")?.to_string(),"fromMinutes":r.try_get::<i32,_>("from_minutes")?,"toMinutes":r.try_get::<i32,_>("to_minutes")?,"coveredEmployeeId":r.try_get::<Uuid,_>("covered_employee_id")?,"reasonKind":r.try_get::<String,_>("reason_kind")?,"workerEmployeeId":r.try_get::<Option<Uuid>,_>("worker_employee_id")?,"workerName":r.try_get::<String,_>("worker_name")?,"workerType":r.try_get::<String,_>("worker_type")?,"status":r.try_get::<String,_>("status")?,"createdAt":r.try_get::<OffsetDateTime,_>("created_at")?.to_string()}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mnt_attendance_domain::SubstitutionWindow;
+    use time::{Date, Month};
+
+    fn command() -> AssignSubstitute {
+        AssignSubstitute {
+            window: SubstitutionWindow::new(
+                Date::from_calendar_date(2026, Month::July, 2).unwrap(),
+                540,
+                1020,
+            )
+            .unwrap(),
+            branch_id: Some(Uuid::new_v4()),
+            site: "Seoul".into(),
+            role: "Operator".into(),
+            covered_employee_id: Uuid::new_v4(),
+            reason_kind: "APPROVED_LEAVE".into(),
+            reason_detail: Some("medical".into()),
+            worker_employee_id: Some(Uuid::new_v4()),
+            worker_name: "Kim".into(),
+            worker_type: "EMPLOYEE".into(),
+            worker_rate: Some("10000".into()),
+            exception_id: Some(Uuid::new_v4()),
+            idempotency_key: "attendance-test-key-0001".into(),
+        }
+    }
+    fn scope() -> CallerScope {
+        CallerScope {
+            org_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            branch_ids: vec![],
+            org_wide: true,
+        }
+    }
+    #[test]
+    fn fingerprint_changes_for_every_persisted_semantic_field() {
+        let caller = scope();
+        let base = command();
+        let original = fingerprint(&substitution_fingerprint(
+            &caller, &base, "Seoul", "Operator", "Kim",
+        ));
+        let mut changed = base.clone();
+        changed.window.from_minutes = 541;
+        assert_ne!(
+            original,
+            fingerprint(&substitution_fingerprint(
+                &caller, &changed, "Seoul", "Operator", "Kim"
+            ))
+        );
+        changed = base.clone();
+        changed.reason_detail = None;
+        assert_ne!(
+            original,
+            fingerprint(&substitution_fingerprint(
+                &caller, &changed, "Seoul", "Operator", "Kim"
+            ))
+        );
+        changed = base.clone();
+        changed.worker_rate = None;
+        assert_ne!(
+            original,
+            fingerprint(&substitution_fingerprint(
+                &caller, &changed, "Seoul", "Operator", "Kim"
+            ))
+        );
+        changed = base.clone();
+        changed.exception_id = None;
+        assert_ne!(
+            original,
+            fingerprint(&substitution_fingerprint(
+                &caller, &changed, "Seoul", "Operator", "Kim"
+            ))
+        );
+    }
+    #[test]
+    fn historical_interval_rejects_partial_and_accepts_full() {
+        let employee = Uuid::new_v4();
+        let date = Date::from_calendar_date(2026, Month::July, 2).unwrap();
+        let window = SubstitutionWindow::new(date, 540, 1020).unwrap();
+        assert!(
+            !HistoricalAbsence::new(employee, date, 600, 1020)
+                .unwrap()
+                .fully_covers(employee, &window)
+        );
+        assert!(
+            HistoricalAbsence::new(employee, date, 480, 1080)
+                .unwrap()
+                .fully_covers(employee, &window)
+        );
+    }
 }

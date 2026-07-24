@@ -3,7 +3,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 use mnt_attendance_domain::{
-    AttendanceDateRange, AttendanceDomainError, ExceptionKind, SubstitutionWindow,
+    AttendanceDateRange, AttendanceDomainError, ExceptionKind, ResolutionAction, SubstitutionWindow,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,9 +19,7 @@ pub struct CallerScope {
 }
 impl CallerScope {
     pub fn permits_branch(&self, branch_id: Option<Uuid>) -> bool {
-        self.org_wide
-            || branch_id.is_none()
-            || branch_id.is_some_and(|id| self.branch_ids.contains(&id))
+        self.org_wide || branch_id.is_some_and(|id| self.branch_ids.contains(&id))
     }
 }
 
@@ -61,10 +59,10 @@ pub struct RaiseException {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolveException {
     pub exception_id: Uuid,
-    pub action: String,
+    pub action: ResolutionAction,
     pub reason: String,
     pub linked_work_ref: Option<String>,
-    pub ot_hours: Option<String>,
+    pub overtime_minutes: Option<i32>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssignSubstitute {

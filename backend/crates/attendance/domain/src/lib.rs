@@ -110,13 +110,78 @@ impl SubstitutionWindow {
 pub struct HistoricalAbsence {
     pub employee_id: Uuid,
     pub work_date: Date,
-    pub covered_minutes: i32,
+    pub from_minutes: i32,
+    pub to_minutes: i32,
 }
 impl HistoricalAbsence {
-    pub fn is_fully_covered(&self, window: &SubstitutionWindow) -> bool {
-        self.employee_id != Uuid::nil()
+    pub fn new(
+        employee_id: Uuid,
+        work_date: Date,
+        from_minutes: i32,
+        to_minutes: i32,
+    ) -> Result<Self, AttendanceDomainError> {
+        if !(0..=1440).contains(&from_minutes)
+            || !(1..=1440).contains(&to_minutes)
+            || to_minutes <= from_minutes
+        {
+            return Err(AttendanceDomainError::InvalidAbsenceInterval);
+        }
+        Ok(Self {
+            employee_id,
+            work_date,
+            from_minutes,
+            to_minutes,
+        })
+    }
+    #[must_use]
+    pub fn fully_covers(&self, employee_id: Uuid, window: &SubstitutionWindow) -> bool {
+        self.employee_id == employee_id
             && self.work_date == window.cover_date
-            && self.covered_minutes >= window.to_minutes - window.from_minutes
+            && self.from_minutes <= window.from_minutes
+            && self.to_minutes >= window.to_minutes
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResolutionAction {
+    Confirm,
+    ApproveOvertime,
+}
+impl ResolutionAction {
+    pub fn parse(value: &str) -> Result<Self, AttendanceDomainError> {
+        match value {
+            "CONFIRM" => Ok(Self::Confirm),
+            "APPROVE_OVERTIME" => Ok(Self::ApproveOvertime),
+            _ => Err(AttendanceDomainError::InvalidResolutionAction),
+        }
+    }
+    #[must_use]
+    pub const fn as_db(self) -> &'static str {
+        match self {
+            Self::Confirm => "CONFIRM",
+            Self::ApproveOvertime => "APPROVE_OVERTIME",
+        }
+    }
+    pub fn validate_for(
+        self,
+        kind: ExceptionKind,
+        linked_work_ref: Option<&str>,
+        overtime_minutes: Option<i32>,
+    ) -> Result<(), AttendanceDomainError> {
+        match (kind, self) {
+            (ExceptionKind::UnapprovedOvertime, Self::ApproveOvertime)
+                if linked_work_ref.is_some_and(|v| !v.trim().is_empty())
+                    && overtime_minutes.is_some_and(|v| v > 0) =>
+            {
+                Ok(())
+            }
+            (ExceptionKind::UnapprovedOvertime, _) => {
+                Err(AttendanceDomainError::InvalidResolutionTransition)
+            }
+            (_, Self::Confirm) if linked_work_ref.is_none() && overtime_minutes.is_none() => Ok(()),
+            _ => Err(AttendanceDomainError::InvalidResolutionTransition),
+        }
     }
 }
 
@@ -130,6 +195,12 @@ pub enum AttendanceDomainError {
     InvalidCoverageWindow,
     #[error("exception kind is not supported")]
     InvalidExceptionKind,
+    #[error("absence interval must be within a day and non-empty")]
+    InvalidAbsenceInterval,
+    #[error("resolution action is not supported")]
+    InvalidResolutionAction,
+    #[error("resolution action is invalid for this exception kind")]
+    InvalidResolutionTransition,
 }
 
 #[cfg(test)]
@@ -143,28 +214,37 @@ mod tests {
         assert!(AttendanceDateRange::new(r.from, r.to_exclusive + Duration::days(1)).is_err());
     }
     #[test]
-    fn historical_coverage_requires_same_day_and_full_window() {
-        let w = SubstitutionWindow::new(
-            Date::from_calendar_date(2026, Month::July, 2).unwrap(),
-            540,
-            1020,
-        )
-        .unwrap();
+    fn historical_coverage_requires_full_same_day_interval() {
+        let employee = Uuid::new_v4();
+        let date = Date::from_calendar_date(2026, Month::July, 2).unwrap();
+        let window = SubstitutionWindow::new(date, 540, 1020).unwrap();
         assert!(
-            HistoricalAbsence {
-                employee_id: Uuid::new_v4(),
-                work_date: w.cover_date,
-                covered_minutes: 480
-            }
-            .is_fully_covered(&w)
+            HistoricalAbsence::new(employee, date, 480, 1080)
+                .unwrap()
+                .fully_covers(employee, &window)
         );
         assert!(
-            !HistoricalAbsence {
-                employee_id: Uuid::new_v4(),
-                work_date: w.cover_date,
-                covered_minutes: 479
-            }
-            .is_fully_covered(&w)
+            !HistoricalAbsence::new(employee, date, 541, 1020)
+                .unwrap()
+                .fully_covers(employee, &window)
+        );
+    }
+    #[test]
+    fn overtime_resolution_has_a_kind_action_matrix() {
+        assert!(
+            ResolutionAction::ApproveOvertime
+                .validate_for(ExceptionKind::UnapprovedOvertime, Some("WO-1"), Some(60))
+                .is_ok()
+        );
+        assert!(
+            ResolutionAction::Confirm
+                .validate_for(ExceptionKind::UnapprovedOvertime, None, None)
+                .is_err()
+        );
+        assert!(
+            ResolutionAction::ApproveOvertime
+                .validate_for(ExceptionKind::Late, Some("WO-1"), Some(60))
+                .is_err()
         );
     }
 }

@@ -15,7 +15,9 @@ use mnt_attendance_application::{
     AssignSubstitute, CallerScope, CloseMonth, ListSubstitutions, RaiseException, ResolveException,
     week52_tone,
 };
-use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, SubstitutionWindow};
+use mnt_attendance_domain::{
+    AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
+};
 use mnt_kernel_core::{BranchScope, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
@@ -259,7 +261,7 @@ struct ResolveBody {
     action: String,
     reason: String,
     linked_work_ref: Option<String>,
-    ot_hours: Option<String>,
+    overtime_minutes: Option<i32>,
 }
 async fn resolve_exception(
     State(state): State<AttendanceRestState>,
@@ -275,10 +277,16 @@ async fn resolve_exception(
             &scope(&p),
             ResolveException {
                 exception_id,
-                action: body.action,
+                action: ResolutionAction::parse(&body.action).map_err(|e| {
+                    RestError::new(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "validation",
+                        e.to_string(),
+                    )
+                })?,
                 reason: body.reason,
                 linked_work_ref: body.linked_work_ref,
-                ot_hours: body.ot_hours,
+                overtime_minutes: body.overtime_minutes,
             },
         )
         .await
@@ -410,7 +418,7 @@ async fn week52(
     let p = principal(&state, &headers).await?;
     require(&p, READ)?;
     let week_start = parse_date(&q.week_start, "weekStart")?;
-    let items=state.store.week52_inputs(&scope(&p),week_start).await.map_err(RestError::store)?.into_iter().map(|i|json!({"employeeId":i.employee_id,"weekStart":i.week_start.to_string(),"currentHours":i.current_hours,"projectedHours":i.projected_hours,"tone":week52_tone(&i),"ackedAt":i.acknowledged_at})).collect::<Vec<_>>();
+    let items=state.store.week52_inputs(&scope(&p),week_start,q.branch_id).await.map_err(RestError::store)?.into_iter().map(|i|json!({"employeeId":i.employee_id,"weekStart":i.week_start.to_string(),"currentHours":i.current_hours,"projectedHours":i.projected_hours,"tone":week52_tone(&i),"ackedAt":i.acknowledged_at})).collect::<Vec<_>>();
     Ok(Json(
         json!({"weekStart":week_start.to_string(),"through":(week_start+Duration::days(7)).to_string(),"items":items}),
     ))

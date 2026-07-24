@@ -47,3 +47,30 @@ fn close_gate_rejects_open_exceptions() {
         .ready()
     );
 }
+
+#[test]
+fn branch_limited_caller_cannot_omit_branch_or_read_another_branch() {
+    let allowed = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    let caller = CallerScope {
+        org_id: Uuid::new_v4(),
+        user_id: Uuid::new_v4(),
+        branch_ids: vec![allowed],
+        org_wide: false,
+    };
+    assert!(ensure_scope(&caller, None).is_err());
+    assert!(ensure_scope(&caller, Some(allowed)).is_ok());
+    assert!(ensure_scope(&caller, Some(other)).is_err());
+}
+
+#[test]
+fn org_wide_caller_may_query_all_branches() {
+    let caller = CallerScope {
+        org_id: Uuid::new_v4(),
+        user_id: Uuid::new_v4(),
+        branch_ids: vec![],
+        org_wide: true,
+    };
+    assert!(ensure_scope(&caller, None).is_ok());
+    assert!(ensure_scope(&caller, Some(Uuid::new_v4())).is_ok());
+}

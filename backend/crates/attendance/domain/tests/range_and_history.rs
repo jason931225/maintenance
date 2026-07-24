@@ -11,23 +11,18 @@ fn selected_month_plus_d7_is_the_only_default_listing_window() {
 }
 
 #[test]
-fn historical_substitution_requires_full_same_day_coverage() {
+fn historical_substitution_requires_a_full_planned_absence_interval() {
+    let employee = Uuid::new_v4();
     let date = Date::from_calendar_date(2026, Month::July, 2).unwrap();
     let window = SubstitutionWindow::new(date, 540, 1020).unwrap();
     assert!(
-        HistoricalAbsence {
-            employee_id: Uuid::new_v4(),
-            work_date: date,
-            covered_minutes: 480
-        }
-        .is_fully_covered(&window)
+        HistoricalAbsence::new(employee, date, 480, 1080)
+            .unwrap()
+            .fully_covers(employee, &window)
     );
     assert!(
-        !HistoricalAbsence {
-            employee_id: Uuid::new_v4(),
-            work_date: date,
-            covered_minutes: 1
-        }
-        .is_fully_covered(&window)
+        !HistoricalAbsence::new(employee, date, 600, 1020)
+            .unwrap()
+            .fully_covers(employee, &window)
     );
 }
