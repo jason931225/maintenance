@@ -79,9 +79,9 @@ requireIncludes(
   'path="/payroll"',
   "payroll readiness route",
 );
-requireIncludes(
+requireMatches(
   "web/src/pages/PayrollPage.tsx",
-  'GET(path: "/api/v1/hr/readiness-summary")',
+  /\.GET\(\s*"\/api\/v1\/hr\/readiness-summary"/,
   "payroll readiness summary read path",
 );
 requireIncludes(
