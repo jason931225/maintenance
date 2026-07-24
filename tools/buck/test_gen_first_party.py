@@ -3,6 +3,8 @@
 
 import importlib.util
 import inspect
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -50,6 +52,25 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             block,
         )
         self.assertNotIn("\n    srcs =", block)
+
+    def test_generation_is_clean_for_all_first_party_buck_faces(self) -> None:
+        subprocess.run(
+            [sys.executable, str(GENERATOR_PATH)],
+            cwd=GENERATOR.REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        buck_files = [
+            str(Path(directory).relative_to(GENERATOR.REPO) / "BUCK")
+            for directory in GENERATOR.find_members()
+        ]
+        result = subprocess.run(
+            ["git", "diff", "--quiet", "--", *buck_files],
+            cwd=GENERATOR.REPO,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, "generated BUCK faces are stale")
 
     def test_compile_time_resource_contracts_are_declared(self) -> None:
         resources = GENERATOR.RESOURCE_CONFIG
