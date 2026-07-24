@@ -20,9 +20,10 @@
 //! task-local. A handler that spawns work which itself touches tenant-scoped
 //! tables must re-enter the scope, e.g. `CURRENT_ORG.scope(org, async { .. })`.
 
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
-use axum::extract::Request;
+use axum::extract::{ConnectInfo, Request};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
@@ -54,6 +55,27 @@ tokio::task_local! {
 pub struct RequestAuditContext {
     pub trace: TraceContext,
     pub request: AuditRequestContext,
+}
+
+/// Client address resolved by a trusted ingress boundary.
+///
+/// Request-context middleware never interprets forwarding headers. The ingress
+/// that owns proxy trust policy must validate the chain and insert this
+/// extension. Without it, audit metadata falls back only to the transport peer
+/// supplied by Axum's [`ConnectInfo`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedClientIp(IpAddr);
+
+impl TrustedClientIp {
+    #[must_use]
+    pub const fn new(ip: IpAddr) -> Self {
+        Self(ip)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> IpAddr {
+        self.0
+    }
 }
 
 /// Why a request could not be given a tenant context.
@@ -341,7 +363,7 @@ where
                     Err(err) => return error_response_for(&err),
                 };
                 let org = principal.org_id;
-                let audit_context = request_audit_context(request.headers());
+                let audit_context = request_audit_context(&request);
                 request.extensions_mut().insert(principal);
                 CURRENT_ORG
                     .scope(
@@ -354,21 +376,31 @@ where
     ))
 }
 
-fn request_audit_context(headers: &HeaderMap) -> RequestAuditContext {
+fn request_audit_context(request: &Request) -> RequestAuditContext {
+    let headers = request.headers();
     RequestAuditContext {
         trace: trace_context(headers),
         request: AuditRequestContext {
-            // This is request metadata for audit investigation, never trusted
-            // as an authorization or network-boundary assertion.
-            ip: header_text(headers, "x-forwarded-for")
-                .and_then(|forwarded| forwarded.split(',').next().map(str::trim))
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned),
+            ip: trusted_or_direct_client_ip(request).map(|ip| ip.to_string()),
             user_agent: header_text(headers, http::header::USER_AGENT.as_str()).map(str::to_owned),
             auth_method: Some("bearer".to_owned()),
             device: header_text(headers, "x-device-id").map(str::to_owned),
         },
     }
+}
+
+fn trusted_or_direct_client_ip(request: &Request) -> Option<IpAddr> {
+    request
+        .extensions()
+        .get::<TrustedClientIp>()
+        .copied()
+        .map(TrustedClientIp::get)
+        .or_else(|| {
+            request
+                .extensions()
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|ConnectInfo(peer)| peer.ip())
+        })
 }
 
 fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -519,7 +551,112 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
     use mnt_platform_authz::{Action, Feature, authorize_org_wide};
+
+    fn request_with_network_metadata(
+        forwarded_for: &str,
+        direct_peer: &str,
+        trusted_client: Option<&str>,
+    ) -> Request {
+        let mut request = Request::builder()
+            .header("x-forwarded-for", forwarded_for)
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            direct_peer.parse::<SocketAddr>().expect("direct peer"),
+        ));
+        if let Some(trusted_client) = trusted_client {
+            request.extensions_mut().insert(TrustedClientIp::new(
+                trusted_client.parse().expect("trusted client IP"),
+            ));
+        }
+        request
+    }
+
+    #[test]
+    fn audit_ip_ignores_client_prepended_forwarded_value() {
+        let request = request_with_network_metadata(
+            "198.51.100.250, 203.0.113.7",
+            "10.0.0.3:443",
+            Some("203.0.113.7"),
+        );
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("203.0.113.7".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn audit_ip_accepts_ingress_resolution_across_multiple_trusted_hops() {
+        let request = request_with_network_metadata(
+            "198.51.100.250, 203.0.113.7, 10.0.0.2",
+            "10.0.0.3:443",
+            Some("203.0.113.7"),
+        );
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("203.0.113.7".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn audit_ip_uses_direct_peer_when_forwarded_chain_is_insufficient() {
+        let request = request_with_network_metadata("203.0.113.7", "192.0.2.10:8443", None);
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("192.0.2.10".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn audit_ip_uses_direct_peer_when_forwarded_chain_is_invalid() {
+        let request =
+            request_with_network_metadata("not-an-ip, 203.0.113.7", "192.0.2.11:8443", None);
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("192.0.2.11".parse().unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn trusted_request_metadata_propagates_exactly_to_audit_context() {
+        let mut request = request_with_network_metadata(
+            "198.51.100.250, 203.0.113.7",
+            "10.0.0.3:443",
+            Some("203.0.113.7"),
+        );
+        request.headers_mut().insert(
+            "traceparent",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+                .parse()
+                .unwrap(),
+        );
+        request
+            .headers_mut()
+            .insert(http::header::USER_AGENT, "audit-test/1.0".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("x-device-id", "trusted-device".parse().unwrap());
+
+        let expected = RequestAuditContext {
+            trace: TraceContext::new("4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7")
+                .unwrap(),
+            request: AuditRequestContext {
+                ip: Some("203.0.113.7".to_owned()),
+                user_agent: Some("audit-test/1.0".to_owned()),
+                auth_method: Some("bearer".to_owned()),
+                device: Some("trusted-device".to_owned()),
+            },
+        };
+        assert_eq!(request_audit_context(&request), expected);
+        CURRENT_AUDIT_CONTEXT
+            .scope(expected.clone(), async {
+                assert_eq!(current_audit_context(), Some(expected));
+            })
+            .await;
+        assert_eq!(current_audit_context(), None);
+    }
 
     #[tokio::test]
     async fn nested_audit_context_scope_restores_outer_then_clears() {
