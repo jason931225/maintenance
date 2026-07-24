@@ -3,5 +3,7 @@ export const attendanceSelfServiceStrings = {
   kind: { LATE: "지각", NO_SHOW: "미출근", UNAPPROVED_OVERTIME: "미승인 연장", EARLY_LEAVE: "조퇴" },
   tone: { OK: "정상", WARN: "주의", DANGER: "위험" },
   hours: (value: number) => `${value.toFixed(1)}시간`,
+  monthLabel: (year: string | undefined, month: string | undefined) => `${year ?? ""}년 ${String(Number(month))}월`,
+  overtimeHours: (value: string) => ` · ${value}시간`,
   count: (value: number) => `미처리 ${String(value)}`,
 } as const;
