@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { evaluate } from "./check-production-authority-blocked.mjs";
@@ -165,16 +165,31 @@ function installGitLogShim(root) {
   const bin = join(root, "shim-bin"),
     log = join(root, "git.log");
   mkdirSync(bin);
-  const realGit = spawnSync("which", ["git"], {
-    encoding: "utf8",
-  }).stdout.trim();
-  const shim = join(bin, "git");
+  const realGit = spawnSync(
+    process.platform === "win32" ? "where" : "which",
+    ["git"],
+    {
+      encoding: "utf8",
+    },
+  )
+    .stdout.split(/\r?\n/u)
+    .find(Boolean);
+  assert.ok(realGit, "git executable must be discoverable");
+  const shim = join(bin, process.platform === "win32" ? "git.cmd" : "git");
   writeFileSync(
     shim,
-    `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "$GIT_LOG"\nexec "${realGit}" "$@"\n`,
+    process.platform === "win32"
+      ? `@echo off\r\n>>"%GIT_LOG%" echo %CD%^|%*\r\n"${realGit}" %*\r\nexit /b %ERRORLEVEL%\r\n`
+      : `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "$GIT_LOG"\nexec "${realGit}" "$@"\n`,
   );
-  chmodSync(shim, 0o755);
+  if (process.platform !== "win32") chmodSync(shim, 0o755);
   return { bin, log };
+}
+function gitLogEnvironment(bin, log) {
+  return {
+    PATH: `${bin}${delimiter}${process.env.PATH}`,
+    GIT_LOG: log,
+  };
 }
 function assertFailure(result, code) {
   assert.notEqual(result.status, 0);
@@ -296,14 +311,14 @@ describe("production authority blocked observation CLI", () => {
     const result = runAtPath(
       root,
       alias,
-      { PATH: `${bin}:${process.env.PATH}`, GIT_LOG: log },
+      gitLogEnvironment(bin, log),
       sha,
     );
 
     assert.equal(result.status, 0, result.stderr.toString());
     assert.equal(JSON.parse(result.stdout).evaluated_commit_sha, sha);
     const evaluatorRoot = realpathSync(root);
-    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
+    assert.deepEqual(readFileSync(log, "utf8").trim().split(/\r?\n/u), [
       `${evaluatorRoot}|cat-file -t ${sha}`,
       ...paths.map((path) => `${evaluatorRoot}|show ${sha}:${path}`),
     ]);
@@ -496,7 +511,7 @@ describe("production authority blocked observation CLI", () => {
     const { bin, log } = installGitLogShim(root);
     const result = runWithEnvironment(
       root,
-      { PATH: `${bin}:${process.env.PATH}`, GIT_LOG: log },
+      gitLogEnvironment(bin, log),
       sha,
     );
     assert.equal(result.status, 0, result.stderr.toString());
