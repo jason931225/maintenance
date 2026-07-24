@@ -108,6 +108,7 @@ services:
       MNT_RT_POSTGRES_PASSWORD: ${MNT_RT_POSTGRES_PASSWORD:?set the runtime database password}
       MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: ${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:?set a distinct leave command database password}
       MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:?set a distinct ontology command database password}
+      MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD: ${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:?set a distinct platform-force command database password}
       MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION: ${MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION:-0}
     volumes:
       - ./postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro
@@ -179,6 +180,7 @@ services:
       MNT_APP_ROLE: api
       LEAVE_COMMAND_DATABASE_URL: postgresql://mnt_leave_cmd:${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:?set a distinct leave command database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
       ONTOLOGY_COMMAND_DATABASE_URL: postgresql://mnt_ontology_cmd:${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:?set a distinct ontology command database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
+      PLATFORM_FORCE_COMMAND_DATABASE_URL: postgresql://mnt_platform_force_cmd:${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:?set a distinct platform-force command database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
       MNT_HTTP_ADDR: 0.0.0.0:8080
       OTEL_SERVICE_NAME: mnt-app-api
     depends_on:

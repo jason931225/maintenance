@@ -17,6 +17,10 @@ const baseCompose = readFileSync(
   new URL("../ops/compose.yml", import.meta.url),
   "utf8",
 );
+const imageRelease = readFileSync(
+  new URL("../.github/workflows/image-release.yml", import.meta.url),
+  "utf8",
+);
 const devUp = readFileSync(new URL("./dev-up.mjs", import.meta.url), "utf8");
 const opsReadme = readFileSync(
   new URL("../ops/README.md", import.meta.url),
@@ -102,10 +106,17 @@ test("Compose migrates as mnt_app and serves as mnt_rt without owner/admin crede
     /ONTOLOGY_COMMAND_DATABASE_URL: postgresql:\/\/mnt_ontology_cmd:/,
   );
   assert.match(
+    appBlock,
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL: postgresql:\/\/mnt_platform_force_cmd:/,
+  );
+  assert.match(
     baseCompose,
     /x-app-env:[\s\S]*?DATABASE_URL: postgresql:\/\/mnt_rt:/,
   );
-  assert.doesNotMatch(workerBlock, /(?:LEAVE|ONTOLOGY)_COMMAND_DATABASE_URL/);
+  assert.doesNotMatch(
+    workerBlock,
+    /(?:LEAVE|ONTOLOGY|PLATFORM_FORCE)_COMMAND_DATABASE_URL/,
+  );
   assert.doesNotMatch(
     `${appBlock}\n${workerBlock}`,
     /mnt_app:|MNT_POSTGRES_ADMIN/,
@@ -130,6 +141,10 @@ test("Compose migrates as mnt_app and serves as mnt_rt without owner/admin crede
     baseCompose,
     /MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:\s+\$\{[^}]+:\?/,
   );
+  assert.match(
+    baseCompose,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s+\$\{[^}]+:\?/,
+  );
   assert.match(baseCompose, /postgres-socket:\/var\/run\/postgresql/);
 });
 
@@ -140,6 +155,7 @@ test("fresh and existing databases reconcile the exact hardened seven-role topol
     "mnt_rt",
     "mnt_leave_cmd",
     "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
   ]) {
     assert.match(commandRoleInit, new RegExp(`CREATE ROLE ${role} LOGIN`));
     assert.match(commandRoleInit, new RegExp(`ALTER ROLE ${role} LOGIN`));
@@ -174,7 +190,12 @@ test("fresh and existing databases reconcile the exact hardened seven-role topol
   );
   assert.match(commandRoleInit, /SET LOCAL log_min_error_statement = 'panic'/);
   assert.match(commandRoleInit, /OR granted\.rolname IN/);
-  for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+  for (const role of [
+    "mnt_rt",
+    "mnt_leave_cmd",
+    "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
+  ]) {
     assert.match(
       commandRoleInit,
       new RegExp(`ALTER ROLE ${role} SET statement_timeout = '30s'`),
@@ -231,7 +252,12 @@ test("fresh and existing databases reconcile the exact hardened seven-role topol
   assert.match(topologyIntegration, /query_as_direct_login mnt_app/);
   assert.match(topologyIntegration, /pg_database_owner/);
   assert.match(topologyIntegration, /session_user,current_user/);
-  for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+  for (const role of [
+    "mnt_rt",
+    "mnt_leave_cmd",
+    "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
+  ]) {
     assert.match(topologyIntegration, new RegExp(`\\"${role}\\|`));
   }
   assert.match(
@@ -265,13 +291,14 @@ test("fresh and existing databases reconcile the exact hardened seven-role topol
   assert.match(devUp, /ONTOLOGY_COMMAND_DATABASE_URL: commandDatabaseUrl/);
 });
 
-test("quickstart supplies all five distinct login passwords and Compose accepts it", (t) => {
+test("quickstart supplies all six distinct login passwords and Compose accepts it", (t) => {
   for (const variable of [
     "MNT_POSTGRES_ADMIN_PASSWORD",
     "MNT_APP_POSTGRES_PASSWORD",
     "MNT_RT_POSTGRES_PASSWORD",
     "MNT_LEAVE_COMMAND_POSTGRES_PASSWORD",
     "MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD",
+    "MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD",
   ]) {
     assert.match(
       opsReadme,
@@ -305,11 +332,20 @@ test("quickstart supplies all five distinct login passwords and Compose accepts 
         MNT_RT_POSTGRES_PASSWORD: "runtime-quickstart",
         MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: "leave-quickstart",
         MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: "ontology-quickstart",
+        MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD: "platform-force-quickstart",
       },
       encoding: "utf8",
     },
   );
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("image release probe provisions and passes the isolated platform-force command capability", () => {
+  assert.match(imageRelease, /PLATFORM_FORCE_COMMAND_PASSWORD="\$\(openssl rand -hex 32\)"/);
+  assert.match(imageRelease, /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="\$PLATFORM_FORCE_COMMAND_PASSWORD"/);
+  assert.match(imageRelease, /PROBE_PLATFORM_FORCE_COMMAND_DATABASE_URL=postgres:\/\/mnt_platform_force_cmd:\$\{PLATFORM_FORCE_COMMAND_PASSWORD\}@127\.0\.0\.1:5432\/mnt_release_probe/);
+  assert.match(imageRelease, /PLATFORM_FORCE_COMMAND_DATABASE_URL="\$PROBE_PLATFORM_FORCE_COMMAND_DATABASE_URL"/);
+  assert.match(imageRelease, /echo "::add-mask::\$PLATFORM_FORCE_COMMAND_PASSWORD"/);
 });
 
 test("documented runtime URI uses its generated URL-safe password consistently", () => {

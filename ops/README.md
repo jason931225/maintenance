@@ -12,6 +12,7 @@ export MNT_APP_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export MNT_RT_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 docker compose -f ops/compose.yml config --quiet
 docker compose -f ops/compose.yml up -d
 ```
@@ -144,12 +145,13 @@ export MNT_APP_POSTGRES_PASSWORD='<migration owner password>'
 export MNT_RT_POSTGRES_PASSWORD='<runtime password>'
 export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD='<distinct value from the production secret manager>'
 export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD='<another distinct value from the production secret manager>'
+export MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD='<a third distinct command-only value from the production secret manager>'
 ```
 
-All five passwords are mandatory and pairwise distinct. `postgres` starts with
+All six passwords are mandatory and pairwise distinct. `postgres` starts with
 the cluster administrator, then the one-shot `postgres-topology` service runs
 `postgres-reconcile-topology.sh` on both fresh and existing volumes. It creates
-or pins the exact six application roles, makes `mnt_app` the database/schema
+or pins the exact seven application roles, makes `mnt_app` the database/schema
 owner, gives that migration-only identity explicit `BYPASSRLS` for populated
 tenant-wide backfills, makes it a non-admin member of both NOLOGIN definers,
 and verifies readback. The `migrate` service then connects directly as
