@@ -18,7 +18,7 @@ use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext};
 use mnt_platform_db::{DbError, issue_code, with_audits, with_org_conn};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{DatabaseError, PgPool, Postgres, Row, Transaction};
 use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
@@ -54,6 +54,8 @@ const EXCEPTION_BY_ID_SQL: &str = "\
     LEFT JOIN attendance_exception_resolutions r \
            ON r.exception_id=e.id AND r.org_id=e.org_id \
     WHERE e.id=$1";
+const SUBSTITUTION_ELIGIBILITY_LOCK_SQL: &str =
+    "SELECT public.mnt_employee_day_eligibility_lock($1,$2,$3)";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AttendanceStoreError {
@@ -325,7 +327,7 @@ impl PgAttendanceStore {
             command.worker_rate = None;
             ensure_historical_coverage(tx,command.covered_employee_id,&command.window,command.exception_id).await?;
             sqlx::query("INSERT INTO attendance_substitutions (id,org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,reason_detail,worker_employee_id,worker_name,worker_type,worker_rate,exception_id,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
-                .bind(id).bind(caller.org_id).bind(&command.site).bind(command.branch_id).bind(&command.role).bind(command.window.cover_date).bind(command.window.from_minutes).bind(command.window.to_minutes).bind(command.covered_employee_id).bind(&command.reason_kind).bind(&command.reason_detail).bind(command.worker_employee_id).bind(&command.worker_name).bind(&command.worker_type).bind(&command.worker_rate).bind(command.exception_id).bind(&key).bind(&fp).bind(caller.user_id).execute(tx.as_mut()).await?;
+                .bind(id).bind(caller.org_id).bind(&command.site).bind(command.branch_id).bind(&command.role).bind(command.window.cover_date).bind(command.window.from_minutes).bind(command.window.to_minutes).bind(command.covered_employee_id).bind(&command.reason_kind).bind(&command.reason_detail).bind(command.worker_employee_id).bind(&command.worker_name).bind(&command.worker_type).bind(&command.worker_rate).bind(command.exception_id).bind(&key).bind(&fp).bind(caller.user_id).execute(tx.as_mut()).await.map_err(eligibility_guard_conflict)?;
             let view=substitution_by_id(tx,id).await?; Ok((view,vec![event(&caller,"attendance.substitution.assign","attendance_substitution",id,command.branch_id,Some(json!({"coveredEmployeeId":command.covered_employee_id})))?]))
         })).await
     }
@@ -937,23 +939,34 @@ async fn idempotency_lock(
     Ok(())
 }
 
-/// One per-org worker/day lock serializes the eligibility read with every
-/// overlapping assignment attempt for that worker. The subsequent query is
-/// deliberately fresh and runs after this lock is acquired.
+/// The platform-owned lock serializes this fresh eligibility read with every
+/// cross-domain employee/day writer (leave and NO_SHOW transitions included).
 async fn substitution_eligibility_lock(
     tx: &mut Transaction<'_, Postgres>,
     org_id: Uuid,
     worker_employee_id: Uuid,
     cover_date: Date,
 ) -> Result<(), AttendanceStoreError> {
-    let material = format!(
-        "attendance-substitution-eligibility-v1|{org_id}|{worker_employee_id}|{cover_date}"
-    );
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(material)
+    sqlx::query(SUBSTITUTION_ELIGIBILITY_LOCK_SQL)
+        .bind(org_id)
+        .bind(worker_employee_id)
+        .bind(cover_date)
         .execute(tx.as_mut())
         .await?;
     Ok(())
+}
+
+/// The migration-owned guard is a normal optimistic-race outcome. Other
+/// database failures retain their original error surface for observability.
+fn eligibility_guard_conflict(error: sqlx::Error) -> AttendanceStoreError {
+    if let sqlx::Error::Database(database) = &error {
+        if database.code().as_deref() == Some("23514")
+            && database.message() == "attendance_substitutions_worker_eligibility_guard"
+        {
+            return AttendanceStoreError::Conflict;
+        }
+    }
+    AttendanceStoreError::Sql(error)
 }
 
 fn substitution_fingerprint(caller: &CallerScope, command: &AssignSubstitute) -> Value {
@@ -1285,6 +1298,23 @@ mod tests {
     fn candidate_query_uses_half_open_substitution_intervals() {
         assert!(SUBSTITUTION_CANDIDATES_SQL.contains("s.from_minutes < $5 AND s.to_minutes > $4"));
         assert!(!SUBSTITUTION_CANDIDATES_SQL.contains("s.from_minutes <= $5"));
+    }
+
+    #[test]
+    fn substitution_eligibility_lock_uses_the_platform_coordination_contract() {
+        assert!(
+            SUBSTITUTION_ELIGIBILITY_LOCK_SQL
+                .contains("public.mnt_employee_day_eligibility_lock($1,$2,$3)")
+        );
+        assert!(!SUBSTITUTION_ELIGIBILITY_LOCK_SQL.contains("pg_advisory_xact_lock"));
+    }
+
+    #[test]
+    fn unrelated_sql_errors_are_not_downgraded_to_conflicts() {
+        assert!(matches!(
+            eligibility_guard_conflict(sqlx::Error::Protocol("unrelated database failure".into())),
+            AttendanceStoreError::Sql(sqlx::Error::Protocol(_))
+        ));
     }
 
     #[test]
