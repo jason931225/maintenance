@@ -12,15 +12,15 @@ use axum::{
 };
 use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
-    AssignSubstitute, CallerScope, CloseMonth, ListSubstitutions, RaiseException, ResolveException,
-    week52_tone,
+    AcknowledgeWeek52, AmendClose, AssignSubstitute, CallerScope, CancelSubstitution, CloseMonth,
+    ListSubstitutions, RaiseException, ResolveException, week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
 };
-use mnt_kernel_core::{BranchScope, ErrorKind, KernelError};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_request_context::{RequestContextError, resolve_principal};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -28,19 +28,28 @@ use time::{Date, Duration};
 use uuid::Uuid;
 
 pub const ATTENDANCE_EXCEPTIONS_PATH: &str = "/api/v1/attendance/exceptions";
+pub const ATTENDANCE_EXCEPTION_DETAIL_PATH: &str = "/api/v1/attendance/exceptions/{exception_id}";
 pub const ATTENDANCE_EXCEPTION_RESOLVE_PATH: &str =
     "/api/v1/attendance/exceptions/{exception_id}/resolve";
 pub const ATTENDANCE_SUBSTITUTIONS_PATH: &str = "/api/v1/attendance/substitutions";
+pub const ATTENDANCE_SUBSTITUTION_CANCEL_PATH: &str =
+    "/api/v1/attendance/substitutions/{substitution_id}/cancel";
 pub const ATTENDANCE_CLOSES_PATH: &str = "/api/v1/attendance/closes";
 pub const ATTENDANCE_CLOSE_PREFLIGHT_PATH: &str = "/api/v1/attendance/closes/preflight";
+pub const ATTENDANCE_CLOSE_AMEND_PATH: &str = "/api/v1/attendance/closes/{close_id}/amend";
 pub const ATTENDANCE_WEEK52_PATH: &str = "/api/v1/attendance/week52";
+pub const ATTENDANCE_WEEK52_ACK_PATH: &str = "/api/v1/attendance/week52/ack";
 pub const ATTENDANCE_ROUTE_PATHS: &[&str] = &[
     ATTENDANCE_EXCEPTIONS_PATH,
+    ATTENDANCE_EXCEPTION_DETAIL_PATH,
     ATTENDANCE_EXCEPTION_RESOLVE_PATH,
     ATTENDANCE_SUBSTITUTIONS_PATH,
+    ATTENDANCE_SUBSTITUTION_CANCEL_PATH,
     ATTENDANCE_CLOSES_PATH,
     ATTENDANCE_CLOSE_PREFLIGHT_PATH,
+    ATTENDANCE_CLOSE_AMEND_PATH,
     ATTENDANCE_WEEK52_PATH,
+    ATTENDANCE_WEEK52_ACK_PATH,
 ];
 const READ: Feature = Feature::EmployeeDirectoryRead;
 const MANAGE: Feature = Feature::EmployeeDirectoryManage;
@@ -66,14 +75,21 @@ pub fn router(state: AttendanceRestState) -> Router {
             ATTENDANCE_EXCEPTIONS_PATH,
             get(list_exceptions).post(raise_exception),
         )
+        .route(ATTENDANCE_EXCEPTION_DETAIL_PATH, get(exception_detail))
         .route(ATTENDANCE_EXCEPTION_RESOLVE_PATH, post(resolve_exception))
         .route(
             ATTENDANCE_SUBSTITUTIONS_PATH,
             get(list_substitutions).post(assign_substitute),
         )
         .route(ATTENDANCE_CLOSE_PREFLIGHT_PATH, post(close_preflight))
-        .route(ATTENDANCE_CLOSES_PATH, post(close_month))
+        .route(
+            ATTENDANCE_SUBSTITUTION_CANCEL_PATH,
+            post(cancel_substitution),
+        )
+        .route(ATTENDANCE_CLOSES_PATH, get(list_closes).post(close_month))
+        .route(ATTENDANCE_CLOSE_AMEND_PATH, post(amend_close))
         .route(ATTENDANCE_WEEK52_PATH, get(week52))
+        .route(ATTENDANCE_WEEK52_ACK_PATH, post(acknowledge_week52))
         .with_state(state);
     mnt_platform_request_context::with_request_context(r, verifier, pool)
 }
@@ -116,9 +132,55 @@ async fn principal(
             ),
         })
 }
-fn require(principal: &Principal, feature: Feature) -> Result<(), RestError> {
-    authorize_org_wide(principal, Action::new(feature)).map_err(RestError::kernel)
+fn require_for_branch(
+    principal: &Principal,
+    feature: Feature,
+    branch_id: Option<Uuid>,
+) -> Result<(), RestError> {
+    if !branch_request_is_well_scoped(&principal.branch_scope, branch_id) {
+        return Err(RestError::kernel(KernelError::forbidden(
+            "branchId is required for branch-limited attendance access",
+        )));
+    }
+    match branch_id {
+        Some(id) => authorize(principal, Action::new(feature), BranchId::from_uuid(id))
+            .map_err(RestError::kernel),
+        None if matches!(&principal.branch_scope, BranchScope::All) => {
+            authorize_org_wide(principal, Action::new(feature)).map_err(RestError::kernel)
+        }
+        // `branch_request_is_well_scoped` rejects this case first. Keeping this
+        // branch makes the authorization boundary fail closed if it changes.
+        None => Err(RestError::kernel(KernelError::forbidden(
+            "branchId is required",
+        ))),
+    }
 }
+
+/// An omitted branch is an org-wide query, never an implicit "my branches"
+/// query. Concrete branch IDs are authorized by `authorize` below.
+fn branch_request_is_well_scoped(scope: &BranchScope, branch_id: Option<Uuid>) -> bool {
+    branch_id.is_some() || matches!(scope, BranchScope::All)
+}
+fn require_resource_branch(
+    principal: &Principal,
+    feature: Feature,
+    branch_id: Option<Uuid>,
+) -> Result<(), RestError> {
+    let visible = match branch_id {
+        Some(id) => principal.branch_scope.allows(BranchId::from_uuid(id)),
+        None => matches!(&principal.branch_scope, BranchScope::All),
+    };
+    if !visible {
+        return Err(RestError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "resource was not found",
+        ));
+    }
+    // A resource inside the caller's scope remains visible; missing feature permission is a truthful 403.
+    require_for_branch(principal, feature, branch_id)
+}
+
 fn scope(principal: &Principal) -> CallerScope {
     match &principal.branch_scope {
         BranchScope::All => CallerScope {
@@ -190,7 +252,7 @@ async fn list_substitutions(
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, READ)?;
+    require_for_branch(&p, READ, q.branch_id)?;
     let query = ListSubstitutions::new(list_range(&q)?, q.branch_id, q.limit, q.offset);
     let (items, total) = state
         .store
@@ -205,7 +267,7 @@ async fn list_exceptions(
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, READ)?;
+    require_for_branch(&p, READ, q.branch_id)?;
     let items = state
         .store
         .list_exceptions(&scope(&p), list_range(&q)?, q.branch_id)
@@ -231,7 +293,7 @@ async fn raise_exception(
     Json(body): Json<RaiseBody>,
 ) -> Result<(StatusCode, Json<Value>), RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, MANAGE)?;
+    require_for_branch(&p, MANAGE, body.branch_id)?;
     let key = idempotency(&headers)?;
     let command = RaiseException {
         kind: ExceptionKind::parse(&body.kind).map_err(|e| {
@@ -255,6 +317,29 @@ async fn raise_exception(
         .map_err(RestError::store)?;
     Ok((StatusCode::CREATED, Json(v)))
 }
+async fn exception_detail(
+    State(state): State<AttendanceRestState>,
+    headers: HeaderMap,
+    axum::extract::Path(exception_id): axum::extract::Path<Uuid>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&state, &headers).await?;
+    let branch = state
+        .store
+        .exception_branch(*p.org_id.as_uuid(), exception_id)
+        .await
+        .map_err(RestError::store)?
+        .ok_or_else(|| {
+            RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
+        })?;
+    require_resource_branch(&p, READ, branch)?;
+    state
+        .store
+        .exception_detail(&scope(&p), exception_id)
+        .await
+        .map(Json)
+        .map_err(RestError::store)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ResolveBody {
@@ -270,7 +355,15 @@ async fn resolve_exception(
     Json(body): Json<ResolveBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, MANAGE)?;
+    let resource_branch = state
+        .store
+        .exception_branch(*p.org_id.as_uuid(), exception_id)
+        .await
+        .map_err(RestError::store)?
+        .ok_or_else(|| {
+            RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
+        })?;
+    require_resource_branch(&p, MANAGE, resource_branch)?;
     let v = state
         .store
         .resolve_exception(
@@ -318,7 +411,7 @@ async fn assign_substitute(
     Json(body): Json<AssignBody>,
 ) -> Result<(StatusCode, Json<Value>), RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, MANAGE)?;
+    require_for_branch(&p, MANAGE, body.branch_id)?;
     let command = AssignSubstitute {
         window: SubstitutionWindow::new(
             parse_date(&body.cover_date, "coverDate")?,
@@ -355,6 +448,41 @@ async fn assign_substitute(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CancelBody {
+    reason: String,
+}
+async fn cancel_substitution(
+    State(state): State<AttendanceRestState>,
+    headers: HeaderMap,
+    axum::extract::Path(substitution_id): axum::extract::Path<Uuid>,
+    Json(body): Json<CancelBody>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&state, &headers).await?;
+    let branch = state
+        .store
+        .substitution_branch(*p.org_id.as_uuid(), substitution_id)
+        .await
+        .map_err(RestError::store)?
+        .ok_or_else(|| {
+            RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
+        })?;
+    require_resource_branch(&p, MANAGE, branch)?;
+    state
+        .store
+        .cancel_substitution(
+            &scope(&p),
+            CancelSubstitution {
+                substitution_id,
+                reason: body.reason,
+            },
+        )
+        .await
+        .map(Json)
+        .map_err(RestError::store)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CloseBody {
     month: String,
     branch_scope: Option<Uuid>,
@@ -366,7 +494,7 @@ async fn close_preflight(
     Json(body): Json<CloseBody>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, CLOSE)?;
+    require_for_branch(&p, CLOSE, body.branch_scope)?;
     let checks = state
         .store
         .close_checks(
@@ -383,13 +511,67 @@ async fn close_preflight(
         json!({"ready":checks.ready(),"checks":{"openExceptions":checks.open_exceptions,"pendingLeave":checks.pending_leave,"alreadyClosed":checks.already_closed}}),
     ))
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CloseListQuery {
+    branch_id: Option<Uuid>,
+}
+async fn list_closes(
+    State(state): State<AttendanceRestState>,
+    headers: HeaderMap,
+    Query(q): Query<CloseListQuery>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&state, &headers).await?;
+    require_for_branch(&p, READ, q.branch_id)?;
+    state
+        .store
+        .list_closes(&scope(&p), q.branch_id)
+        .await
+        .map(Json)
+        .map_err(RestError::store)
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AmendCloseBody {
+    reason: String,
+}
+async fn amend_close(
+    State(state): State<AttendanceRestState>,
+    headers: HeaderMap,
+    axum::extract::Path(close_id): axum::extract::Path<Uuid>,
+    Json(body): Json<AmendCloseBody>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&state, &headers).await?;
+    let branch = state
+        .store
+        .close_branch(*p.org_id.as_uuid(), close_id)
+        .await
+        .map_err(RestError::store)?
+        .ok_or_else(|| {
+            RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
+        })?;
+    require_resource_branch(&p, CLOSE, branch)?;
+    state
+        .store
+        .amend_close(
+            &scope(&p),
+            AmendClose {
+                close_id,
+                reason: body.reason,
+            },
+        )
+        .await
+        .map(Json)
+        .map_err(RestError::store)
+}
+
 async fn close_month(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<CloseBody>,
 ) -> Result<(StatusCode, Json<Value>), RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, CLOSE)?;
+    require_for_branch(&p, CLOSE, body.branch_scope)?;
     let v = state
         .store
         .close_month(
@@ -409,6 +591,7 @@ async fn close_month(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Week52Query {
     week_start: String,
+    branch_id: Option<Uuid>,
 }
 async fn week52(
     State(state): State<AttendanceRestState>,
@@ -416,13 +599,40 @@ async fn week52(
     Query(q): Query<Week52Query>,
 ) -> Result<Json<Value>, RestError> {
     let p = principal(&state, &headers).await?;
-    require(&p, READ)?;
+    require_for_branch(&p, READ, q.branch_id)?;
     let week_start = parse_date(&q.week_start, "weekStart")?;
     let items=state.store.week52_inputs(&scope(&p),week_start,q.branch_id).await.map_err(RestError::store)?.into_iter().map(|i|json!({"employeeId":i.employee_id,"weekStart":i.week_start.to_string(),"currentHours":i.current_hours,"projectedHours":i.projected_hours,"tone":week52_tone(&i),"ackedAt":i.acknowledged_at})).collect::<Vec<_>>();
     Ok(Json(
         json!({"weekStart":week_start.to_string(),"through":(week_start+Duration::days(7)).to_string(),"items":items}),
     ))
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Week52AckBody {
+    employee_id: Uuid,
+    week_start: String,
+    branch_id: Option<Uuid>,
+}
+async fn acknowledge_week52(
+    State(state): State<AttendanceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<Week52AckBody>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&state, &headers).await?;
+    require_for_branch(&p, MANAGE, body.branch_id)?;
+    let command = AcknowledgeWeek52 {
+        employee_id: body.employee_id,
+        week_start: parse_date(&body.week_start, "weekStart")?,
+        branch_id: body.branch_id,
+    };
+    state
+        .store
+        .acknowledge_week52(&scope(&p), command)
+        .await
+        .map(Json)
+        .map_err(RestError::store)
+}
+
 fn idempotency(headers: &HeaderMap) -> Result<String, RestError> {
     headers
         .get("Idempotency-Key")
@@ -514,6 +724,23 @@ impl IntoResponse for RestError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
+    const BRANCH_BOUND_ENDPOINT_FAMILIES: &[&str] = &[
+        "substitutions list",
+        "exceptions list",
+        "exceptions raise",
+        "substitutions assign",
+        "close preflight",
+        "close confirm",
+        "week52",
+        "exception detail resource lookup",
+        "exception resolve resource lookup",
+        "substitution cancel resource lookup",
+        "close list",
+        "close amendment resource lookup",
+        "week52 acknowledgement",
+    ];
     #[test]
     fn explicit_range_needs_both_bounds() {
         let q = ListQuery {
@@ -538,5 +765,58 @@ mod tests {
         };
         let r = list_range(&q).unwrap();
         assert_eq!(r.to_exclusive.to_string(), "2026-08-08");
+    }
+
+    #[test]
+    fn private_rest_surface_exposes_all_thirteen_canonical_operations() {
+        assert_eq!(
+            ATTENDANCE_ROUTE_PATHS.len(),
+            10,
+            "some paths host two method-specific operations"
+        );
+        assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_EXCEPTION_DETAIL_PATH));
+        assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_SUBSTITUTION_CANCEL_PATH));
+        assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_CLOSE_AMEND_PATH));
+        assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_WEEK52_ACK_PATH));
+        assert_eq!(BRANCH_BOUND_ENDPOINT_FAMILIES.len(), 13);
+    }
+
+    #[test]
+    fn http_boundary_allows_an_explicit_allowed_branch_for_every_endpoint_family() {
+        let branch = BranchId::new();
+        let scope = BranchScope::Branches(BTreeSet::from([branch]));
+        for family in BRANCH_BOUND_ENDPOINT_FAMILIES {
+            assert!(
+                branch_request_is_well_scoped(&scope, Some(*branch.as_uuid())),
+                "{family}"
+            );
+            assert!(scope.allows(branch), "{family}");
+        }
+    }
+
+    #[test]
+    fn http_boundary_rejects_a_foreign_branch_for_every_endpoint_family() {
+        let allowed = BranchId::new();
+        let foreign = BranchId::new();
+        let scope = BranchScope::Branches(BTreeSet::from([allowed]));
+        for family in BRANCH_BOUND_ENDPOINT_FAMILIES {
+            assert!(
+                branch_request_is_well_scoped(&scope, Some(*foreign.as_uuid())),
+                "{family}"
+            );
+            assert!(!scope.allows(foreign), "{family}");
+        }
+    }
+
+    #[test]
+    fn http_boundary_rejects_omitted_branch_for_limited_scope_and_allows_org_scope() {
+        let limited = BranchScope::single(BranchId::new());
+        for family in BRANCH_BOUND_ENDPOINT_FAMILIES {
+            assert!(!branch_request_is_well_scoped(&limited, None), "{family}");
+            assert!(
+                branch_request_is_well_scoped(&BranchScope::All, None),
+                "{family}"
+            );
+        }
     }
 }

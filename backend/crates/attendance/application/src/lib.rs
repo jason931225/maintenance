@@ -87,6 +87,22 @@ pub struct CloseMonth {
     pub attest: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelSubstitution {
+    pub substitution_id: Uuid,
+    pub reason: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AmendClose {
+    pub close_id: Uuid,
+    pub reason: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcknowledgeWeek52 {
+    pub employee_id: Uuid,
+    pub week_start: Date,
+    pub branch_id: Option<Uuid>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloseChecks {
     pub open_exceptions: i64,
     pub pending_leave: i64,
@@ -141,6 +157,24 @@ pub fn validate_text(
     }
     Ok(value.to_owned())
 }
+pub fn normalize_optional_text(
+    value: Option<String>,
+    name: &'static str,
+    max: usize,
+) -> Result<Option<String>, AttendanceApplicationError> {
+    match value {
+        None => Ok(None),
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() || trimmed.chars().count() > max {
+                Err(AttendanceApplicationError::InvalidText(name))
+            } else {
+                Ok(Some(trimmed.to_owned()))
+            }
+        }
+    }
+}
+
 pub fn ensure_scope(
     scope: &CallerScope,
     branch_id: Option<Uuid>,
@@ -183,6 +217,17 @@ mod tests {
         };
         assert!(ensure_scope(&caller, Some(allowed)).is_ok());
         assert!(ensure_scope(&caller, Some(Uuid::new_v4())).is_err());
+        assert!(ensure_scope(&caller, None).is_err());
+    }
+    #[test]
+    fn org_wide_scope_is_the_only_scope_that_can_omit_a_branch() {
+        let caller = CallerScope {
+            org_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            branch_ids: vec![],
+            org_wide: true,
+        };
+        assert!(ensure_scope(&caller, None).is_ok());
     }
     #[test]
     fn close_requires_no_open_exception() {
