@@ -3327,6 +3327,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-equipment-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "mnt-equipment-application",
+ "mnt-equipment-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-equipment-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-equipment-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+]
+
+[[package]]
+name = "mnt-equipment-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-equipment-adapter-postgres",
+ "mnt-equipment-application",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-erp-domain"
 version = "0.1.0"
 dependencies = [
