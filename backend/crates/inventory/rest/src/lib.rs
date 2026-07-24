@@ -22,9 +22,12 @@ use mnt_kernel_core::{
     P1DispatchId, SiteId, TraceContext, WorkOrderId,
 };
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
+use mnt_platform_authz::{
+    Action, EffectiveFeatureGrant, Feature, PermissionLevel, Principal, authorize, permission_for,
+};
 use mnt_platform_request_context::RequestContextError;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -88,11 +91,14 @@ async fn list_items(
     Query(params): Query<ListItemsParams>,
 ) -> Result<Json<InventoryItemPage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_list(&principal, Feature::InventoryRead, params.branch_id)?;
+    let branch_scope = authorized_feature_scope(&principal, Feature::InventoryRead)?;
+    if let Some(branch_id) = params.branch_id {
+        ensure_scope_allows(&branch_scope, BranchId::from_uuid(branch_id))?;
+    }
     let page = state
         .store
         .list_items(ListInventoryItemsQuery {
-            branch_scope: principal.branch_scope,
+            branch_scope,
             branch_id: params.branch_id.map(BranchId::from_uuid),
             site_id: params.site_id.map(SiteId::from_uuid),
             stock_location_id: params
@@ -208,6 +214,7 @@ async fn consume_item(
     Json(body): Json<ConsumeItemBody>,
 ) -> Result<Json<InventoryConsumptionResult>, RestError> {
     validate_idempotency_key(&body.idempotency_key).map_err(RestError::from_kernel)?;
+    let trace = trace_context_from_headers(&headers).map_err(RestError::from_kernel)?;
     let principal = principal_from_headers(&state, &headers).await?;
     let item_id = InventoryItemId::from_uuid(item_id);
     let item = find_item(&state.store, item_id, &principal).await?;
@@ -229,7 +236,7 @@ async fn consume_item(
             occurred_at: body.occurred_at,
             memo: body.memo,
             idempotency_key: body.idempotency_key,
-            trace: TraceContext::generate(),
+            trace,
             requested_at: now,
         })
         .await
@@ -251,26 +258,74 @@ async fn find_item(
         })
 }
 
-fn authorize_list(
+fn authorized_feature_scope(
     principal: &Principal,
     feature: Feature,
-    requested_branch: Option<Uuid>,
-) -> Result<(), RestError> {
-    match requested_branch {
-        Some(branch_id) => authorize(
-            principal,
-            Action::new(feature),
-            BranchId::from_uuid(branch_id),
-        ),
-        None => match &principal.branch_scope {
-            BranchScope::All => authorize_org_wide(principal, Action::new(feature)),
-            BranchScope::Branches(branches) => branches.iter().next().map_or_else(
-                || Err(KernelError::forbidden("principal has no branch scope")),
-                |branch| authorize(principal, Action::new(feature), *branch),
-            ),
-        },
+) -> Result<BranchScope, RestError> {
+    let builtin_allows = principal
+        .roles
+        .iter()
+        .any(|role| permission_for(*role, feature) == PermissionLevel::Allow);
+    let custom_scope = custom_feature_scope(&principal.effective_feature_grants, feature);
+
+    let scope = match (builtin_allows, custom_scope) {
+        (true, _) => principal.branch_scope.clone(),
+        (false, Some(scope)) => principal.branch_scope.intersect(&scope),
+        (false, None) => BranchScope::none(),
+    };
+    if scope.is_empty() {
+        return Err(RestError::from_kernel(KernelError::forbidden(
+            "principal has no authorized branch scope for feature",
+        )));
     }
-    .map_err(RestError::from_kernel)
+    Ok(scope)
+}
+
+fn custom_feature_scope(grants: &[EffectiveFeatureGrant], feature: Feature) -> Option<BranchScope> {
+    let mut branches = BTreeSet::new();
+    for grant in grants {
+        if grant.feature != feature || grant.permission != PermissionLevel::Allow {
+            continue;
+        }
+        match &grant.branch_scope {
+            BranchScope::All => return Some(BranchScope::All),
+            BranchScope::Branches(granted) => branches.extend(granted),
+        }
+    }
+    (!branches.is_empty()).then_some(BranchScope::Branches(branches))
+}
+
+fn ensure_scope_allows(scope: &BranchScope, branch: BranchId) -> Result<(), RestError> {
+    if scope.allows(branch) {
+        Ok(())
+    } else {
+        Err(RestError::from_kernel(KernelError::forbidden(
+            "requested branch is outside principal feature scope",
+        )))
+    }
+}
+
+fn trace_context_from_headers(headers: &HeaderMap) -> Result<TraceContext, KernelError> {
+    let Some(traceparent) = headers.get("traceparent") else {
+        return Ok(TraceContext::generate());
+    };
+    let traceparent = traceparent
+        .to_str()
+        .map_err(|_| KernelError::validation("traceparent must be valid header text"))?;
+    let mut fields = traceparent.split('-');
+    let (Some(_version), Some(trace_id), Some(span_id), Some(_flags)) =
+        (fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return Err(KernelError::validation(
+            "traceparent must have version-trace-id-parent-id-flags fields",
+        ));
+    };
+    if fields.next().is_some() {
+        return Err(KernelError::validation(
+            "traceparent must have version-trace-id-parent-id-flags fields",
+        ));
+    }
+    TraceContext::new(trace_id, span_id)
 }
 
 fn validate_idempotency_key(value: &str) -> Result<(), KernelError> {
@@ -416,7 +471,6 @@ mod tests {
     use super::*;
     use mnt_kernel_core::OrgId;
     use mnt_platform_authz::Role;
-    use std::collections::BTreeSet;
 
     fn principal(role: Role, scope: BranchScope) -> Principal {
         Principal::new(
@@ -438,17 +492,116 @@ mod tests {
     fn inventory_read_and_consume_default_deny_members() {
         let principal = principal(Role::Member, BranchScope::All);
         assert_eq!(
-            authorize_list(&principal, Feature::InventoryRead, None)
+            authorized_feature_scope(&principal, Feature::InventoryRead)
                 .unwrap_err()
                 .status,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            authorize_list(&principal, Feature::InventoryConsume, None)
+            authorized_feature_scope(&principal, Feature::InventoryConsume)
                 .unwrap_err()
                 .status,
             StatusCode::FORBIDDEN
         );
+    }
+
+    #[test]
+    fn custom_inventory_read_grant_is_intersected_with_membership_scope() {
+        let member_branch = BranchId::new();
+        let other_member_branch = BranchId::new();
+        let grant_only_branch = BranchId::new();
+        let principal = principal(
+            Role::Member,
+            BranchScope::Branches(BTreeSet::from([member_branch, other_member_branch])),
+        )
+        .with_effective_feature_grants(vec![EffectiveFeatureGrant::new(
+            Feature::InventoryRead,
+            PermissionLevel::Allow,
+            BranchScope::Branches(BTreeSet::from([member_branch, grant_only_branch])),
+        )]);
+
+        assert_eq!(
+            authorized_feature_scope(&principal, Feature::InventoryRead).unwrap(),
+            BranchScope::single(member_branch)
+        );
+    }
+
+    #[test]
+    fn custom_grant_order_cannot_false_deny_an_authorized_branch() {
+        let first_branch = BranchId::new();
+        let second_branch = BranchId::new();
+        let principal = principal(
+            Role::Member,
+            BranchScope::Branches(BTreeSet::from([first_branch, second_branch])),
+        )
+        .with_effective_feature_grants(vec![
+            EffectiveFeatureGrant::new(
+                Feature::InventoryRead,
+                PermissionLevel::Allow,
+                BranchScope::single(first_branch),
+            ),
+            EffectiveFeatureGrant::new(
+                Feature::InventoryRead,
+                PermissionLevel::Allow,
+                BranchScope::single(second_branch),
+            ),
+        ]);
+
+        let scope = authorized_feature_scope(&principal, Feature::InventoryRead).unwrap();
+        assert!(scope.allows(first_branch));
+        assert!(scope.allows(second_branch));
+    }
+
+    #[test]
+    fn requested_branch_outside_read_scope_is_forbidden() {
+        let allowed = BranchId::new();
+        let denied = BranchId::new();
+        let scope = BranchScope::single(allowed);
+        assert!(ensure_scope_allows(&scope, allowed).is_ok());
+        assert_eq!(
+            ensure_scope_allows(&scope, denied).unwrap_err().status,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn consume_is_denied_without_the_consume_feature_even_on_a_member_branch() {
+        let branch = BranchId::new();
+        let principal = principal(Role::Member, BranchScope::single(branch));
+        let error =
+            authorize(&principal, Action::new(Feature::InventoryConsume), branch).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Forbidden);
+    }
+
+    #[test]
+    fn store_forbidden_maps_to_typed_forbidden_response() {
+        let error = RestError::from_store(PgInventoryError::Domain(KernelError::forbidden(
+            "inventory branch is outside principal scope",
+        )));
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "forbidden");
+    }
+
+    #[test]
+    fn mutation_reuses_valid_inbound_traceparent() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "traceparent",
+            "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+                .parse()
+                .unwrap(),
+        );
+        let trace = trace_context_from_headers(&headers).unwrap();
+        assert_eq!(trace.trace_id(), "0123456789abcdef0123456789abcdef");
+        assert_eq!(trace.span_id(), "0123456789abcdef");
+    }
+
+    #[test]
+    fn malformed_inbound_traceparent_is_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("traceparent", "not-a-traceparent".parse().unwrap());
+        let error = trace_context_from_headers(&headers).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Validation);
     }
 
     #[test]
