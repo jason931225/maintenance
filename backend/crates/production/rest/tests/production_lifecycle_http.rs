@@ -50,6 +50,18 @@ struct Fixture {
     due_at: OffsetDateTime,
 }
 
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct LifecycleAuditRow {
+    id: Uuid,
+    org_id: Uuid,
+    service_principal_id: Uuid,
+    event_type: String,
+    actor_id: Option<Uuid>,
+    expected_generation: Option<i32>,
+    resulting_generation: i32,
+    occurred_at: OffsetDateTime,
+}
+
 fn keys() -> Keys {
     let key = SigningKey::random(&mut OsRng);
     Keys {
@@ -1094,11 +1106,11 @@ async fn source_system_lifecycle_rejects_same_branch_caller_without_role_manage(
             .fetch_one(&pool)
             .await
             .unwrap();
-    let before_audit_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1",
+    let before_audit_rows: Vec<LifecycleAuditRow> = sqlx::query_as(
+        "SELECT id,org_id,service_principal_id,event_type,actor_id,expected_generation,resulting_generation,occurred_at FROM service_principal_audit_events WHERE service_principal_id=$1 ORDER BY occurred_at,id",
     )
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
 
@@ -1130,15 +1142,15 @@ async fn source_system_lifecycle_rejects_same_branch_caller_without_role_manage(
             .fetch_one(&pool)
             .await
             .unwrap();
-    let after_audit_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1",
+    let after_audit_rows: Vec<LifecycleAuditRow> = sqlx::query_as(
+        "SELECT id,org_id,service_principal_id,event_type,actor_id,expected_generation,resulting_generation,occurred_at FROM service_principal_audit_events WHERE service_principal_id=$1 ORDER BY occurred_at,id",
     )
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
     assert_eq!(after, before);
-    assert_eq!(after_audit_count, before_audit_count);
+    assert_eq!(after_audit_rows, before_audit_rows);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
