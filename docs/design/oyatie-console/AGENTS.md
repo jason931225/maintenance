@@ -1,5 +1,7 @@
 # AGENTS.md — 작업 에이전트용 운영 노트
 
+> **Authority boundary (re-applied atop the change-log-190 upstream sync) · 권한 연대기(문서 범위 상태 구분):** 아래 변경 로그의 Cedar/PBAC "완료/시행"은 `.dc.html` 목업 또는 작성·시뮬레이션 계약을 뜻한다. 별도 공존 맵 승격 증거가 없는 한 이 문서가 전제하는 상태는 레거시 서버 권한/미들웨어와 PostgreSQL RLS 집행, Cedar target/shadow다. 이 상태 구분은 배포·런타임 검증 증거가 아니며, 실제 집행 상태는 별도 운영 증거로 검증해야 한다. 저장소 구현 권한은 [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md). 이 blockquote 아래 전체가 byte-exact 업스트림 문서다.
+
 > CLAUDE.md(불변 헌장 포인터) · DESIGN.md(설계 헌장) · TODO.md(로드맵) · HANDOFF.md(백엔드 인수인계)와 함께 읽는다.
 > 이 파일은 **세션 간 작업 컨텍스트**(아키텍처 지도·관례·변경 로그)를 담는다. 매 작업 후 갱신한다.
 

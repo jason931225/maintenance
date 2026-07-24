@@ -17,7 +17,7 @@ Last sync: **2026-07-24T01:07:46Z** via the first-party Claude Design MCP. Purpo
 
 | file | fetched etag | bytes | local result |
 |---|---:|---:|---|
-| `AGENTS.md` | `1784854851078112` | 178518 | updated, byte-equal (change-log through **190**) |
+| `AGENTS.md` | `1784854851078112` | 178518 | upstream body byte-equal (change-log through **190**) + authority-boundary preamble |
 | `BENCHMARK.md` | `1784688022213928` | 4288 | NEW — imported, byte-equal |
 | `CLAUDE.md` | `1784851391918414` | 8226 | updated, byte-equal |
 | `DEMO.md` | `1784688148018911` | 3045 | NEW — imported, byte-equal |
@@ -26,8 +26,8 @@ Last sync: **2026-07-24T01:07:46Z** via the first-party Claude Design MCP. Purpo
 | `Oyatie Console.dc.html` | `1784853611931316` | 2179075 | updated, byte-equal at snapshot etag (see live-edit note) |
 | `Oyatie Mobile.dc.html` | `1783566865979096` | 829 | unchanged |
 | `README.md` | `1783658590972921` | 6900 | unchanged |
-| `ROADMAP.md` | `1784854655640519` | 41162 | updated, byte-equal |
-| `TODO.md` | `1784854851078112` | 103747 | updated, byte-equal |
+| `ROADMAP.md` | `1784854655640519` | 41162 | upstream body byte-equal + authority-boundary preamble |
+| `TODO.md` | `1784854851078112` | 103747 | upstream body byte-equal + authority-boundary preamble |
 | `image-slot.js` | `1784755793573233` | 64449 | NEW — imported, byte-equal |
 | `ios-frame.jsx` | `1783566837537010` | 16174 | unchanged |
 | `styles.css` | `1783156598994024` | 195 | unchanged |
@@ -41,6 +41,11 @@ Last sync: **2026-07-24T01:07:46Z** via the first-party Claude Design MCP. Purpo
 
 - `tokens/colors.css` light `--faint`: upstream `#8b98a7`; local `#5f6d7e`. The local value is the axe-proven WCAG AA repair also carried by `web/src/console/tokens.css`. The tracked copy annotates this inline. The upstream value remains unfixed, so this divergence stays open.
 - `DESIGN.md` §4-25 item 7: upstream contains the typo `븠짐없이`; local retains the correct `빠짐없이`. Re-applied on top of upstream etag `1784851391918414`; the files are otherwise byte-equal.
+
+## Repo-side truth overlays (declared local amendments — do not clobber)
+
+- `ROADMAP.md`, `AGENTS.md`, and `TODO.md` each begin with an **authority-boundary blockquote** (re-applied 2026-07-24 atop the change-log-190 upstream bodies): design-prototype rows, actions, and `완료`/`[x]` records are not repository implementation, deployment, or runtime evidence; the repository-native implementation authority is [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md); the ADR-0025 status overlay applies (`EXPOSED_SCREEN_KEYS` empty, `/console/*` fail-closed to legacy `/overview`). **Everything below each blockquote is the byte-exact upstream document** — strip the preamble to diff against upstream.
+- These preambles supersede the scattered inline layer-labels of the previously amended copies (last state at `9ae67080`). The revision-bound 39-module source matrix that had replaced ROADMAP.md §4 is retired to git history (`9ae67080`); its living successor is the program roadmap's machine-readable registry.
 
 ## Known next-sync delta
 
@@ -56,6 +61,6 @@ Last sync: **2026-07-24T01:07:46Z** via the first-party Claude Design MCP. Purpo
 
 ## Canonical precedence when offline
 
-1. `web/src/**` in this repository — implementation truth.
-2. The fresh authority files in this directory, with the two declared local divergences above.
-3. The live Design project when an MCP readback is available.
+1. Accepted repository ADRs, [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md), and exact revision-bound source — architecture and implementation truth.
+2. The fresh authority files in this directory, read through their authority-boundary preambles and the declared divergences above — design intent and prototype history.
+3. The live Design project when an MCP readback is available — design intent only, never implementation evidence.
