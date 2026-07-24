@@ -121,6 +121,9 @@ jobs:
       - name: Foundation gate contract
         run: npm run check:foundation-gates
 
+      - name: Architecture boundary admission (advisory until live ruleset admission)
+        run: node scripts/architecture/check-boundaries.mjs --ci-baseline-sha "${{ github.event.pull_request.base.sha || github.sha }}"
+
       - name: CI preflight contract tests
         run: node --test scripts/check-ci-preflight.test.mjs
 

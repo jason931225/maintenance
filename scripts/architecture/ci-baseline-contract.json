@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 1,
-  "purpose": "CI must supply this exact immutable protected PR-488 integration commit via --ci-baseline-sha.",
-  "immutableCommit": "49301e1e84dcee74c49f1582a67e353d995d8c08"
+  "schemaVersion": 2,
+  "purpose": "CI supplies the immutable protected PR parent SHA; ledger admission reads the separately pinned immutable snapshot.",
+  "protectedParentCommit": "61b79707ecf1e27994a09ab73b1eb22509fc81c8",
+  "ledgerSnapshotCommit": "fde4bed1f0477119d834bbe66164a4d8aab177d4"
 }

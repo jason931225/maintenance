@@ -82,28 +82,18 @@ unledgered violation; as files are migrated, delete their ledger entry in the sa
 change. The baseline lets present work fan out safely while a dedicated migration lane
 reduces debt.
 
-### Ledger admission control
+### Immutable CI baseline and ledger admission
 
-The exception ledger is anti-growth. It names a `trustedBaseRef`; normal gate runs
-load the ledger from that Git revision and reject every added ID or modified retained
-entry. Removing an entry is allowed and is the expected result of migration. Moving
-the trusted baseline is a protected consolidation action, not part of an ordinary
-feature lane. This prevents a failing change from making itself green merely by
-editing the debt list.
+CI runs the gate in the cheap `preflight` job with its protected PR parent SHA. The
+contract pins `61b79707ecf1e27994a09ab73b1eb22509fc81c8`; symbolic refs, alternate
+bases, non-ancestors, and identity mismatches fail. The contract also pins a separate
+immutable ledger snapshot. The gate loads that snapshot through Git, invokes ledger
+growth admission, and rejects additions or modified retained entries; removals pass.
 
-The gate also treats an API module which exports a generated-client type as a
-transport leak when a UI consumer imports it. API modules may map wire types to
-adapter/public DTOs, but the generated type itself must not cross that public boundary.
-
-### Immutable CI baseline contract
-
-CI supplies `--ci-baseline-sha` from its protected merge-parent metadata. The gate
-accepts only the full 40-character SHA pinned in
-`scripts/architecture/ci-baseline-contract.json`, resolves it to exactly that commit,
-and requires it to be an ancestor of `HEAD`. `HEAD`, symbolic refs, abbreviated SHAs,
-and alternate bases are rejected. The ledger is regenerated only after confirming
-there is no `backend/` or `web/` diff from that exact baseline. Each exception needs a
-unique ID, accountable owner, migration target, and non-stale expiry.
+The ledger is partitioned by module, accountable `team-...` owner, quarterly migration
+target/milestone, and a maximum 90-day expiry. This workflow hook is intentionally
+**not claimed as a required status**: live GitHub ruleset admission has not been
+verified in this change.
 
 REST is fail-closed at the transport/application boundary: REST source and helpers may
 not access persistence APIs or import their component domain model directly. Lifecycle

@@ -102,7 +102,7 @@ export function collectViolations(root, changedPaths = []) {
     const sourceFeature = featurePath(sourceRelative);
     const structured = sourceRelative.match(/^features\/[^/]+\/(domain|application|adapters|ui)\//)?.[1];
     for (const specifier of importsIn(text)) {
-      if (specifier === "@maintenance/api-client-ts" && !(/^api\//.test(sourceRelative) || /^features\/[^/]+\/adapters\//.test(sourceRelative))) {
+      if (specifier === "@maintenance/api-client-ts" && !(/^api\//.test(sourceRelative) || /^console\/[^/]+\/[^/]*[Aa]pi\.tsx?$/.test(sourceRelative) || /^features\/[^/]+\/adapters\//.test(sourceRelative))) {
         violations.push(violation("generated-client-boundary", source, specifier));
       }
       const target = resolveImport(source, specifier, web);
@@ -116,7 +116,7 @@ export function collectViolations(root, changedPaths = []) {
       if (targetFeature && sourceFeature !== targetFeature && !/\/features\/[^/]+\/(?:public|index)\.(?:ts|tsx)$/.test(targetRelative)) {
         violations.push(violation("module-public-surface", source, `${sourceFeature}->${targetFeature}`));
       }
-      if (generatedExportModules.has(normal(target)) && !(/^api\//.test(sourceRelative) || /^features\/[^/]+\/adapters\//.test(sourceRelative))) {
+      if (generatedExportModules.has(normal(target)) && !(/^api\//.test(sourceRelative) || /^console\/[^/]+\/[^/]*[Aa]pi\.tsx?$/.test(sourceRelative) || /^features\/[^/]+\/adapters\//.test(sourceRelative))) {
         violations.push(violation("generated-client-reexport-boundary", source, targetRelative));
       }
     }
@@ -146,13 +146,15 @@ export function validateLedger(ledger, today = new Date().toISOString().slice(0,
     if (!entry.id || ids.has(entry.id)) issues.push("duplicate-or-missing-id");
     ids.add(entry.id);
     if (!entry.owner?.trim()) issues.push("missing-owner");
-    if (!entry.target?.trim()) issues.push("missing-target");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.expiresOn ?? "") || entry.expiresOn < today) issues.push("stale-or-missing-expiry");
+    if (!/^team-[a-z0-9-]+$/.test(entry.owner ?? "")) issues.push("invalid-owner");
+    if (!/^[A-Z]+-\d{4}-Q[1-4]\/[a-z0-9-]+$/.test(entry.target ?? "") || !/^[A-Z]+-\d{4}-Q[1-4]$/.test(entry.milestone ?? "")) issues.push("invalid-target-or-milestone");
+    const horizon = new Date(`${today}T00:00:00Z`); horizon.setUTCDate(horizon.getUTCDate() + 90);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.expiresOn ?? "") || entry.expiresOn < today || entry.expiresOn > horizon.toISOString().slice(0, 10)) issues.push("stale-or-excessive-expiry");
     return issues.map((detail) => ({ rule: "exception-ledger-validity", path: "scripts/architecture/exception-ledger.json", detail: `${detail}:${entry.id}`, id: `exception-ledger-validity:${detail}:${entry.id}` }));
   });
 }
 export function validateCiBaseline(root, suppliedSha, contract) {
-  const expected = contract.immutableCommit;
+  const expected = contract.protectedParentCommit;
   const fail = (detail) => [{ rule: "ci-baseline-contract", path: "scripts/architecture/ci-baseline-contract.json", detail, id: `ci-baseline-contract:${detail}` }];
   if (!/^[0-9a-f]{40}$/.test(suppliedSha ?? "")) return fail("baseline-must-be-full-immutable-sha");
   if (suppliedSha !== expected) return fail("baseline-does-not-match-protected-contract");
@@ -161,6 +163,9 @@ export function validateCiBaseline(root, suppliedSha, contract) {
     execFileSync("git", ["-C", root, "merge-base", "--is-ancestor", suppliedSha, "HEAD"]);
     return [];
   } catch { return fail("baseline-is-not-an-ancestor-of-head"); }
+}
+function trustedLedger(root, commit) {
+  return JSON.parse(execFileSync("git", ["-C", root, "show", `${commit}:scripts/architecture/exception-ledger.json`], { encoding: "utf8" }));
 }
 export function evaluateArchitecture(root, changedPaths = [], debt = [], ledgerFailures = []) {
   const known = new Set(debt.map((entry) => typeof entry === "string" ? entry : entry.id));
@@ -185,8 +190,11 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.
   const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
   const contract = JSON.parse(readFileSync(join(resolve(options.root), "scripts/architecture/ci-baseline-contract.json"), "utf8"));
   const baselineFailures = validateCiBaseline(resolve(options.root), options.ciBaselineSha, contract);
+  let growthFailures = [];
+  try { growthFailures = evaluateLedgerGrowth(ledger, trustedLedger(resolve(options.root), contract.ledgerSnapshotCommit)); }
+  catch { growthFailures = [{ rule: "exception-ledger-trust", path: "scripts/architecture/exception-ledger.json", detail: "unreadable-immutable-ledger-snapshot", id: "exception-ledger-trust:unreadable-immutable-ledger-snapshot" }]; }
   const ledgerFailures = validateLedger(ledger);
-  const result = evaluateArchitecture(options.root, options.changedPaths, ledger.exceptions ?? [], [...baselineFailures, ...ledgerFailures]);
+  const result = evaluateArchitecture(options.root, options.changedPaths, ledger.exceptions ?? [], [...baselineFailures, ...growthFailures, ...ledgerFailures]);
   process.stdout.write(`${JSON.stringify({ mode: options.changedPaths.length ? "changed-paths" : "full", ciBaselineSha: options.ciBaselineSha, ...result }, null, 2)}\n`);
   process.exitCode = result.failures.length ? 1 : 0;
 }
