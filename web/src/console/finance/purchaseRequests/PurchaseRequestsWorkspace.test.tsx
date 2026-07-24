@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -96,9 +98,11 @@ function renderWorkspace(
     GET,
     POST,
     ...render(
-      <AuthContext.Provider value={authValue}>
-        <PurchaseRequestsWorkspace api={api} roles={roles} />
-      </AuthContext.Provider>,
+      <div className="console">
+        <AuthContext.Provider value={authValue}>
+          <PurchaseRequestsWorkspace api={api} roles={roles} />
+        </AuthContext.Provider>
+      </div>,
     ),
   };
 }
@@ -138,6 +142,30 @@ describe("PurchaseRequestsWorkspace", () => {
         expect.objectContaining({ params: { path: { purchaseRequestId: requestId } } }),
       );
     });
+  });
+
+  it("preserves the legacy 24px page inset through the scoped console token", () => {
+    const tokens = readFileSync(join(process.cwd(), "src/console/tokens.css"), "utf8");
+    expect(tokens).toMatch(/--sp-page:\s*24px;/);
+    expect(tokens).toMatch(
+      /\.console\s+\.purchase-requests-workspace\s*\{[^}]*padding-inline:\s*var\(--sp-page\);[^}]*padding-block-end:\s*var\(--sp-page\);/s,
+    );
+
+    const style = document.createElement("style");
+    style.textContent = tokens;
+    document.head.append(style);
+    try {
+      const { container } = renderWorkspace(["ADMIN"], request("REQUEST_SUBMITTED"));
+      const workspace = container.querySelector(".purchase-requests-workspace");
+      if (!workspace) throw new Error("Purchase request workspace did not render");
+
+      const computed = getComputedStyle(workspace);
+      expect(computed.getPropertyValue("--sp-page").trim()).toBe("24px");
+      expect(computed.paddingInline).toBe("var(--sp-page)");
+      expect(computed.paddingBlockEnd).toBe("var(--sp-page)");
+    } finally {
+      style.remove();
+    }
   });
 
   it("omits an admin-only approval action for a receptionist even when the server-visible row is submitted", async () => {
