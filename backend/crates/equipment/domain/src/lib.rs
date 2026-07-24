@@ -1,6 +1,7 @@
 //! Equipment 3R pilot finite-state vocabulary.  The pilot has one bounded
 //! rental-return-redeploy loop; its state machines intentionally have no
 //! legacy-registry, work-order, or finance edge.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use mnt_kernel_core::KernelError;
 use serde::{Deserialize, Serialize};
 
