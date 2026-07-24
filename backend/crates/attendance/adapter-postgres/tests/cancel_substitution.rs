@@ -490,12 +490,17 @@ async fn open_no_show_commit_blocks_the_single_connection_adapter_then_conflicts
         let worker = seed_employee(&owner_pool, branch, provisioner, "NO_SHOW worker").await;
         let caller = CallerScope { org_id: *OrgId::knl().as_uuid(), user_id: *actor.as_uuid(), branch_ids: vec![*branch.as_uuid()], org_wide: false };
         let day = OffsetDateTime::now_utc().date() + Duration::days(10);
-        let mut writer = owner_pool.begin().await.unwrap();
+        let writer_pool =
+            one_connection_pool(&owner_pool, "attendance-open-no-show-writer", PoolRole::Owner).await;
+        let reader =
+            one_connection_pool(&owner_pool, "attendance-open-no-show-reader", PoolRole::Runtime).await;
+        let reader_session = reader_session(&reader).await;
+        let mut writer = writer_pool.begin().await.unwrap();
         sqlx::query("INSERT INTO attendance_exceptions (org_id,code,kind,employee_id,branch_id,work_date,detail,created_by,idempotency_key,request_fingerprint) VALUES ($1,$2,'NO_SHOW',$3,$4,$5,'unavailable',$6,$7,$8)")
             .bind(*OrgId::knl().as_uuid()).bind(format!("AT-{worker}")).bind(worker).bind(*branch.as_uuid()).bind(day).bind(*actor.as_uuid()).bind(format!("open-no-show-{worker}")).bind("a".repeat(64)).execute(&mut *writer).await.unwrap();
-        let store = PgAttendanceStore::new(one_connection_runtime_pool(&owner_pool).await);
+        let store = PgAttendanceStore::new(reader);
         let mut task = tokio::spawn(async move { scope_org(OrgId::knl(), store.assign_substitute(&caller, assignment_command(SubstitutionWindow::new(day, 480, 960).unwrap(), *branch.as_uuid(), covered, worker, "open-no-show-race"))).await });
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(200), &mut task).await.is_err(), "adapter must wait for the uncommitted NO_SHOW lock");
+        wait_for_advisory_lock_waiter(&owner_pool, &reader_session).await;
         writer.commit().await.unwrap();
         let error = task.await.unwrap().expect_err("fresh eligibility query must reject committed NO_SHOW");
         assert!(matches!(error, mnt_attendance_adapter_postgres::AttendanceStoreError::Conflict));
@@ -513,15 +518,28 @@ async fn no_show_resolution_commit_releases_single_connection_adapter(owner_pool
         let day = OffsetDateTime::now_utc().date() + Duration::days(11);
         let exception = Uuid::new_v4();
         sqlx::query("INSERT INTO attendance_exceptions (id,org_id,code,kind,employee_id,branch_id,work_date,detail,created_by,idempotency_key,request_fingerprint) VALUES ($1,$2,$3,'NO_SHOW',$4,$5,$6,'unavailable',$7,$8,$9)").bind(exception).bind(*OrgId::knl().as_uuid()).bind(format!("AT-{worker}")).bind(worker).bind(*branch.as_uuid()).bind(day).bind(*actor.as_uuid()).bind(format!("resolution-no-show-{worker}")).bind("a".repeat(64)).execute(&owner_pool).await.unwrap();
-        let mut writer = owner_pool.begin().await.unwrap();
+        let writer_pool = one_connection_pool(
+            &owner_pool,
+            "attendance-resolve-no-show-writer",
+            PoolRole::Owner,
+        )
+        .await;
+        let reader = one_connection_pool(
+            &owner_pool,
+            "attendance-resolve-no-show-reader",
+            PoolRole::Runtime,
+        )
+        .await;
+        let reader_session = reader_session(&reader).await;
+        let mut writer = writer_pool.begin().await.unwrap();
         sqlx::query("INSERT INTO attendance_exception_resolutions (org_id,exception_id,action,reason,actor_user_id) VALUES ($1,$2,'CONFIRM','resolved',$3)").bind(*OrgId::knl().as_uuid()).bind(exception).bind(*actor.as_uuid()).execute(&mut *writer).await.unwrap();
         sqlx::query("UPDATE attendance_exceptions SET status='RESOLVED' WHERE id=$1").bind(exception).execute(&mut *writer).await.unwrap();
         let caller = CallerScope { org_id: *OrgId::knl().as_uuid(), user_id: *actor.as_uuid(), branch_ids: vec![*branch.as_uuid()], org_wide: false };
-        let store = PgAttendanceStore::new(one_connection_runtime_pool(&owner_pool).await);
+        let store = PgAttendanceStore::new(reader);
         let mut task = tokio::spawn(async move { scope_org(OrgId::knl(), store.assign_substitute(&caller, assignment_command(SubstitutionWindow::new(day, 480, 960).unwrap(), *branch.as_uuid(), covered, worker, "resolution-no-show-race"))).await });
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(200), &mut task).await.is_err());
+        wait_for_advisory_lock_waiter(&owner_pool, &reader_session).await;
         writer.commit().await.unwrap();
-        assert!(task.await.unwrap().is_ok());
+        assert!(task.await.unwrap().is_ok(), "resolved NO_SHOW must permit assignment");
     }).await;
 }
 
@@ -533,30 +551,139 @@ async fn legacy_assignment_rechecks_after_leave_commit(owner_pool: PgPool) {
         let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
         let worker = seed_employee(&owner_pool, branch, provisioner, "Legacy worker").await;
         let day = OffsetDateTime::now_utc().date() + Duration::days(12);
-        let mut leave = owner_pool.begin().await.unwrap();
-        sqlx::query("SELECT public.mnt_employee_day_eligibility_lock($1,$2,$3)").bind(*OrgId::knl().as_uuid()).bind(worker).bind(day).execute(&mut *leave).await.unwrap();
-        sqlx::query("INSERT INTO leave_requests (org_id,branch_id,requester_user_id,subject_employee_id,leave_type,days,start_date,end_date,reason,status) VALUES ($1,$2,$3,$4,'annual',1,$5,$5,'legacy race','approved')").bind(*OrgId::knl().as_uuid()).bind(*branch.as_uuid()).bind(*actor.as_uuid()).bind(worker).bind(day).execute(&mut *leave).await.unwrap();
-        let pool = one_connection_runtime_pool(&owner_pool).await;
-        let mut legacy = tokio::spawn(async move { sqlx::query("INSERT INTO attendance_substitutions (org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,worker_employee_id,worker_name,worker_type,created_by,idempotency_key,request_fingerprint) VALUES ($1,'site',$2,'role',$3,480,960,$4,'OTHER',$4,'legacy','REGULAR',$5,'legacy-recheck',$6)").bind(*OrgId::knl().as_uuid()).bind(*branch.as_uuid()).bind(day).bind(worker).bind(*actor.as_uuid()).bind("a".repeat(64)).execute(&pool).await });
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(200), &mut legacy).await.is_err());
+        let writer_pool = one_connection_pool(
+            &owner_pool,
+            "attendance-legacy-leave-writer",
+            PoolRole::LeaveDefiner,
+        )
+        .await;
+        let reader = one_connection_pool(
+            &owner_pool,
+            "attendance-legacy-insert-reader",
+            PoolRole::Runtime,
+        )
+        .await;
+        let reader_session = reader_session(&reader).await;
+        let mut leave = writer_pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, false)")
+            .bind(OrgId::knl().as_uuid().to_string())
+            .execute(&mut *leave)
+            .await
+            .unwrap();
+        sqlx::query("SELECT public.mnt_employee_day_eligibility_lock($1,$2,$3)")
+            .bind(*OrgId::knl().as_uuid())
+            .bind(worker)
+            .bind(day)
+            .execute(&mut *leave)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO leave_requests (org_id,branch_id,requester_user_id,subject_employee_id,leave_type,days,start_date,end_date,reason,status,decided_by,decided_at,charge_state,charge_review_reasons,charge_units) VALUES ($1,$2,$3,$4,'annual',1,$5,$5,'legacy race','approved',$6,statement_timestamp(),'legacy_unverified',ARRAY[]::TEXT[],1)")
+            .bind(*OrgId::knl().as_uuid())
+            .bind(*branch.as_uuid())
+            .bind(*provisioner.as_uuid())
+            .bind(worker)
+            .bind(day)
+            .bind(*actor.as_uuid())
+            .execute(&mut *leave)
+            .await
+            .unwrap();
+        let mut legacy = tokio::spawn(async move { sqlx::query("INSERT INTO attendance_substitutions (org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,worker_employee_id,worker_name,worker_type,created_by,idempotency_key,request_fingerprint) VALUES ($1,'site',$2,'role',$3,480,960,$4,'OTHER',$4,'legacy','REGULAR',$5,'legacy-recheck',$6)").bind(*OrgId::knl().as_uuid()).bind(*branch.as_uuid()).bind(day).bind(worker).bind(*actor.as_uuid()).bind("a".repeat(64)).execute(&reader).await });
+        wait_for_advisory_lock_waiter(&owner_pool, &reader_session).await;
         leave.commit().await.unwrap();
         let error = legacy.await.unwrap().expect_err("legacy trigger rechecks committed leave");
-        assert_eq!(error.as_database_error().unwrap().message(), "attendance_substitutions_worker_eligibility_guard");
+        let database = error.as_database_error().expect("legacy insert must fail with a database guard");
+        assert_eq!(database.code().as_deref(), Some("23514"));
+        assert_eq!(database.message(), "attendance_substitutions_worker_eligibility_guard");
     }).await;
 }
 
-async fn one_connection_runtime_pool(owner_pool: &PgPool) -> PgPool {
+struct ReaderSession {
+    backend_pid: i32,
+    application_name: String,
+}
+
+#[derive(Clone, Copy)]
+enum PoolRole {
+    Owner,
+    Runtime,
+    LeaveDefiner,
+}
+
+async fn one_connection_pool(
+    owner_pool: &PgPool,
+    application_name: &str,
+    role: PoolRole,
+) -> PgPool {
+    let application_name = application_name.to_owned();
     PgPoolOptions::new()
         .max_connections(1)
-        .after_connect(|connection, _| {
+        .after_connect(move |connection, _| {
+            let application_name = application_name.clone();
             Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(connection).await?;
+                sqlx::query("SELECT set_config('application_name', $1, false)")
+                    .bind(application_name)
+                    .execute(&mut *connection)
+                    .await?;
+                match role {
+                    PoolRole::Owner => {}
+                    PoolRole::Runtime => {
+                        sqlx::query("SET ROLE mnt_rt")
+                            .execute(&mut *connection)
+                            .await?;
+                    }
+                    PoolRole::LeaveDefiner => {
+                        sqlx::query("SET ROLE mnt_leave_definer")
+                            .execute(&mut *connection)
+                            .await?;
+                    }
+                }
                 Ok(())
             })
         })
         .connect_with(owner_pool.connect_options().as_ref().clone())
         .await
         .unwrap()
+}
+
+async fn reader_session(reader_pool: &PgPool) -> ReaderSession {
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(OrgId::knl().as_uuid().to_string())
+        .execute(reader_pool)
+        .await
+        .unwrap();
+    let (backend_pid, application_name): (i32, String) =
+        sqlx::query_as("SELECT pg_backend_pid(), current_setting('application_name')")
+            .fetch_one(reader_pool)
+            .await
+            .unwrap();
+    ReaderSession {
+        backend_pid,
+        application_name,
+    }
+}
+
+async fn wait_for_advisory_lock_waiter(observer_pool: &PgPool, reader: &ReaderSession) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity activity WHERE activity.pid=$1 AND activity.application_name=$2 AND activity.wait_event_type='Lock' AND activity.wait_event='advisory' AND EXISTS (SELECT 1 FROM pg_locks lock WHERE lock.pid=activity.pid AND lock.locktype='advisory' AND NOT lock.granted))",
+        )
+        .bind(reader.backend_pid)
+        .bind(&reader.application_name)
+        .fetch_one(observer_pool)
+        .await
+        .unwrap();
+        if waiting {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "reader backend {} ({}) never waited on the employee/day advisory lock",
+            reader.backend_pid,
+            reader.application_name
+        );
+        tokio::task::yield_now().await;
+    }
 }
 
 fn assignment_command(

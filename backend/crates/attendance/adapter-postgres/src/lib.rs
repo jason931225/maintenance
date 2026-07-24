@@ -18,7 +18,7 @@ use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext};
 use mnt_platform_db::{DbError, issue_code, with_audits, with_org_conn};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::{DatabaseError, PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, error::DatabaseError};
 use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
@@ -842,7 +842,7 @@ async fn worker_snapshot_and_eligibility(
     window: &mnt_attendance_domain::SubstitutionWindow,
 ) -> Result<WorkerSnapshot, AttendanceStoreError> {
     // Lock identity first; eligibility must be a separate, fresh statement
-    // after the assignment advisory lock has been acquired.
+    // after the platform-owned employee/day lock has been acquired.
     sqlx::query("SELECT id FROM employees WHERE id=$1 FOR UPDATE")
         .bind(worker_employee_id)
         .fetch_optional(tx.as_mut())
@@ -939,7 +939,7 @@ async fn idempotency_lock(
     Ok(())
 }
 
-/// The platform-owned lock serializes this fresh eligibility read with every
+/// The platform-owned employee/day lock serializes this fresh eligibility read with every
 /// cross-domain employee/day writer (leave and NO_SHOW transitions included).
 async fn substitution_eligibility_lock(
     tx: &mut Transaction<'_, Postgres>,
