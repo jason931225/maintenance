@@ -39,6 +39,21 @@ class ReindeerBootstrapTests(unittest.TestCase):
         self.assertIn('name = "webauthn-authenticator-rs"', graph)
         self.assertIn('name = "tempfile"', graph)
 
+    def test_reindeer_bootstrap_uses_security_fixed_cargo_graph(self) -> None:
+        bootstrap = self.read("third-party/rust/reindeer/bootstrap.sh")
+        cargo_patch = self.read(
+            "third-party/rust/reindeer/patches/0002-cargo-security-uplift.patch"
+        )
+        cargo_lock = self.read("third-party/rust/reindeer/Cargo.lock")
+
+        self.assertIn('cargo = "0.98"', cargo_patch)
+        self.assertIn("0002-cargo-security-uplift.patch", bootstrap)
+        self.assertIn('name = "cargo"\nversion = "0.98.0"', cargo_lock)
+        self.assertIn('name = "gix"\nversion = "0.83.0"', cargo_lock)
+        self.assertIn('name = "gix-fs"\nversion = "0.21.2"', cargo_lock)
+        self.assertIn('name = "gix-pack"\nversion = "0.70.0"', cargo_lock)
+        self.assertIn('name = "gix-validate"\nversion = "0.11.3"', cargo_lock)
+
     def test_openssl_product_closure_is_vendored_and_uses_supported_cfgs(self) -> None:
         auth_manifest = self.read("backend/crates/platform/auth/Cargo.toml")
         openssl_sys = self.read("third-party/rust/fixups/openssl-sys/fixups.toml")

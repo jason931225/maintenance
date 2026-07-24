@@ -1,0 +1,146 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -10,8 +10,10 @@
+-
++
+ [dependencies]
+ anyhow = "1.0.102"
++async-trait = "0.1"
+ cached = { version = "0.55.1", features = ["async", "disk_store"] }
+-cargo = "0.94"
++cargo = "0.98"
++cargo-util-terminal = "0.1"
+ cargo_toml = "0.22.3"
+ clap = { version = "4.6.0", features = ["derive", "env", "string", "unicode", "wrap_help"] }
+ dunce = "1.0.5"
+--- a/src/cargo.rs
++++ b/src/cargo.rs
+@@ -32,7 +32,6 @@
+ use std::rc::Rc;
+ use std::sync::atomic::AtomicUsize;
+ use std::sync::atomic::Ordering;
+-use std::task::Poll;
+ use std::thread;
+-
++
+ use anyhow::Context;
+@@ -42,6 +41,7 @@
+ use cargo::core::SourceId;
+ use cargo::sources::CRATES_IO_REGISTRY;
+ use cargo::util::interning::InternedString;
++use cargo_util_terminal::Shell;
+ use cargo_toml::OptionalFile;
+ use foldhash::HashMap;
+ use foldhash::HashSet;
+@@ -141,7 +141,7 @@
+     paths: &Paths,
+     props: GctxProperties,
+ ) -> anyhow::Result<cargo::GlobalContext> {
+-    let shell = cargo::core::Shell::new();
++    let shell = Shell::new();
+     let cwd = paths.third_party_dir.clone();
+     let cargo_home = paths.cargo_home.clone();
+     let mut gctx = cargo::GlobalContext::new(shell, cwd, cargo_home);
+@@ -240,7 +240,6 @@
+     // Load packages from each source into package registry.
+     let mut registry =
+         cargo::core::registry::PackageRegistry::new_with_source_config(&gctx, source_config)?;
+-    for mut source in source_map.into_values() {
+-        cargo::sources::source::Source::block_until_ready(&mut source)?;
++    for source in source_map.into_values() {
+         registry.add_preloaded(Box::new(source));
+     }
+@@ -314,6 +313,7 @@
+     delegate: Rc<RefCell<Box<dyn cargo::sources::source::Source + 'gctx>>>,
+ }
+-
++
++#[async_trait::async_trait(?Send)]
+ impl<'gctx> cargo::sources::source::Source for SharedSource<'gctx> {
+     fn source_id(&self) -> cargo::core::SourceId {
+         self.delegate.borrow().source_id()
+@@ -327,36 +327,39 @@
+         self.delegate.borrow().requires_precise()
+     }
+-
++
+-    fn query(
+-        &mut self,
++    async fn query(
++        &self,
+         dep: &cargo::core::Dependency,
+         kind: cargo::sources::source::QueryKind,
+         f: &mut dyn FnMut(cargo::sources::IndexSummary),
+-    ) -> Poll<anyhow::Result<()>> {
+-        self.delegate.borrow_mut().query(dep, kind, f)
+-    }
+-
+-    fn invalidate_cache(&mut self) {
+-        self.delegate.borrow_mut().invalidate_cache();
++    ) -> anyhow::Result<()> {
++        self.delegate.borrow().query(dep, kind, f).await
++    }
++
++    fn invalidate_cache(&self) {
++        self.delegate.borrow().invalidate_cache();
+     }
+-
++
+     fn set_quiet(&mut self, quiet: bool) {
+         self.delegate.borrow_mut().set_quiet(quiet);
+     }
+-
++
+-    fn download(
+-        &mut self,
++    async fn download(
++        &self,
+         pkg_id: PackageId,
+     ) -> anyhow::Result<cargo::sources::source::MaybePackage> {
+-        self.delegate.borrow_mut().download(pkg_id)
+-    }
+-
+-    fn finish_download(
+-        &mut self,
++        self.delegate.borrow().download(pkg_id).await
++    }
++
++    async fn finish_download(
++        &self,
+         pkg_id: PackageId,
+         contents: Vec<u8>,
+     ) -> anyhow::Result<cargo::core::Package> {
+-        self.delegate.borrow_mut().finish_download(pkg_id, contents)
++        self.delegate
++            .borrow()
++            .finish_download(pkg_id, contents)
++            .await
+     }
+-
++
+     fn fingerprint(&self, pkg: &cargo::core::Package) -> anyhow::Result<String> {
+@@ -367,16 +370,12 @@
+         self.delegate.borrow().describe()
+     }
+-
++
+-    fn add_to_yanked_whitelist(&mut self, pkgs: &[PackageId]) {
+-        self.delegate.borrow_mut().add_to_yanked_whitelist(pkgs);
+-    }
+-
+-    fn is_yanked(&mut self, pkg: PackageId) -> Poll<anyhow::Result<bool>> {
+-        self.delegate.borrow_mut().is_yanked(pkg)
+-    }
+-
+-    fn block_until_ready(&mut self) -> anyhow::Result<()> {
+-        self.delegate.borrow_mut().block_until_ready()
++    fn add_to_yanked_whitelist(&self, pkgs: &[PackageId]) {
++        self.delegate.borrow().add_to_yanked_whitelist(pkgs);
++    }
++
++    async fn is_yanked(&self, pkg: PackageId) -> anyhow::Result<bool> {
++        self.delegate.borrow().is_yanked(pkg).await
+     }
+-
++
+     fn verify(&self, pkg: PackageId) -> anyhow::Result<()> {

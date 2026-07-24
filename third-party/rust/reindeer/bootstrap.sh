@@ -13,7 +13,15 @@ for required in curl shasum tar patch rustup install mktemp; do
   }
 done
 
-patch_sha=$(shasum -a 256 "$script_dir/patches/0001-workspace-dev-dependency-roots.patch" | awk '{print $1}')
+patches=(
+  "$script_dir/patches/0001-workspace-dev-dependency-roots.patch"
+  "$script_dir/patches/0002-cargo-security-uplift.patch"
+)
+patch_sha=$(
+  for patch_file in "${patches[@]}"; do
+    shasum -a 256 "$patch_file"
+  done | shasum -a 256 | awk '{print $1}'
+)
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/maintenance/reindeer/${REINDEER_COMMIT}-${patch_sha}"
 binary="$cache_root/bin/reindeer"
 if [[ -x "$binary" ]]; then
@@ -38,8 +46,9 @@ fi
 mkdir "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 install -m 0644 "$script_dir/Cargo.lock" "$source_dir/Cargo.lock"
-patch --batch --fuzz=0 --forward -d "$source_dir" -p1 \
-  --input "$script_dir/patches/0001-workspace-dev-dependency-roots.patch"
+for patch_file in "${patches[@]}"; do
+  patch --batch --fuzz=0 --forward -d "$source_dir" -p1 --input "$patch_file"
+done
 
 cargo_command=$(printf '%s' cargo)
 mkdir -p "$cache_root/bin"
