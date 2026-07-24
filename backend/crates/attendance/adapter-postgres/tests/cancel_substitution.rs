@@ -20,8 +20,8 @@ async fn assigned_substitution_cancels_through_runtime_adapter_using_migration_0
 ) {
     scope_org(OrgId::knl(), async move {
         let branch = seed_branch(&owner_pool, "attendance-cancel", "operations").await;
-        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
-        let employee = seed_employee(&owner_pool, branch).await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "SUPER_ADMIN", branch).await;
+        let employee = seed_employee(&owner_pool, branch, actor).await;
         let substitution_id =
             seed_assigned_substitution(&owner_pool, branch, actor, employee).await;
 
@@ -58,18 +58,43 @@ async fn assigned_substitution_cancels_through_runtime_adapter_using_migration_0
     .await;
 }
 
-async fn seed_employee(pool: &PgPool, branch: mnt_kernel_core::BranchId) -> Uuid {
+async fn seed_employee(
+    pool: &PgPool,
+    branch: mnt_kernel_core::BranchId,
+    actor: mnt_kernel_core::UserId,
+) -> Uuid {
     let employee = Uuid::new_v4();
+    let employee_number = format!("ATT-{employee}");
+    let idempotency_key = format!("attendance-cancel-{employee}");
+    let mut command = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_cmd")
+        .execute(&mut *command)
+        .await
+        .unwrap();
     sqlx::query(
-        "INSERT INTO employees (id, org_id, company, name, source_filename, source_sheet, source_row, source_key, raw_row, source_metadata, home_branch_id) VALUES ($1, $2, 'attendance-test', 'Covered employee', 'attendance.xlsx', 'employees', 1, $3, '{}'::jsonb, '{}'::jsonb, $4)",
+        "SELECT * FROM leave_api.create_employee(\
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0::numeric,$12,$13,$14,$15,$16)",
     )
-    .bind(employee)
     .bind(*OrgId::knl().as_uuid())
-    .bind(format!("attendance-cancel-{employee}"))
+    .bind(employee)
+    .bind(employee_number)
+    .bind("Covered employee")
+    .bind("attendance-test")
+    .bind("FULL_TIME")
+    .bind(Option::<String>::None)
+    .bind("Operations")
+    .bind("Forklift operator")
+    .bind("Seoul depot")
     .bind(*branch.as_uuid())
-    .execute(pool)
+    .bind(idempotency_key)
+    .bind("a".repeat(64))
+    .bind(*actor.as_uuid())
+    .bind("0123456789abcdef0123456789abcdef")
+    .bind("0123456789abcdef")
+    .fetch_one(&mut *command)
     .await
     .unwrap();
+    command.commit().await.unwrap();
     employee
 }
 
