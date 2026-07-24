@@ -55,6 +55,7 @@ impl FacilitiesRestState {
 /// line of defense when more than one application process polls concurrently.
 pub async fn poll_scheduled_hvac(pool: &PgPool) -> Result<u64, DbError> {
     let orgs: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM platform_list_organizations()")
+        // rls-arming: ok platform_list_organizations() is the SECURITY DEFINER id-only tenant discovery; every per-org facilities mutation below runs under with_audits
         .fetch_all(pool)
         .await
         .map_err(DbError::Sqlx)?;
