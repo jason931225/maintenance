@@ -16,6 +16,19 @@ describe("CI preflight contract", () => {
     assert.deepEqual(evaluateCiPreflight(workflow).failures, []);
   });
 
+  it("rejects CI path filters that omit toolchain changes", () => {
+    expectFailure(
+      workflow.replace('      - "toolchains/**"\n', ""),
+      "push must include toolchains/** in CI path filters",
+    );
+    const pullRequest = workflow.indexOf("  pull_request:\n");
+    const pullWithoutToolchains = workflow.slice(0, pullRequest) + workflow.slice(pullRequest).replace(
+      '      - "toolchains/**"\n',
+      "",
+    );
+    expectFailure(pullWithoutToolchains, "pull_request must include toolchains/** in CI path filters");
+  });
+
   it("rejects Buck2 jobs that do not bootstrap pinned DotSlash before invocation", () => {
     expectFailure(
       workflow.replace(
