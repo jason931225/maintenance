@@ -1357,9 +1357,9 @@
       "id": "generated-client-reexport-boundary:web/src/EmptyBackend.test.tsx:api/types.ts",
       "owner": "team-emptybackend-test-tsx",
       "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption.",
-      "target": "ARCH-2026-Q3/EmptyBackend.test.tsx",
+      "target": "ARCH-2026-Q3/emptybackend-test-tsx",
       "expiresOn": "2026-10-22",
-      "module": "EmptyBackend.test.tsx",
+      "module": "emptybackend-test-tsx",
       "milestone": "ARCH-2026-Q3"
     },
     {
@@ -2844,10 +2844,10 @@
       "detail": "null->kpi",
       "id": "module-public-surface:web/src/App.test.tsx:null->kpi",
       "owner": "team-app-test-tsx",
-      "target": "ARCH-2026-Q3/App.test.tsx",
+      "target": "ARCH-2026-Q3/app-test-tsx",
       "expiresOn": "2026-10-22",
       "removal": "Move this existing violation behind the documented architecture boundary.",
-      "module": "App.test.tsx",
+      "module": "app-test-tsx",
       "milestone": "ARCH-2026-Q3"
     },
     {
