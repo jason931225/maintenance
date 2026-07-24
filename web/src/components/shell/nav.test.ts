@@ -9,6 +9,7 @@ import {
   hasAnyRole,
   hasGroupAdminRole,
   hasGrantedConsoleAccess,
+  isGrantedConsoleNavItem,
   isNavItemVisible,
   isPendingMember,
   visibleNavItemsForRoles,
@@ -186,10 +187,9 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "location",
     "profile",
   ],
-  // Member (just signed up, no role grant): default-deny. The backend denies
-  // every Feature but Login, so the nav shows ONLY Profile — never a destination
-  // that would 403.
-  [ROLES.MEMBER]: ["profile"],
+  // Member (just signed up, no role grant): pending/default-denied for tenant
+  // operations. Principal-bound attendance and Profile remain available.
+  [ROLES.MEMBER]: ["my-attendance", "profile"],
 };
 
 describe("nav role gating", () => {
@@ -313,7 +313,7 @@ describe("nav role gating", () => {
   it("lands feature-only custom grants on overview without leaking logistics nav", () => {
     expect(
       visibleItems([ROLES.MEMBER], undefined, [FEATURES.MAIL_USE]),
-    ).toEqual(["overview", "mail", "profile"]);
+    ).toEqual(["overview", "my-attendance", "mail", "profile"]);
     expect(
       isNavItemVisible("dispatch", [ROLES.MEMBER], undefined, [
         FEATURES.MAIL_USE,
@@ -372,6 +372,7 @@ describe("nav role gating", () => {
         ],
         expected: [
           "overview",
+          "my-attendance",
           "messenger",
           "dispatch",
           "dispatch-map",
@@ -392,6 +393,7 @@ describe("nav role gating", () => {
         ],
         expected: [
           "overview",
+          "my-attendance",
           "messenger",
           "dispatch",
           "dispatch-map",
@@ -413,6 +415,7 @@ describe("nav role gating", () => {
         ],
         expected: [
           "overview",
+          "my-attendance",
           "messenger",
           "dispatch",
           "dispatch-map",
@@ -434,6 +437,7 @@ describe("nav role gating", () => {
         ],
         expected: [
           "overview",
+          "my-attendance",
           "messenger",
           "mail",
           "dispatch",
@@ -528,6 +532,7 @@ describe("nav role gating", () => {
     expect(hasGroupAdminRole([GROUP_ROLES.GROUP_ADMIN])).toBe(true);
     expect(hasGroupAdminRole([GROUP_ROLES.GROUP_VIEWER])).toBe(false);
     expect(visibleItems([ROLES.MEMBER], [GROUP_ROLES.GROUP_ADMIN])).toEqual([
+      "my-attendance",
       "group",
       "profile",
     ]);
@@ -600,11 +605,13 @@ describe("nav role gating", () => {
     }
   });
 
-  it("default-denies a no-grant MEMBER everything but Profile", () => {
-    // The dead-role fix: a just-signed-up MEMBER (or an empty roles claim) must
-    // see ONLY Profile — every other destination 403s on the backend.
+  it("shows a no-grant MEMBER only self-service attendance and Profile", () => {
+    // A just-signed-up MEMBER (or an empty roles claim) remains pending: the
+    // sole allowed self-service destinations are principal-bound attendance and
+    // Profile. Every operational/admin destination remains default-denied.
     for (const roles of [["MEMBER"], [] as string[], undefined]) {
-      expect(visibleItems(roles ?? [])).toEqual(["profile"]);
+      expect(visibleItems(roles ?? [])).toEqual(["my-attendance", "profile"]);
+      expect(isNavItemVisible("my-attendance", roles)).toBe(true);
       expect(isNavItemVisible("profile", roles)).toBe(true);
       for (const key of [
         "overview",
@@ -643,6 +650,13 @@ describe("nav role gating", () => {
     expect(isPendingMember(["MEMBER"], undefined, [FEATURES.MAIL_USE])).toBe(false);
   });
 
+  it("keeps a MEMBER with only Profile and My Attendance pending", () => {
+    expect(hasGrantedConsoleAccess([ROLES.MEMBER])).toBe(false);
+    expect(isPendingMember([ROLES.MEMBER])).toBe(true);
+    expect(hasGrantedConsoleAccess([], undefined, [])).toBe(false);
+    expect(isPendingMember([], undefined, [])).toBe(true);
+  });
+
   it("treats mapped custom feature grants as console access for MEMBER sessions", () => {
     expect(hasGrantedConsoleAccess(["MEMBER"], undefined, [])).toBe(false);
     expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["role_manage"])).toBe(false);
@@ -653,12 +667,12 @@ describe("nav role gating", () => {
   it("orders the first granted destination by the visible nav registry", () => {
     expect(
       visibleNavItemsForRoles(["MEMBER"], undefined, [FEATURES.MAIL_USE]).find(
-        (item) => item.key !== "profile",
+        isGrantedConsoleNavItem,
       )?.href,
     ).toBe("/overview");
     expect(
       visibleNavItemsForRoles(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], []).find(
-        (item) => item.key !== "profile",
+        isGrantedConsoleNavItem,
       )?.href,
     ).toBe("/settings/group");
   });

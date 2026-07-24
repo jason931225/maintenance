@@ -4,7 +4,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { visibleNavItemsForRoles } from "../components/shell/nav";
+import {
+  isGrantedConsoleNavItem,
+  visibleNavItemsForRoles,
+} from "../components/shell/nav";
 import { EnrollHandoffQr } from "../features/auth/EnrollHandoffQr";
 import {
   useAuth,
@@ -30,7 +33,7 @@ function onboardingDestination(session: AuthSession | undefined): string {
       session?.roles,
       session?.group_roles,
       session?.feature_grants,
-    ).find((item) => item.key !== "profile")?.href ?? "/pending"
+    ).find(isGrantedConsoleNavItem)?.href ?? "/pending"
   );
 }
 

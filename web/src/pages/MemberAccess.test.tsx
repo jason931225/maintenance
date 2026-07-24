@@ -113,6 +113,58 @@ describe("MEMBER landing → /pending", () => {
     ).toBeVisible();
   });
 
+  it("lets a bare MEMBER reach My Attendance but keeps /overview pending", async () => {
+    server.use(
+      http.get("*/api/v1/hr/attendance-records/me", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+      http.get("*/api/v1/attendance/me/exceptions", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("*/api/v1/attendance/me/week52", () =>
+        HttpResponse.json({
+          status: "available",
+          projection: {
+            week_start: "2026-07-20",
+            current_hours: 40,
+            projected_hours: 40,
+            tone: "OK",
+            acknowledged_at: null,
+          },
+        }),
+      ),
+    );
+
+    const { unmount } = renderApp("/attendance", {
+      access_token: "a",
+      roles: ["MEMBER"],
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "내 근태 기록", level: 1 }),
+    ).toBeVisible();
+    expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "통합 개요" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "근태 기록" })).toHaveAttribute(
+      "href",
+      "/attendance",
+    );
+    expect(screen.getByRole("link", { name: "내 프로필" })).toHaveAttribute(
+      "href",
+      "/settings/profile",
+    );
+
+    unmount();
+    renderApp("/overview", { access_token: "a", roles: ["MEMBER"] });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "계정이 생성되었습니다",
+        level: 1,
+      }),
+    ).toBeVisible();
+  });
+
   it("lets a MEMBER tenant role with GROUP_ADMIN grant reach group management", async () => {
     server.use(
       http.get("*/api/v1/group-admin/groups", () =>

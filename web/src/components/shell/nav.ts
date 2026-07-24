@@ -123,9 +123,9 @@ export function hasAnyFeatureGrant(
 }
 
 /**
- * Legacy name for a session with no visible console destination beyond Profile.
- * Group-admin and mapped runtime feature grants are access grants even when the
- * built-in role claim is still the lowest-privilege MEMBER.
+ * Legacy name for a session with no operational or administrative console
+ * grant. Profile and the principal-bound My Attendance self-service floor do
+ * not change this state; group-admin and mapped runtime feature grants do.
  */
 export function isPendingMember(
   roles: readonly string[] | undefined,
@@ -216,11 +216,11 @@ const MAIL_USE_ROLES: readonly Role[] = [
 ];
 
 /**
- * Per-item role gate. Default-deny: only `profile` is intentionally left ungated
- * (visible to any authenticated session, including a no-grant MEMBER). Every
- * other destination carries an explicit gate derived from the backend permission
- * matrix so the nav never shows a page the backend would 403, nor hides one a
- * role is entitled to:
+ * Per-item role gate. Default-deny: only `profile` and principal-bound
+ * `my-attendance` are intentionally left ungated (visible to any authenticated
+ * session, including a no-grant MEMBER). Every other destination carries an
+ * explicit gate derived from the backend permission matrix so the nav never
+ * shows a page the backend would 403, nor hides one a role is entitled to:
  *  - dispatch/dispatch-map/intake/messenger/support/reporting/equipment/financial/
  *    location (WorkOrderReadAll / WorkOrderCreate / ExcelDownload / etc.): the
  *    five operational roles, NOT a bare MEMBER (which the backend default-denies).
@@ -233,11 +233,10 @@ const MAIL_USE_ROLES: readonly Role[] = [
  */
 const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // Personal/department work surfaces live outside the logistics-maintenance
-  // group. They remain feature/role-gated so a no-grant MEMBER is still routed
-  // to /pending, while custom grants can expose only the permitted personal
-  // surface without leaking logistics-maintenance or equipment-sales nav.
+  // group. My Attendance is principal-bound self-service for every
+  // authenticated user; overview remains feature/role-gated so a no-grant
+  // MEMBER stays pending without logistics-maintenance or equipment-sales nav.
   ["overview", OPERATIONAL_ROLES],
-  ["my-attendance", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
   ["approvals", ADMIN_ROLES],
   // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied.
@@ -330,7 +329,6 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
       FEATURES.INTEGRITY_FINDING_TRIAGE,
     ],
   ],
-  ["my-attendance", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["messenger", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch-map", [FEATURES.WORK_ORDER_READ_ALL]],
@@ -376,9 +374,9 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
 /**
  * Whether a nav item is visible to a session carrying `roles`. Every
  * destination-bearing item now carries an explicit role gate (default-deny);
- * only `profile` is intentionally ungated, so a no-grant MEMBER sees Profile
- * alone (+ the /pending landing page). Items without a gate stay visible to any
- * authenticated session.
+ * only `profile` and principal-bound `my-attendance` are intentionally ungated,
+ * so a no-grant MEMBER sees those self-service destinations plus the /pending
+ * landing page. Items without a gate stay visible to any authenticated session.
  */
 export function isNavItemVisible(
   itemKey: string,
@@ -754,6 +752,11 @@ export interface VisibleNavItem {
   Icon: LucideIcon;
 }
 
+/** Self-service destinations do not turn a pending session into a console grant. */
+export function isGrantedConsoleNavItem(item: Pick<VisibleNavItem, "key">): boolean {
+  return item.key !== "profile" && item.key !== "my-attendance";
+}
+
 /**
  * Flatten the role-gated nav registry for shell-level surfaces such as the
  * command palette and route breadcrumbs. The sidebar remains the visual rail;
@@ -785,7 +788,7 @@ export function hasGrantedConsoleAccess(
   featureGrants?: readonly string[],
 ): boolean {
   return visibleNavItemsForRoles(roles, groupRoles, featureGrants).some(
-    (item) => item.key !== "profile",
+    isGrantedConsoleNavItem,
   );
 }
 
