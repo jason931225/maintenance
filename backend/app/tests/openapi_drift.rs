@@ -6,6 +6,8 @@ use mnt_platform_rest::PLATFORM_ROUTE_OPERATIONS;
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 const REQUIRED_CONFIGURED_SURFACES: &[&str] = &[
     "audit",
+    "attendance",
+    "inventory",
     "dispatch",
     "benefit",
     "financial",
@@ -33,6 +35,18 @@ struct RouteSource {
 }
 
 const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
+    RouteSource {
+        name: "attendance REST router",
+        surface: "attendance",
+        source: include_str!("../../crates/attendance/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
+    RouteSource {
+        name: "inventory REST router",
+        surface: "inventory",
+        source: include_str!("../../crates/inventory/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
     RouteSource {
         name: "dispatch REST router",
         surface: "dispatch",

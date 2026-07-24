@@ -3598,6 +3598,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/directory/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List people visible through the caller's effective directory scope
+         * @description Returns the tenant people directory after intersecting live branch membership with EmployeeDirectoryRead grants. A requested branch_id narrows that effective scope; it never widens it. Results are ordered by display_name then id, and branch_ids are redacted to the resulting scope.
+         */
+        get: operations["listDirectoryPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -8018,6 +8038,231 @@ export interface paths {
         get: operations["listConsultingEngagementHistory"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped attendance exceptions */
+        get: operations["listAttendanceExceptions"];
+        put?: never;
+        /** Raise an idempotent attendance exception */
+        post: operations["raiseAttendanceException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/exceptions/{exception_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one branch-authorized attendance exception */
+        get: operations["getAttendanceException"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/exceptions/{exception_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve an exception with an auditable reason */
+        post: operations["resolveAttendanceException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/substitutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped substitute assignments */
+        get: operations["listAttendanceSubstitutions"];
+        put?: never;
+        /** Create an idempotent substitute assignment */
+        post: operations["assignAttendanceSubstitute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/substitutions/{substitution_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a substitute assignment */
+        post: operations["cancelAttendanceSubstitution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/closes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped close records */
+        get: operations["listAttendanceCloses"];
+        put?: never;
+        /** Commit a server-validated monthly close */
+        post: operations["closeAttendanceMonth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/closes/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Calculate close gates without writing a close */
+        post: operations["preflightAttendanceClose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/closes/{close_id}/amend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append an idempotent post-close amendment */
+        post: operations["amendAttendanceClose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/week52": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List weekly working-hour projections */
+        get: operations["listAttendanceWeek52"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attendance/week52/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently acknowledge a week-52 adjustment */
+        post: operations["acknowledgeAttendanceWeek52"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List tenant-scoped inventory items */
+        get: operations["listInventoryItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one tenant-authorized inventory item */
+        get: operations["getInventoryItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/items/{item_id}/consumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List immutable item-consumption events */
+        get: operations["listInventoryConsumptions"];
+        put?: never;
+        /** Record an idempotent, non-negative inventory consumption */
+        post: operations["consumeInventoryItem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14892,6 +15137,285 @@ export interface components {
             /** @description Always null by design — no GL/finance edge in the pilot */
             financeGlPosting: unknown;
         };
+        AttendanceExceptionEvidence: {
+            name: string;
+            size?: string | null;
+        };
+        AttendanceExceptionLink: {
+            kind: string;
+            label: string;
+            ref?: string | null;
+        };
+        AttendanceExceptionResolution: {
+            action: string;
+            reason: string;
+            linked_work_ref?: string | null;
+            ot_hours?: number | null;
+            actor: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            resolved_at: string;
+        };
+        AttendanceException: {
+            id: components["schemas"]["Uuid"];
+            code: string;
+            kind: string;
+            status: string;
+            employee_id: components["schemas"]["Uuid"];
+            employee_name: string;
+            team?: string | null;
+            branch_id?: components["schemas"]["Uuid"];
+            /** Format: date */
+            work_date: string;
+            /** Format: date-time */
+            occurred_at: string;
+            detail: string;
+            evidence: components["schemas"]["AttendanceExceptionEvidence"][];
+            links: components["schemas"]["AttendanceExceptionLink"][];
+            resolution?: components["schemas"]["AttendanceExceptionResolution"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        AttendanceExceptionPage: {
+            items: components["schemas"]["AttendanceException"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
+        RaiseAttendanceExceptionRequest: {
+            kind: string;
+            employee_id: components["schemas"]["Uuid"];
+            branch_id?: components["schemas"]["Uuid"];
+            /** Format: date */
+            work_date: string;
+            detail: string;
+            evidence?: {
+                name: string;
+                size?: string | null;
+            }[];
+        };
+        ResolveAttendanceExceptionRequest: {
+            action: string;
+            reason: string;
+            linked_work_ref?: string | null;
+            overtime_minutes?: number | null;
+        };
+        AttendanceSubstitution: {
+            id: components["schemas"]["Uuid"];
+            site: string;
+            branch_id?: components["schemas"]["Uuid"];
+            role: string;
+            /** Format: date */
+            cover_date: string;
+            from_minutes: number;
+            to_minutes: number;
+            covered_employee_id: components["schemas"]["Uuid"];
+            covered_name: string;
+            reason_kind: string;
+            reason_detail?: string | null;
+            worker_employee_id?: components["schemas"]["Uuid"];
+            worker_name: string;
+            worker_type: string;
+            worker_rate?: string | null;
+            status: string;
+            exception_id?: components["schemas"]["Uuid"];
+            created_by: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        AttendanceSubstitutionPage: {
+            items: components["schemas"]["AttendanceSubstitution"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
+        AssignAttendanceSubstituteRequest: {
+            site: string;
+            branch_id?: components["schemas"]["Uuid"];
+            role: string;
+            /** Format: date */
+            cover_date: string;
+            from_minutes: number;
+            to_minutes: number;
+            covered_employee_id: components["schemas"]["Uuid"];
+            reason_kind: string;
+            reason_detail?: string | null;
+            worker_employee_id?: components["schemas"]["Uuid"];
+            worker_name: string;
+            worker_type: string;
+            worker_rate?: string | null;
+            exception_id?: components["schemas"]["Uuid"];
+        };
+        CancelAttendanceSubstitutionRequest: {
+            reason: string;
+        };
+        AttendanceCloseCheck: {
+            key: string;
+            ok: boolean;
+            warn?: boolean | null;
+            note?: string | null;
+        };
+        AttendanceCloseAmendment: {
+            id: components["schemas"]["Uuid"];
+            reason: string;
+            actor: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        AttendanceMonthClose: {
+            id: components["schemas"]["Uuid"];
+            month: string;
+            branch_scope: string;
+            checks: components["schemas"]["AttendanceCloseCheck"][];
+            attested_by: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            attested_at: string;
+            period_lock_id?: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            closed_at: string;
+            amendments: components["schemas"]["AttendanceCloseAmendment"][];
+        };
+        AttendanceCloseBoard: {
+            month: string;
+            items: components["schemas"]["AttendanceMonthClose"][];
+        };
+        AttendanceCloseRequest: {
+            month: string;
+            branch_scope?: components["schemas"]["Uuid"];
+            attest?: boolean | null;
+        };
+        AttendanceClosePreflight: {
+            month: string;
+            branch_scope: string;
+            checks: components["schemas"]["AttendanceCloseCheck"][];
+            can_close: boolean;
+        };
+        AttendanceCloseAmendmentRequest: {
+            reason: string;
+            detail: string;
+            ref?: string | null;
+        };
+        AttendanceWeek52Row: {
+            employee_id: components["schemas"]["Uuid"];
+            name: string;
+            team?: string | null;
+            /** Format: date */
+            week_start: string;
+            current_hours: number;
+            projected_hours: number;
+            /** @enum {string} */
+            tone: "OK" | "WARN" | "DANGER";
+            acked: boolean;
+            /** Format: date-time */
+            acked_at?: string | null;
+        };
+        AttendanceWeek52Board: {
+            /** Format: date */
+            week_start: string;
+            items: components["schemas"]["AttendanceWeek52Row"][];
+        };
+        AttendanceWeek52AckRequest: {
+            employee_id: components["schemas"]["Uuid"];
+            /** Format: date */
+            week_start: string;
+        };
+        AttendanceWeek52Ack: {
+            employee_id: components["schemas"]["Uuid"];
+            /** Format: date */
+            week_start: string;
+            acked: boolean;
+            /** Format: date-time */
+            acknowledged_at: string;
+        };
+        InventoryStockLocationSummary: {
+            id: components["schemas"]["Uuid"];
+            label: string;
+        };
+        InventoryItem: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            site_id?: components["schemas"]["Uuid"];
+            stock_location: components["schemas"]["InventoryStockLocationSummary"];
+            iv_code: string;
+            sku?: string | null;
+            display_name: string;
+            description?: string | null;
+            unit_code: string;
+            /** Format: int64 */
+            quantity_on_hand_milli: number;
+            /** Format: int64 */
+            safety_stock_milli: number;
+            /** Format: int64 */
+            unit_cost_won?: number | null;
+            low_stock: boolean;
+            status: string;
+            href: string;
+            created_by: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        InventoryItemPage: {
+            items: components["schemas"]["InventoryItem"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        InventoryConsumptionSource: {
+            /** @enum {string} */
+            kind: "work_order";
+            work_order_id: components["schemas"]["Uuid"];
+        } | {
+            /** @enum {string} */
+            kind: "p1_dispatch";
+            dispatch_id: components["schemas"]["Uuid"];
+        };
+        InventoryConsumptionEvent: {
+            id: components["schemas"]["Uuid"];
+            item_id: components["schemas"]["Uuid"];
+            iv_code: string;
+            branch_id: components["schemas"]["Uuid"];
+            stock_location_id: components["schemas"]["Uuid"];
+            source: components["schemas"]["InventoryConsumptionSource"];
+            /** Format: int64 */
+            quantity_before_milli: number;
+            /** Format: int64 */
+            quantity_consumed_milli: number;
+            /** Format: int64 */
+            quantity_after_milli: number;
+            /** Format: int64 */
+            unit_cost_won?: number | null;
+            /** Format: int64 */
+            cost_won?: number | null;
+            consumed_by: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            occurred_at: string;
+            memo?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        InventoryConsumptionResult: {
+            event: components["schemas"]["InventoryConsumptionEvent"];
+            item: components["schemas"]["InventoryItem"];
+        };
+        ConsumeInventoryItemRequest: {
+            source: components["schemas"]["InventoryConsumptionSource"];
+            /** Format: int64 */
+            quantity_consumed_milli: number;
+            /** Format: date-time */
+            occurred_at?: string | null;
+            memo?: string | null;
+            idempotency_key: string;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -20549,6 +21073,55 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listDirectoryPeople: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive display-name search after trimming and lowercase normalization. */
+                search?: string;
+                team?: components["schemas"]["Team"];
+                /** @description Exact branch filter, intersected with the caller's effective directory scope. */
+                branch_id?: components["schemas"]["Uuid"];
+                /** @description Include archived users; defaults to false. */
+                include_inactive?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Filtered page of people and the exact total within the effective directory scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPage"];
+                };
+            };
+            /** @description Malformed query string (for example an unparsable boolean or repeated scalar parameter); no directory query ran. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
             /** @description JWT verification is not configured. */
             503: {
@@ -29166,6 +29739,494 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAttendanceExceptions: {
+        parameters: {
+            query?: {
+                month?: string;
+                from_date?: string;
+                to_date?: string;
+                branch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed exception page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceExceptionPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    raiseAttendanceException: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RaiseAttendanceExceptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created exception */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceException"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getAttendanceException: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exception_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed exception detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceException"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resolveAttendanceException: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exception_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveAttendanceExceptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Resolved exception */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceException"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAttendanceSubstitutions: {
+        parameters: {
+            query?: {
+                month?: string;
+                from_date?: string;
+                to_date?: string;
+                branch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed substitution page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceSubstitutionPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    assignAttendanceSubstitute: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignAttendanceSubstituteRequest"];
+            };
+        };
+        responses: {
+            /** @description Created assignment */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceSubstitution"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    cancelAttendanceSubstitution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                substitution_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelAttendanceSubstitutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Cancelled assignment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceSubstitution"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAttendanceCloses: {
+        parameters: {
+            query?: {
+                branch_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed close board */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceCloseBoard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    closeAttendanceMonth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttendanceCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Committed close */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceMonthClose"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    preflightAttendanceClose: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttendanceCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-derived close readiness */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceClosePreflight"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    amendAttendanceClose: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                close_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttendanceCloseAmendmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded amendment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceCloseAmendment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAttendanceWeek52: {
+        parameters: {
+            query: {
+                week_start: string;
+                branch_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Week-52 projection board */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceWeek52Board"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    acknowledgeAttendanceWeek52: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttendanceWeek52AckRequest"];
+            };
+        };
+        responses: {
+            /** @description Acknowledgement state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceWeek52Ack"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listInventoryItems: {
+        parameters: {
+            query?: {
+                branch_id?: components["schemas"]["Uuid"];
+                site_id?: components["schemas"]["Uuid"];
+                stock_location_id?: components["schemas"]["Uuid"];
+                status?: string;
+                low_stock?: boolean;
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Inventory page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryItemPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getInventoryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Inventory item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listInventoryConsumptions: {
+        parameters: {
+            query?: {
+                source_kind?: string;
+                work_order_id?: components["schemas"]["Uuid"];
+                dispatch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                item_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Consumption event page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConsumptionEvent"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    consumeInventoryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsumeInventoryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Consumption result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConsumptionResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

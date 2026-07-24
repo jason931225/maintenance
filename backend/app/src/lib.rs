@@ -25,6 +25,8 @@ use base64::Engine as _;
 use ipnet::IpNet;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use mnt_analytics_quant_rest::AnalyticsQuantState;
+use mnt_attendance_adapter_postgres::PgAttendanceStore;
+use mnt_attendance_rest::AttendanceRestState;
 use mnt_benefit_adapter_postgres::PgBenefitCatalogStore;
 use mnt_benefit_rest::BenefitRestState;
 use mnt_comms_adapter_postgres::PgMailStore;
@@ -54,6 +56,8 @@ use mnt_inbox_adapter_postgres::PgInboxStore;
 use mnt_inbox_rest::InboxRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
+use mnt_inventory_adapter_postgres::PgInventoryStore;
+use mnt_inventory_rest::InventoryRestState;
 use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId,
@@ -213,6 +217,14 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "audit",
         paths: AUDIT_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "attendance",
+        paths: mnt_attendance_rest::ATTENDANCE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "inventory",
+        paths: mnt_inventory_rest::INVENTORY_ROUTE_PATHS,
     },
     ConfiguredRouteSurface {
         name: "dispatch",
@@ -2839,6 +2851,14 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_logistics_rest::router(LogisticsRestState::new(
                     logistics_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_attendance_rest::router(AttendanceRestState::new(
+                    PgAttendanceStore::new(pool.clone()),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_inventory_rest::router(InventoryRestState::new(
+                    PgInventoryStore::new(pool.clone()),
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_equipment_rest::router(EquipmentRestState::new(

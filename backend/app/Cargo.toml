@@ -63,6 +63,8 @@ mnt-identity-adapter-postgres = { workspace = true }
 mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
+mnt-inventory-adapter-postgres = { workspace = true }
+mnt-inventory-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }
 mnt-support-application = { workspace = true }
 mnt-support-domain = { workspace = true }
@@ -93,6 +95,8 @@ mnt-notices-rest = { workspace = true }
 mnt-finance-gl-adapter-postgres = { workspace = true }
 mnt-finance-gl-rest = { workspace = true }
 mnt-analytics-quant-rest = { workspace = true }
+mnt-attendance-adapter-postgres = { workspace = true }
+mnt-attendance-rest = { workspace = true }
 mnt-platform-audit-chain = { path = "../crates/platform/audit-chain" }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }

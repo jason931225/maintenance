@@ -2775,11 +2775,14 @@ dependencies = [
  "futures",
  "hex",
  "http",
+ "ipnet",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
  "mnt-action-inbox-application",
  "mnt-analytics-quant-rest",
+ "mnt-attendance-adapter-postgres",
+ "mnt-attendance-rest",
  "mnt-benefit-adapter-postgres",
  "mnt-benefit-rest",
  "mnt-comms-adapter-imap",
@@ -2817,6 +2820,8 @@ dependencies = [
  "mnt-inspection-adapter-postgres",
  "mnt-inspection-rest",
  "mnt-integrity",
+ "mnt-inventory-adapter-postgres",
+ "mnt-inventory-rest",
  "mnt-kernel-core",
  "mnt-leave-adapter-postgres",
  "mnt-leave-domain",
@@ -2891,6 +2896,62 @@ dependencies = [
  "uuid",
  "webauthn-authenticator-rs",
  "webauthn-rs",
+]
+
+[[package]]
+name = "mnt-attendance-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "mnt-attendance-application",
+ "mnt-attendance-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-attendance-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-attendance-domain",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-attendance-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-attendance-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-attendance-adapter-postgres",
+ "mnt-attendance-application",
+ "mnt-attendance-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -3171,11 +3232,15 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "p256",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "sqlx 0.9.0",
  "time",
+ "tokio",
+ "tower",
  "uuid",
 ]
 
@@ -3857,11 +3922,13 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "serde_json",
  "sha2 0.11.0",
  "sqlx 0.9.0",
  "thiserror 2.0.18",
  "time",
+ "tokio",
  "uuid",
 ]
 
@@ -3883,6 +3950,25 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "mnt-inventory-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-inventory-adapter-postgres",
+ "mnt-inventory-application",
+ "mnt-inventory-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "time",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4571,6 +4657,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http",
+ "ipnet",
  "mnt-kernel-core",
  "mnt-platform-auth",
  "mnt-platform-authz",

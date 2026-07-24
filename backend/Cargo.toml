@@ -8,6 +8,7 @@ resolver = "3"
 members = [
   "app",
   "crates/action-inbox/*",
+  "crates/attendance/*",
   "crates/kernel/*",
   "crates/benefit/*",
   "crates/consulting/*",
@@ -188,6 +189,10 @@ mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-compliance-adapter-postgres = { path = "crates/compliance/adapter-postgres" }
 mnt-compliance-rest = { path = "crates/compliance/rest" }
 mnt-integrity = { path = "crates/compliance/integrity" }
+mnt-attendance-domain = { path = "crates/attendance/domain" }
+mnt-attendance-application = { path = "crates/attendance/application" }
+mnt-attendance-adapter-postgres = { path = "crates/attendance/adapter-postgres" }
+mnt-attendance-rest = { path = "crates/attendance/rest" }
 mnt-docs-domain = { path = "crates/docs/domain" }
 mnt-docs-application = { path = "crates/docs/application" }
 mnt-docs-adapter-postgres = { path = "crates/docs/adapter-postgres" }
@@ -211,6 +216,7 @@ mnt-inspection-rest = { path = "crates/inspection/rest" }
 mnt-inventory-domain = { path = "crates/inventory/domain" }
 mnt-inventory-application = { path = "crates/inventory/application" }
 mnt-inventory-adapter-postgres = { path = "crates/inventory/adapter-postgres" }
+mnt-inventory-rest = { path = "crates/inventory/rest" }
 mnt-logistics-domain = { path = "crates/logistics/domain" }
 mnt-logistics-application = { path = "crates/logistics/application" }
 mnt-logistics-adapter-postgres = { path = "crates/logistics/adapter-postgres" }

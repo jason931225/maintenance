@@ -14564,6 +14564,250 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/attendance/exceptions:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceExceptions
+      summary: List branch-scoped attendance exceptions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: month, in: query, required: false, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: from_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Typed exception page, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceExceptionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [attendance]
+      operationId: raiseAttendanceException
+      summary: Raise an idempotent attendance exception
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RaiseAttendanceExceptionRequest' } } } }
+      responses:
+        '201': { description: Created exception, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceException' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/exceptions/{exception_id}:
+    get:
+      tags: [attendance]
+      operationId: getAttendanceException
+      summary: Get one branch-authorized attendance exception
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: exception_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Typed exception detail, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceException' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/attendance/exceptions/{exception_id}/resolve:
+    post:
+      tags: [attendance]
+      operationId: resolveAttendanceException
+      summary: Resolve an exception with an auditable reason
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: exception_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveAttendanceExceptionRequest' } } } }
+      responses:
+        '200': { description: Resolved exception, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceException' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/substitutions:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceSubstitutions
+      summary: List branch-scoped substitute assignments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: month, in: query, required: false, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: from_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Typed substitution page, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitutionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [attendance]
+      operationId: assignAttendanceSubstitute
+      summary: Create an idempotent substitute assignment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AssignAttendanceSubstituteRequest' } } } }
+      responses:
+        '201': { description: Created assignment, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitution' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/substitutions/{substitution_id}/cancel:
+    post:
+      tags: [attendance]
+      operationId: cancelAttendanceSubstitution
+      summary: Cancel a substitute assignment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: substitution_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CancelAttendanceSubstitutionRequest' } } } }
+      responses:
+        '200': { description: Cancelled assignment, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitution' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/closes:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceCloses
+      summary: List branch-scoped close records
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Typed close board, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseBoard' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [attendance]
+      operationId: closeAttendanceMonth
+      summary: Commit a server-validated monthly close
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseRequest' } } } }
+      responses:
+        '201': { description: Committed close, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceMonthClose' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/closes/preflight:
+    post:
+      tags: [attendance]
+      operationId: preflightAttendanceClose
+      summary: Calculate close gates without writing a close
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseRequest' } } } }
+      responses:
+        '200': { description: Server-derived close readiness, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceClosePreflight' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/closes/{close_id}/amend:
+    post:
+      tags: [attendance]
+      operationId: amendAttendanceClose
+      summary: Append an idempotent post-close amendment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: close_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseAmendmentRequest' } } } }
+      responses:
+        '200': { description: Recorded amendment, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseAmendment' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/week52:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceWeek52
+      summary: List weekly working-hour projections
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: week_start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '200': { description: Week-52 projection board, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceWeek52Board' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/week52/ack:
+    post:
+      tags: [attendance]
+      operationId: acknowledgeAttendanceWeek52
+      summary: Idempotently acknowledge a week-52 adjustment
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceWeek52AckRequest' } } } }
+      responses:
+        '200': { description: Acknowledgement state, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceWeek52Ack' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/inventory/items:
+    get:
+      tags: [inventory]
+      operationId: listInventoryItems
+      summary: List tenant-scoped inventory items
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: site_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: stock_location_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: low_stock, in: query, required: false, schema: { type: boolean } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Inventory page, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryItemPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/inventory/items/{item_id}:
+    get:
+      tags: [inventory]
+      operationId: getInventoryItem
+      summary: Get one tenant-authorized inventory item
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Inventory item, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/inventory/items/{item_id}/consumptions:
+    get:
+      tags: [inventory]
+      operationId: listInventoryConsumptions
+      summary: List immutable item-consumption events
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: source_kind, in: query, required: false, schema: { type: string } }
+        - { name: work_order_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: dispatch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Consumption event page, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/InventoryConsumptionEvent' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [inventory]
+      operationId: consumeInventoryItem
+      summary: Record an idempotent, non-negative inventory consumption
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsumeInventoryItemRequest' } } } }
+      responses:
+        '200': { description: Consumption result, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryConsumptionResult' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 components:
   securitySchemes:
     basicAuth:
@@ -29675,3 +29919,132 @@ components:
             currency: { type: string, enum: [KRW] }
             amountMinor: { type: integer, format: int64 }
         financeGlPosting: { nullable: true, description: 'Always null by design — no GL/finance edge in the pilot' }
+
+    AttendanceExceptionEvidence:
+      type: object
+      required: [name]
+      properties: { name: { type: string }, size: { type: string, nullable: true } }
+    AttendanceExceptionLink:
+      type: object
+      required: [kind, label]
+      properties: { kind: { type: string }, label: { type: string }, ref: { type: string, nullable: true } }
+    AttendanceExceptionResolution:
+      type: object
+      required: [action, reason, actor, resolved_at]
+      properties: { action: { type: string }, reason: { type: string }, linked_work_ref: { type: string, nullable: true }, ot_hours: { type: number, nullable: true }, actor: { $ref: '#/components/schemas/Uuid' }, resolved_at: { type: string, format: date-time } }
+    AttendanceException:
+      type: object
+      required: [id, code, kind, status, employee_id, employee_name, work_date, occurred_at, detail, evidence, links, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, code: { type: string }, kind: { type: string }, status: { type: string }, employee_id: { $ref: '#/components/schemas/Uuid' }, employee_name: { type: string }, team: { type: string, nullable: true }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, work_date: { type: string, format: date }, occurred_at: { type: string, format: date-time }, detail: { type: string }, evidence: { type: array, items: { $ref: '#/components/schemas/AttendanceExceptionEvidence' } }, links: { type: array, items: { $ref: '#/components/schemas/AttendanceExceptionLink' } }, resolution: { $ref: '#/components/schemas/AttendanceExceptionResolution', nullable: true }, created_at: { type: string, format: date-time } }
+    AttendanceExceptionPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/AttendanceException' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    RaiseAttendanceExceptionRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, employee_id, work_date, detail]
+      properties: { kind: { type: string }, employee_id: { $ref: '#/components/schemas/Uuid' }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, work_date: { type: string, format: date }, detail: { type: string }, evidence: { type: array, items: { type: object, additionalProperties: false, required: [name], properties: { name: { type: string }, size: { type: string, nullable: true } } } } }
+    ResolveAttendanceExceptionRequest:
+      type: object
+      additionalProperties: false
+      required: [action, reason]
+      properties: { action: { type: string }, reason: { type: string }, linked_work_ref: { type: string, nullable: true }, overtime_minutes: { type: integer, nullable: true } }
+    AttendanceSubstitution:
+      type: object
+      required: [id, site, role, cover_date, from_minutes, to_minutes, covered_employee_id, covered_name, reason_kind, worker_name, worker_type, status, created_by, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, site: { type: string }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, role: { type: string }, cover_date: { type: string, format: date }, from_minutes: { type: integer }, to_minutes: { type: integer }, covered_employee_id: { $ref: '#/components/schemas/Uuid' }, covered_name: { type: string }, reason_kind: { type: string }, reason_detail: { type: string, nullable: true }, worker_employee_id: { $ref: '#/components/schemas/Uuid', nullable: true }, worker_name: { type: string }, worker_type: { type: string }, worker_rate: { type: string, nullable: true }, status: { type: string }, exception_id: { $ref: '#/components/schemas/Uuid', nullable: true }, created_by: { $ref: '#/components/schemas/Uuid' }, created_at: { type: string, format: date-time } }
+    AttendanceSubstitutionPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/AttendanceSubstitution' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    AssignAttendanceSubstituteRequest:
+      type: object
+      additionalProperties: false
+      required: [site, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_name, worker_type]
+      properties: { site: { type: string }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, role: { type: string }, cover_date: { type: string, format: date }, from_minutes: { type: integer, minimum: 0, maximum: 1439 }, to_minutes: { type: integer, minimum: 1, maximum: 1440 }, covered_employee_id: { $ref: '#/components/schemas/Uuid' }, reason_kind: { type: string }, reason_detail: { type: string, nullable: true }, worker_employee_id: { $ref: '#/components/schemas/Uuid', nullable: true }, worker_name: { type: string }, worker_type: { type: string }, worker_rate: { type: string, nullable: true }, exception_id: { $ref: '#/components/schemas/Uuid', nullable: true } }
+    CancelAttendanceSubstitutionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties: { reason: { type: string, minLength: 1 } }
+    AttendanceCloseCheck:
+      type: object
+      required: [key, ok]
+      properties: { key: { type: string }, ok: { type: boolean }, warn: { type: boolean, nullable: true }, note: { type: string, nullable: true } }
+    AttendanceCloseAmendment:
+      type: object
+      required: [id, reason, actor, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, reason: { type: string }, actor: { $ref: '#/components/schemas/Uuid' }, created_at: { type: string, format: date-time } }
+    AttendanceMonthClose:
+      type: object
+      required: [id, month, branch_scope, checks, attested_by, attested_at, closed_at, amendments]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, month: { type: string, pattern: '^\\d{4}-\\d{2}$' }, branch_scope: { type: string }, checks: { type: array, items: { $ref: '#/components/schemas/AttendanceCloseCheck' } }, attested_by: { $ref: '#/components/schemas/Uuid' }, attested_at: { type: string, format: date-time }, period_lock_id: { $ref: '#/components/schemas/Uuid', nullable: true }, closed_at: { type: string, format: date-time }, amendments: { type: array, items: { $ref: '#/components/schemas/AttendanceCloseAmendment' } } }
+    AttendanceCloseBoard:
+      type: object
+      required: [month, items]
+      properties: { month: { type: string }, items: { type: array, items: { $ref: '#/components/schemas/AttendanceMonthClose' } } }
+    AttendanceCloseRequest:
+      type: object
+      additionalProperties: false
+      required: [month]
+      properties: { month: { type: string, pattern: '^\\d{4}-\\d{2}$' }, branch_scope: { $ref: '#/components/schemas/Uuid', nullable: true }, attest: { type: boolean, nullable: true } }
+    AttendanceClosePreflight:
+      type: object
+      required: [month, branch_scope, checks, can_close]
+      properties: { month: { type: string }, branch_scope: { type: string }, checks: { type: array, items: { $ref: '#/components/schemas/AttendanceCloseCheck' } }, can_close: { type: boolean } }
+    AttendanceCloseAmendmentRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, detail]
+      properties: { reason: { type: string }, detail: { type: string }, ref: { type: string, nullable: true } }
+    AttendanceWeek52Row:
+      type: object
+      required: [employee_id, name, week_start, current_hours, projected_hours, tone, acked]
+      properties: { employee_id: { $ref: '#/components/schemas/Uuid' }, name: { type: string }, team: { type: string, nullable: true }, week_start: { type: string, format: date }, current_hours: { type: number }, projected_hours: { type: number }, tone: { type: string, enum: [OK, WARN, DANGER] }, acked: { type: boolean }, acked_at: { type: string, format: date-time, nullable: true } }
+    AttendanceWeek52Board:
+      type: object
+      required: [week_start, items]
+      properties: { week_start: { type: string, format: date }, items: { type: array, items: { $ref: '#/components/schemas/AttendanceWeek52Row' } } }
+    AttendanceWeek52AckRequest:
+      type: object
+      additionalProperties: false
+      required: [employee_id, week_start]
+      properties: { employee_id: { $ref: '#/components/schemas/Uuid' }, week_start: { type: string, format: date } }
+    AttendanceWeek52Ack:
+      type: object
+      required: [employee_id, week_start, acked, acknowledged_at]
+      properties: { employee_id: { $ref: '#/components/schemas/Uuid' }, week_start: { type: string, format: date }, acked: { type: boolean }, acknowledged_at: { type: string, format: date-time } }
+    InventoryStockLocationSummary:
+      type: object
+      required: [id, label]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, label: { type: string } }
+    InventoryItem:
+      type: object
+      required: [id, branch_id, stock_location, iv_code, display_name, unit_code, quantity_on_hand_milli, safety_stock_milli, low_stock, status, href, created_by, created_at, updated_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, branch_id: { $ref: '#/components/schemas/Uuid' }, site_id: { $ref: '#/components/schemas/Uuid', nullable: true }, stock_location: { $ref: '#/components/schemas/InventoryStockLocationSummary' }, iv_code: { type: string }, sku: { type: string, nullable: true }, display_name: { type: string }, description: { type: string, nullable: true }, unit_code: { type: string }, quantity_on_hand_milli: { type: integer, format: int64 }, safety_stock_milli: { type: integer, format: int64 }, unit_cost_won: { type: integer, format: int64, nullable: true }, low_stock: { type: boolean }, status: { type: string }, href: { type: string }, created_by: { $ref: '#/components/schemas/Uuid' }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } }
+    InventoryItemPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/InventoryItem' } }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 }, total: { type: integer, format: int64 } }
+    InventoryConsumptionSource:
+      oneOf:
+        - type: object
+          required: [kind, work_order_id]
+          properties: { kind: { type: string, enum: [work_order] }, work_order_id: { $ref: '#/components/schemas/Uuid' } }
+        - type: object
+          required: [kind, dispatch_id]
+          properties: { kind: { type: string, enum: [p1_dispatch] }, dispatch_id: { $ref: '#/components/schemas/Uuid' } }
+    InventoryConsumptionEvent:
+      type: object
+      required: [id, item_id, iv_code, branch_id, stock_location_id, source, quantity_before_milli, quantity_consumed_milli, quantity_after_milli, consumed_by, occurred_at, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, item_id: { $ref: '#/components/schemas/Uuid' }, iv_code: { type: string }, branch_id: { $ref: '#/components/schemas/Uuid' }, stock_location_id: { $ref: '#/components/schemas/Uuid' }, source: { $ref: '#/components/schemas/InventoryConsumptionSource' }, quantity_before_milli: { type: integer, format: int64 }, quantity_consumed_milli: { type: integer, format: int64 }, quantity_after_milli: { type: integer, format: int64 }, unit_cost_won: { type: integer, format: int64, nullable: true }, cost_won: { type: integer, format: int64, nullable: true }, consumed_by: { $ref: '#/components/schemas/Uuid' }, occurred_at: { type: string, format: date-time }, memo: { type: string, nullable: true }, created_at: { type: string, format: date-time } }
+    InventoryConsumptionResult:
+      type: object
+      required: [event, item]
+      properties: { event: { $ref: '#/components/schemas/InventoryConsumptionEvent' }, item: { $ref: '#/components/schemas/InventoryItem' } }
+    ConsumeInventoryItemRequest:
+      type: object
+      additionalProperties: false
+      required: [source, quantity_consumed_milli, idempotency_key]
+      properties: { source: { $ref: '#/components/schemas/InventoryConsumptionSource' }, quantity_consumed_milli: { type: integer, format: int64, minimum: 1 }, occurred_at: { type: string, format: date-time, nullable: true }, memo: { type: string, nullable: true }, idempotency_key: { type: string, minLength: 16, maxLength: 200 } }
