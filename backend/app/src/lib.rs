@@ -338,6 +338,32 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     },
 ];
 
+#[cfg(test)]
+mod production_route_surface_tests {
+    use super::*;
+    use mnt_production_rest::{
+        PRODUCTION_OPERATION_RECORDS_PATH, PRODUCTION_PLAN_PATH, PRODUCTION_PLAN_RELEASE_PATH,
+        PRODUCTION_PLANS_PATH,
+    };
+
+    #[test]
+    fn production_execution_routes_are_assembled_and_contract_stable() {
+        let production = CONFIGURED_ROUTE_SURFACES
+            .iter()
+            .find(|surface| surface.name == "production")
+            .expect("production router must be mounted in the application");
+        assert_eq!(
+            production.paths,
+            [
+                PRODUCTION_PLANS_PATH,
+                PRODUCTION_PLAN_PATH,
+                PRODUCTION_PLAN_RELEASE_PATH,
+                PRODUCTION_OPERATION_RECORDS_PATH,
+            ]
+        );
+    }
+}
+
 /// Embedded schema migrations, compiled into the binary at build time from the
 /// canonical `mnt-platform-db` migration directory (the same `0001..NNNN_*.sql`
 /// files applied to prod). `migrate` mode runs these in version order; sqlx
