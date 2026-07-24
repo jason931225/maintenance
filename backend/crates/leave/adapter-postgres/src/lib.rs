@@ -1252,6 +1252,7 @@ fn map_leave_command_sqlx(error: sqlx::Error) -> PgLeaveError {
         | "leave_write.branch_forbidden"
         | "leave_write.org_admin_required"
         | "leave_balance_import.actor_forbidden"
+        | "employee_create.actor_forbidden"
         | "leave_create.self_employee_required"
         | "leave_resolve.requester_forbidden"
         | "leave_decide.requester_forbidden"
