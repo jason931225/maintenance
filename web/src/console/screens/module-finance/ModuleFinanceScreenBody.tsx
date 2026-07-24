@@ -56,11 +56,15 @@ export function ModuleFinanceScreenBody() {
     }),
     [featureGrants, roles],
   );
+  // Keep every finance child surface behind the exact effective read decision
+  // used by the module shell. A denied session must not mount a child that can
+  // begin an authenticated request before the shell hides it.
+  const canReadFinance = gate.can(financeModuleScreen.policy.read);
 
   return (
     <PolicyGateProvider gate={gate}>
       <GenericModuleScreen config={financeModuleScreen} api={api} />
-      <PurchaseRequestsWorkspace api={api} roles={roles} />
+      {canReadFinance ? <PurchaseRequestsWorkspace api={api} roles={roles} /> : null}
     </PolicyGateProvider>
   );
 }

@@ -57,7 +57,7 @@ function request(
 function renderWorkspace(
   roles: readonly string[],
   current: components["schemas"]["PurchaseRequestSummary"],
-  post: (path: unknown) => Promise<unknown> = () => Promise.resolve({ data: current }),
+  post: (path: unknown, options?: unknown) => Promise<unknown> = () => Promise.resolve({ data: current }),
 ) {
   const api = createConsoleApiClient("purchase-workspace-test-token");
   const GET = vi.spyOn(api, "GET").mockImplementation((path: unknown) => {
@@ -90,6 +90,8 @@ function renderWorkspace(
   } as unknown as AuthContextValue;
 
   return {
+    api,
+    authValue,
     GET,
     POST,
     ...render(
@@ -161,5 +163,127 @@ describe("PurchaseRequestsWorkspace", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("증빙 상태를 확인할 수 없습니다.");
     expect(screen.getByRole("button", { name: /한빛부품/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "결재 상신" })).toBeVisible();
+  });
+
+  it("aborts an in-flight branch queue when its authenticated session is replaced", async () => {
+    const replacementBranchId = "00000000-0000-4000-8000-000000000002";
+    const signals: AbortSignal[] = [];
+    const api = createConsoleApiClient("purchase-workspace-test-token");
+    const GET = vi.spyOn(api, "GET").mockImplementation((path, options) => {
+      if (path === "/api/v1/financial/purchase-requests") {
+        const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
+        if (!signal) return Promise.reject(new Error("queue signal missing"));
+        signals.push(signal);
+        if (signals.length === 1) {
+          return new Promise((_, reject) => {
+            signal.addEventListener("abort", () => {
+              reject(new DOMException("request aborted", "AbortError"));
+            }, { once: true });
+          });
+        }
+        return Promise.resolve({ data: { items: [], limit: 50, offset: 0, total: 0 } });
+      }
+      if (path === "/api/v1/financial/purchase-requests/preferences") {
+        return Promise.resolve({ data: undefined });
+      }
+      return Promise.reject(new Error(`unexpected GET ${String(path)}`));
+    });
+    const authValue = {
+      session: {
+        access_token: "purchase-workspace-test-token",
+        user_id: "user-1",
+        org_id: "org-1",
+        branches: [branchId],
+        roles: ["ADMIN"],
+        feature_grants: [],
+      },
+      restoring: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refresh: vi.fn(),
+      acceptTokens: vi.fn(),
+      clearPasskeySetup: vi.fn(),
+      api,
+      viewAs: undefined,
+      enterViewAs: vi.fn(),
+      exitViewAs: vi.fn(),
+    } as unknown as AuthContextValue;
+    const { rerender } = render(
+      <AuthContext.Provider value={authValue}>
+        <PurchaseRequestsWorkspace api={api} roles={["ADMIN"]} />
+      </AuthContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(signals).toHaveLength(1);
+    });
+    const initialSession = authValue.session;
+    if (!initialSession) throw new Error("test session missing");
+    rerender(
+      <AuthContext.Provider value={{
+        ...authValue,
+        session: { ...initialSession, branches: [replacementBranchId] },
+      }}>
+        <PurchaseRequestsWorkspace api={api} roles={["ADMIN"]} />
+      </AuthContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(signals[0]?.aborted).toBe(true);
+    });
+    await waitFor(() => {
+      expect(signals).toHaveLength(2);
+    });
+    expect(GET).toHaveBeenLastCalledWith(
+      "/api/v1/financial/purchase-requests",
+      expect.objectContaining({
+        params: expect.objectContaining({
+          query: expect.objectContaining({ branch_id: replacementBranchId }),
+        }),
+        signal: signals[1],
+      }),
+    );
+  });
+
+  it("aborts an in-flight lifecycle mutation when its authenticated session is replaced", async () => {
+    const user = userEvent.setup();
+    let mutationSignal: AbortSignal | undefined;
+    const { api, authValue, rerender } = renderWorkspace(
+      ["ADMIN"],
+      request("STATEMENT_ATTACHED"),
+      (_path, options) => {
+        mutationSignal = (options as { signal?: AbortSignal } | undefined)?.signal;
+        return new Promise((_, reject) => {
+          mutationSignal?.addEventListener("abort", () => {
+            reject(new DOMException("request aborted", "AbortError"));
+          }, { once: true });
+        });
+      },
+    );
+
+    await user.click(await screen.findByRole("button", { name: /한빛부품/ }));
+    await user.click(screen.getByRole("button", { name: "결재 상신" }));
+    await waitFor(() => {
+      expect(mutationSignal).toBeDefined();
+    });
+    const initialSession = authValue.session;
+    if (!initialSession) throw new Error("test session missing");
+
+    rerender(
+      <AuthContext.Provider value={{
+        ...authValue,
+        session: {
+          ...initialSession,
+          access_token: "replacement-session-token",
+          branches: ["00000000-0000-4000-8000-000000000002"],
+        },
+      }}>
+        <PurchaseRequestsWorkspace api={api} roles={["ADMIN"]} />
+      </AuthContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mutationSignal?.aborted).toBe(true);
+    });
   });
 });

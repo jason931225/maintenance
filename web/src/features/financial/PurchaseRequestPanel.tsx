@@ -40,7 +40,7 @@ interface PurchaseRequestPanelProps {
 type WriteState = "idle" | "saving" | "error";
 type QueueState = "loading" | "ready" | "error";
 type QueueMoreState = "idle" | "loading" | "error";
-type OperationKind = "create" | "lookup" | "action";
+type OperationKind = "queue" | "create" | "lookup" | "action";
 interface OperationToken {
   kind: OperationKind;
   id: number;
@@ -245,6 +245,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const mountedRef = useRef(true);
   const contextRef = useRef(0);
   const operationRef = useRef<Record<OperationKind, number>>({
+    queue: 0,
     create: 0,
     lookup: 0,
     action: 0,
@@ -317,6 +318,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         setQueueState("error");
         return;
       }
+      const operation = beginOperation("queue");
       const requestId = queueRequestRef.current + 1;
       queueRequestRef.current = requestId;
       if (offset === 0) {
@@ -331,8 +333,8 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           statuses: queueStatus ? [queueStatus] : undefined,
           limit: PURCHASE_QUEUE_LIMIT,
           offset,
-        });
-        if (queueRequestRef.current !== requestId) return;
+        }, operation.controller.signal);
+        if (queueRequestRef.current !== requestId || !ownsOperation(operation)) return;
         if (response.error) {
           if (offset === 0) {
             setQueueErrorStatus(response.response.status);
@@ -366,13 +368,15 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         if (offset === 0) setQueueState("ready");
         setQueueMoreState("idle");
       } catch {
-        if (queueRequestRef.current !== requestId) return;
+        if (queueRequestRef.current !== requestId || !ownsOperation(operation)) return;
         if (offset === 0) {
           setQueueErrorStatus(undefined);
           setQueueState("error");
         } else {
           setQueueMoreState("error");
         }
+      } finally {
+        endOperation(operation);
       }
     },
     [activeBranchId, api, queueStatus],
@@ -577,6 +581,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       };
       const response = await api.POST("/api/v1/financial/purchase-requests", {
         body,
+        signal: operation.controller.signal,
       });
       if (!ownsOperation(operation)) return;
       if (response.error) {
@@ -608,7 +613,10 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     try {
       const response = await api.GET(
         "/api/v1/financial/purchase-requests/{purchaseRequestId}",
-        { params: { path: { purchaseRequestId: id } } },
+        {
+          params: { path: { purchaseRequestId: id } },
+          signal: operation.controller.signal,
+        },
       );
       if (!response.data) throw new Error("purchase request not found");
       if (!ownsOperation(operation)) return;
@@ -644,14 +652,18 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   }
 
   async function runAction(
-    fn: () => Promise<ActionResponse>,
+    fn: (signal: AbortSignal) => Promise<ActionResponse>,
     failureMessage: string,
   ) {
     const operation = beginOperation("action");
     setActionState("saving");
     setActionError(undefined);
     try {
-      const response = await fn();
+      // Abort cancels the client-side request and stale UI application on a
+      // branch/session replacement. It cannot revoke a mutation already
+      // accepted by the server, so backend authorization/state transitions
+      // remain authoritative and the subsequent queue reconciliation is kept.
+      const response = await fn(operation.controller.signal);
       if (!ownsOperation(operation)) return;
       applyActionResponse(response, failureMessage);
     } catch {
@@ -664,7 +676,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   }
 
   async function runStepUpAction(
-    fn: (stepUp: FinancialStepUpProof) => Promise<ActionResponse>,
+    fn: (stepUp: FinancialStepUpProof, signal: AbortSignal) => Promise<ActionResponse>,
     failureMessage: string,
   ) {
     const operation = beginOperation("action");
@@ -681,7 +693,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         return;
       }
       if (!ownsOperation(operation)) return;
-      const response = await fn(stepUp);
+      const response = await fn(stepUp, operation.controller.signal);
       if (!ownsOperation(operation)) return;
       applyActionResponse(response, failureMessage);
     } catch {
@@ -1147,22 +1159,26 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           }}
           onSubmit={() => {
             void runAction(
-              () =>
+              (signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/submit",
-                  { params: { path: { purchaseRequestId: selected.id } } },
+                  {
+                    params: { path: { purchaseRequestId: selected.id } },
+                    signal,
+                  },
                 ),
               ko.financial.purchase.submitFailed,
             );
           }}
           onApproveAdmin={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.approveAdminFailed,
@@ -1170,12 +1186,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           }}
           onApproveExecutive={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.approveExecutiveFailed,
@@ -1198,7 +1215,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure",
                   {
@@ -1207,6 +1224,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                       expenditure_no: dialogValue.trim(),
                       step_up: stepUp,
                     },
+                    signal,
                   },
                 ),
               ko.financial.purchase.expenditure.failed,
@@ -1230,12 +1248,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/reject",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { memo: dialogValue.trim(), step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.rejectFailed,
@@ -1252,7 +1271,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={(statementEvidenceId, memo) => {
             void runAction(
-              () =>
+              (signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart",
                   {
@@ -1269,6 +1288,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                       quote_attachment_ids: selected.quote_attachments.map((attachment) => attachment.id),
                       memo,
                     },
+                    signal,
                   },
                 ),
               ko.financial.purchase.restartFailed,
@@ -1291,12 +1311,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/execute",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.executeFailed,

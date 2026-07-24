@@ -13,7 +13,7 @@ function renderBody(
   roles: readonly string[] = ["SUPER_ADMIN"],
 ) {
   const api = createConsoleApiClient("module-finance-screen-test-token");
-  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
+  const GET = vi.spyOn(api, "GET").mockImplementation(getImpl as never);
   const authValue = {
     session: {
       access_token: "module-finance-screen-test-token",
@@ -35,11 +35,14 @@ function renderBody(
     exitViewAs: vi.fn(),
   } as unknown as AuthContextValue;
 
-  return render(
-    <AuthContext.Provider value={authValue}>
-      <ModuleFinanceScreenBody />
-    </AuthContext.Provider>,
-  );
+  return {
+    GET,
+    ...render(
+      <AuthContext.Provider value={authValue}>
+        <ModuleFinanceScreenBody />
+      </AuthContext.Provider>,
+    ),
+  };
 }
 
 const voucherRows = [
@@ -83,7 +86,7 @@ describe("ModuleFinanceScreenBody", () => {
   });
 
   it("stays blank for a role without module-read (deny-by-omission — no ledger leaks)", async () => {
-    renderBody(async (path) => {
+    const { GET } = renderBody(async (path) => {
       await Promise.resolve();
       if (path === "/api/v1/finance-gl/vouchers") return { data: voucherRows };
       if (path === "/api/v1/financial/purchase-requests") {
@@ -97,6 +100,8 @@ describe("ModuleFinanceScreenBody", () => {
       expect(screen.queryByRole("heading", { name: "재무" })).toBeNull();
     });
     expect(screen.queryByRole("button", { name: "VC-1001 상세 열기" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "구매요청서" })).toBeNull();
+    expect(GET.mock.calls.filter(([path]) => path === "/api/v1/financial/purchase-requests")).toHaveLength(0);
   });
 
   it("shows the list-load error state (not a blank/frozen screen) when the real request fails", async () => {
