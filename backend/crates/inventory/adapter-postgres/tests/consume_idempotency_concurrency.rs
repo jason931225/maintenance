@@ -17,6 +17,8 @@ use tokio::sync::Barrier;
 use uuid::Uuid;
 
 const ORG: Uuid = Uuid::from_u128(0x1A11_D3A0_0000_0000_0000_0000_0000_0001);
+const OTHER_ORG: Uuid = Uuid::from_u128(0x1A11_D3A0_0000_0000_0000_0000_0000_0002);
+const IDEMPOTENCY_KEY: &str = "inventory-consume-race-key";
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conflicts(
@@ -36,7 +38,7 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
 
     let org = OrgId::from_uuid(ORG);
     let actor = seed_org_and_super_admin(&owner_pool, ORG, "inventory-idempotency").await;
-    let (branch, item_id, work_order_id) = seed_consumption_fixture(&owner_pool, actor).await;
+    let (branch, item_id, work_order_id) = seed_consumption_fixture(&owner_pool, ORG, actor).await;
     let pool = two_connection_runtime_role_pool(&owner_pool).await;
     let store = PgInventoryStore::new(pool);
     let now = OffsetDateTime::now_utc();
@@ -130,6 +132,28 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
     assert_eq!(events_after, 1, "a mismatch records no second event");
     assert_eq!(stock_after, 700, "a mismatch leaves stock unchanged");
     assert_eq!(audits_after, 1, "a mismatch records no second audit");
+
+    assert_tenant_and_key_locks_do_not_block(&owner_pool).await;
+
+    let other_org = OrgId::from_uuid(OTHER_ORG);
+    let other_actor =
+        seed_org_and_super_admin(&owner_pool, OTHER_ORG, "inventory-idempotency-other").await;
+    let (other_branch, other_item_id, other_work_order_id) =
+        seed_consumption_fixture(&owner_pool, OTHER_ORG, other_actor).await;
+    let other = scope_org(
+        other_org,
+        store.consume_item(consume_command(
+            other_actor,
+            other_branch,
+            other_item_id,
+            other_work_order_id,
+            300,
+            now,
+        )),
+    )
+    .await
+    .expect("the same raw key in another tenant must not replay the first tenant event");
+    assert_ne!(other.event.id, first.event.id);
 }
 
 fn consume_command(
@@ -148,10 +172,64 @@ fn consume_command(
         quantity_consumed_milli,
         occurred_at: Some(now),
         memo: Some("concurrent idempotency regression".to_owned()),
-        idempotency_key: "inventory-consume-race-key".to_owned(),
+        idempotency_key: IDEMPOTENCY_KEY.to_owned(),
         trace: TraceContext::generate(),
         requested_at: now,
     }
+}
+
+async fn assert_tenant_and_key_locks_do_not_block(pool: &PgPool) {
+    let mut first = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended(\
+            char_length($1::text)::text || ':' || $1::text || \
+            char_length($2::text)::text || ':' || $2::text, \
+            0\
+        ))",
+    )
+    .bind(ORG.to_string())
+    .bind(IDEMPOTENCY_KEY)
+    .execute(&mut *first)
+    .await
+    .unwrap();
+
+    let mut second = pool.begin().await.unwrap();
+    // `pg_try_advisory_xact_lock` is bounded: a distinct raw tenant/key must
+    // acquire immediately while the first transaction still holds its lock.
+    let acquired: bool = sqlx::query_scalar(
+        "SELECT pg_try_advisory_xact_lock(hashtextextended(\
+            char_length($1::text)::text || ':' || $1::text || \
+            char_length($2::text)::text || ':' || $2::text, \
+            0\
+        ))",
+    )
+    .bind(OTHER_ORG.to_string())
+    .bind(IDEMPOTENCY_KEY)
+    .fetch_one(&mut *second)
+    .await
+    .unwrap();
+    assert!(
+        acquired,
+        "a distinct tenant/key must not block behind this lock"
+    );
+    let distinct_key_acquired: bool = sqlx::query_scalar(
+        "SELECT pg_try_advisory_xact_lock(hashtextextended(\
+            char_length($1::text)::text || ':' || $1::text || \
+            char_length($2::text)::text || ':' || $2::text, \
+            0\
+        ))",
+    )
+    .bind(ORG.to_string())
+    .bind(format!("{IDEMPOTENCY_KEY}-distinct"))
+    .fetch_one(&mut *second)
+    .await
+    .unwrap();
+    assert!(
+        distinct_key_acquired,
+        "a sufficiently distinct key must not block behind this lock"
+    );
+    second.commit().await.unwrap();
+    first.commit().await.unwrap();
 }
 
 async fn two_connection_runtime_role_pool(owner_pool: &PgPool) -> PgPool {
@@ -171,6 +249,7 @@ async fn two_connection_runtime_role_pool(owner_pool: &PgPool) -> PgPool {
 
 async fn seed_consumption_fixture(
     pool: &PgPool,
+    org: Uuid,
     actor: mnt_kernel_core::UserId,
 ) -> (BranchId, InventoryItemId, WorkOrderId) {
     let region_id = Uuid::new_v4();
@@ -181,26 +260,42 @@ async fn seed_consumption_fixture(
     let work_order_id = Uuid::new_v4();
     let location_id = Uuid::new_v4();
     let item_id = Uuid::new_v4();
+    let suffix = if org == ORG { "one" } else { "two" };
+    let equipment_no = if org == ORG {
+        "INVRA-0001"
+    } else {
+        "INVRA-0002"
+    };
+    let request_no = if org == ORG {
+        "20260724-001"
+    } else {
+        "20260724-002"
+    };
+    let iv_code = if org == ORG {
+        "IV-RACE-001"
+    } else {
+        "IV-RACE-002"
+    };
 
-    sqlx::query(
-        "INSERT INTO regions (id, name, org_id) VALUES ($1, 'inventory-idempotency-region', $2)",
-    )
-    .bind(region_id)
-    .bind(ORG)
-    .execute(pool)
-    .await
-    .unwrap();
-    sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, 'inventory-idempotency-branch', $3)")
+    sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+        .bind(region_id)
+        .bind(format!("inventory-idempotency-region-{suffix}"))
+        .bind(org)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
         .bind(branch_id)
         .bind(region_id)
-        .bind(ORG)
+        .bind(format!("inventory-idempotency-branch-{suffix}"))
+        .bind(org)
         .execute(pool)
         .await
         .unwrap();
     sqlx::query("INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES ($1, $2, 'Inventory customer', $3)")
         .bind(customer_id)
         .bind(branch_id)
-        .bind(ORG)
+        .bind(org)
         .execute(pool)
         .await
         .unwrap();
@@ -208,31 +303,33 @@ async fn seed_consumption_fixture(
         .bind(site_id)
         .bind(branch_id)
         .bind(customer_id)
-        .bind(ORG)
+        .bind(org)
         .execute(pool)
         .await
         .unwrap();
     sqlx::query(
-        "INSERT INTO registry_equipment (id, branch_id, customer_id, site_id, equipment_no, manufacturer_code, kind_code, power_code, status, specification, ton_text, source_sheet, source_row, org_id) VALUES ($1, $2, $3, $4, 'INVRA-0001', 'INV', 'TEST', 'DIESEL', '임대', 'test equipment', '1', 'test', 1, $5)",
+        "INSERT INTO registry_equipment (id, branch_id, customer_id, site_id, equipment_no, manufacturer_code, kind_code, power_code, status, specification, ton_text, source_sheet, source_row, org_id) VALUES ($1, $2, $3, $4, $5, 'INV', 'TEST', 'DIESEL', '임대', 'test equipment', '1', 'test', 1, $6)",
     )
     .bind(equipment_id)
     .bind(branch_id)
     .bind(customer_id)
     .bind(site_id)
-    .bind(ORG)
+    .bind(equipment_no)
+    .bind(org)
     .execute(pool)
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO work_orders (id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, symptom, org_id) VALUES ($1, '20260724-001', $2, $3, $4, $5, $6, 'RECEIVED', 'inventory test', $7)",
+        "INSERT INTO work_orders (id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, symptom, org_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'RECEIVED', 'inventory test', $8)",
     )
     .bind(work_order_id)
+    .bind(request_no)
     .bind(branch_id)
     .bind(equipment_id)
     .bind(customer_id)
     .bind(site_id)
     .bind(*actor.as_uuid())
-    .bind(ORG)
+    .bind(org)
     .execute(pool)
     .await
     .unwrap();
@@ -240,18 +337,19 @@ async fn seed_consumption_fixture(
         "INSERT INTO inventory_stock_locations (id, org_id, branch_id, label, status) VALUES ($1, $2, $3, 'Inventory test location', 'ACTIVE')",
     )
     .bind(location_id)
-    .bind(ORG)
+    .bind(org)
     .bind(branch_id)
     .execute(pool)
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO inventory_items (id, org_id, branch_id, stock_location_id, iv_code, display_name, unit_code, quantity_on_hand_milli, safety_stock_milli, unit_cost_won, status, created_by) VALUES ($1, $2, $3, $4, 'IV-RACE-001', 'Inventory race item', 'EA', 1000, 0, 100, 'ACTIVE', $5)",
+        "INSERT INTO inventory_items (id, org_id, branch_id, stock_location_id, iv_code, display_name, unit_code, quantity_on_hand_milli, safety_stock_milli, unit_cost_won, status, created_by) VALUES ($1, $2, $3, $4, $5, 'Inventory race item', 'EA', 1000, 0, 100, 'ACTIVE', $6)",
     )
     .bind(item_id)
-    .bind(ORG)
+    .bind(org)
     .bind(branch_id)
     .bind(location_id)
+    .bind(iv_code)
     .bind(*actor.as_uuid())
     .execute(pool)
     .await

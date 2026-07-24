@@ -867,13 +867,22 @@ async fn lock_consumption_idempotency_key_tx(
     idempotency_key: &str,
 ) -> Result<(), PgInventoryError> {
     // Transaction-scoped advisory locks release automatically on both commit
-    // and rollback. Pairing the tenant and normalized key keeps unrelated
-    // inventory requests independent while serializing every replay decision.
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))")
-        .bind(org.to_string())
-        .bind(idempotency_key)
-        .execute(tx.as_mut())
-        .await?;
+    // and rollback. PostgreSQL calculates one stable 64-bit identity from an
+    // unambiguous, length-delimited raw `(org, normalized key)` composite.
+    // Hash collisions can only over-serialize requests: raw event lookup,
+    // `(org_id, idempotency_key)` uniqueness, and RLS still prevent a collision
+    // from replaying or mutating another tenant/key's result.
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended(\
+            char_length($1::text)::text || ':' || $1::text || \
+            char_length($2::text)::text || ':' || $2::text, \
+            0\
+        ))",
+    )
+    .bind(org.to_string())
+    .bind(idempotency_key)
+    .execute(tx.as_mut())
+    .await?;
     Ok(())
 }
 
