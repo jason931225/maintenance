@@ -2326,5 +2326,6 @@
       "owner": "console-boundary-migration",
       "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
     }
-  ]
+  ],
+  "trustedBaseRef": "ef50dbc52232d139572de70f160fadf343bc038a"
 }
