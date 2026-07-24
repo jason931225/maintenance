@@ -145,7 +145,10 @@ export function EquipmentUnitDetail({ api, unitId, branchId, capabilities, onSel
     );
   }
 
-  const quotable = capabilities.canQuote && detail.availability !== "SOLD";
+  // Mirror of the backend guard: a quote reserves the unit, so only an
+  // AVAILABLE unit can accept one (any other state already carries an active
+  // case or an open disposition and the request could only 409).
+  const quotable = capabilities.canQuote && detail.availability === "AVAILABLE";
 
   return (
     <article aria-label={text.unitDetail}>

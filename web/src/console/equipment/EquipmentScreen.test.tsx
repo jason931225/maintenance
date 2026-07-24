@@ -273,6 +273,64 @@ describe("EquipmentScreen", () => {
     expect(screen.queryByRole("button", { name: text.approve })).toBeNull();
   });
 
+  it("offers no quote form on a unit that is not AVAILABLE, keeping the active-case link", async () => {
+    respond({
+      ...listRoutes([{ ...unit1, availability: "ON_RENT" }]),
+      "GET /api/v1/equipment-3r/units/unit-1": unitDetail({
+        availability: "ON_RENT",
+        activeCaseId: "case-1",
+      }),
+      "GET /api/v1/equipment-3r/units/unit-1/history": [],
+    });
+    renderScreen(operator);
+    await userEvent.click(await screen.findByRole("button", { name: /FL-001/ }));
+    const detail = await screen.findByRole("article", { name: text.unitDetail });
+    expect(within(detail).queryByRole("button", { name: text.quote })).toBeNull();
+    expect(within(detail).getByRole("button", { name: "case-1" })).toBeVisible();
+  });
+
+  it("keeps an active filter clearable and truthful after its last member leaves", async () => {
+    let onRent = false;
+    respond({
+      "GET /api/v1/equipment-3r/units": () =>
+        jsonResponse([onRent ? { ...unit1, availability: "ON_RENT" } : unit1]),
+      "GET /api/v1/equipment-3r/rental-cases": () => jsonResponse([case1]),
+    });
+    renderScreen(viewer);
+    const stats = () => screen.getByRole("list", { name: text.availabilityFilter });
+    await screen.findByRole("button", { name: /FL-001/ });
+    await userEvent.click(within(stats()).getByRole("button", { name: /가용/ }));
+    onRent = true;
+    await userEvent.click(screen.getByRole("button", { name: text.refresh }));
+    expect(await screen.findByText(text.unitsFilteredEmpty)).toBeVisible();
+    const staleChip = within(stats()).getByRole("button", { name: /가용/ });
+    expect(staleChip).toHaveTextContent("0");
+    expect(staleChip).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(staleChip);
+    expect(await screen.findByRole("button", { name: /FL-001/ })).toBeVisible();
+  });
+
+  it("marks the quoted step as done on a declined case", async () => {
+    respond({
+      ...listRoutes([unit1], [{ ...case1, status: "DECLINED" }]),
+      "GET /api/v1/equipment-3r/rental-cases/case-1": caseDetail({
+        status: "DECLINED",
+        approval: {
+          decision: "DECLINED",
+          reason: "재고 부족",
+          decidedBy: "actor-2",
+          decidedAt: "2026-07-22T00:00:00.000Z",
+        },
+      }),
+    });
+    renderScreen(viewer);
+    await userEvent.click(await screen.findByRole("button", { name: /한국중공업/ }));
+    const steps = await screen.findByRole("list", { name: text.steps });
+    const quoted = within(steps).getByText(text.caseStatus.QUOTED);
+    expect(quoted.className).toBe("equipment__step equipment__step--done");
+    expect(within(steps).getByText(text.caseStatus.DECLINED)).toHaveAttribute("aria-current", "step");
+  });
+
   it("hides approval controls from the quote creator (four-eyes) but not from others", async () => {
     respond({
       ...listRoutes(),

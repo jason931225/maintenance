@@ -46,14 +46,13 @@ function toIso(local: string): string {
   return Number.isNaN(parsed.getTime()) ? local : parsed.toISOString();
 }
 
-function stepClass(step: CaseStatus, current: CaseStatus): string {
+function stepClass(step: CaseStatus, current: CaseStatus, steps: readonly CaseStatus[]): string {
   if (step === current) return "equipment__step equipment__step--current";
-  const stepIndex = HAPPY_PATH.indexOf(step);
-  const currentIndex = HAPPY_PATH.indexOf(current);
-  if (stepIndex !== -1 && currentIndex !== -1 && stepIndex < currentIndex) {
-    return "equipment__step equipment__step--done";
-  }
-  return "equipment__step";
+  // Index against the rendered sequence so QUOTED reads as done on a
+  // declined case too (both step and current are members by construction).
+  return steps.indexOf(step) < steps.indexOf(current)
+    ? "equipment__step equipment__step--done"
+    : "equipment__step";
 }
 
 export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSelectUnit, onChanged }: Props) {
@@ -277,7 +276,7 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
         {steps.map((step) => (
           <li
             key={step}
-            className={stepClass(step, detail.status)}
+            className={stepClass(step, detail.status, steps)}
             aria-current={step === detail.status ? "step" : undefined}
           >
             {caseStatusLabel(step)}
