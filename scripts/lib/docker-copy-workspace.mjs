@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 
 function requirePinnedImage(image) {
   if (!/@sha256:[0-9a-f]{64}$/.test(image)) {
-    throw new Error(`Docker codegen image must be pinned by sha256 digest: ${image}`);
+    throw new Error(`Docker image must be pinned by sha256 digest: ${image}`);
   }
 }
 
@@ -40,18 +40,18 @@ function runDocker(spawn, args, options = {}) {
   }
 }
 
-export function runDockerCodegenWithCopiedWorkspace({
+export function runDockerWithCopiedWorkspace({
   image,
   args,
+  dockerOptions = [],
   inputs,
-  outputDir,
+  outputs = [],
   stagingRoot,
   containerName = `mnt-openapi-codegen-${randomUUID()}`,
   spawn = spawnSync,
 }) {
   requirePinnedImage(image);
   mkdirSync(stagingRoot, { recursive: true });
-  mkdirSync(outputDir, { recursive: true });
   const workspace = mkdtempSync(resolve(stagingRoot, "docker-workspace-"));
   let containerCreated = false;
 
@@ -65,19 +65,38 @@ export function runDockerCodegenWithCopiedWorkspace({
       cpSync(source, target, { recursive: true, force: true });
     }
 
-    runDocker(spawn, ["create", "--name", containerName, image, ...args]);
-    containerCreated = true;
-    runDocker(spawn, ["cp", workspace, `${containerName}:/workspace`]);
-    runDocker(spawn, ["start", "--attach", containerName]);
+    for (const { destination } of outputs) {
+      mkdirSync(destination, { recursive: true });
+    }
+
     runDocker(spawn, [
-      "cp",
-      `${containerName}:/workspace/generated/.`,
-      outputDir,
+      "create",
+      "--name",
+      containerName,
+      ...dockerOptions,
+      image,
+      ...args,
     ]);
+    containerCreated = true;
+    runDocker(spawn, ["cp", `${workspace}/.`, `${containerName}:/workspace`]);
+    runDocker(spawn, ["start", "--attach", containerName]);
+    for (const { source, destination } of outputs) {
+      runDocker(spawn, ["cp", `${containerName}:${source}/.`, destination]);
+    }
   } finally {
     if (containerCreated) {
-      spawn("docker", ["rm", "-f", containerName], { stdio: "ignore" });
+      runDocker(spawn, ["rm", "-f", containerName], { stdio: "ignore" });
     }
     rmSync(workspace, { recursive: true, force: true });
   }
+}
+
+export function runDockerCodegenWithCopiedWorkspace({
+  outputDir,
+  ...options
+}) {
+  return runDockerWithCopiedWorkspace({
+    ...options,
+    outputs: [{ source: "/workspace/generated", destination: outputDir }],
+  });
 }

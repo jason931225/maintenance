@@ -9,7 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
-import { runDockerCodegenWithCopiedWorkspace } from "./docker-copy-workspace.mjs";
+import {
+  runDockerCodegenWithCopiedWorkspace,
+  runDockerWithCopiedWorkspace,
+} from "./docker-copy-workspace.mjs";
 
 function makeFixture(t) {
   const root = resolve(tmpdir(), `docker-copy-workspace-${process.pid}-${Date.now()}`);
@@ -144,6 +147,25 @@ test("removes the disposable container and copied workspace after generator fail
   assert.equal(existsSync(calls[1][1][1]), false);
 });
 
+test("fails closed when disposable container cleanup fails", (t) => {
+  const fixture = makeFixture(t);
+
+  assert.throws(
+    () =>
+      runDockerWithCopiedWorkspace({
+        image: `example.invalid/codegen:v1@sha256:${"c".repeat(64)}`,
+        args: ["generate"],
+        inputs: [{ source: fixture.spec, destination: "backend/openapi/openapi.yaml" }],
+        stagingRoot: fixture.stagingRoot,
+        containerName: "test-container",
+        spawn(_command, args) {
+          return { status: args[0] === "rm" ? 23 : 0 };
+        },
+      }),
+    /docker rm -f test-container failed with exit 23/,
+  );
+});
+
 test("rejects an unpinned generator image before creating a workspace", (t) => {
   const fixture = makeFixture(t);
 
@@ -159,4 +181,53 @@ test("rejects an unpinned generator image before creating a workspace", (t) => {
     /must be pinned by sha256 digest/,
   );
   assert.equal(existsSync(fixture.stagingRoot), false);
+});
+
+test("runs a copied workspace command without bind mounts or host outputs", (t) => {
+  const fixture = makeFixture(t);
+  const calls = [];
+
+  runDockerWithCopiedWorkspace({
+    image: `example.invalid/gradle:v1@sha256:${"b".repeat(64)}`,
+    dockerOptions: ["--workdir", "/workspace/clients/kotlin"],
+    args: ["gradle", "build"],
+    inputs: [{ source: fixture.templates, destination: "clients/kotlin" }],
+    stagingRoot: fixture.stagingRoot,
+    containerName: "test-container",
+    spawn(command, args) {
+      calls.push([command, args]);
+      if (args[0] === "cp" && args[2] === "test-container:/workspace") {
+        assert.equal(
+          "template\n",
+          readFileSync(
+            resolve(calls.at(-1)[1][1], "clients/kotlin/ApiClient.mustache"),
+            "utf8",
+          ),
+        );
+      }
+      return { status: 0 };
+    },
+  });
+
+  assert.deepEqual(
+    calls.map(([, args]) => args[0]),
+    ["create", "cp", "start", "rm"],
+  );
+  assert.deepEqual(calls[0][1], [
+    "create",
+    "--name",
+    "test-container",
+    "--workdir",
+    "/workspace/clients/kotlin",
+    `example.invalid/gradle:v1@sha256:${"b".repeat(64)}`,
+    "gradle",
+    "build",
+  ]);
+  assert.equal(
+    calls.some(([, args]) =>
+      args.some((arg) => arg === "-v" || arg === "--privileged" || arg.startsWith("--network")),
+    ),
+    false,
+  );
+  assert.equal(existsSync(fixture.stagingRoot), true);
 });
