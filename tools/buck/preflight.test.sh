@@ -52,6 +52,18 @@ if [[ "$1" == */provision_snapshot_node_modules.py ]]; then
 fi
 if [[ "$1" == */run_generated_face_gates.py ]]; then
   printf 'GENERATED_FACE_GATES=%s\n' "$*" >>"${HARNESS_LOG}"
+  if [[ "${FAKE_STALE_CANDIDATE_DIRTY_CALLER:-0}" == 1 ]]; then
+    for ((index = 1; index <= $#; index++)); do
+      if [[ "${!index}" == "--baseline" ]]; then
+        next=$((index + 1))
+        # A caller baseline would mask the simulated stale candidate output;
+        # an immutable candidate baseline must expose it as drift.
+        [[ "${!next}" == "${PWD}" ]] && exit 0
+        exit 23
+      fi
+    done
+    exit 24
+  fi
   if [[ "${FAKE_GENERATED_FACE_GATE_FAIL:-0}" == 1 ]]; then
     exit 17
   fi
@@ -78,6 +90,7 @@ grep -Fq 'GENERATED_FACE_GATES=' "${log}"
 grep -Fq -- '--tier cheap' "${log}"
 grep -Fq "VALIDATE_GENERATED_FACES=${snapshot}/tools/buck/validate_generated_faces.py ${snapshot}/tools/buck/generated_face_registry.json" "${log}"
 grep -Fq -- "--registry ${snapshot}/tools/buck/generated_face_registry.json" "${log}"
+grep -Fq -- "--baseline ${snapshot}/baseline" "${log}"
 
 # The runner is the sole writer dispatcher. Preflight must never invoke a
 # generator after snapshot verification, which would mutate the caller tree.
@@ -88,11 +101,13 @@ fi
 
 # Full candidate closure is separately callable and never treats the expensive
 # registry faces as an implicit omission.
+rm -rf "${snapshot}/baseline"
 PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" "${harness}" --full-generated-faces
 grep -Fq -- '--tier all' "${log}"
 
+rm -rf "${snapshot}/baseline"
 if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_GENERATED_FACE_GATE_FAIL=1 "${harness}"; then
@@ -100,6 +115,18 @@ if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${lo
   exit 1
 fi
 
+# A fresh, dirty caller output must not mask stale committed candidate output.
+# The fake gate returns success for the old caller baseline and a drift failure
+# for the required immutable candidate baseline.
+rm -rf "${snapshot}/baseline"
+if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
+  MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
+  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_STALE_CANDIDATE_DIRTY_CALLER=1 "${harness}"; then
+  echo "expected stale candidate output to fail despite a fresh dirty caller output" >&2
+  exit 1
+fi
+
+rm -rf "${snapshot}/baseline"
 if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" FAKE_SNAPSHOT_ROOT="${scratch}/archive" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
   MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_SNAPSHOT_NODE_DEPS_FAIL=1 "${harness}"; then
