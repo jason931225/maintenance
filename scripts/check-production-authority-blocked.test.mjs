@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { evaluate } from "./check-production-authority-blocked.mjs";
@@ -161,35 +161,26 @@ function runAtPath(root, executableRoot, environment, ...args) {
     },
   );
 }
-function installGitLogShim(root) {
-  const bin = join(root, "shim-bin"),
-    log = join(root, "git.log");
-  mkdirSync(bin);
-  const realGit = spawnSync(
-    process.platform === "win32" ? "where" : "which",
-    ["git"],
-    {
-      encoding: "utf8",
-    },
-  )
-    .stdout.split(/\r?\n/u)
-    .find(Boolean);
-  assert.ok(realGit, "git executable must be discoverable");
-  const shim = join(bin, process.platform === "win32" ? "git.cmd" : "git");
-  writeFileSync(
-    shim,
-    process.platform === "win32"
-      ? `@echo off\r\n>>"%GIT_LOG%" echo %CD%^|%*\r\n"${realGit}" %*\r\nexit /b %ERRORLEVEL%\r\n`
-      : `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "$GIT_LOG"\nexec "${realGit}" "$@"\n`,
-  );
-  if (process.platform !== "win32") chmodSync(shim, 0o755);
-  return { bin, log };
+function gitTrace(root) {
+  const log = join(root, "git-trace.json");
+  return { environment: { GIT_TRACE2_EVENT: log }, log };
 }
-function gitLogEnvironment(bin, log) {
-  return {
-    PATH: `${bin}${delimiter}${process.env.PATH}`,
-    GIT_LOG: log,
-  };
+function readGitTraceCalls(log) {
+  const events = readFileSync(log, "utf8")
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line));
+  const repositories = new Map(
+    events
+      .filter((event) => event.event === "def_repo")
+      .map((event) => [event.sid, realpathSync(event.worktree)]),
+  );
+  return events
+    .filter((event) => event.event === "start")
+    .map((event) => ({
+      cwd: repositories.get(event.sid),
+      args: event.argv.slice(1).join(" "),
+    }));
 }
 function assertFailure(result, code) {
   assert.notEqual(result.status, 0);
@@ -306,21 +297,19 @@ describe("production authority blocked observation CLI", () => {
     const alias = `${root}-alias`;
     symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
     cleanup.push(alias);
-    const { bin, log } = installGitLogShim(root);
+    const { environment, log } = gitTrace(root);
 
-    const result = runAtPath(
-      root,
-      alias,
-      gitLogEnvironment(bin, log),
-      sha,
-    );
+    const result = runAtPath(root, alias, environment, sha);
 
     assert.equal(result.status, 0, result.stderr.toString());
     assert.equal(JSON.parse(result.stdout).evaluated_commit_sha, sha);
     const evaluatorRoot = realpathSync(root);
-    assert.deepEqual(readFileSync(log, "utf8").trim().split(/\r?\n/u), [
-      `${evaluatorRoot}|cat-file -t ${sha}`,
-      ...paths.map((path) => `${evaluatorRoot}|show ${sha}:${path}`),
+    assert.deepEqual(readGitTraceCalls(log), [
+      { cwd: evaluatorRoot, args: `cat-file -t ${sha}` },
+      ...paths.map((path) => ({
+        cwd: evaluatorRoot,
+        args: `show ${sha}:${path}`,
+      })),
     ]);
   });
   it("rejects every non-exact SHA form before touching Git", () => {
@@ -508,17 +497,16 @@ describe("production authority blocked observation CLI", () => {
   });
   it("uses exactly one object query and five fixed-order blob reads from the evaluator repository root", () => {
     const { root, sha } = fixture();
-    const { bin, log } = installGitLogShim(root);
-    const result = runWithEnvironment(
-      root,
-      gitLogEnvironment(bin, log),
-      sha,
-    );
+    const { environment, log } = gitTrace(root);
+    const result = runWithEnvironment(root, environment, sha);
     assert.equal(result.status, 0, result.stderr.toString());
     const evaluatorRoot = realpathSync(root);
-    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
-      `${evaluatorRoot}|cat-file -t ${sha}`,
-      ...paths.map((path) => `${evaluatorRoot}|show ${sha}:${path}`),
+    assert.deepEqual(readGitTraceCalls(log), [
+      { cwd: evaluatorRoot, args: `cat-file -t ${sha}` },
+      ...paths.map((path) => ({
+        cwd: evaluatorRoot,
+        args: `show ${sha}:${path}`,
+      })),
     ]);
   });
   it("attempts every fixed blob read before reporting a missing input", () => {
