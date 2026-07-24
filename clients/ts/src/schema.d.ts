@@ -945,7 +945,7 @@ export interface paths {
         };
         /**
          * Read HR data readiness counters
-         * @description Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
+         * @description Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows. `payroll.active_close_runs` counts only STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
          */
         get: operations["getHrReadinessSummary"];
         put?: never;
@@ -17409,6 +17409,16 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        payroll: {
+                            /**
+                             * Format: int64
+                             * @description Number of inspectable non-terminal payroll close runs.
+                             */
+                            active_close_runs: number;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    } & {
                         [key: string]: unknown;
                     };
                 };

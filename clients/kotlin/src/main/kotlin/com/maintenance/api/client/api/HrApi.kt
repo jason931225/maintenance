@@ -38,6 +38,7 @@ import com.maintenance.api.client.model.DraftEmployeeExitApprovalRequest
 import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.GetHrReadinessSummary200Response
 import com.maintenance.api.client.model.HrOrgChartResponse
 import com.maintenance.api.client.model.ImportApplyRequest
 import com.maintenance.api.client.model.LeaveBalancePage
@@ -612,8 +613,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * GET /api/v1/hr/readiness-summary
      * Read HR data readiness counters
-     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows. &#x60;payroll.active_close_runs&#x60; counts only STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
+     * @return GetHrReadinessSummary200Response
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -622,11 +623,11 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getHrReadinessSummary() : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+    suspend fun getHrReadinessSummary() : GetHrReadinessSummary200Response = withContext(Dispatchers.IO) {
         val localVarResponse = getHrReadinessSummaryWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GetHrReadinessSummary200Response
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -643,17 +644,17 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * GET /api/v1/hr/readiness-summary
      * Read HR data readiness counters
-     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows. &#x60;payroll.active_close_runs&#x60; counts only STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
+     * @return ApiResponse<GetHrReadinessSummary200Response?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<GetHrReadinessSummary200Response?> = withContext(Dispatchers.IO) {
         val localVariableConfig = getHrReadinessSummaryRequestConfig()
 
-        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<Unit, GetHrReadinessSummary200Response>(
             localVariableConfig
         )
     }

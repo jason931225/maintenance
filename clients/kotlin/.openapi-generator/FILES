@@ -436,6 +436,8 @@ src/main/kotlin/com/maintenance/api/client/model/FrameworkStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/GateChainConfig.kt
 src/main/kotlin/com/maintenance/api/client/model/GateChainOutcome.kt
 src/main/kotlin/com/maintenance/api/client/model/GetConsoleRollout200Response.kt
+src/main/kotlin/com/maintenance/api/client/model/GetHrReadinessSummary200Response.kt
+src/main/kotlin/com/maintenance/api/client/model/GetHrReadinessSummary200ResponsePayroll.kt
 src/main/kotlin/com/maintenance/api/client/model/GovernanceConfigureTransitionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/GovernanceDecideApprovalRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/GovernanceFinding.kt

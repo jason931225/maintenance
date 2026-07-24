@@ -171,6 +171,29 @@ function patchKnownGeneratorGaps(directory) {
     [`localVariableHeaders["Accept"] = "application/json"`,
      `localVariableHeaders["Accept"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"`],
   ]);
+
+  // openapi-generator 7.23 emits `>()()` for object schemas that combine
+  // declared properties with `additionalProperties: true`, which is invalid
+  // Kotlin. Keep the generated additional-properties map while removing only
+  // the duplicate constructor invocation.
+  const modelDir = resolve(
+    directory,
+    "src/main/kotlin/com/maintenance/api/client/model",
+  );
+  for (const entry of readdirSync(modelDir, { withFileTypes: true })) {
+    if (!entry.isFile() || extname(entry.name) !== ".kt") {
+      continue;
+    }
+    const path = resolve(modelDir, entry.name);
+    const content = readFileSync(path, "utf8");
+    const updated = content.replaceAll(
+      "kotlin.collections.HashMap<String, kotlinx.serialization.json.JsonElement>()() {",
+      "kotlin.collections.HashMap<String, kotlinx.serialization.json.JsonElement>() {",
+    );
+    if (updated !== content) {
+      writeFileSync(path, updated, "utf8");
+    }
+  }
 }
 
 function removeBackupBestEffort(backupDir) {

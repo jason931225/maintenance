@@ -77,21 +77,31 @@ async fn readiness_counts_only_inspectable_active_payroll_close_statuses(pool: P
     assert_eq!(terminal_only.json["payroll"]["draft_runs"], 2);
     assert_eq!(terminal_only.json["payroll"]["active_close_runs"], 0);
 
-    sqlx::query(
-        "INSERT INTO payroll_draft_runs \
-         (id, org_id, period_start, period_end, source_label, status, calculation_enabled, created_by) \
-         VALUES ($1, $2, '2026-08-01', '2026-08-31', 'active-staged', 'STAGED', FALSE, $3)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(*org.as_uuid())
-    .bind(*user.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
+    for (source_label, status, calculation_enabled) in [
+        ("active-staged", "STAGED", false),
+        ("active-blocked", "BLOCKED_LEGAL_GATE", false),
+        ("active-ready", "READY_FOR_REVIEW", true),
+        ("active-approved", "APPROVED", true),
+    ] {
+        sqlx::query(
+            "INSERT INTO payroll_draft_runs \
+             (id, org_id, period_start, period_end, source_label, status, calculation_enabled, created_by) \
+             VALUES ($1, $2, '2026-08-01', '2026-08-31', $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(*org.as_uuid())
+        .bind(source_label)
+        .bind(status)
+        .bind(calculation_enabled)
+        .bind(*user.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
 
     let active = get(service, HR_READINESS_SUMMARY_PATH, &token).await;
     assert_eq!(active.status, StatusCode::OK, "{:?}", active.json);
-    assert_eq!(active.json["payroll"]["active_close_runs"], 1);
+    assert_eq!(active.json["payroll"]["active_close_runs"], 4);
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]

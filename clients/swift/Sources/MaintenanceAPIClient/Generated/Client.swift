@@ -7522,7 +7522,7 @@ public struct Client: APIProtocol {
     }
     /// Read HR data readiness counters
     ///
-    /// Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
+    /// Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows. `payroll.active_close_runs` counts only STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
     ///
     /// - Remark: HTTP `GET /api/v1/hr/readiness-summary`.
     /// - Remark: Generated from `#/paths//api/v1/hr/readiness-summary/get(getHrReadinessSummary)`.
