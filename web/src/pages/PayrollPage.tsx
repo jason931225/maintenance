@@ -10,9 +10,10 @@ import type {
   EmployeeExitCase,
   HrReadinessSummary,
 } from "../api/types";
+import { PayrollCloseWorkspace } from "../console/payroll/PayrollCloseWorkspace";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import { isNavItemVisible } from "../components/shell/nav";
+import { isNavItemVisible, ROLES } from "../components/shell/nav";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
@@ -54,6 +55,12 @@ const copy = ko.payroll;
 export function PayrollPage() {
   const { api, session } = useAuth();
   const payrollApi = api as PayrollApi;
+  // The payroll REST adapter grants organization-wide PayrollRunRead to these
+  // built-in roles. This prevents a weaker navigation-only role from prefetching
+  // audited payroll data; the backend remains the authoritative 401/403 guard.
+  const canReadOrganizationPayrollRuns = session?.roles?.some(
+    (role) => role === ROLES.EXECUTIVE || role === ROLES.SUPER_ADMIN,
+  ) ?? false;
   const [state, setState] = useState<LoadState>("loading");
   const [readiness, setReadiness] = useState<HrReadinessSummary>();
   const [attendance, setAttendance] = useState<AttendanceSummaryPage>();
@@ -142,6 +149,7 @@ export function PayrollPage() {
         ) : null}
         {state === "idle" && readiness ? (
           <>
+            {canReadOrganizationPayrollRuns ? <PayrollCloseWorkspace api={api} /> : null}
             <PayrollReadinessPanel
               readiness={readiness}
               attendance={attendance}

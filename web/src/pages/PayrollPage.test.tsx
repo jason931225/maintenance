@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router";
@@ -19,6 +19,13 @@ const adminSession: AuthSession = {
   user_id: "admin-user",
   roles: ["ADMIN"],
   branches: [],
+};
+
+const executiveSession: AuthSession = {
+  ...adminSession,
+  access_token: "executive-token",
+  user_id: "executive-user",
+  roles: ["EXECUTIVE"],
 };
 
 const readinessSummary = {
@@ -135,9 +142,11 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(): AuthContextValue {
+function makeAuthContext(
+  session: AuthSession = adminSession,
+): AuthContextValue {
   return {
-    session: adminSession,
+    session,
     restoring: false,
     login: async () => {},
     logout: async () => {},
@@ -147,13 +156,13 @@ function makeAuthContext(): AuthContextValue {
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(adminSession.access_token),
+    api: createConsoleApiClient(session.access_token),
   };
 }
 
-function renderPage() {
+function renderPage(session: AuthSession = adminSession) {
   return render(
-    <AuthContext.Provider value={makeAuthContext()}>
+    <AuthContext.Provider value={makeAuthContext(session)}>
       <MemoryRouter>
         <PayrollPage />
       </MemoryRouter>
@@ -203,5 +212,41 @@ describe("PayrollPage exit settlement panel", () => {
     expect(
       screen.queryByText(copy.exitSettlement.fields.uncertifiedDraftLabel),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("PayrollPage audited close integration", () => {
+  it("does not prefetch organization-wide payroll runs for an ADMIN-only session", async () => {
+    let runRequests = 0;
+    mockPayrollEndpoints(makeDashboard("CERTIFIED"));
+    server.use(
+      http.get("*/api/v1/payroll/runs", () => {
+        runRequests += 1;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText(copy.exitSettlement.fields.severancePay);
+    await waitFor(() => {
+      expect(runRequests).toBe(0);
+    });
+  });
+
+  it("renders the audited close workspace only for an org-wide payroll reader", async () => {
+    mockPayrollEndpoints(makeDashboard("CERTIFIED"));
+    server.use(
+      http.get("*/api/v1/payroll/runs", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
+
+    renderPage(executiveSession);
+    expect(
+      await screen.findByRole("heading", { name: "급여 마감 명부" }),
+    ).toBeVisible();
+    expect(
+      await screen.findByText("현재 조회 가능한 급여 회차가 없습니다."),
+    ).toBeVisible();
   });
 });
