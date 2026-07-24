@@ -75,6 +75,34 @@ function multilineRunCommands(step) {
     .filter(Boolean);
 }
 
+function stepRunCommands(step) {
+  const scalar = runScalar(step);
+  return scalar && scalar !== "|" ? [scalar] : multilineRunCommands(step);
+}
+
+function isMntAppGitHubEnvWrite(command) {
+  return /\b(?:echo|printf)\b/.test(command)
+    && /\bMNT_APP_BIN\s*=/.test(command)
+    && />>\s*["']?(?:\$\{GITHUB_ENV\}|\$GITHUB_ENV)["']?\s*$/.test(command);
+}
+
+function capturesBuckAppBinary(step) {
+  const commands = stepRunCommands(step);
+  const outputPath = /^(?:mnt_app_bin)\s*=\s*["']?(?:\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE)\/\.tmp\/buck2\/api-contract\/mnt-app["']?$/;
+  const executableCheck = /(?:\btest|\[|\[\[)\s+-x\s+["']?(?:\$\{mnt_app_bin\}|\$mnt_app_bin)["']?/;
+  const writesMntApp = (command) => isMntAppGitHubEnvWrite(command)
+    && /(?:\$\{mnt_app_bin\}|\$mnt_app_bin)/.test(command);
+  return commands.some((command) => outputPath.test(command))
+    && commands.some((command) => executableCheck.test(command))
+    && commands.filter(writesMntApp).length === 1;
+}
+
+function directlyBuildsMntApp(step) {
+  return /(?:^|\s)(?:tools\/)?buck2\s+build\b[\s\\]*(?:[^\n]*[\s\\])*?\/\/backend\/app:mnt-app\b/.test(
+    stepRunCommands(step).join(" "),
+  );
+}
+
 function requireReindeerToolchainBefore(steps, command, failures) {
   const commandIndex = steps.findIndex((step) => runScalar(step) === command);
   const toolchainIndex = steps.findIndex((step) => multilineRunCommands(step).includes(reindeerToolchainInstall));
@@ -169,17 +197,39 @@ export function evaluateCiPreflight(workflow) {
       "api-contract",
       failures,
     );
-    if (/^      MNT_APP_BIN:\s*.*(?:backend\/target|CARGO_TARGET_DIR)/m.test(apiContract)) {
-      failures.push("api-contract must not use a Cargo target path for MNT_APP_BIN");
+    const openApiGateIndexes = apiContractSteps
+      .map((step, index) => (runScalar(step) === "npm run check:openapi-app" ? index : -1))
+      .filter((index) => index >= 0);
+    if (openApiGateIndexes.length !== 1) {
+      failures.push("api-contract must run exactly one npm run check:openapi-app producer");
+    }
+    if (apiContractSteps.some(directlyBuildsMntApp)) {
+      failures.push("api-contract must not directly build //backend/app:mnt-app");
     }
 
-    const openApiGateIndex = apiContractSteps.findIndex((step) => runScalar(step) === "npm run check:openapi-app");
-    const contractTestIndex = apiContractSteps.findIndex((step) => runScalar(step) === "npm run test:contract");
-    const buckBinaryCapture = apiContractSteps.findIndex((step) =>
-      multilineRunCommands(step).includes('mnt_app_bin="${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"')
-      && multilineRunCommands(step).includes('test -x "${mnt_app_bin}"')
-      && multilineRunCommands(step).includes("printf 'MNT_APP_BIN=%s\\n' \"${mnt_app_bin}\" >> \"${GITHUB_ENV}\""),
+    const jobOrStepAppBinaryOverride = /^ {6,}MNT_APP_BIN\s*:/m.test(apiContract);
+    const commandLines = apiContractSteps.flatMap(stepRunCommands);
+    const githubEnvWrites = commandLines.filter(isMntAppGitHubEnvWrite);
+    const shellAppBinaryOverride = commandLines.some((command) =>
+      !isMntAppGitHubEnvWrite(command) && /(?:^|\s)(?:export\s+)?MNT_APP_BIN\s*=/.test(command),
     );
+    const cargoTargetAppBinaryOverride = apiContract.split(/\r?\n/).some((line) =>
+      !line.trimStart().startsWith("#")
+      && /MNT_APP_BIN.*(?:backend\/target|CARGO_TARGET_DIR)|(?:backend\/target|CARGO_TARGET_DIR).*MNT_APP_BIN/.test(line),
+    );
+    if (jobOrStepAppBinaryOverride || shellAppBinaryOverride) {
+      failures.push("api-contract must not override the captured MNT_APP_BIN");
+    }
+    if (cargoTargetAppBinaryOverride) {
+      failures.push("api-contract must not use a Cargo target path for MNT_APP_BIN");
+    }
+    if (githubEnvWrites.length !== 1) {
+      failures.push("api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once");
+    }
+
+    const openApiGateIndex = openApiGateIndexes[0] ?? -1;
+    const contractTestIndex = apiContractSteps.findIndex((step) => runScalar(step) === "npm run test:contract");
+    const buckBinaryCapture = apiContractSteps.findIndex(capturesBuckAppBinary);
     if (
       openApiGateIndex < 0
       || contractTestIndex < 0

@@ -98,6 +98,68 @@ describe("CI preflight contract", () => {
     }
   });
 
+  it("rejects duplicate API contract app producers and later binary overrides", () => {
+    expectFailure(
+      workflow.replace(
+        "      - name: Capture Buck2-built app for contract test\n",
+        "      - name: Duplicate OpenAPI app-served drift gate\n        run: npm run check:openapi-app\n\n      - name: Capture Buck2-built app for contract test\n",
+      ),
+      "api-contract must run exactly one npm run check:openapi-app producer",
+    );
+    expectFailure(
+      workflow.replace(
+        "      - name: Capture Buck2-built app for contract test\n",
+        "      - name: Duplicate direct Buck2 app build\n        run: tools/buck2 build //backend/app:mnt-app\n\n      - name: Capture Buck2-built app for contract test\n",
+      ),
+      "api-contract must not directly build //backend/app:mnt-app",
+    );
+    expectFailure(
+      workflow.replace(
+        "      - name: Employee import replay contract\n",
+        "      - name: Override contract app\n        run: echo \"MNT_APP_BIN=${CARGO_TARGET_DIR}/debug/mnt-app\" >> \"$GITHUB_ENV\"\n\n      - name: Employee import replay contract\n",
+      ),
+      "api-contract must write MNT_APP_BIN to GITHUB_ENV exactly once",
+    );
+    expectFailure(
+      workflow.replace(
+        '          printf \'MNT_APP_BIN=%s\\n\' "${mnt_app_bin}" >> "${GITHUB_ENV}"\n',
+        '          printf \'MNT_APP_BIN=%s\\n\' "${mnt_app_bin}" >> "${GITHUB_ENV}"\n          export MNT_APP_BIN=/tmp/other-mnt-app\n',
+      ),
+      "api-contract must not override the captured MNT_APP_BIN",
+    );
+    expectFailure(
+      workflow.replace(
+        "      - name: Employee import replay contract\n",
+        "      - name: Employee import replay contract\n        env:\n          MNT_APP_BIN: /tmp/other-mnt-app\n",
+      ),
+      "api-contract must not override the captured MNT_APP_BIN",
+    );
+  });
+
+  it("accepts equivalent safe shell syntax for the Buck2 app handoff", () => {
+    const equivalentCapture = `      - name: Capture Buck2-built app for contract test
+        if: \${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mnt_app_bin="$GITHUB_WORKSPACE/.tmp/buck2/api-contract/mnt-app"
+          [ -x "$mnt_app_bin" ]
+          echo "MNT_APP_BIN=$mnt_app_bin" >> "$GITHUB_ENV"
+
+`;
+    const currentCapture = `      - name: Capture Buck2-built app for contract test
+        if: \${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mnt_app_bin="\${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"
+          test -x "\${mnt_app_bin}"
+          printf 'MNT_APP_BIN=%s\\n' "\${mnt_app_bin}" >> "\${GITHUB_ENV}"
+
+`;
+    assert.deepEqual(evaluateCiPreflight(workflow.replace(currentCapture, equivalentCapture)).failures, []);
+  });
+
   it("rejects a generated-face authority job without the complete closure", () => {
     expectFailure(
       workflow.replace(
