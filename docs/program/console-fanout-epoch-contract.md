@@ -1,90 +1,69 @@
 # Console hyperscale fan-out epoch contract
 
-**Status:** implementation plan and admission contract.
+**Status:** enforceable planning/admission contract. Buck2 remains the only
+build and impact graph authority. This planner owns only immutable source
+admission, writable-root collision avoidance, capacity admission, independent
+review, and serialization of shared faces.
 
-This contract turns the console capability registry into bounded, exact-SHA
-delivery epochs. It does not replace Buck2, infer source dependencies, or create
-a second build graph. Buck2 remains the target/action authority; this planner
-owns only work ownership, collision avoidance, review fan-out, and shared-face
-serialization.
+## Bind before dispatch
 
-## Epoch phases
+A receipt is bound to a full 40-character Git commit. The CLI reads the
+registry and generated-face authority **from that commit**, requires its caller
+worktree to be clean, rejects a `source_revision` whose immutable SHA does not
+match the anchor, and records SHA-256 authority digests. Missing, empty, or
+schema-incompatible generated-face authority fails closed.
 
-1. **Bind.** Record the full candidate SHA, registry digest, generated-face
-   registry digest, resource budgets, and selected capability IDs. A changed
-   anchor creates a new epoch.
-2. **Leaf implementation.** Backend, frontend, user-story, and focused test
-   lanes may run concurrently only when their writable roots are disjoint.
-   Shared roots are removed from every leaf lane.
-3. **Independent review.** Review is read-only and fans out per leaf result.
-   Rejected findings return to the owning leaf lane; they do not widen another
-   writer's ownership.
-4. **Consolidation.** One owner applies OpenAPI, generated clients, migrations,
-   console navigation/registry, design tokens, and other declared shared faces
-   once on the exact epoch tip.
-5. **Exact-tip verification.** Cheap admission precedes affected Buck targets,
-   resource-class shards, browser stories, and the full backstop. Evidence is
-   invalid after a rebase, merge-train reorder, or shared-face rewrite unless
-   its action digest remains Buck-equivalent.
+Every declared ownership root is a repository-relative literal or a literal
+with one terminal `/**`. Dot aliases, `..`, absolute paths, and wildcard forms
+such as `foo*`, `**/file`, or brace/character globs are rejected. A generated
+output pattern which cannot be represented by that algebra is conservatively
+widened to its literal prefix subtree; this can reduce leaf concurrency but can
+never create an unsound intersection result.
 
-## Deterministic selection
+The migration authority is exactly
+`backend/crates/platform/db/migrations/**`; it must exist in the anchor tree
+and is excluded from all leaf writable roots.
 
-For capability `i`, let:
+## Safe parallelism
 
-- `s_i` be its existing risk-adjusted registry score;
-- `c_i` be correctness/risk-reduction readiness;
-- `v_i` be verification readiness;
-- `β = 0.60`, the quality bias;
-- `d_i` be its private-root collision degree.
+A source lane is admissible only with:
 
-The planner uses:
+- unique owner, exact worktree, exact branch, signature story, evidence path,
+  executable leaf gates, and required Buck targets;
+- clean declared worktree discovered through `git worktree list --porcelain`,
+  whose branch matches the declaration and whose HEAD is the anchor or an
+  immutable descendant;
+- one explicit integer resource declaration for `writer`, `postgres`,
+  `browser`, `ios`, `graph`, and `cas`; and
+- disjoint private roots.
+
+The deterministic quality-weighted maximal independent set is bounded by the
+writer budget and all resource budgets. Capacity or root collisions are explicit
+holds, not silent scheduling omissions. Dependencies are merge holds, not an
+excuse to block an otherwise safe leaf implementation.
+
+Each selected lane receives a deterministic, epoch-scoped Buck isolation path:
 
 ```text
-quality_utility_i = (1 - β) * s_i + β * (c_i + v_i) / 2
-selection_density_i = quality_utility_i / (1 + d_i)
+.buck2/console-epochs/<anchor-12>/<lane-slug>
 ```
 
-It then constructs a deterministic weighted maximal independent set, bounded by
-the writer budget. This is deliberately `O(V²)` and stable under identical
-inputs. At repository scale, target impact and test selection come from Buck2
-and Buck2 Change Detector; capability ownership remains a much smaller control
-plane.
+Run Buck through `tools/buck2 --isolation-dir <that path> ...`. Concurrent
+worktrees therefore cannot invalidate each other’s daemon due to constraints or
+version drift. Reuse the same path inside a lane to preserve incremental local
+state; remote/content caches remain shared. This changes no Buck cells or build
+graph ownership.
 
-Shared roots do not create leaf conflicts. They create one ordered
-consolidation queue. Private-root overlap, missing ownership, missing isolated
-worktrees, absent signature stories, missing evidence paths, and missing leaf
-gates fail closed.
+## Review and consolidation
 
-Dependencies block merge admission, not safe source preparation. A leaf may
-implement against an already-versioned port while its upstream capability is
-unfinished, but the plan records that dependency as a merge hold.
+Shared OpenAPI, generated clients, migrations, route/nav, tokens, and generated
+Buck faces are never leaf writes. A consolidation entry remains false until an
+exact-anchor independent-review receipt is approved and the consolidation owner,
+worktree, branch, and resource declaration are valid. Review fans out per leaf;
+rejections return only to the leaf owner. The consolidated exact tip then runs
+cheap admission, affected Buck targets, resource-class shards, browser stories,
+and the full backstop.
 
-## Concurrency and resource policy
-
-- Writer fan-out is capped independently from read-only review fan-out.
-- PostgreSQL, browser, iOS simulator, graph-construction, and CAS bandwidth
-  receive separate resource budgets; job count is not a capacity model.
-- A lane owns one worktree and one branch. The same writer never spans two
-  capabilities inside an epoch.
-- Generated outputs are never produced in leaf lanes. The consolidation owner
-  regenerates from the merged sources once.
-- New cells require a real trust, toolchain, configuration, or release
-  boundary. Console modules remain packages and targets in the root cell.
-- The safe fallback is broader execution or a smaller writer set, never skipped
-  verification.
-
-## Machine output
-
-`scripts/console/plan-fanout.mjs` emits a stable JSON receipt containing:
-
-- exact anchor and authority digests;
-- selected leaf writers and their private/shared roots;
-- held capabilities and admission reasons;
-- private-root collision edges;
-- unresolved merge dependencies;
-- independent-review queue;
-- single-writer consolidation queue.
-
-The receipt is planning evidence, not completion evidence. A module is complete
-only after its roadmap user stories, real backend wiring, independent review,
-shared-face consolidation, and exact-tip verification pass.
+The receipt is planning evidence, not a completion claim. A capability is done
+only after its roadmap stories, real backend wiring, independent review,
+shared-face consolidation, and exact-tip verification all pass.
