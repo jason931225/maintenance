@@ -4,8 +4,8 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchStatus, TechnicianLoad};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, P1DispatchId,
-    Timestamp, TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, P1DispatchId, Timestamp,
+    TraceContext, UserId, WorkOrderId,
 };
 use mnt_workorder_domain::{PriorityLevel, WorkOrderStatus};
 use serde::{Deserialize, Serialize};
@@ -276,7 +276,13 @@ impl DispatchQueueCursor {
             updated_at,
             work_order_id,
         };
-        let bytes = serde_json::to_vec(&payload).expect("cursor payload is serializable");
+        // Every field in `DispatchQueueCursorPayload` has a deterministic serde
+        // representation.  This API cannot return an encoding error, so preserve
+        // its fail-closed invariant without using a production `expect`.
+        let bytes = match serde_json::to_vec(&payload) {
+            Ok(bytes) => bytes,
+            Err(_) => std::process::abort(),
+        };
         URL_SAFE_NO_PAD.encode(bytes)
     }
     pub fn decode(value: &str, now: Timestamp) -> Result<Self, KernelError> {

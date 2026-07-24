@@ -812,12 +812,12 @@ fn normalize_path_parameters(path: &str) -> String {
 
 #[test]
 fn dispatch_read_openapi_operations_match_generated_client_faces() {
-    const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
+    const TS: &str = include_str!("../../../clients/ts/src/schema.d.ts");
     const KOTLIN: &str = include_str!(
-        "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
+        "../../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
     );
     const SWIFT: &str =
-        include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+        include_str!("../../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
     for (path, operation, schema) in [
         (
             "/api/v1/console/dispatch/queue",
@@ -886,17 +886,17 @@ fn bounded_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 
 #[test]
 fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
-    const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
+    const TS: &str = include_str!("../../../clients/ts/src/schema.d.ts");
     const KOTLIN: &str = include_str!(
-        "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
+        "../../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
     );
     const KOTLIN_ENUM: &str = include_str!(
-        "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/model/DispatchQueueStatus.kt"
+        "../../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/model/DispatchQueueStatus.kt"
     );
     const SWIFT: &str =
-        include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+        include_str!("../../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
     const SWIFT_TYPES: &str =
-        include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Types.swift");
+        include_str!("../../../clients/swift/Sources/MaintenanceAPIClient/Generated/Types.swift");
     let queue = operation_section(
         OPENAPI_YAML,
         "/api/v1/console/dispatch/queue",
