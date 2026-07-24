@@ -42,7 +42,7 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
     let pool = two_connection_runtime_role_pool(&owner_pool).await;
     let store = PgInventoryStore::new(pool);
     let now = OffsetDateTime::now_utc();
-    let command = consume_command(actor, branch, item_id, work_order_id, 300, now);
+    let command = consume_command(actor, branch, item_id, work_order_id, 300, Some(now), now);
 
     // Each task obtains a separate transaction/connection from the runtime pool.
     // The barrier makes both callers contend on the same durable idempotency key.
@@ -66,7 +66,11 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
         })
     };
 
-    let (first, second) = tokio::join!(first, second);
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(first, second)
+    })
+    .await
+    .expect("same-payload advisory-lock race must finish promptly");
     let first = first.unwrap().unwrap();
     let second = second.unwrap().unwrap();
     assert_eq!(
@@ -110,6 +114,18 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
     .expect_err("a reused key with a different payload must conflict");
     assert_eq!(mismatch.kind(), ErrorKind::Conflict);
 
+    let timestamp_mismatch = scope_org(
+        org,
+        store.consume_item(ConsumeInventoryCommand {
+            quantity_consumed_milli: 300,
+            occurred_at: Some(now + time::Duration::seconds(1)),
+            ..command
+        }),
+    )
+    .await
+    .expect_err("a reused key with a different explicit occurrence timestamp must conflict");
+    assert_eq!(timestamp_mismatch.kind(), ErrorKind::Conflict);
+
     let events_after: i64 =
         sqlx::query_scalar("SELECT count(*) FROM inventory_consumption_events WHERE item_id = $1")
             .bind(*item_id.as_uuid())
@@ -148,6 +164,7 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
             other_item_id,
             other_work_order_id,
             300,
+            Some(now),
             now,
         )),
     )
@@ -156,12 +173,99 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
     assert_ne!(other.event.id, first.event.id);
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_explicit_timestamp_mismatch_conflicts_without_second_mutation(
+    owner_pool: PgPool,
+) {
+    grant_mnt_rt(
+        &owner_pool,
+        &[
+            "GRANT SELECT ON work_orders TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_stock_locations TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_items TO mnt_rt",
+            "GRANT SELECT, INSERT ON inventory_consumption_events TO mnt_rt",
+            "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
+        ],
+    )
+    .await;
+
+    let org = OrgId::from_uuid(ORG);
+    let actor = seed_org_and_super_admin(&owner_pool, ORG, "inventory-timestamp-race").await;
+    let (branch, item_id, work_order_id) = seed_consumption_fixture(&owner_pool, ORG, actor).await;
+    let store = PgInventoryStore::new(two_connection_runtime_role_pool(&owner_pool).await);
+    let now = OffsetDateTime::now_utc();
+    let first_command = consume_command(actor, branch, item_id, work_order_id, 300, Some(now), now);
+    let second_command = ConsumeInventoryCommand {
+        occurred_at: Some(now + time::Duration::seconds(1)),
+        ..first_command.clone()
+    };
+    let barrier = Arc::new(Barrier::new(2));
+    let first = {
+        let barrier = Arc::clone(&barrier);
+        let store = store.clone();
+        tokio::spawn(async move {
+            barrier.wait().await;
+            scope_org(org, store.consume_item(first_command)).await
+        })
+    };
+    let second = {
+        let barrier = Arc::clone(&barrier);
+        let store = store.clone();
+        tokio::spawn(async move {
+            barrier.wait().await;
+            scope_org(org, store.consume_item(second_command)).await
+        })
+    };
+
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(first, second)
+    })
+    .await
+    .expect("timestamp-mismatch advisory-lock race must finish promptly");
+    let first = first.unwrap();
+    let second = second.unwrap();
+    let winner = match (first, second) {
+        (Ok(winner), Err(error)) | (Err(error), Ok(winner)) => {
+            assert_eq!(error.kind(), ErrorKind::Conflict);
+            winner
+        }
+        (left, right) => {
+            panic!("expected one success and one timestamp conflict, got {left:?}, {right:?}")
+        }
+    };
+    assert_eq!(winner.item.quantity_on_hand_milli, 700);
+
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM inventory_consumption_events WHERE item_id = $1")
+            .bind(*item_id.as_uuid())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    let stock: i64 =
+        sqlx::query_scalar("SELECT quantity_on_hand_milli FROM inventory_items WHERE id = $1")
+            .bind(*item_id.as_uuid())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id = $1 AND action = 'inventory.consume'",
+    )
+    .bind(ORG)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(events, 1, "timestamp mismatch records no second event");
+    assert_eq!(stock, 700, "timestamp mismatch decrements stock once");
+    assert_eq!(audits, 1, "timestamp mismatch records one audit");
+}
+
 fn consume_command(
     actor: mnt_kernel_core::UserId,
     branch: BranchId,
     item_id: InventoryItemId,
     work_order_id: WorkOrderId,
     quantity_consumed_milli: i64,
+    occurred_at: Option<OffsetDateTime>,
     now: OffsetDateTime,
 ) -> ConsumeInventoryCommand {
     ConsumeInventoryCommand {
@@ -170,7 +274,7 @@ fn consume_command(
         item_id,
         source: ConsumeInventorySource::WorkOrder { work_order_id },
         quantity_consumed_milli,
-        occurred_at: Some(now),
+        occurred_at,
         memo: Some("concurrent idempotency regression".to_owned()),
         idempotency_key: IDEMPOTENCY_KEY.to_owned(),
         trace: TraceContext::generate(),

@@ -23,7 +23,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 mnt-platform-test-support = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 
 [lints]
 workspace = true
