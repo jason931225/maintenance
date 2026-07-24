@@ -1,17 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import type { components } from "@maintenance/api-client-ts";
 import type { ConsoleApiClient } from "../../api/client";
-import {
-  DataTable,
-  type DataTableColumn,
-} from "../../components/ui/data-table";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
-import { Card } from "../../components/ui/card";
-import { PageEmpty } from "../../components/states/PageEmpty";
-import { PageError } from "../../components/states/PageError";
-import { SkeletonTable } from "../../components/states/Skeleton";
 import { ko } from "../../i18n/ko";
+import "./PayrollCloseWorkspace.css";
 
 type Run = components["schemas"]["PayrollRunSummary"];
 type Line = components["schemas"]["PayrollLineSummary"];
@@ -54,10 +46,10 @@ const copy = ko.payroll.closeWorkspace;
 
 const tone = (s: string) =>
   s === "BLOCKED_LEGAL_GATE" || s === "VOID"
-    ? "border-red-200 bg-red-50 text-red-800"
+    ? "danger"
     : s === "STAGED" || s === "READY_FOR_REVIEW"
-      ? "border-amber-200 bg-amber-50 text-amber-900"
-      : "border-emerald-200 bg-emerald-50 text-emerald-800";
+      ? "warn"
+      : "ok";
 const hours = (n: number | null | undefined) =>
   n == null ? copy.hours.unavailable : copy.hours.value(n);
 const denied = (response: Response) =>
@@ -274,192 +266,214 @@ export function PayrollCloseWorkspace({
       cancelDetail();
     };
   }, [api, authorityKey, cancelDetail, loadRuns]);
-  const cols = useMemo<Array<DataTableColumn<Run>>>(
-    () => [
-      {
-        key: "run",
-        header: copy.columns.period,
-        cell: (r) => (
-          <>
-            <b>{r.source_label}</b>
-            <p className="text-xs text-steel">
-              {r.period_start} ~ {r.period_end}
-            </p>
-          </>
-        ),
-      },
-      {
-        key: "status",
-        header: copy.columns.status,
-        cell: (r) => (
-          <Badge className={tone(r.status)}>{copy.statuses[r.status]}</Badge>
-        ),
-      },
-      {
-        key: "calc",
-        header: copy.columns.calculation,
-        cell: (r) => (
-          <span>
-            {r.calculation_enabled
-              ? copy.calculation.enabled
-              : copy.calculation.blocked}
-          </span>
-        ),
-      },
-    ],
-    [],
-  );
-  const lineCols: Array<DataTableColumn<Line>> = [
-    {
-      key: "employee",
-      header: copy.columns.employee,
-      cell: (l) => (
-        <>
-          <b>{l.employee_display_name}</b>
-          <p className="text-xs text-steel">{l.employee_company}</p>
-        </>
-      ),
-    },
-    {
-      key: "regular",
-      header: copy.columns.regular,
-      cell: (l) => hours(l.regular_hours),
-    },
-    {
-      key: "overtime",
-      header: copy.columns.overtime,
-      cell: (l) => hours(l.overtime_hours),
-    },
-    {
-      key: "source",
-      header: copy.columns.source,
-      cell: (l) => (
-        <span>
-          {l.gross_pay_source_present &&
-          l.net_pay_source_present &&
-          l.nts_tax_row_status === "VERIFIED_SOURCE_ROW"
-            ? copy.source.verified
-            : copy.source.incomplete}
-        </span>
-      ),
-    },
-    {
-      key: "status",
-      header: copy.columns.calculationStatus,
-      cell: (l) => (
-        <Badge className={tone(l.calculation_status)}>
-          {copy.statuses[l.calculation_status]}
-        </Badge>
-      ),
-    },
-  ];
+  const activateRow = (
+    event: KeyboardEvent<HTMLTableRowElement>,
+    action: () => void,
+  ) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
+  };
+
   return (
-    <div className="grid min-w-0 gap-4">
-      <Card className="grid gap-3">
-        <div className="flex flex-wrap justify-between gap-3">
+    <div className="payroll-close">
+      <section className="payroll-close__card">
+        <div className="payroll-close__header">
           <div>
-            <p className="text-xs font-bold text-steel">{copy.list.eyebrow}</p>
-            <h2 className="text-lg font-bold">{copy.list.title}</h2>
-            <p className="text-sm text-steel">{copy.list.description}</p>
+            <p className="payroll-close__eyebrow">{copy.list.eyebrow}</p>
+            <h2 className="payroll-close__title">{copy.list.title}</h2>
+            <p className="payroll-close__description">
+              {copy.list.description}
+            </p>
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
+          <button
+            className="payroll-close__button"
+            type="button"
             onClick={() => void loadRuns()}
             disabled={runsState === "loading"}
           >
             {copy.list.refresh}
-          </Button>
+          </button>
         </div>
         {runsState === "loading" && !runs.length ? (
-          <SkeletonTable rows={4} cols={3} />
+          <div className="payroll-close__skeleton" aria-busy="true" />
         ) : null}
         {runsState === "denied" ? (
-          <PageError status={403} message={copy.list.denied} />
+          <div className="payroll-close__error" role="alert">
+            <p>{copy.list.denied}</p>
+          </div>
         ) : null}
         {runsState === "error" ? (
-          <PageError
-            message={copy.list.error}
-            onRetry={() => void loadRuns()}
-          />
+          <div className="payroll-close__error" role="alert">
+            <p>{copy.list.error}</p>
+            <button
+              className="payroll-close__button"
+              type="button"
+              onClick={() => void loadRuns()}
+            >
+              {ko.page.retry}
+            </button>
+          </div>
         ) : null}
         {runsState === "ready" && !runs.length ? (
-          <PageEmpty message={copy.list.empty} />
+          <p className="payroll-close__empty">{copy.list.empty}</p>
         ) : null}
         {runs.length ? (
           <>
-            <DataTable
-              rows={runs}
-              columns={cols}
-              getRowKey={(r) => r.id}
-              getRowAriaLabel={(r) =>
-                copy.list.detailAria(r.source_label, copy.statuses[r.status])
-              }
-              onRowClick={(r) => void loadDetail(r)}
-            />
+            <div className="payroll-close__table-wrap">
+              <table className="payroll-close__table">
+                <thead>
+                  <tr>
+                    <th>{copy.columns.period}</th>
+                    <th>{copy.columns.status}</th>
+                    <th>{copy.columns.calculation}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((run) => (
+                    <tr
+                      key={run.id}
+                      className="payroll-close__row"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={copy.list.detailAria(
+                        run.source_label,
+                        copy.statuses[run.status],
+                      )}
+                      onClick={() => void loadDetail(run)}
+                      onKeyDown={(event) => {
+                        activateRow(event, () => void loadDetail(run));
+                      }}
+                    >
+                      <td>
+                        <strong>{run.source_label}</strong>
+                        <p className="payroll-close__meta">
+                          {run.period_start} ~ {run.period_end}
+                        </p>
+                      </td>
+                      <td>
+                        <span
+                          className={`payroll-close__status payroll-close__status--${tone(run.status)}`}
+                        >
+                          {copy.statuses[run.status]}
+                        </span>
+                      </td>
+                      <td>
+                        {run.calculation_enabled
+                          ? copy.calculation.enabled
+                          : copy.calculation.blocked}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {runs.length < total ? (
-              <Button
-                size="sm"
-                variant="secondary"
+              <button
+                className="payroll-close__button"
+                type="button"
                 onClick={() => void loadRuns(true)}
                 disabled={runsState === "loading"}
               >
                 {copy.list.loadMore}
-              </Button>
+              </button>
             ) : null}
           </>
         ) : null}
-      </Card>
+      </section>
       {detail.kind === "loading" ? (
-        <Card aria-busy="true">
-          <SkeletonTable rows={3} cols={5} />
-        </Card>
+        <section className="payroll-close__card" aria-busy="true">
+          <div className="payroll-close__skeleton" />
+        </section>
       ) : null}
       {detail.kind === "denied" ? (
-        <Card>
-          <PageError status={403} message={copy.detail.denied} />
-        </Card>
+        <section className="payroll-close__card">
+          <div className="payroll-close__error" role="alert">
+            <p>{copy.detail.denied}</p>
+          </div>
+        </section>
       ) : null}
       {detail.kind === "error" ? (
-        <Card>
-          <PageError
-            message={copy.detail.error}
-            onRetry={() => void loadDetail(detail.run)}
-          />
-        </Card>
+        <section className="payroll-close__card">
+          <div className="payroll-close__error" role="alert">
+            <p>{copy.detail.error}</p>
+            <button
+              className="payroll-close__button"
+              type="button"
+              onClick={() => void loadDetail(detail.run)}
+            >
+              {ko.page.retry}
+            </button>
+          </div>
+        </section>
       ) : null}
       {detail.kind === "ready" ? (
-        <Card className="grid gap-3">
+        <section className="payroll-close__card">
           <div>
-            <p className="text-xs font-bold text-steel">
-              {copy.detail.eyebrow}
-            </p>
-            <h2 className="text-lg font-bold">{copy.detail.title}</h2>
-            <p className="text-sm text-steel">
+            <p className="payroll-close__eyebrow">{copy.detail.eyebrow}</p>
+            <h2 className="payroll-close__title">{copy.detail.title}</h2>
+            <p className="payroll-close__description">
               {detail.run.source_label} · {detail.run.period_start} ~{" "}
               {detail.run.period_end}
             </p>
           </div>
           {detail.lines.length ? (
-            <DataTable
-              rows={detail.lines}
-              columns={lineCols}
-              getRowKey={(l) => l.id}
-            />
+            <div className="payroll-close__table-wrap">
+              <table className="payroll-close__table">
+                <thead>
+                  <tr>
+                    <th>{copy.columns.employee}</th>
+                    <th>{copy.columns.regular}</th>
+                    <th>{copy.columns.overtime}</th>
+                    <th>{copy.columns.source}</th>
+                    <th>{copy.columns.calculationStatus}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td>
+                        <strong>{line.employee_display_name}</strong>
+                        <p className="payroll-close__meta">
+                          {line.employee_company}
+                        </p>
+                      </td>
+                      <td>{hours(line.regular_hours)}</td>
+                      <td>{hours(line.overtime_hours)}</td>
+                      <td>
+                        {line.gross_pay_source_present &&
+                        line.net_pay_source_present &&
+                        line.nts_tax_row_status === "VERIFIED_SOURCE_ROW"
+                          ? copy.source.verified
+                          : copy.source.incomplete}
+                      </td>
+                      <td>
+                        <span
+                          className={`payroll-close__status payroll-close__status--${tone(line.calculation_status)}`}
+                        >
+                          {copy.statuses[line.calculation_status]}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <PageEmpty message={copy.detail.empty} />
+            <p className="payroll-close__empty">{copy.detail.empty}</p>
           )}
           {detail.nextOffset !== null ? (
-            <Button
-              size="sm"
-              variant="secondary"
+            <button
+              className="payroll-close__button"
+              type="button"
               onClick={() => void loadDetail(detail.run, true)}
             >
               {copy.detail.loadMore}
-            </Button>
+            </button>
           ) : null}
-          <p className="text-xs text-steel">{copy.detail.readOnlyNotice}</p>
-        </Card>
+          <p className="payroll-close__meta">{copy.detail.readOnlyNotice}</p>
+        </section>
       ) : null}
     </div>
   );

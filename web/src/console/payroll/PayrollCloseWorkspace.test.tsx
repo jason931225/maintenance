@@ -113,6 +113,34 @@ describe("PayrollCloseWorkspace", () => {
     );
   });
 
+  it("keeps payroll-owned presentation semantics while supporting space-key activation", async () => {
+    const get = vi.fn((path: string) =>
+      Promise.resolve(
+        path === "/api/v1/payroll/runs"
+          ? response({ items: [run], total: 1, limit: 50, offset: 0 })
+          : response(detail()),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+
+    const row = await screen.findByRole("button", {
+      name: /2026년 6월 정기 지급.*검토 대기/i,
+    });
+    expect(row).toHaveClass("payroll-close__row");
+    expect(row.closest("table")).toHaveClass("payroll-close__table");
+    expect(screen.getByText("검토 대기")).toHaveClass(
+      "payroll-close__status",
+      "payroll-close__status--warn",
+    );
+
+    row.focus();
+    await user.keyboard(" ");
+    expect(
+      await screen.findByRole("heading", { name: "급여 회차 상세" }),
+    ).toBeVisible();
+  });
+
   it("states an empty close queue truthfully", async () => {
     const get = vi.fn(() =>
       Promise.resolve(response({ items: [], total: 0, limit: 50, offset: 0 })),
