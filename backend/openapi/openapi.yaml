@@ -1994,8 +1994,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/OntologyActionExecuteOutcome'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2088,6 +2087,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          description: The supplied expected_revision is stale.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/exit-cases/{id}/confirm:
@@ -11985,8 +11990,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/OntologyActionExecuteOutcome'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -11995,6 +11999,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          description: The supplied expected_revision is stale.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
         '501':
@@ -26468,6 +26478,26 @@ components:
         instance:
           type: object
           additionalProperties: true
+    OntologyActionExecuteOutcome:
+      type: object
+      required:
+      - dispatch
+      - gates
+      properties:
+        dispatch:
+          type: string
+          enum: [instance_revision, projected_usecase]
+        gates:
+          type: object
+          additionalProperties: true
+        instance:
+          type: object
+          additionalProperties: true
+        projected:
+          type: object
+          additionalProperties: true
+        receipt:
+          $ref: '#/components/schemas/OntologyActionCommandReceipt'
     GovernanceOpenOverrideRequest:
       type: object
       required:

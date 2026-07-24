@@ -12493,6 +12493,31 @@ export interface components {
             valid_from?: components["schemas"]["Timestamp"];
             checklist_all_acknowledged?: boolean;
             four_eyes_request_ref?: components["schemas"]["Uuid"];
+            command_id?: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            expected_revision?: number;
+        };
+        /** @description Immutable replay receipt for an accepted instance_revision action command. */
+        OntologyActionCommandReceipt: {
+            command_id: components["schemas"]["Uuid"];
+            payload_digest: string;
+            instance: {
+                [key: string]: unknown;
+            };
+        };
+        OntologyActionExecuteOutcome: {
+            /** @enum {string} */
+            dispatch: "instance_revision" | "projected_usecase";
+            gates: {
+                [key: string]: unknown;
+            };
+            instance?: {
+                [key: string]: unknown;
+            };
+            projected?: {
+                [key: string]: unknown;
+            };
+            receipt?: components["schemas"]["OntologyActionCommandReceipt"];
         };
         GovernanceOpenOverrideRequest: {
             target_type: string;
@@ -15230,9 +15255,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OntologyActionExecuteOutcome"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -15301,6 +15324,15 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            /** @description The supplied expected_revision is stale. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             422: components["responses"]["ValidationError"];
         };
     };
@@ -23988,15 +24020,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OntologyActionExecuteOutcome"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            /** @description The supplied expected_revision is stale. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             422: components["responses"]["ValidationError"];
             /** @description A projected-use-case dispatch is not wired yet. */
             501: {

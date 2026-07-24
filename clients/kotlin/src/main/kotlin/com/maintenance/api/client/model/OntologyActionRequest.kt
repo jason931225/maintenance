@@ -39,6 +39,8 @@ import kotlinx.serialization.Contextual
  * @param validFrom
  * @param checklistAllAcknowledged
  * @param fourEyesRequestRef
+ * @param commandId
+ * @param expectedRevision
  */
 @Serializable
 
@@ -66,7 +68,13 @@ data class OntologyActionRequest (
     val checklistAllAcknowledged: kotlin.Boolean? = null,
 
     @Contextual @SerialName(value = "four_eyes_request_ref")
-    val fourEyesRequestRef: java.util.UUID? = null
+    val fourEyesRequestRef: java.util.UUID? = null,
+
+    @Contextual @SerialName(value = "command_id")
+    val commandId: java.util.UUID? = null,
+
+    @SerialName(value = "expected_revision")
+    val expectedRevision: kotlin.Long? = null
 
 ) {
 

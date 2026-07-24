@@ -669,6 +669,7 @@ pub struct CommandReceipt {
     pub command_id: Uuid,
     pub payload_digest: String,
     pub instance: InstanceState,
+    pub gates: GateChainOutcome,
 }
 
 /// Typed action failure, distinct from a raw DB error so callers (and tests) can
@@ -749,21 +750,18 @@ impl OntologyRestState {
     ) -> Result<ExecuteOutcome, ActionError> {
         let prepared = self.prepare(action_key, &command).await?;
 
-        // Fail-closed pre-tx: an unmet gate / failed criterion writes nothing.
-        let gates = self.evaluate_gates(principal, &prepared, &command).await?;
-        if !gates.allow {
-            let reason = gates.first_blocking().map_or_else(
-                || "an action gate is not satisfied".to_owned(),
-                |g| format!("gate {:?} blocked: {:?}", g.gate, g.status),
-            );
-            return Err(ActionError::GateDenied(reason));
-        }
         if let Err(err) = &prepared.criteria {
             return Err(ActionError::CriteriaFailed(err.message.clone()));
         }
 
         match prepared.action.dispatch {
             ActionDispatch::ProjectedUsecase => {
+                let gates = self.evaluate_gates(principal, &prepared, &command).await?;
+                if !gates.allow {
+                    return Err(ActionError::GateDenied(
+                        "an action gate is not satisfied".to_owned(),
+                    ));
+                }
                 // No engine writeback: route to the owning domain crate's use-case,
                 // which owns its own RLS + audit + tx (§9.3 — no second source of
                 // truth). An unwired/unknown target fails closed (`NotWiredYet`).
@@ -857,7 +855,7 @@ impl OntologyRestState {
                     .map_err(ActionError::Store)?;
                 Ok(ExecuteOutcome {
                     dispatch: ActionDispatch::InstanceRevision,
-                    gates,
+                    gates: receipt.gates.clone(),
                     instance: Some(receipt.instance.clone()),
                     projected: None,
                     receipt: Some(receipt),
@@ -1114,7 +1112,8 @@ async fn instance_revision_writeback(
                 four_eyes_approved,
                 egress_cleared: egress,
             };
-            if !evaluate_gate_chain(config, &evidence).allow {
+            let gates = evaluate_gate_chain(config, &evidence);
+            if !gates.allow {
                 return Err(KernelError::forbidden(
                     "action gate re-check failed inside the writeback transaction",
                 )
@@ -1179,6 +1178,7 @@ async fn instance_revision_writeback(
                 command_id,
                 payload_digest: digest_hex(&payload_digest),
                 instance: result,
+                gates,
             };
             sqlx::query(
                 "INSERT INTO ont_action_command_receipts (org_id, command_id, payload_digest, receipt, created_at) VALUES ($1, $2, $3, $4, $5)",

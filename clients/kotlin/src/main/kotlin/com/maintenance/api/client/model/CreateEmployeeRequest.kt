@@ -40,7 +40,7 @@ import kotlinx.serialization.Contextual
  * @param position
  * @param site
  * @param homeBranchId
- * @param basePay Non-negative KRW decimal; only returned by privileged detail.
+ * @param basePay Canonical non-negative KRW NUMERIC(14,2) decimal; only returned by privileged detail.
  * @param idempotencyKey
  */
 @Serializable
@@ -75,7 +75,7 @@ data class CreateEmployeeRequest (
     @Contextual @SerialName(value = "home_branch_id")
     val homeBranchId: java.util.UUID,
 
-    /* Non-negative KRW decimal; only returned by privileged detail. */
+    /* Canonical non-negative KRW NUMERIC(14,2) decimal; only returned by privileged detail. */
     @SerialName(value = "base_pay")
     val basePay: kotlin.String,
 

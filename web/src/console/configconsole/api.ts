@@ -14,7 +14,7 @@ import {
   type ObjectTypeDetailWire,
   type RevisionWire,
 } from "../../api/ontology";
-import { executeOntologyAction } from "../../api/ontologyActions";
+import { ApiCallError, executeOntologyAction } from "../../api/ontologyActions";
 import { parseDashboardDoc } from "./doc";
 import type {
   ConsoleViewRecord,
@@ -178,15 +178,22 @@ export async function saveConsoleView(
   const serialized = JSON.stringify(doc);
   const attemptKey = `${existing?.instanceId ?? "new"}:${scope}:${screenKey}:${serialized}`;
   const commandId = commandIdFor(attemptKey);
-  const result = await executeOntologyAction(api, "create", {
-    object_type_id: objectTypeId,
-    ...(existing ? { instance_id: existing.instanceId } : {}),
-    params: { screen_key: screenKey, config: serialized, scope },
-    command_id: commandId,
-    ...(existing ? { expected_revision: existing.version } : {}),
-  } as Parameters<typeof executeOntologyAction>[2]);
-  pendingSaveCommands.delete(attemptKey);
-  return { instanceId: result.instance.instanceId, screenKey, config: doc, scope, version: result.instance.version };
+  try {
+    const result = await executeOntologyAction(api, "create", {
+      object_type_id: objectTypeId,
+      ...(existing ? { instance_id: existing.instanceId } : {}),
+      params: { screen_key: screenKey, config: serialized, scope },
+      command_id: commandId,
+      ...(existing ? { expected_revision: existing.version } : {}),
+    });
+    pendingSaveCommands.delete(attemptKey);
+    return { instanceId: result.instance.instanceId, screenKey, config: doc, scope, version: result.instance.version };
+  } catch (error) {
+    // A received HTTP response (including CAS 412 / digest 409) is terminal for
+    // this attempt. Only an unknown transport failure retains the id for retry.
+    if (error instanceof ApiCallError) pendingSaveCommands.delete(attemptKey);
+    throw error;
+  }
 }
 
 /** 팀 배포 — 결재: opens a pending four-eyes approval for the team console_view. */

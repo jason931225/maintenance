@@ -523,6 +523,8 @@ src/main/kotlin/com/maintenance/api/client/model/ObligationStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/ObligationType.kt
 src/main/kotlin/com/maintenance/api/client/model/OfficeCallback200Response.kt
 src/main/kotlin/com/maintenance/api/client/model/OfficeCallbackRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/OntologyActionCommandReceipt.kt
+src/main/kotlin/com/maintenance/api/client/model/OntologyActionExecuteOutcome.kt
 src/main/kotlin/com/maintenance/api/client/model/OntologyActionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsFunnel.kt
