@@ -913,8 +913,35 @@ async fn final_completion_appends_one_immutable_equipment_history_snapshot(pool:
             .execute(&mut *runtime_conn).await.unwrap();
         let same_org_read: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1",
-        ).bind(history_id).fetch_one(&mut *runtime_conn).await.unwrap();
+        )
+        .bind(history_id)
+        .fetch_one(&mut *runtime_conn)
+        .await
+        .unwrap();
         assert_eq!(same_org_read, 1);
+
+        // A runtime caller can set the deletion GUC, but it remains harmless:
+        // direct DML privileges are revoked and only the SECURITY DEFINER
+        // archive-removal procedure can consume that flag.
+        sqlx::query("SELECT set_config('app.maintenance_force_remove', 'on', false)")
+            .execute(&mut *runtime_conn)
+            .await
+            .unwrap();
+        let child_first_delete = sqlx::query(
+            "DELETE FROM equipment_maintenance_history_evidence WHERE history_id = $1",
+        )
+        .bind(history_id)
+        .execute(&mut *runtime_conn)
+        .await
+        .expect_err("mnt_rt must not delete immutable child history even with the bypass GUC armed");
+        assert_eq!(
+            child_first_delete
+                .as_database_error()
+                .and_then(|error| error.code().map(|code| code.to_string()))
+                .as_deref(),
+            Some("42501"),
+            "the child-first deletion must be denied by privileges before the trigger guard"
+        );
         let parent_only = sqlx::query(
             "INSERT INTO equipment_maintenance_history (org_id, equipment_id, work_order_id, completed_at) VALUES ($1,$2,$3,now())",
         ).bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&mut *runtime_conn).await;
@@ -1056,6 +1083,17 @@ async fn force_remove_archived_tenant_removes_full_maintenance_history_only_for_
     .await
     .unwrap();
     assert_eq!((before_parent, before_evidence, before_costs), (1, 1, 1));
+
+    let blocked_while_active: String =
+        sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+            .bind(*removed_org.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        blocked_while_active, "blocked_active",
+        "the force-removal function remains archive-gated"
+    );
 
     sqlx::query("UPDATE organizations SET status = 'ARCHIVED' WHERE id = $1")
         .bind(*removed_org.as_uuid())
