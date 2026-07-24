@@ -112,6 +112,136 @@ async fn logistics_capabilities_conceal_other_branches_and_prevent_oversell(pool
     assert_eq!(row.get::<i64, _>("quantity_reserved"), 6);
 }
 
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn branch_b_dispatch_grant_cannot_transition_branch_a_fulfillment_with_a_legacy_hint(
+    pool: PgPool,
+) {
+    let keys = Keys::generate();
+    let rt = runtime_role_pool(&pool).await;
+    let branch_a = seed_branch(&pool, OrgId::knl(), "branch-authority-a").await;
+    let branch_b = seed_branch(&pool, OrgId::knl(), "branch-authority-b").await;
+
+    let actor_a = seed_actor_with_logistics_grants(&pool, OrgId::knl(), branch_a).await;
+    let token_a = keys.token(actor_a, OrgId::knl(), vec![branch_a]);
+    sqlx::query(
+        "INSERT INTO logistics_stock (org_id, branch_id, warehouse_code, sku, quantity_on_hand, quantity_reserved) VALUES ($1,$2,'WH-A','BRANCH-A-SKU',5,0)",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(*branch_a.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let due = OffsetDateTime::now_utc() + Duration::hours(1);
+    let (status, released) = send(
+        &rt,
+        &keys,
+        "POST",
+        FULFILLMENTS,
+        &token_a,
+        Some(json!({
+            "branchId": branch_a,
+            "warehouseCode": "WH-A",
+            "sku": "BRANCH-A-SKU",
+            "requestedQuantity": 5,
+            "dueAt": due,
+        })),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "release branch A fulfillment: {released}"
+    );
+    let fulfillment = released["id"].as_str().unwrap().to_owned();
+    let (status, picked) = send(
+        &rt,
+        &keys,
+        "POST",
+        &format!("{FULFILLMENTS}/{fulfillment}/pick"),
+        &token_a,
+        Some(json!({"branchId": branch_a, "pickedQuantity": 5})),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "pick branch A fulfillment: {picked}"
+    );
+    let (status, packed) = send(
+        &rt,
+        &keys,
+        "POST",
+        &format!("{FULFILLMENTS}/{fulfillment}/pack"),
+        &token_a,
+        Some(json!({"branchId": branch_a})),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "pack branch A fulfillment: {packed}"
+    );
+
+    let actor_b = seed_actor_with_logistics_grants(&pool, OrgId::knl(), branch_b).await;
+    let token_b = keys.token(actor_b, OrgId::knl(), vec![branch_b]);
+    let (status, denied) = send(
+        &rt,
+        &keys,
+        "POST",
+        &format!("{FULFILLMENTS}/{fulfillment}/dispatch"),
+        &token_b,
+        Some(json!({
+            "branchId": branch_b,
+            "carrierName": "Branch B Carrier",
+            "vehicleReference": "B-ONLY-1",
+        })),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a branch-B grant and legacy branch hint must not disclose or transition branch-A data: {denied}"
+    );
+
+    let fulfillment_id = Uuid::parse_str(&fulfillment).unwrap();
+    let state: String =
+        sqlx::query_scalar("SELECT status FROM logistics_fulfillments WHERE id = $1")
+            .bind(fulfillment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        state, "PACKED",
+        "denied dispatch must leave the fulfillment unchanged"
+    );
+    let shipments: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM logistics_shipments WHERE fulfillment_id = $1")
+            .bind(fulfillment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        shipments, 0,
+        "denied dispatch must not create a child shipment"
+    );
+    let dispatch_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'logistics.shipment.dispatch' AND actor = $1",
+    )
+    .bind(*actor_b.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        dispatch_audits, 0,
+        "denied dispatch must not append an audit event"
+    );
+}
+
 struct Keys { private_pem: String, public_pem: String }
 impl Keys {
     fn generate() -> Self { let key = SigningKey::random(&mut OsRng); Self { private_pem: key.to_pkcs8_pem(LineEnding::LF).unwrap().to_string(), public_pem: key.verifying_key().to_public_key_pem(LineEnding::LF).unwrap() } }
