@@ -141,8 +141,10 @@ test("ADMIN-13 admin creates → submits → approves a purchase request", async
   await expect(approveBtn).toBeVisible({ timeout: 8_000 });
   await approveBtn.click();
 
-  // Approved → the status badge shows 관리자 승인.
-  await expect(page.getByText(/관리자 승인/).first()).toBeVisible({
-    timeout: 8_000,
-  });
+  // Approved → the detail status badge shows 관리자 승인. Scope this assertion
+  // away from the queue filter's intentionally hidden <option>.
+  const purchaseDetail = page.getByRole("region", { name: "구매요청 상세" });
+  await expect(
+    purchaseDetail.getByText("관리자 승인", { exact: true }).first(),
+  ).toBeVisible({ timeout: 8_000 });
 });

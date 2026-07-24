@@ -71,7 +71,10 @@ test("EXEC-03 executive final-approves an EXECUTIVE_PENDING purchase request", a
     await expect(
       page.getByRole("heading", { name: /구매요청서 상세/ }),
     ).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText(/임원 승인 대기/).first()).toBeVisible();
+    const purchaseDetail = page.getByRole("region", { name: "구매요청 상세" });
+    await expect(
+      purchaseDetail.getByText("임원 승인 대기", { exact: true }).first(),
+    ).toBeVisible();
 
     // The exec-only final-approve control.
     const finalApprove = page.getByRole("button", { name: /임원 최종 승인/ });
@@ -86,7 +89,9 @@ test("EXEC-03 executive final-approves an EXECUTIVE_PENDING purchase request", a
     // Click → passkey step-up auto-asserts → the mutation commits and the panel
     // refetches to READY_TO_EXECUTE (집행 대기). The badge is proof of the commit.
     await finalApprove.click();
-    await expect(page.getByText(/집행 대기/).first()).toBeVisible({
+    await expect(
+      purchaseDetail.getByText("집행 대기", { exact: true }).first(),
+    ).toBeVisible({
       timeout: 8_000,
     });
     // The executive has no PurchaseExecute, so the 집행 control must NOT appear.

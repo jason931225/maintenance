@@ -1,23 +1,22 @@
 import { test, expect } from "../fixtures/roles";
 
 /**
- * MECHANIC NEGATIVE — admin-only nav items are hidden; direct visits to
- * admin-only routes redirect/403 back to the default authenticated landing
- * (/overview).
+ * MECHANIC NEGATIVE — admin-only nav items are hidden while the principal-bound
+ * assigned-inspection workflow remains visible; direct visits to admin-only
+ * routes redirect/403 back to the default authenticated landing (/overview).
  *
  * Expected visible nav for MECHANIC (from web/src/components/shell/nav.test.ts):
- *   dispatch, intake, daily-plan, messenger, support, reporting,
+ *   dispatch, intake, daily-plan, inspection, messenger, support, reporting,
  *   equipment, financial, profile, location
  *
  * Expected HIDDEN (admin-only):
- *   approvals, inspection, kpi, ops, users, org, security
+ *   approvals, kpi, ops, users, org, security
  */
 
 const ADMIN_ONLY_ROUTES = ["/settings/users", "/approvals"] as const;
 
 const HIDDEN_NAV_LABELS = [
   "승인",        // approvals
-  "정기 예방정비", // inspection
   "KPI 대시보드", // kpi
   "운영 대시보드", // ops
   "사용자 관리",  // users
@@ -29,6 +28,7 @@ const VISIBLE_NAV_LABELS = [
   "배차",        // dispatch
   "접수",        // intake
   "계획업무",    // daily-plan
+  "정기 예방정비", // principal-bound assigned inspection rounds
   "메신저",      // messenger
   "고객지원",    // support
   "보고서 출력", // reporting
