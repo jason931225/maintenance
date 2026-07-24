@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "goalId": "G006-assets-equipment-inventory-dispatch",
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-24",
   "purpose": "Machine-readable assets, equipment, inventory-adjacent catalog, site/geodata, dispatch, owner/operator, transfer/signoff, maintenance lifecycle, search parity, and asset-cost contract for the platform-maturity ultragoal. This gate proves repo-local implementation, test, route ownership, RLS/audit, and browser contract coverage before live rollout or analytics claims.",
   "nonClaimPolicy": "G006 may prove local contract and regression coverage for asset/dispatch lifecycles. Production Argo rollout, live DB/API/browser equipment counts, map screenshots, and live data import parity remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a rollout blocker, not as live closure.",
   "routePaths": [
@@ -58,6 +58,12 @@
       "routeGroup": "maintenance-inspection",
       "mustContainOwnerGoal": "G006",
       "requiredStory": "inspection/preventive maintenance links equipment picker, cycle, schedule, checklist, and lifecycle evidence to the equipment source object"
+    },
+    {
+      "path": "/facilities",
+      "routeGroup": "facilities-lifecycle",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "authorized facilities users create a case from an active HVAC obligation, schedule and assign it, record measured energy and cost observations with required safety and service evidence, and complete an authorized acceptance or return decision against refreshed server state"
     },
     {
       "path": "/ontology",
