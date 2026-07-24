@@ -1,0 +1,50 @@
+{
+  "module": "CAP-LOGISTICS-PILOT",
+  "screenKey": "logistics",
+  "route": "/console/logistics",
+  "body": {
+    "component": "LogisticsScreenBody",
+    "import": "import { LogisticsScreenBody } from \"../logistics\";",
+    "contract": "prop-less ComponentType — derives api/session via useAuth(); selects the acting branch in-module from the JWT branches claim (web/src/console/logistics/routeContract.ts)"
+  },
+  "edits": [
+    {
+      "file": "web/src/console/shell/nav.ts",
+      "target": "MOUNTED_SCREEN_KEYS",
+      "action": "append-array-entry",
+      "value": "\"logistics\","
+    },
+    {
+      "file": "web/src/console/shell/nav.ts",
+      "target": "NAV_GROUPS > group labelId \"fieldOps\" > items",
+      "action": "append-item",
+      "value": "{ screen: \"logistics\", labelKey: \"console.shell.nav.logistics\", icon: \"truck\", gate: g(undefined, [\"logistics_receive\", \"logistics_putaway\", \"logistics_release\", \"logistics_pick_pack\", \"logistics_dispatch\", \"logistics_pod\", \"logistics_settle\"]) }",
+      "note": "grant-only PBAC module: gate on features only, no roles (the built-in role matrix denies all logistics features)"
+    },
+    {
+      "file": "web/src/console/shell/nav.ts",
+      "target": "EXPOSED_SCREEN_KEYS",
+      "action": "do-not-touch",
+      "note": "module stays DARK (mounted, not exposed) per ADR-0025 until evidence-approved"
+    },
+    {
+      "file": "web/src/console/screens/registry.ts",
+      "target": "imports",
+      "action": "add-import",
+      "value": "import { LogisticsScreenBody } from \"../logistics\";"
+    },
+    {
+      "file": "web/src/console/screens/registry.ts",
+      "target": "SCREEN_REGISTRY",
+      "action": "add-entry",
+      "value": "logistics: LogisticsScreenBody,"
+    },
+    {
+      "file": "web/src/i18n/ko.ts",
+      "target": "console.shell.nav",
+      "action": "add-key",
+      "key": "console.shell.nav.logistics",
+      "value": "물류"
+    }
+  ]
+}

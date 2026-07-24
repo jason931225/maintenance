@@ -1,0 +1,443 @@
+{
+  "module": "CAP-LOGISTICS-PILOT",
+  "file": "backend/openapi/openapi.yaml",
+  "why": "openapi.yaml omits the request bodies of five logistics operations (backend rejects a body-less call with 422/415) and declares no 2xx response schemas for any of the nine. The generated TS client therefore types requestBody?: never for those five and data as untyped for all nine; web/src/console/logistics/logisticsApi.ts works around this with `as never` body casts and hand-written response interfaces. Applying this patch and regenerating clients/{ts,kotlin,swift} removes both workarounds.",
+  "datetimeDivergence": {
+    "finding": "The deployed rest crate deserializes ReleaseBody.due_at, PodBody.confirmed_at, and SettleBody.settled_at as plain time::OffsetDateTime WITHOUT #[serde(with = \"time::serde::rfc3339\")], deviating from the repo convention and from openapi.yaml's declared `dueAt: format: date-time`. With the workspace time 0.3.47 feature set (serde, serde-well-known; serde-human-readable NOT unified into the build), the only accepted wire form is time's default serde tuple [year, ordinalDay, hour, minute, second, nanosecond, offsetH, offsetM, offsetS]; an RFC3339 string is rejected with 422. Empirically verified against time 0.3.47; the backend's own story test (backend/app/tests/logistics_pilot_story.rs) only passes because serde_json::json! serializes OffsetDateTime to that tuple.",
+    "backendFix": "Add #[serde(with = \"time::serde::rfc3339\")] to due_at (ReleaseBody), confirmed_at (PodBody), and settled_at (SettleBody) in backend/crates/logistics/rest/src/lib.rs so the implementation matches the declared date-time contract. The tuple form keeps parsing under time's lenient visitor, so the frontend's interim encoding does not break during rollout.",
+    "frontendToday": "web/src/console/logistics/logisticsApi.ts encodes the three fields with toTimeWire() (UTC tuple) so release/pod/settle work against the deployed backend; drop toTimeWire and pass ISO strings once the backendFix lands.",
+    "caution": "Do NOT apply the format: date-time declarations for confirmedAt/settledAt below as documentation of current behavior — they describe the POST-backendFix contract. Applying the spec patch without the backend annotation codifies a format the server rejects."
+  },
+  "afterApply": "regenerate committed clients (openapi_drift Rust test + check:api-drift:portable/swift CI gates); then web/src/console/logistics/logisticsApi.ts can drop its five `as never` casts and replace its response interfaces with components[\"schemas\"] aliases",
+  "requestBodies": [
+    {
+      "operationId": "pickLogisticsFulfillment",
+      "path": "/api/v1/logistics/fulfillments/{fulfillment_id}/pick",
+      "add": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "branchId",
+                  "pickedQuantity"
+                ],
+                "properties": {
+                  "branchId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "pickedQuantity": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "packLogisticsFulfillment",
+      "path": "/api/v1/logistics/fulfillments/{fulfillment_id}/pack",
+      "add": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "branchId"
+                ],
+                "properties": {
+                  "branchId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dispatchLogisticsShipment",
+      "path": "/api/v1/logistics/fulfillments/{fulfillment_id}/dispatch",
+      "add": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "branchId",
+                  "carrierName",
+                  "vehicleReference"
+                ],
+                "properties": {
+                  "branchId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "carrierName": {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "vehicleReference": {
+                    "type": "string",
+                    "maxLength": 120
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "verifyLogisticsPod",
+      "path": "/api/v1/logistics/shipments/{shipment_id}/pod",
+      "add": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "branchId",
+                  "recipientName",
+                  "evidenceReference",
+                  "confirmedAt"
+                ],
+                "properties": {
+                  "branchId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "recipientName": {
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "evidenceReference": {
+                    "type": "string",
+                    "pattern": "^evidence://"
+                  },
+                  "confirmedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "settleLogisticsOperationalCost",
+      "path": "/api/v1/logistics/shipments/{shipment_id}/settlements",
+      "add": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "branchId",
+                  "currencyCode",
+                  "amountMinor",
+                  "settledAt"
+                ],
+                "properties": {
+                  "branchId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "currencyCode": {
+                    "type": "string",
+                    "enum": [
+                      "KRW"
+                    ]
+                  },
+                  "amountMinor": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "settledAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "responseSchemas": {
+    "note": "add typed 2xx application/json content to each operation, mirroring backend/crates/logistics/adapter-postgres/src/lib.rs json! outputs verbatim",
+    "createLogisticsAsn": {
+      "201": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "branchId"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "EXPECTED"
+            ]
+          },
+          "branchId": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        }
+      }
+    },
+    "receiveLogisticsAsn": {
+      "200": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PARTIAL_RECEIVED",
+              "RECEIVED"
+            ]
+          },
+          "receivedQuantity": {
+            "type": "integer",
+            "format": "int64",
+            "description": "cumulative received total; absent on an idempotent replay"
+          },
+          "replayed": {
+            "type": "boolean",
+            "description": "present and true only on an idempotent replay"
+          }
+        }
+      }
+    },
+    "putawayLogisticsAsn": {
+      "200": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PUTAWAY"
+            ]
+          }
+        }
+      }
+    },
+    "releaseLogisticsFulfillment": {
+      "201": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "reservedQuantity"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RELEASED"
+            ]
+          },
+          "reservedQuantity": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    },
+    "pickLogisticsFulfillment": {
+      "200": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "pickedQuantity"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PICKED",
+              "SHORT_PICK"
+            ]
+          },
+          "pickedQuantity": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    },
+    "packLogisticsFulfillment": {
+      "200": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "pickedQuantity"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PACKED"
+            ]
+          },
+          "pickedQuantity": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    },
+    "dispatchLogisticsShipment": {
+      "201": {
+        "type": "object",
+        "required": [
+          "id",
+          "fulfillmentId",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "created shipment id"
+          },
+          "fulfillmentId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DISPATCHED"
+            ]
+          }
+        }
+      }
+    },
+    "verifyLogisticsPod": {
+      "200": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "recipientConfirmedEvidenceReference",
+          "slaAssessment"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DELIVERED"
+            ]
+          },
+          "recipientConfirmedEvidenceReference": {
+            "type": "string"
+          },
+          "slaAssessment": {
+            "type": "string",
+            "enum": [
+              "MET",
+              "BREACHED"
+            ]
+          }
+        }
+      }
+    },
+    "settleLogisticsOperationalCost": {
+      "200": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "operationalCost",
+          "financeGlPosting"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SETTLED"
+            ]
+          },
+          "operationalCost": {
+            "type": "object",
+            "required": [
+              "currency",
+              "amountMinor"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string",
+                "enum": [
+                  "KRW"
+                ]
+              },
+              "amountMinor": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "financeGlPosting": {
+            "type": "null",
+            "description": "always null by design — no GL/finance edge in the pilot"
+          }
+        }
+      }
+    }
+  }
+}
