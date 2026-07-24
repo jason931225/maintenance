@@ -30396,10 +30396,43 @@ components:
       additionalProperties: false
       required: [quantityReceivedMilli, idempotencyKey]
       properties: { quantityReceivedMilli: { type: integer, format: int64, minimum: 1 }, sourceRef: { type: string, nullable: true }, memo: { type: string, nullable: true }, idempotencyKey: { type: string, minLength: 16, maxLength: 200 } }
+    InventoryMovementSourceWorkOrder:
+      type: object
+      additionalProperties: false
+      required: [kind, workOrderId]
+      properties: { kind: { type: string, enum: [work_order] }, workOrderId: { $ref: '#/components/schemas/Uuid' } }
+    InventoryMovementSourceP1Dispatch:
+      type: object
+      additionalProperties: false
+      required: [kind, dispatchId, workOrderId]
+      properties: { kind: { type: string, enum: [p1_dispatch] }, dispatchId: { $ref: '#/components/schemas/Uuid' }, workOrderId: { $ref: '#/components/schemas/Uuid' } }
+    InventoryMovementSourceCycleCount:
+      type: object
+      additionalProperties: false
+      required: [kind, cycleCountId, ccCode]
+      properties: { kind: { type: string, enum: [cycle_count] }, cycleCountId: { $ref: '#/components/schemas/Uuid' }, ccCode: { type: string } }
+    InventoryMovementSourceExternalRef:
+      type: object
+      additionalProperties: false
+      required: [kind, sourceRef]
+      properties: { kind: { type: string, enum: [external_ref] }, sourceRef: { type: string, nullable: true } }
+    InventoryMovementSource:
+      oneOf:
+      - $ref: '#/components/schemas/InventoryMovementSourceWorkOrder'
+      - $ref: '#/components/schemas/InventoryMovementSourceP1Dispatch'
+      - $ref: '#/components/schemas/InventoryMovementSourceCycleCount'
+      - $ref: '#/components/schemas/InventoryMovementSourceExternalRef'
+      discriminator:
+        propertyName: kind
+        mapping:
+          work_order: '#/components/schemas/InventoryMovementSourceWorkOrder'
+          p1_dispatch: '#/components/schemas/InventoryMovementSourceP1Dispatch'
+          cycle_count: '#/components/schemas/InventoryMovementSourceCycleCount'
+          external_ref: '#/components/schemas/InventoryMovementSourceExternalRef'
     InventoryMovement:
       type: object
       required: [id, itemId, ivCode, kind, quantityDeltaMilli, quantityBeforeMilli, quantityAfterMilli, source, actor, occurredAt]
-      properties: { id: { $ref: '#/components/schemas/Uuid' }, itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, kind: { type: string, enum: [ISSUE, RECEIPT, ADJUSTMENT] }, quantityDeltaMilli: { type: integer, format: int64 }, quantityBeforeMilli: { type: integer, format: int64 }, quantityAfterMilli: { type: integer, format: int64 }, source: { type: object }, actor: { $ref: '#/components/schemas/Uuid' }, occurredAt: { type: string, format: date-time }, memo: { type: string, nullable: true } }
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, kind: { type: string, enum: [ISSUE, RECEIPT, ADJUSTMENT] }, quantityDeltaMilli: { type: integer, format: int64 }, quantityBeforeMilli: { type: integer, format: int64 }, quantityAfterMilli: { type: integer, format: int64 }, source: { $ref: '#/components/schemas/InventoryMovementSource' }, actor: { $ref: '#/components/schemas/Uuid' }, occurredAt: { type: string, format: date-time }, memo: { type: string, nullable: true } }
     InventoryReceiptResult:
       type: object
       required: [movement, item]

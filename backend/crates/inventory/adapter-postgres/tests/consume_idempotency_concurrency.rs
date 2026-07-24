@@ -5,12 +5,13 @@
 use mnt_inventory_adapter_postgres::PgInventoryStore;
 use mnt_inventory_application::{
     ConsumeInventoryCommand, ConsumeInventorySource, CycleCountDecision, DecideCycleCountCommand,
-    OpenCycleCountCommand, RecordReceiptCommand, SubmitCycleCountCommand, UpsertCountLineCommand,
+    MovementSourceView, OpenCycleCountCommand, RecordReceiptCommand, SubmitCycleCountCommand,
+    UpsertCountLineCommand,
 };
 use mnt_inventory_domain::VarianceReason;
 use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, InventoryItemId, InventoryStockLocationId, OrgId,
-    TraceContext, WorkOrderId,
+    P1DispatchId, TraceContext, WorkOrderId,
 };
 use mnt_platform_request_context::scope_org;
 use mnt_platform_test_support::{grant_mnt_rt, seed_org_and_super_admin};
@@ -24,6 +25,41 @@ use uuid::Uuid;
 const ORG: Uuid = Uuid::from_u128(0x1A11_D3A0_0000_0000_0000_0000_0000_0001);
 const OTHER_ORG: Uuid = Uuid::from_u128(0x1A11_D3A0_0000_0000_0000_0000_0000_0002);
 const IDEMPOTENCY_KEY: &str = "inventory-consume-race-key";
+
+#[test]
+fn movement_sources_serialize_as_the_closed_discriminated_wire_contract() {
+    let work_order_id = WorkOrderId::from_uuid(Uuid::from_u128(1));
+    let dispatch_id = P1DispatchId::from_uuid(Uuid::from_u128(2));
+    let count_id = Uuid::from_u128(3);
+    let cases = [
+        (
+            MovementSourceView::WorkOrder { work_order_id },
+            serde_json::json!({"kind": "work_order", "workOrderId": work_order_id}),
+        ),
+        (
+            MovementSourceView::P1Dispatch {
+                dispatch_id,
+                work_order_id,
+            },
+            serde_json::json!({"kind": "p1_dispatch", "dispatchId": dispatch_id, "workOrderId": work_order_id}),
+        ),
+        (
+            MovementSourceView::CycleCount {
+                cycle_count_id: count_id,
+                cc_code: "IC-0001".to_owned(),
+            },
+            serde_json::json!({"kind": "cycle_count", "cycleCountId": count_id, "ccCode": "IC-0001"}),
+        ),
+        (
+            MovementSourceView::ExternalRef { source_ref: None },
+            serde_json::json!({"kind": "external_ref", "sourceRef": null}),
+        ),
+    ];
+
+    for (source, expected) in cases {
+        assert_eq!(serde_json::to_value(source).unwrap(), expected);
+    }
+}
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conflicts(
@@ -446,15 +482,39 @@ async fn cycle_approval_replays_once_and_applies_immutable_variance_to_current_s
         trace: TraceContext::generate(),
         occurred_at: now,
     };
-    let approved = scope_org(org, store.decide_cycle_count(approval.clone()))
+    // Two independently checked-out mnt_rt connections race the exact same
+    // approval. The durable key plus row lock must produce one adjustment and
+    // one audit, with the losing caller replaying the committed decision.
+    let approval_barrier = Arc::new(Barrier::new(2));
+    let first_approval = {
+        let barrier = Arc::clone(&approval_barrier);
+        let store = store.clone();
+        let approval = approval.clone();
+        tokio::spawn(async move {
+            barrier.wait().await;
+            scope_org(org, store.decide_cycle_count(approval)).await
+        })
+    };
+    let second_approval = {
+        let barrier = Arc::clone(&approval_barrier);
+        let store = store.clone();
+        let approval = approval.clone();
+        tokio::spawn(async move {
+            barrier.wait().await;
+            scope_org(org, store.decide_cycle_count(approval)).await
+        })
+    };
+    let (first_approval, second_approval) =
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(first_approval, second_approval)
+        })
         .await
-        .unwrap();
-    let replay = scope_org(org, store.decide_cycle_count(approval.clone()))
-        .await
-        .unwrap();
+        .expect("identical cycle approval race must finish promptly");
+    let approved = first_approval.unwrap().unwrap();
+    let replay = second_approval.unwrap().unwrap();
     assert_eq!(
         approved.count.version, replay.count.version,
-        "same canonical approval replays its stored outcome"
+        "same canonical approval race replays one stored outcome"
     );
     let stock: i64 =
         sqlx::query_scalar("SELECT quantity_on_hand_milli FROM inventory_items WHERE id=$1")
@@ -469,6 +529,18 @@ async fn cycle_approval_replays_once_and_applies_immutable_variance_to_current_s
     let adjustments: (i64, i64, i64, i64) = sqlx::query_as("SELECT count(*), min(quantity_before_milli), min(quantity_delta_milli), min(quantity_after_milli) FROM inventory_movements WHERE cycle_count_id=$1")
         .bind(opened.count.id).fetch_one(&owner_pool).await.unwrap();
     assert_eq!(adjustments, (1, 1100, -200, 900));
+    let decision_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id=$1 AND action='inventory.cycle_count.decide' AND target_id=$2",
+    )
+    .bind(ORG)
+    .bind(opened.count.id.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        decision_audits, 1,
+        "approval race records exactly one decision audit"
+    );
     let changed_memo = scope_org(
         org,
         store.decide_cycle_count(DecideCycleCountCommand {
@@ -588,17 +660,42 @@ async fn cycle_approval_replays_once_and_applies_immutable_variance_to_current_s
         unsafe_movements, 0,
         "failed approval leaves no partial adjustment"
     );
+    let unsafe_decision_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id=$1 AND action='inventory.cycle_count.decide' AND target_id=$2",
+    )
+    .bind(ORG)
+    .bind(unsafe_count.count.id.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        unsafe_decision_audits, 0,
+        "underflow rollback leaves no cycle decision audit"
+    );
 
-    let denied = scope_org(
+    let denied_branch = scope_org(
         org,
-        store.get_cycle_count(opened.count.id, BranchScope::none()),
+        store.get_cycle_count(opened.count.id, BranchScope::single(BranchId::new())),
     )
     .await
     .unwrap_err();
     assert_eq!(
-        denied.kind(),
+        denied_branch.kind(),
         ErrorKind::Forbidden,
-        "tenant-visible count still rejects a foreign branch scope"
+        "tenant-visible count rejects a nonempty unauthorized branch scope"
+    );
+
+    let foreign_org = OrgId::from_uuid(OTHER_ORG);
+    seed_org_and_super_admin(&owner_pool, OTHER_ORG, "inventory-cycle-foreign-tenant").await;
+    let foreign_tenant = scope_org(
+        foreign_org,
+        store.get_cycle_count(opened.count.id, BranchScope::All),
+    )
+    .await
+    .unwrap();
+    assert!(
+        foreign_tenant.is_none(),
+        "foreign tenant cannot discover this cycle count even with an all-branch scope"
     );
 }
 

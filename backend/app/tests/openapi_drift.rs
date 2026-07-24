@@ -331,6 +331,49 @@ fn openapi_yaml_covers_configured_route_inventory() {
 }
 
 #[test]
+fn openapi_documents_closed_inventory_movement_source_variants() {
+    let start = OPENAPI_YAML
+        .find("    InventoryMovementSourceWorkOrder:\n")
+        .expect("OpenAPI YAML must define the work-order movement source");
+    let end = OPENAPI_YAML[start..]
+        .find("    InventoryReceiptResult:\n")
+        .map(|offset| start + offset)
+        .expect("Inventory movement source variants must precede receipt results");
+    let schema = &OPENAPI_YAML[start..end];
+
+    for variant in [
+        "InventoryMovementSourceWorkOrder",
+        "InventoryMovementSourceP1Dispatch",
+        "InventoryMovementSourceCycleCount",
+        "InventoryMovementSourceExternalRef",
+    ] {
+        assert!(
+            schema.contains(variant),
+            "OpenAPI movement source is missing {variant}"
+        );
+    }
+    assert!(
+        schema.contains("source: { $ref: '#/components/schemas/InventoryMovementSource' }"),
+        "InventoryMovement.source must not degrade to an untyped object"
+    );
+    assert!(
+        schema.contains("InventoryMovementSource:\n      oneOf:")
+            && schema.contains("discriminator:\n        propertyName: kind"),
+        "Inventory movement sources must remain a kind-discriminated union"
+    );
+    assert!(
+        schema.matches("additionalProperties: false").count() >= 4,
+        "every inventory movement source variant must be closed to unknown fields"
+    );
+    for wire_kind in ["work_order", "p1_dispatch", "cycle_count", "external_ref"] {
+        assert!(
+            schema.contains(wire_kind),
+            "OpenAPI movement source must document the {wire_kind} runtime discriminator"
+        );
+    }
+}
+
+#[test]
 fn openapi_documents_closed_month_as_year_month_not_calendar_date() {
     let start = OPENAPI_YAML
         .find("    AttendanceMonthClose:\n")
