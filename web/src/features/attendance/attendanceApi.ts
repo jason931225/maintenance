@@ -13,8 +13,15 @@ export type ExceptionKind =
   "LATE" | "NO_SHOW" | "UNAPPROVED_OVERTIME" | "EARLY_LEAVE";
 export type ExceptionStatus = "OPEN" | "RESOLVED";
 export type ResolutionAction = "CONFIRM" | "APPROVE_OVERTIME";
-export type SubstitutionReasonKind =
-  "NO_SHOW" | "APPROVED_LEAVE" | "HALF_DAY" | "LONG_TERM" | "OTHER";
+/** Product suggestions; backend preserves any validated non-empty reason string. */
+export type SuggestedSubstitutionReasonKind =
+  | "NO_SHOW"
+  | "APPROVED_LEAVE"
+  | "HALF_DAY"
+  | "LONG_TERM"
+  | "OTHER";
+/** Read model accepts future/backend-provided reason values without crashing UI. */
+export type SubstitutionReasonKind = string;
 export type SubstitutionStatus = "ASSIGNED" | "CANCELLED";
 export type Week52Tone = "OK" | "WARN" | "DANGER";
 

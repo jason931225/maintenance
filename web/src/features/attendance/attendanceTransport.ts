@@ -162,19 +162,19 @@ export function createAttendanceApiTransport(
       return requireData<MonthCloseBoard>(result);
     },
 
-    async preflightClose(month, branchScope, signal) {
+    async preflightClose(month, _callerBranchScope, signal) {
       const result = await api.POST("/api/v1/attendance/closes/preflight", {
-        body: { month, branch_scope: branchScope || activeBranchId },
+        body: { month, branch_scope: activeBranchId },
         signal,
       });
       return requireData<ClosePreflight>(result);
     },
 
-    async confirmClose(month, branchScope, signal) {
+    async confirmClose(month, _callerBranchScope, signal) {
       const result = await api.POST("/api/v1/attendance/closes", {
         body: {
           month,
-          branch_scope: branchScope || activeBranchId,
+          branch_scope: activeBranchId,
           attest: true,
         },
         signal,

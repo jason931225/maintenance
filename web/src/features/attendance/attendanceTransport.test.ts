@@ -61,8 +61,8 @@ describe("createAttendanceApiTransport", () => {
     });
     await transport.cancelSubstitution("substitution-a", "Shift no longer requires cover");
     await transport.listCloses("2026-07");
-    await transport.preflightClose("2026-07", "branch-a");
-    await transport.confirmClose("2026-07", "branch-a");
+    await transport.preflightClose("2026-07", "stale-caller-branch");
+    await transport.confirmClose("2026-07", "stale-caller-branch");
     await transport.addCloseAmendment("close-a", {
       reason: "Correct verified attendance",
       detail: "Corrected approved record",
@@ -126,6 +126,30 @@ describe("createAttendanceApiTransport", () => {
     expect(acknowledged).toEqual(expect.objectContaining({
       employee_id: "employee-a", name: "Kim", acked: true, tone: "WARN",
     } satisfies Partial<Week52Row>));
+  });
+
+  it("rebinds close calls to the replacement active branch and ignores stale caller scope", async () => {
+    const api = client();
+    const beforeRebind = createAttendanceApiTransport(api, "branch-a");
+    const afterRebind = createAttendanceApiTransport(api, "branch-b");
+
+    await beforeRebind.preflightClose("2026-07", "branch-b");
+    await beforeRebind.confirmClose("2026-07", "branch-b");
+    await afterRebind.preflightClose("2026-08", "branch-a");
+    await afterRebind.confirmClose("2026-08", "branch-a");
+
+    expect(api.POST).toHaveBeenNthCalledWith(1, "/api/v1/attendance/closes/preflight", {
+      body: { month: "2026-07", branch_scope: "branch-a" }, signal: undefined,
+    });
+    expect(api.POST).toHaveBeenNthCalledWith(2, "/api/v1/attendance/closes", {
+      body: { month: "2026-07", branch_scope: "branch-a", attest: true }, signal: undefined,
+    });
+    expect(api.POST).toHaveBeenNthCalledWith(3, "/api/v1/attendance/closes/preflight", {
+      body: { month: "2026-08", branch_scope: "branch-b" }, signal: undefined,
+    });
+    expect(api.POST).toHaveBeenNthCalledWith(4, "/api/v1/attendance/closes", {
+      body: { month: "2026-08", branch_scope: "branch-b", attest: true }, signal: undefined,
+    });
   });
 
   it("uses the active branch for the two pre-existing HR read models without an empty fallback", async () => {

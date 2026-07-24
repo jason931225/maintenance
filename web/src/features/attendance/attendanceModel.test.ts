@@ -489,6 +489,17 @@ describe("coverPlanRows", () => {
     expect(rows[0].who).toBe("이영희");
     expect(rows[1].detail).toContain("11:30–18:00");
   });
+
+  it("renders a backend-provided substitution reason outside the suggested set", () => {
+    const rows = coverPlanRows([], [substitution({ reason_kind: "STATUTORY_LEAVE" })]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      assigned: true,
+      who: "최민석",
+      detail: expect.stringContaining("11:30–18:00"),
+    });
+  });
 });
 
 describe("calendar helpers", () => {
