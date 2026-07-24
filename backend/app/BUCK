@@ -5251,6 +5251,7 @@ rust_test(
         "//backend/crates/compliance/rest:crate-source-tree": "backend/crates/compliance/rest/src",
         "//backend/crates/dispatch/rest:crate-source-tree": "backend/crates/dispatch/rest/src",
         "//backend/crates/docs/rest:crate-source-tree": "backend/crates/docs/rest/src",
+        "//backend/crates/equipment/rest:crate-source-tree": "backend/crates/equipment/rest/src",
         "//backend/crates/finance-gl/rest:crate-source-tree": "backend/crates/finance-gl/rest/src",
         "//backend/crates/financial/rest:crate-source-tree": "backend/crates/financial/rest/src",
         "//backend/crates/governance/rest:crate-source-tree": "backend/crates/governance/rest/src",

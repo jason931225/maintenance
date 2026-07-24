@@ -66,6 +66,7 @@ OPENAPI_DRIFT_SOURCE_PACKAGES = [
     "backend/crates/finance-gl/rest",
     "backend/crates/payroll/rest",
     "backend/crates/analytics-quant/rest",
+    "backend/crates/equipment/rest",
 ]
 
 

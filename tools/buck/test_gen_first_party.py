@@ -121,6 +121,10 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             config["external"]["//backend/openapi:openapi.yaml"],
             "backend/openapi/openapi.yaml",
         )
+        self.assertEqual(
+            config["external"]["//backend/crates/equipment/rest:crate-source-tree"],
+            "backend/crates/equipment/rest/src",
+        )
 
     def test_manifest_env_is_hermetic_and_repo_relative(self) -> None:
         env = GENERATOR.base_env("backend/crates/example", uses_sqlx=True)
