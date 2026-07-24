@@ -25965,6 +25965,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConsultingDiagnostic"];
                 };
             };
+            409: components["responses"]["Conflict"];
         };
     };
     createConsultingFinding: {
@@ -25991,6 +25992,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConsultingFinding"];
                 };
             };
+            409: components["responses"]["Conflict"];
         };
     };
     createConsultingInitiative: {
@@ -26017,6 +26019,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConsultingInitiative"];
                 };
             };
+            409: components["responses"]["Conflict"];
         };
     };
     transitionConsultingEngagement: {
@@ -26070,6 +26073,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConsultingBenefitObservation"];
                 };
             };
+            409: components["responses"]["Conflict"];
         };
     };
     listConsultingEngagementHistory: {
