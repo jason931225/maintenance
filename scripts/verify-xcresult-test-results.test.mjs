@@ -130,6 +130,22 @@ describe("structured xcresult verifier", () => {
     }), ["ExampleUITests/testFailurePath", "ExampleUITests/testHappyPath"]);
   });
 
+  it("excludes only the documented infrastructure-only XCTest prewarm from functional aggregate discovery", () => {
+    assert.deepEqual(discoverExpectedSwiftTests({
+      "XCTestPrewarmUITests.swift": `/// Bounded infrastructure-only warmup for XCTest and the app host.
+final class XCTestPrewarmUITests: XCTestCase {
+ func testRunnerAndHostLaunch() {}
+ func testAdditionalWarmupMustRemainFunctional() {}
+}`,
+      "Example.swift": "final class ExampleUITests: XCTestCase {\n func testFunctionalPath() {}\n}",
+      "Pretender.swift": "final class PretenderUITests: XCTestCase {\n func testRunnerAndHostLaunch() {}\n}",
+    }), [
+      "ExampleUITests/testFunctionalPath",
+      "PretenderUITests/testRunnerAndHostLaunch",
+      "XCTestPrewarmUITests/testAdditionalWarmupMustRemainFunctional",
+    ]);
+  });
+
   it("rejects a partial structured result missing an expected source test", () => {
     const expected = [
       "AccessibilityAuditUITests/testAudit",

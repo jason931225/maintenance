@@ -1000,7 +1000,7 @@ struct MessengerMessageRow: View {
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+                    .background(Color.opaqueFieldCapsuleBackground, in: Capsule())
             }
             messageContent
         }
@@ -1157,7 +1157,7 @@ struct WorkOrderDetailView: View {
                 // explicitly by metadata helpers rather than inferred from a
                 // translucent material behind the Form.
                 .scrollContentBackground(.hidden)
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(Color.opaqueFieldDetailBackground)
                 .accessibilityIdentifier(FieldAccessibilityID.detailView)
                 .navigationTitle(Text("detail_title"))
                 .inlineNavigationTitle()
@@ -1370,7 +1370,7 @@ struct FieldChip: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+            .background(Color.opaqueFieldCapsuleBackground, in: Capsule())
     }
 }
 
@@ -1396,6 +1396,27 @@ private extension View {
         #endif
     }
 
+}
+
+private extension Color {
+    /// Opaque semantic surfaces preserve text contrast for iOS accessibility
+    /// audits. The Swift package also compiles this view on macOS, where UIKit
+    /// colors are unavailable, so retain an opaque platform-neutral fallback.
+    static var opaqueFieldCapsuleBackground: Color {
+        #if os(iOS)
+        Color(uiColor: .tertiarySystemFill)
+        #else
+        .gray
+        #endif
+    }
+
+    static var opaqueFieldDetailBackground: Color {
+        #if os(iOS)
+        Color(uiColor: .systemGroupedBackground)
+        #else
+        .gray
+        #endif
+    }
 }
 
 private func localizedString(_ key: String, _ arguments: CVarArg...) -> String {

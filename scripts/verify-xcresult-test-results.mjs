@@ -114,6 +114,14 @@ function summaryEvidence(summary) {
   return candidates;
 }
 
+// This test warms only XCTest and the app host before functional shards. Its
+// raw result is deliberately not uploaded or aggregated as product evidence;
+// worker failure is enforced separately by the workflow. Keep this exact and
+// closed: no class-level or prefix rule may hide future functional coverage.
+const infrastructureOnlyFunctionalAggregateExclusions = Object.freeze([
+  "XCTestPrewarmUITests/testRunnerAndHostLaunch",
+]);
+
 export function discoverExpectedSwiftTests(sourceByPath) {
   const expected = new Set();
   for (const source of Object.values(sourceByPath)) {
@@ -122,7 +130,10 @@ export function discoverExpectedSwiftTests(sourceByPath) {
       const classMatch = line.match(/\b(?:final\s+)?class\s+(\w*(?:UITests|Tests))\s*:/);
       if (classMatch) className = classMatch[1];
       const testMatch = line.match(/\bfunc\s+(test\w+)\s*\(/);
-      if (className && testMatch) expected.add(`${className}/${testMatch[1]}`);
+      if (className && testMatch) {
+        const testID = `${className}/${testMatch[1]}`;
+        if (!infrastructureOnlyFunctionalAggregateExclusions.includes(testID)) expected.add(testID);
+      }
     }
   }
   return [...expected].sort();

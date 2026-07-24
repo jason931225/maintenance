@@ -794,11 +794,13 @@ function hasContrastStableCapsules(files) {
   const messageRow = extractFunctionBody(views, /struct\s+MessengerMessageRow:\s*View/) ?? "";
   const fieldChip = extractFunctionBody(views, /struct\s+FieldChip:\s*View/) ?? "";
   const detail = extractFunctionBody(views, /struct\s+WorkOrderDetailView:\s*View/) ?? "";
-  const opaqueSemanticSurface = /\.background\(\s*Color\(uiColor:\s*\.tertiarySystemFill\)\s*,\s*in:\s*Capsule\(\s*\)\s*\)/;
+  const opaqueSemanticSurface = /\.background\(\s*Color\.opaqueFieldCapsuleBackground\s*,\s*in:\s*Capsule\(\s*\)\s*\)/;
+  const iOSSemanticColors = /static\s+var\s+opaqueFieldCapsuleBackground:\s*Color[\s\S]{0,180}Color\(uiColor:\s*\.tertiarySystemFill\)[\s\S]{0,360}static\s+var\s+opaqueFieldDetailBackground:\s*Color[\s\S]{0,180}Color\(uiColor:\s*\.systemGroupedBackground\)/.test(views);
   return opaqueSemanticSurface.test(messageRow)
     && opaqueSemanticSurface.test(fieldChip)
     && /\.font\(\s*\.caption\s*\)[\s\S]{0,100}\.foregroundStyle\(\s*\.primary\s*\)[\s\S]{0,220}\.background\(/.test(messageRow)
-    && /scrollContentBackground\(\.hidden\)[\s\S]{0,160}background\(Color\(uiColor:\s*\.systemGroupedBackground\)\)/.test(detail)
+    && /scrollContentBackground\(\.hidden\)[\s\S]{0,160}background\(Color\.opaqueFieldDetailBackground\)/.test(detail)
+    && iOSSemanticColors
     && !/\.(?:ultraThin|thin|regular|thick|ultraThick)Material\b/.test(messageRow + fieldChip);
 }
 

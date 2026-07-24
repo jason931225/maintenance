@@ -562,7 +562,7 @@ ${forbidden}` }), "every authenticated iOS tab must use the direct UIKit content
     expectsFailure(evaluate({
       "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(
         fieldViews,
-        ".background(Color(uiColor: .tertiarySystemFill), in: Capsule())",
+        ".background(Color.opaqueFieldCapsuleBackground, in: Capsule())",
         ".background(.thinMaterial, in: Capsule())",
       ),
     }), contrastGate);
