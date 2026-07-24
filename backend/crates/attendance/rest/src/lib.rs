@@ -13,9 +13,9 @@ use axum::{
 use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
-    AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ListExceptions,
-    ListSubstitutions, RaiseException, ResolveException, Week52Read, validate_week52_start,
-    week52_tone,
+    AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ClosePreflightRead,
+    ListExceptions, ListSubstitutions, MonthCloseRead, RaiseException, ResolveException,
+    Week52Read, validate_week52_start, week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -25,7 +25,7 @@ use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_request_context::{RequestContextError, resolve_principal};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 use time::{Date, Duration};
 use uuid::Uuid;
 
@@ -1119,7 +1119,7 @@ async fn acknowledge_week52(
         .map_err(RestError::store)?;
     let row = state
         .store
-        .week52_inputs(&scope(&p), command.week_start, Some(branch))
+        .week52_inputs(&scope(&p), command.week_start, branch)
         .await
         .map_err(RestError::store)?
         .into_iter()
