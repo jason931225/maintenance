@@ -7,6 +7,7 @@ import {
   createEquipmentApi,
   type CaseDetailView,
   type CaseView,
+  type DispositionView,
   type HistoryEntry,
   type UnitDetailView,
   type UnitView,
@@ -87,6 +88,35 @@ function caseDetail(overrides: Partial<CaseDetailView> = {}): CaseDetailView {
     ...overrides,
   };
 }
+
+function closedResaleCase(): CaseDetailView {
+  return caseDetail({
+    status: "CLOSED",
+    returnedAt: "2026-07-22T00:00:00.000Z",
+    assessment: {
+      conditionGrade: "B",
+      findings: "마모",
+      disposition: "RESALE",
+      assessedBy: "actor-2",
+      assessedAt: "2026-07-22T01:00:00.000Z",
+    },
+    dispositionId: "disp-1",
+  });
+}
+
+const completedResale: DispositionView = {
+  id: "disp-1",
+  unitId: "unit-1",
+  caseId: "case-1",
+  kind: "RESALE",
+  status: "COMPLETED",
+  costMinor: null,
+  saleAmountMinor: 9_000_000,
+  buyerName: "매수기업",
+  completedBy: "actor-1",
+  completedAt: "2026-07-23T00:00:00.000Z",
+  financeGlPosting: null,
+};
 
 const unitHistory: HistoryEntry[] = [
   {
@@ -342,6 +372,52 @@ describe("EquipmentScreen", () => {
       expect(within(detail).getByText(/actor-1/)).toBeVisible();
     });
     expect(within(detail).queryByRole("button", { name: text.approve })).toBeNull();
+  });
+
+  it("shows a completed disposition as readback instead of a dead completion form", async () => {
+    respond({
+      ...listRoutes([unit1], [{ ...case1, status: "CLOSED" }]),
+      "GET /api/v1/equipment-3r/rental-cases/case-1": closedResaleCase(),
+      // The unit has no open disposition, so disp-1 must already be COMPLETED.
+      "GET /api/v1/equipment-3r/units/unit-1": unitDetail({ availability: "SOLD", openDispositionId: null }),
+    });
+    renderScreen(operator);
+    await userEvent.click(await screen.findByRole("button", { name: /한국중공업/ }));
+    const detail = await screen.findByRole("article", { name: text.caseDetail });
+    expect(within(detail).getByText(text.dispositionStatus.COMPLETED)).toBeVisible();
+    expect(within(detail).queryByRole("button", { name: text.completeDisposition })).toBeNull();
+  });
+
+  it("completes an open resale disposition and reconciles the backend view", async () => {
+    const completionPosts: RequestInit[] = [];
+    respond({
+      ...listRoutes([{ ...unit1, availability: "FOR_SALE" }], [{ ...case1, status: "CLOSED" }]),
+      "GET /api/v1/equipment-3r/rental-cases/case-1": closedResaleCase(),
+      "GET /api/v1/equipment-3r/units/unit-1": unitDetail({
+        availability: "FOR_SALE",
+        openDispositionId: "disp-1",
+      }),
+      "POST /api/v1/equipment-3r/dispositions/disp-1/completion": (init: RequestInit) => {
+        completionPosts.push(init);
+        return jsonResponse(completedResale);
+      },
+    });
+    renderScreen(operator);
+    await userEvent.click(await screen.findByRole("button", { name: /한국중공업/ }));
+    const detail = await screen.findByRole("article", { name: text.caseDetail });
+    expect(within(detail).getByText(text.dispositionStatus.OPEN)).toBeVisible();
+    await userEvent.type(within(detail).getByLabelText(text.saleAmount), "9000000");
+    await userEvent.type(within(detail).getByLabelText(text.buyer), "매수기업");
+    await userEvent.click(within(detail).getByRole("button", { name: text.completeDisposition }));
+    await waitFor(() => {
+      expect(completionPosts).toHaveLength(1);
+    });
+    expect(JSON.parse(completionPosts[0].body as string)).toEqual({
+      saleAmountMinor: 9_000_000,
+      buyerName: "매수기업",
+    });
+    expect(await within(detail).findByText(/9,000,000원/)).toBeVisible();
+    expect(within(detail).queryByRole("button", { name: text.completeDisposition })).toBeNull();
   });
 
   it("declines require a reason before any request leaves the client", async () => {

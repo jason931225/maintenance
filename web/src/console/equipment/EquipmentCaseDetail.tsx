@@ -59,6 +59,11 @@ function stepClass(step: CaseStatus, current: CaseStatus): string {
 export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSelectUnit, onChanged }: Props) {
   const [detail, setDetail] = useState<CaseDetailView>();
   const [completion, setCompletion] = useState<DispositionView>();
+  /**
+   * The contract has no GET /dispositions/{id}; the unit's openDispositionId is
+   * the truthful open/completed signal (one OPEN per unit, COMPLETED immutable).
+   */
+  const [unitOpenDispositionId, setUnitOpenDispositionId] = useState<string | null>();
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -95,8 +100,12 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
     setLoadFailed(undefined);
     try {
       const next = await api.getRentalCase(caseId, controller.signal);
+      const unit = next.dispositionId !== null
+        ? await api.getUnit(next.unitId, controller.signal)
+        : undefined;
       if (token !== generation.current) return;
       setDetail(next);
+      setUnitOpenDispositionId(unit ? unit.openDispositionId : undefined);
       setLoading(false);
     } catch (cause) {
       if (token !== generation.current || controller.signal.aborted) return;
@@ -197,22 +206,15 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
     const disposition = formText(data, "disposition");
     if (!["A", "B", "C", "D"].includes(grade)) return;
     if (!["REPAIR", "REFURBISH", "RESALE", "REDEPLOY"].includes(disposition)) return;
-    if (busy) return;
-    setBusy(true);
-    setActionError(undefined);
-    try {
-      const next = await api.assessment(caseId, {
+    // transition() refetches the case AND the unit, so the freshly opened
+    // disposition's open/completed state is derived from the backend.
+    await transition(() =>
+      api.assessment(caseId, {
         conditionGrade: grade as ConditionGrade,
         findings: formText(data, "findings"),
         disposition: disposition as DispositionKind,
-      });
-      setBusy(false);
-      setDetail(next);
-      onChanged();
-    } catch (cause) {
-      setBusy(false);
-      setActionError(errorMessage(cause));
-    }
+      }),
+    );
   };
 
   const submitCompletion = async (event: SyntheticEvent<HTMLFormElement>) => {
@@ -257,10 +259,13 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
     && actorId !== undefined
     && detail.createdBy !== actorId;
   const dispositionKind = detail.assessment?.disposition;
-  const dispositionOpen = detail.dispositionId !== null
-    && dispositionKind !== undefined
-    && dispositionKind !== "REDEPLOY"
-    && completion === undefined;
+  // Truthful open/completed readback: the case's disposition is OPEN iff it is
+  // the unit's single open disposition. REDEPLOY is inserted already COMPLETED,
+  // so it never matches. `completion` covers the just-completed-in-session case.
+  const dispositionChip = detail.dispositionId !== null && completion === undefined
+    ? (unitOpenDispositionId === detail.dispositionId ? "OPEN" : "COMPLETED")
+    : undefined;
+  const dispositionOpen = dispositionChip === "OPEN";
 
   return (
     <article aria-label={text.caseDetail} aria-busy={busy}>
@@ -352,6 +357,22 @@ export function EquipmentCaseDetail({ api, caseId, actorId, capabilities, onSele
               {detail.assessment.assessedBy}
               {" · "}
               <time dateTime={detail.assessment.assessedAt}>{formatInstant(detail.assessment.assessedAt)}</time>
+            </dd>
+          </>
+        ) : null}
+        {dispositionChip ? (
+          <>
+            <dt>{text.disposition}</dt>
+            <dd>
+              <span
+                className={dispositionChip === "OPEN"
+                  ? "equipment__chip equipment__chip--warn"
+                  : "equipment__chip equipment__chip--ok"}
+              >
+                {dispositionChip === "OPEN"
+                  ? text.dispositionStatus.OPEN
+                  : text.dispositionStatus.COMPLETED}
+              </span>
             </dd>
           </>
         ) : null}
