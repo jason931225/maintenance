@@ -179,6 +179,52 @@ describe("DispatchConsole", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Force assignment was not confirmed");
   });
 
+  it("starts only an undispatched P1 row with the exact generated body, then refreshes queue and selected detail", async () => {
+    const undispatched = { ...queue, items: [{ ...queue.items[0], dispatch: undefined }] };
+    const broadcast = { ...summary, status: "BROADCASTING", declined_count: 0 };
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/console/dispatch/queue") return Promise.resolve(result(undispatched));
+      if (path === "/api/v1/p1-dispatches/{dispatchId}") return Promise.resolve(result(broadcast));
+      if (path.endsWith("/candidates") || path.endsWith("/responses")) return Promise.resolve(result({ items: [] }));
+      throw new Error(`unexpected ${path}`);
+    });
+    const POST = vi.fn().mockResolvedValue(result(broadcast));
+    render(<DispatchConsole api={client(GET, POST)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start P1 broadcast" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm P1 broadcast" }));
+    await screen.findByText("Broadcast started for WO-001.");
+    expect(POST).toHaveBeenCalledWith("/api/v1/work-orders/{workOrderId}/p1-dispatch", {
+      params: { path: { workOrderId: "work-order-1" } }, body: { include_region: false }, signal: expect.any(AbortSignal),
+    });
+    await waitFor(() => { expect(GET.mock.calls.filter(([path]) => path === "/api/v1/console/dispatch/queue").length).toBeGreaterThan(1); });
+    expect(screen.queryByRole("button", { name: "Start P1 broadcast" })).not.toBeInTheDocument();
+  });
+
+  it("does not expose start controls for non-P1 or already-dispatched rows", async () => {
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/console/dispatch/queue") return Promise.resolve(result({ ...queue, items: [{ ...queue.items[0], work_order_id: "work-order-2", request_no: "WO-002", priority: "P2" }, queue.items[0]] }));
+      throw new Error(`unexpected ${path}`);
+    });
+    render(<DispatchConsole api={client(GET)} />);
+    await screen.findByRole("button", { name: /WO-001/i });
+    expect(screen.queryByRole("button", { name: "Start P1 broadcast" })).not.toBeInTheDocument();
+  });
+
+  it.each([403, 409])("keeps a denied or conflicting start actionable without refreshing for status %s", async (status) => {
+    const undispatched = { ...queue, items: [{ ...queue.items[0], dispatch: undefined }] };
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/console/dispatch/queue") return Promise.resolve(result(undispatched));
+      throw new Error(`unexpected ${path}`);
+    });
+    const POST = vi.fn().mockResolvedValue({ error: { error: { message: "no" } }, response: new Response(null, { status }) });
+    render(<DispatchConsole api={client(GET, POST)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start P1 broadcast" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm P1 broadcast" }));
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm P1 broadcast" })).toBeEnabled();
+    expect(GET.mock.calls.filter(([path]) => path === "/api/v1/console/dispatch/queue")).toHaveLength(1);
+  });
+
   it("shows an explicit denied state without rendering queue records", async () => {
     const GET = vi.fn().mockResolvedValue({ error: { error: { message: "denied" } }, response: new Response(null, { status: 403 }) });
     render(<DispatchConsole api={client(GET)} />);

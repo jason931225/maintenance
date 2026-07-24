@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import type { ConsoleApiClient } from "../../api/client";
 import { useAuth } from "../../context/auth";
 import { StatusChip } from "../components";
+import { StartP1DispatchDialog } from "./StartP1DispatchDialog";
 import {
   DISPATCH_QUEUE_STATUSES,
   forceAssignP1Dispatch,
@@ -17,6 +18,7 @@ import {
   type P1DispatchResponse,
   type P1DispatchSummary,
 } from "./dispatchApi";
+import { startP1Dispatch } from "./startP1DispatchApi";
 
 import "./dispatchConsole.css";
 
@@ -138,16 +140,18 @@ function QueueList({
   items,
   selectedId,
   onSelect,
+  onStartP1,
 }: {
   items: DispatchQueueItem[];
   selectedId: string | null;
   onSelect: (item: DispatchQueueItem) => void;
+  onStartP1: (item: DispatchQueueItem) => void;
 }) {
   if (items.length === 0) return <p className="dispatch-console__empty" role="status">No work orders match the selected dispatch statuses.</p>;
   return (
     <div className="dispatch-console__table-wrap">
       <table aria-label="Dispatch work order queue">
-        <thead><tr><th scope="col">Work order</th><th scope="col">Priority</th><th scope="col">Status</th><th scope="col">P1 state</th><th scope="col">Due</th></tr></thead>
+        <thead><tr><th scope="col">Work order</th><th scope="col">Priority</th><th scope="col">Status</th><th scope="col">P1 state</th><th scope="col">Due</th><th scope="col">Action</th></tr></thead>
         <tbody>{items.map((item) => (
           <tr key={item.work_order_id} aria-selected={selectedId === item.work_order_id}>
             <td><button type="button" className="dispatch-console__row-button" onClick={() => { onSelect(item); }}>{item.request_no}<span>{item.symptom}</span></button></td>
@@ -155,6 +159,7 @@ function QueueList({
             <td><StatusChip tone={statusTone(item.status)}>{item.status}</StatusChip></td>
             <td>{item.dispatch ? <StatusChip tone={statusTone(item.dispatch.status)}>{item.dispatch.status}</StatusChip> : "No P1 broadcast"}</td>
             <td>{formatTime(item.target_due_at)}</td>
+            <td>{item.priority === "P1" && !item.dispatch ? <button type="button" className="dispatch-console__queue-action" onClick={() => { onStartP1(item); }}>Start P1 broadcast</button> : null}</td>
           </tr>
         ))}</tbody>
       </table>
@@ -186,19 +191,42 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
   const selectedQueueItem = useRef<DispatchQueueItem | null>(null);
   const selectionEpoch = useRef(0);
   const detailEpoch = useRef(0);
+  const startEpoch = useRef(0);
+  const startAbort = useRef<AbortController | null>(null);
+  const startedDispatches = useRef(new Map<string, P1DispatchSummary>());
+  const [startItem, setStartItem] = useState<DispatchQueueItem | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     const epoch = ++queueEpoch.current;
     void listDispatchQueue(api, { status: statuses }, controller.signal).then((page) => {
       if (controller.signal.aborted || epoch !== queueEpoch.current) return;
-      setItems(page.items);
+      const queueItems = page.items.map((item) => {
+        const started = startedDispatches.current.get(item.work_order_id);
+        if (!started || item.dispatch) {
+          if (item.dispatch) startedDispatches.current.delete(item.work_order_id);
+          return item;
+        }
+        return {
+          ...item,
+          dispatch: {
+            id: started.id,
+            status: started.status,
+            accept_window_ends_at: started.accept_window_ends_at,
+            target_count: started.target_count,
+            accepted_count: started.accepted_count,
+            declined_count: started.declined_count,
+            manual_call_required: started.manual_call_required,
+          },
+        };
+      });
+      setItems(queueItems);
       setNextAfter(page.next_after);
       setStats(page.stats);
       setQueueState("ready");
       const previous = selectedQueueItem.current;
       const retained = selectionId.current
-        ? page.items.find((item) => item.work_order_id === selectionId.current) ?? null
+        ? queueItems.find((item) => item.work_order_id === selectionId.current) ?? null
         : null;
       const dispatchAuthorityChanged = previous !== null
         && retained !== null
@@ -267,6 +295,10 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
   }
 
   function select(item: DispatchQueueItem) {
+    startEpoch.current += 1;
+    startAbort.current?.abort();
+    startAbort.current = null;
+    setStartItem(null);
     selectionEpoch.current += 1;
     selectionId.current = item.work_order_id;
     selectedQueueItem.current = item;
@@ -293,6 +325,50 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
       setQueueState(isDispatchAccessDenied(error) ? "denied" : "error");
     }
   }
+
+  function openStartBroadcast(item: DispatchQueueItem) {
+    select(item);
+    setStartItem(item);
+  }
+
+  async function startBroadcast(item: DispatchQueueItem): Promise<P1DispatchSummary> {
+    const controller = new AbortController();
+    startAbort.current?.abort();
+    startAbort.current = controller;
+    const epoch = ++startEpoch.current;
+    const selectionAtStart = selectionEpoch.current;
+    try {
+      const summary = await startP1Dispatch(api, item.work_order_id, controller.signal);
+      if (controller.signal.aborted || epoch !== startEpoch.current || selectionAtStart !== selectionEpoch.current) {
+        throw new DOMException("P1 broadcast request is no longer current", "AbortError");
+      }
+      const dispatch = {
+        id: summary.id,
+        status: summary.status,
+        accept_window_ends_at: summary.accept_window_ends_at,
+        target_count: summary.target_count,
+        accepted_count: summary.accepted_count,
+        declined_count: summary.declined_count,
+        manual_call_required: summary.manual_call_required,
+      };
+      const updated = { ...item, dispatch };
+      startedDispatches.current.set(item.work_order_id, summary);
+      selectedQueueItem.current = updated;
+      setItems((current) => current.map((queued) => queued.work_order_id === item.work_order_id ? { ...queued, dispatch } : queued));
+      if (selectionId.current === item.work_order_id) {
+        setSelected(updated);
+        setDetail({ summary, candidates: [], responses: [] });
+        setDetailState("ready");
+        retryDetail();
+      }
+      refreshQueue();
+      return summary;
+    } finally {
+      if (startAbort.current === controller) startAbort.current = null;
+    }
+  }
+
+  useEffect(() => () => { startAbort.current?.abort(); }, []);
 
   async function mutateForceAssignment(mechanicId: string) {
     const dispatchId = detail?.summary.id;
@@ -328,13 +404,18 @@ export function DispatchConsole({ api }: { api: ConsoleApiClient }) {
       <div className="dispatch-console__layout">
         <section className="dispatch-console__panel" aria-labelledby="dispatch-queue-heading">
           <div className="dispatch-console__section-heading"><h2 id="dispatch-queue-heading">Work-order queue</h2><button type="button" onClick={refreshQueue} disabled={queueState === "loading"}>Refresh</button></div>
-          {queueState === "denied" ? <p className="dispatch-console__empty" role="alert">Your current role is not authorized to read the dispatch queue.</p> : queueState === "error" ? <ErrorState message="The dispatch queue could not be loaded." retry={refreshQueue} /> : queueState === "loading" && items.length === 0 ? <p className="dispatch-console__empty" role="status">Loading dispatch queue…</p> : <QueueList items={items} selectedId={selected?.work_order_id ?? null} onSelect={select} />}
+          {queueState === "denied" ? <p className="dispatch-console__empty" role="alert">Your current role is not authorized to read the dispatch queue.</p> : queueState === "error" ? <ErrorState message="The dispatch queue could not be loaded." retry={refreshQueue} /> : queueState === "loading" && items.length === 0 ? <p className="dispatch-console__empty" role="status">Loading dispatch queue…</p> : <QueueList items={items} selectedId={selected?.work_order_id ?? null} onSelect={select} onStartP1={openStartBroadcast} />}
           {nextAfter && queueState === "ready" && <button type="button" className="dispatch-console__more" onClick={() => { void loadMore(); }}>Load next queue page</button>}
         </section>
         <aside className="dispatch-console__panel" aria-live="polite">
           {detailState === "loading" ? <p className="dispatch-console__empty" role="status">Loading selected P1 dispatch…</p> : detailState === "denied" ? <p className="dispatch-console__empty" role="alert">Your current role is not authorized to inspect this P1 dispatch.</p> : detailState === "error" ? <ErrorState message="The selected P1 dispatch could not be loaded." retry={retryDetail} /> : selected && !selected.dispatch ? <p className="dispatch-console__empty" role="status">This work order has no active P1 dispatch.</p> : <>{mutationFailure === "denied" ? <p className="dispatch-console__error" role="alert">Your current role is not authorized to force assign this dispatch.</p> : null}{mutationFailure === "error" ? <p className="dispatch-console__error" role="alert">Force assignment was not confirmed. Refresh the dispatch before taking another action.</p> : null}<DetailView key={`${detail?.summary.id ?? "no-dispatch"}:${detail?.candidates.map((candidate) => `${candidate.mechanic_id}:${candidate.response ?? "PENDING"}`).join(",") ?? ""}`} detail={detail} mutation={mutation} onForceAssign={(mechanicId) => { void mutateForceAssignment(mechanicId); }} /></>}
         </aside>
       </div>
+      {startItem && <StartP1DispatchDialog
+        requestNo={startItem.request_no}
+        onCancel={() => { startEpoch.current += 1; startAbort.current?.abort(); startAbort.current = null; setStartItem(null); }}
+        onConfirm={() => startBroadcast(startItem)}
+      />}
     </section>
   );
 }
