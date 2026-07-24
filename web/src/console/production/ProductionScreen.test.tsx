@@ -81,7 +81,7 @@ describe("ProductionScreen", () => {
     renderScreen(planner, "session-a", api);
     await userEvent.click(await screen.findByRole("button", { name: /2026-07-23/ }));
     await userEvent.click(screen.getByRole("button", { name: text.requestReview }));
-    await waitFor(() => expect(screen.getAllByText(text.status.REQUESTED)).not.toHaveLength(0));
+    await waitFor(() => { expect(screen.getAllByText(text.status.REQUESTED)).not.toHaveLength(0); });
     expect(screen.queryByRole("button", { name: text.requestReview })).toBeNull();
   });
 
@@ -89,14 +89,14 @@ describe("ProductionScreen", () => {
     const first = deferred<ReturnType<typeof ok<{ items: DailyPlan[] }>>>();
     const apiA = client();
     const apiB = client();
-    vi.mocked(apiA.GET).mockReturnValue(first.promise as never);
+    vi.mocked(apiA.GET).mockReturnValue(first.promise);
     vi.mocked(apiB.GET).mockResolvedValue(ok({ items: [plan("REQUESTED")] }));
     const view = renderScreen(planner, "session-a", apiA);
-    await waitFor(() => expect(apiA.GET).toHaveBeenCalledTimes(1));
+    await waitFor(() => { expect(apiA.GET).toHaveBeenCalledTimes(1); });
     view.rerender(<ProductionScreen api={apiB} branchId="branch-1" actorId="mechanic-1" capabilities={reviewer} sessionKey="session-a" />);
     expect(await screen.findByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED);
     first.resolve(ok({ items: [plan()] }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED));
+    await waitFor(() => { expect(screen.getByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED); });
   });
 
   it("filters mixed branch results before presenting the queue", async () => {

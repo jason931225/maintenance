@@ -30,7 +30,7 @@ export function useProductionConsoleAuthz() {
     void fetchAuthzProjection(token, controller.signal).then((next) => {
       if (!controller.signal.aborted && next) setAuthoritative({ token, projection: next });
     });
-    return () => controller.abort();
+    return () => { controller.abort(); };
   }, [token]);
 
   return useMemo(() => makePolicyGate(projection, projection.source === "authz"), [projection]);

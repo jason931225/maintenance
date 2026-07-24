@@ -41,7 +41,7 @@ describe("ProductionConsoleRoute", () => {
     ])));
     const view = render(mounted(api));
     expect(await screen.findByRole("button", { name: text.create })).toBeVisible();
-    await waitFor(() => expect(api.GET).toHaveBeenCalledWith("/api/daily-work-plans", expect.anything()));
+    await waitFor(() => { expect(api.GET).toHaveBeenCalledWith("/api/daily-work-plans", expect.anything()); });
 
     view.rerender(mounted(api, session(), "branch-b"));
     expect(await screen.findByText(text.denied)).toBeVisible();
@@ -63,19 +63,17 @@ describe("ProductionConsoleRoute", () => {
     first.promise = new Promise((resolve) => { first.resolve = resolve; });
     const apiA = client();
     const apiB = client();
-    vi.mocked(apiA.GET).mockReturnValue(first.promise as never);
+    vi.mocked(apiA.GET).mockReturnValue(first.promise);
     vi.mocked(apiB.GET).mockResolvedValue(ok({ items: [plan("branch-a", "REQUESTED")] }));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(authzResponse([
       { feature: "daily_plan_request", permission: "allow", branch_scope: { kind: "all" } },
     ])));
     const view = render(mounted(apiA));
-    await waitFor(() => expect(apiA.GET).toHaveBeenCalledTimes(1));
-    const oldSignal = vi.mocked(apiA.GET).mock.calls[0]?.[1]?.signal;
-
+    await waitFor(() => { expect(apiA.GET).toHaveBeenCalledTimes(1); });
     view.rerender(mounted(apiB, session("session-b")));
     expect(await screen.findByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED);
-    expect(oldSignal?.aborted).toBe(true);
+    expect(vi.mocked(apiA.GET).mock.calls[0]?.[1]).toMatchObject({ signal: { aborted: true } });
     first.resolve?.(ok({ items: [plan()] }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED));
+    await waitFor(() => { expect(screen.getByRole("button", { name: /2026-07-23/ })).toHaveTextContent(text.status.REQUESTED); });
   });
 });
