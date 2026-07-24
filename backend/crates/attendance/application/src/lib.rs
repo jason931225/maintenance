@@ -133,7 +133,7 @@ pub struct Week52Read {
     pub projected_hours: f64,
     pub acknowledged_at: Option<OffsetDateTime>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloseCheckRead {
     pub key: String,
     pub ok: bool,
@@ -167,6 +167,7 @@ pub struct ClosePreflightRead {
     pub can_close: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Week52AcknowledgementRead {
     pub employee_id: Uuid,
     pub week_start: Date,

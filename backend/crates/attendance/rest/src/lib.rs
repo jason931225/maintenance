@@ -14,8 +14,7 @@ use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
     AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ListSubstitutions,
-    RaiseException, ResolveException, Week52AcknowledgementRead, Week52Read, validate_week52_start,
-    week52_tone,
+    RaiseException, ResolveException, Week52Read, validate_week52_start, week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -528,7 +527,7 @@ struct ResolveBody {
     action: String,
     reason: String,
     linked_work_ref: Option<String>,
-    overtime_minutes: Option<i32>,
+    ot_hours: Option<f64>,
 }
 async fn resolve_exception(
     State(state): State<AttendanceRestState>,
@@ -561,7 +560,7 @@ async fn resolve_exception(
                 })?,
                 reason: body.reason,
                 linked_work_ref: body.linked_work_ref,
-                overtime_minutes: body.overtime_minutes,
+                overtime_minutes: body.ot_hours.map(|hours| (hours * 60.0).round() as i32),
             },
         )
         .await
@@ -759,9 +758,18 @@ impl From<ClosePreflightRead> for ClosePreflightDto {
     }
 }
 #[derive(Serialize)]
+struct MonthCloseItemDto {
+    branch_scope: String,
+    closed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    close: Option<MonthCloseDto>,
+    open_exceptions: i64,
+    pending_leave: i64,
+}
+#[derive(Serialize)]
 struct MonthCloseBoardDto {
     month: String,
-    items: Vec<MonthCloseDto>,
+    items: Vec<MonthCloseItemDto>,
 }
 
 #[derive(Deserialize)]
@@ -795,6 +803,7 @@ async fn close_preflight(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CloseListQuery {
+    month: String,
     branch_id: Option<Uuid>,
 }
 async fn list_closes(
@@ -804,17 +813,82 @@ async fn list_closes(
 ) -> Result<Json<MonthCloseBoardDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
-    state
+    let month = AttendanceDateRange::selected_month_with_buffer(&q.month)
+        .map_err(|error| {
+            RestError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation",
+                error.to_string(),
+            )
+        })?
+        .from;
+    let preflight = state
         .store
-        .list_closes(&scope(&p), q.branch_id)
+        .close_checks(
+            &scope(&p),
+            &CloseMonth {
+                month: q.month.clone(),
+                branch_scope: q.branch_id,
+                attest: false,
+            },
+        )
         .await
-        .map(|items| {
-            Json(MonthCloseBoardDto {
-                month: String::new(),
-                items: items.into_iter().map(MonthCloseDto::from).collect(),
+        .map_err(RestError::store)?;
+    let closes = state
+        .store
+        .list_closes(&scope(&p), q.branch_id, month)
+        .await
+        .map_err(RestError::store)?;
+    let open = |checks: &[mnt_attendance_application::CloseCheckRead],
+                key: &str|
+     -> Result<i64, RestError> {
+        checks
+            .iter()
+            .find(|check| check.key == key)
+            .and_then(|check| check.note.as_deref())
+            .and_then(|note| note.parse().ok())
+            .ok_or_else(|| {
+                RestError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "close checks are invalid",
+                )
             })
-        })
-        .map_err(RestError::store)
+    };
+    let items = if closes.is_empty() {
+        vec![MonthCloseItemDto {
+            branch_scope: q
+                .branch_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "org".into()),
+            closed: false,
+            close: None,
+            open_exceptions: open(&preflight.checks, "open_exceptions")?,
+            pending_leave: open(&preflight.checks, "pending_leave")?,
+        }]
+    } else {
+        closes
+            .into_iter()
+            .map(|close| {
+                let open_exceptions = open(&close.checks, "open_exceptions")?;
+                let pending_leave = open(&close.checks, "pending_leave")?;
+                Ok(MonthCloseItemDto {
+                    branch_scope: close
+                        .branch_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "org".into()),
+                    closed: true,
+                    close: Some(MonthCloseDto::from(close)),
+                    open_exceptions,
+                    pending_leave,
+                })
+            })
+            .collect::<Result<Vec<_>, RestError>>()?
+    };
+    Ok(Json(MonthCloseBoardDto {
+        month: q.month,
+        items,
+    }))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -934,26 +1008,6 @@ struct Week52BoardDto {
     week_start: String,
     items: Vec<Week52RowDto>,
 }
-#[derive(Serialize)]
-struct Week52AckDto {
-    employee_id: String,
-    week_start: String,
-    acked: bool,
-    acknowledged_at: String,
-}
-impl From<Week52AcknowledgementRead> for Week52AckDto {
-    fn from(v: Week52AcknowledgementRead) -> Self {
-        Self {
-            employee_id: v.employee_id.to_string(),
-            week_start: v.week_start.to_string(),
-            acked: true,
-            acknowledged_at: v
-                .acknowledged_at
-                .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_else(|_| v.acknowledged_at.to_string()),
-        }
-    }
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -999,7 +1053,7 @@ async fn acknowledge_week52(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<Week52AckBody>,
-) -> Result<Json<Week52AckDto>, RestError> {
+) -> Result<Json<Week52RowDto>, RestError> {
     let p = principal(&state, &headers).await?;
     let branch = state
         .store
@@ -1021,11 +1075,20 @@ async fn acknowledge_week52(
     };
     state
         .store
-        .acknowledge_week52(&scope(&p), command)
+        .acknowledge_week52(&scope(&p), command.clone())
         .await
-        .map(Week52AckDto::from)
-        .map(Json)
-        .map_err(RestError::store)
+        .map_err(RestError::store)?;
+    let row = state
+        .store
+        .week52_inputs(&scope(&p), command.week_start, Some(branch))
+        .await
+        .map_err(RestError::store)?
+        .into_iter()
+        .find(|row| row.employee_id == command.employee_id)
+        .ok_or_else(|| {
+            RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
+        })?;
+    Ok(Json(Week52RowDto::from(row)))
 }
 
 fn idempotency(headers: &HeaderMap) -> Result<String, RestError> {

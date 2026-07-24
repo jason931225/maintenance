@@ -21,6 +21,8 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
+const CANCEL_SUBSTITUTION_SQL: &str = "UPDATE attendance_substitutions SET status='CANCELLED', cancel_reason=$1 WHERE id=$2 AND status='ASSIGNED'";
+
 #[derive(Debug, thiserror::Error)]
 pub enum AttendanceStoreError {
     #[error(transparent)]
@@ -254,13 +256,38 @@ impl PgAttendanceStore {
         let reason = app::validate_text(&command.reason, "reason", 2000)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
-        with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let branch: Option<Uuid> = sqlx::query_scalar("SELECT branch_id FROM attendance_substitutions WHERE id=$1 FOR UPDATE").bind(command.substitution_id).fetch_optional(tx.as_mut()).await?.ok_or(AttendanceStoreError::NotFound)?;
-            app::ensure_scope(&caller, branch)?;
-            let changed = sqlx::query("UPDATE attendance_substitutions SET status='CANCELLED', cancellation_reason=$1 WHERE id=$2 AND status='OPEN'").bind(&reason).bind(command.substitution_id).execute(tx.as_mut()).await?;
-            if changed.rows_affected() != 1 { return Err(AttendanceStoreError::Conflict); }
-            Ok((substitution_by_id(tx, command.substitution_id).await?, vec![event(&caller, "attendance.substitution.cancel", "attendance_substitution", command.substitution_id, branch, Some(json!({"reason":reason})))?]))
-        })).await
+        with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let branch: Option<Uuid> = sqlx::query_scalar(
+                    "SELECT branch_id FROM attendance_substitutions WHERE id=$1 FOR UPDATE",
+                )
+                .bind(command.substitution_id)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or(AttendanceStoreError::NotFound)?;
+                app::ensure_scope(&caller, branch)?;
+                let changed = sqlx::query(CANCEL_SUBSTITUTION_SQL)
+                    .bind(&reason)
+                    .bind(command.substitution_id)
+                    .execute(tx.as_mut())
+                    .await?;
+                if changed.rows_affected() != 1 {
+                    return Err(AttendanceStoreError::Conflict);
+                }
+                Ok((
+                    substitution_by_id(tx, command.substitution_id).await?,
+                    vec![event(
+                        &caller,
+                        "attendance.substitution.cancel",
+                        "attendance_substitution",
+                        command.substitution_id,
+                        branch,
+                        Some(json!({"reason":reason})),
+                    )?],
+                ))
+            })
+        })
+        .await
     }
 
     pub async fn close_checks(
@@ -350,11 +377,12 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         branch_id: Option<Uuid>,
+        month: Date,
     ) -> Result<Vec<MonthCloseRead>, AttendanceStoreError> {
         app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let rows = sqlx::query("SELECT id,month,branch_id,checks,attested_by,attested_at,period_lock_id,closed_at FROM attendance_month_closes WHERE branch_id IS NOT DISTINCT FROM $1 ORDER BY month DESC").bind(branch_id).fetch_all(tx.as_mut()).await?;
+            let rows = sqlx::query("SELECT id,month,branch_id,checks,attested_by,attested_at,period_lock_id,closed_at FROM attendance_month_closes WHERE branch_id IS NOT DISTINCT FROM $1 AND month=$2 ORDER BY month DESC").bind(branch_id).bind(month).fetch_all(tx.as_mut()).await?;
             let mut result=Vec::with_capacity(rows.len()); for row in &rows { result.push(close_read(tx,row).await?); } Ok(result)
         })).await
     }
@@ -544,7 +572,7 @@ fn week52_inputs_for_active(
     week_start: Date,
     hours: BTreeMap<Uuid, f64>,
     acknowledgements: BTreeMap<Uuid, OffsetDateTime>,
-) -> Vec<Week52Input> {
+) -> Vec<Week52Read> {
     active_employees
         .into_iter()
         .map(|(employee_id, name, team)| {
@@ -645,7 +673,11 @@ async fn ensure_historical_coverage(
     window: &mnt_attendance_domain::SubstitutionWindow,
     _exception_id: Option<Uuid>,
 ) -> Result<(), AttendanceStoreError> {
-    if window.cover_date >= OffsetDateTime::now_utc().date() {
+    if window.cover_date
+        >= OffsetDateTime::now_utc()
+            .to_offset(UtcOffset::from_hms(9, 0, 0).map_err(|_| AttendanceStoreError::Conflict)?)
+            .date()
+    {
         return Ok(());
     }
     // Historical substitution admits only an approved leave intent that fully covers
@@ -837,10 +869,9 @@ fn substitution_read(
         worker_name: r.try_get("worker_name")?,
         worker_type: r.try_get("worker_type")?,
         worker_rate: r.try_get("worker_rate")?,
-        status: if status == "OPEN" {
-            "ASSIGNED".into()
-        } else {
-            status
+        status: match status.as_str() {
+            "ASSIGNED" | "CANCELLED" => status,
+            _ => return Err(AttendanceStoreError::Conflict),
         },
         exception_id: r.try_get("exception_id")?,
         created_by: r.try_get("created_by")?,
@@ -864,6 +895,29 @@ async fn close_amendment_read(
         created_at: r.try_get("created_at")?,
     })
 }
+fn decode_close_checks(value: &Value) -> Result<CloseChecks, AttendanceStoreError> {
+    let open_exceptions = value
+        .get("open_exceptions")
+        .and_then(Value::as_i64)
+        .ok_or(AttendanceStoreError::Conflict)?;
+    let pending_leave = value
+        .get("pending_leave")
+        .and_then(Value::as_i64)
+        .ok_or(AttendanceStoreError::Conflict)?;
+    let already_closed = value
+        .get("already_closed")
+        .and_then(Value::as_bool)
+        .ok_or(AttendanceStoreError::Conflict)?;
+    if open_exceptions < 0 || pending_leave < 0 {
+        return Err(AttendanceStoreError::Conflict);
+    }
+    Ok(CloseChecks {
+        open_exceptions,
+        pending_leave,
+        already_closed,
+    })
+}
+
 fn close_checks_read(checks: &CloseChecks) -> Vec<CloseCheckRead> {
     vec![
         CloseCheckRead {
@@ -904,20 +958,7 @@ async fn close_read(
         })
         .collect::<Result<Vec<_>, AttendanceStoreError>>()?;
     let checks: Value = r.try_get("checks")?;
-    let c = CloseChecks {
-        open_exceptions: checks
-            .get("open_exceptions")
-            .and_then(Value::as_i64)
-            .unwrap_or(0),
-        pending_leave: checks
-            .get("pending_leave")
-            .and_then(Value::as_i64)
-            .unwrap_or(0),
-        already_closed: checks
-            .get("already_closed")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-    };
+    let c = decode_close_checks(&checks)?;
     Ok(MonthCloseRead {
         id,
         month: r.try_get("month")?,
@@ -989,6 +1030,48 @@ mod tests {
             fingerprint(&substitution_fingerprint(caller, &changed))
         );
     }
+    #[test]
+    fn close_checks_decoder_rejects_missing_wrong_and_negative_values() {
+        assert!(
+            decode_close_checks(
+                &json!({"open_exceptions": 0, "pending_leave": 0, "already_closed": false})
+            )
+            .is_ok()
+        );
+        assert!(decode_close_checks(&json!({"open_exceptions": 0, "pending_leave": 0})).is_err());
+        assert!(
+            decode_close_checks(
+                &json!({"open_exceptions": "0", "pending_leave": 0, "already_closed": false})
+            )
+            .is_err()
+        );
+        assert!(
+            decode_close_checks(
+                &json!({"open_exceptions": -1, "pending_leave": 0, "already_closed": false})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cancellation_statement_targets_migration_0188_state_columns() {
+        let sql = CANCEL_SUBSTITUTION_SQL;
+        assert!(sql.contains("cancel_reason"));
+        assert!(sql.contains("status='ASSIGNED'"));
+        assert!(!sql.contains("cancellation_reason"));
+    }
+    #[test]
+    fn week52_active_rows_preserve_identity_shape() {
+        let rows = week52_inputs_for_active(
+            [(Uuid::nil(), "Kim".to_owned(), Some("Operations".to_owned()))],
+            Date::from_calendar_date(2026, Month::July, 6).unwrap(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+        );
+        assert_eq!(rows[0].name, "Kim");
+        assert_eq!(rows[0].team.as_deref(), Some("Operations"));
+    }
+
     #[test]
     fn fingerprint_changes_for_every_persisted_semantic_field() {
         let caller = scope();
