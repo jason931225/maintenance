@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,11 +82,43 @@ describe("FacilitiesWorkflowPage", () => {
     ]);
   });
 
+  it("requires a rejected case to restart before observation and evidence submission", async () => {
+    const { POST } = setupApi("AWAITING_ACCEPTANCE");
+    const user = userEvent.setup();
+    render(<FacilitiesWorkflowPage />);
+    await screen.findByRole("heading", { name: "인수 확인 대기" });
+
+    await user.type(screen.getByLabelText("반려 사유 (반려 시 기록)"), "현장 조정이 필요합니다");
+    await user.click(screen.getByRole("button", { name: "재작업 요청" }));
+    await screen.findByRole("heading", { name: "재작업 필요" });
+    expect(screen.queryByRole("button", { name: "인수 요청 제출" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "작업 시작" }));
+    await screen.findByRole("heading", { name: "작업 진행" });
+    await user.type(screen.getByLabelText("작업 전 kWh"), "91.500");
+    await user.type(screen.getByLabelText("작업 후 kWh"), "90.000");
+    await user.click(screen.getByRole("button", { name: "관측 기록" }));
+    await screen.findByText("-8.500 kWh");
+    await user.type(screen.getByLabelText("안전 점검 증빙 ID"), evidenceA);
+    await user.type(screen.getByLabelText("서비스 보고 증빙 ID"), evidenceB);
+    await user.click(screen.getByRole("button", { name: "인수 요청 제출" }));
+    await screen.findByRole("heading", { name: "인수 확인 대기" });
+
+    expect(POST.mock.calls.map(([path]) => path)).toEqual([
+      "/api/v1/facilities/cases/{case_id}/acceptance",
+      "/api/v1/facilities/cases/{case_id}/start",
+      "/api/v1/facilities/cases/{case_id}/observations",
+      "/api/v1/facilities/cases/{case_id}/submit",
+    ]);
+  });
+
   it("does not send a submission without both mandatory evidence records", async () => {
     const { POST } = setupApi("IN_PROGRESS");
     render(<FacilitiesWorkflowPage />);
     await screen.findByRole("heading", { name: "작업 진행" });
-    fireEvent.submit(screen.getByRole("button", { name: "인수 요청 제출" }).closest("form")!);
+    const submitForm = screen.getByRole("button", { name: "인수 요청 제출" }).closest("form");
+    if (!submitForm) throw new Error("submission form is missing");
+    fireEvent.submit(submitForm);
     expect(await screen.findByRole("alert")).toHaveTextContent("안전 점검과 서비스 보고 증빙 ID가 모두 필요합니다.");
     expect(POST).not.toHaveBeenCalled();
   });
