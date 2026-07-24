@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import {
   expect,
   test,
-  type APIRequestContext,
   type Page,
 } from "@playwright/test";
 
@@ -22,11 +21,10 @@ import {
  * `/console/attendance`, a real dev-auth session, the generated-client-backed
  * HTTP surface, and PostgreSQL. The narrowly scoped SQL below creates only the
  * prerequisite business facts that a fresh local dev database cannot obtain by
- * clicking the console (an OPEN exception and a 52-hour weekly history). Every
- * user-visible transition is performed through the product UI; the two REST
- * operations not yet exposed in the reviewed screen (substitution cancellation
- * and close amendment) are exercised against the same authenticated HTTP
- * boundary and asserted in PostgreSQL.
+ * clicking the console (an OPEN exception and a 52-hour weekly history), never
+ * a fabricated substitution candidate. Every user-visible transition is
+ * performed through the product UI and its persisted outcome is asserted in
+ * PostgreSQL.
  *
  * Production exclusion is defense in depth:
  * - Playwright only creates this project when MNT_DEV_AUTH_E2E=1.
@@ -91,8 +89,6 @@ const coverDate = `${closeMonthValue}-15`;
 const weekStartValue = seoulWeekStart(now);
 
 type DevRole = "관리자" | "일반 멤버";
-
-type DevAuthResponse = { access_token: string };
 
 function assertDevOnlyEnvironment(): void {
   if (
@@ -190,19 +186,6 @@ async function loginAs(page: Page, role: DevRole): Promise<void> {
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 
-async function mintAdminToken(request: APIRequestContext): Promise<string> {
-  const response = await request.post("/api/v1/dev-auth/session", {
-    data: { org_id: ORG_ID, role: "ADMIN", branch_ids: [BRANCH_ID] },
-  });
-  expect(
-    response.status(),
-    "dev-auth must mint the same real ADMIN session used by the UI",
-  ).toBe(200);
-  const body = (await response.json()) as DevAuthResponse;
-  expect(body.access_token).toEqual(expect.any(String));
-  return body.access_token;
-}
-
 test("ATTENDANCE-31 derives the Korean business calendar across a UTC boundary", () => {
   const utcBoundary = new Date("2026-07-31T15:30:00.000Z");
   expect(seoulIsoDate(utcBoundary)).toBe("2026-08-01");
@@ -217,7 +200,6 @@ test.describe("ATTENDANCE-31 live operator story", () => {
 
 test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels cover, acknowledges Week-52, closes, and amends", async ({
   page,
-  request,
 }) => {
   const consoleGuard = attachConsoleGuard(page);
   await loginAs(page, "관리자");
@@ -255,18 +237,18 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   );
   expect(substitutionId).toMatch(/^[0-9a-f-]{36}$/i);
 
-  // Cancellation is a complete, authenticated REST capability; the current UI
-  // deliberately has no cancellation control, so exercise the production route
-  // rather than pretending a UI control exists.
-  const token = await mintAdminToken(request);
-  const cancellation = await request.post(
-    `/api/v1/attendance/substitutions/${substitutionId}/cancel`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { reason: `e2e coverage no longer required ${runId}` },
-    },
-  );
-  expect(cancellation.status()).toBe(200);
+  // Cancellation is a real screen workflow: the operator records its reason
+  // in the dialog and the persisted result must become CANCELLED.
+  const cancellationButton = page.getByRole("button", { name: "대근 취소" });
+  await expect(cancellationButton).toBeVisible({ timeout: 15_000 });
+  await cancellationButton.click();
+  const cancellationDialog = page.getByRole("dialog", { name: "대근 편성 취소" });
+  await expect(cancellationDialog).toBeVisible();
+  await cancellationDialog
+    .getByLabel("취소 사유")
+    .fill(`e2e coverage no longer required ${runId}`);
+  await cancellationDialog.getByRole("button", { name: "대근 취소" }).click();
+  await expect(cancellationDialog).toHaveCount(0, { timeout: 15_000 });
   expect(
     scalar(
       `SELECT status FROM attendance_substitutions WHERE id = ${sqlLiteral(substitutionId)}`,
@@ -353,23 +335,20 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   );
   expect(closeId).toMatch(/^[0-9a-f-]{36}$/i);
 
-  // Amendment follows the exact authenticated REST boundary (the transport
-  // supports it, but this screen has not yet added an amendment control).
-  const amendment = await request.post(
-    `/api/v1/attendance/closes/${closeId}/amend`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Idempotency-Key": randomUUID(),
-      },
-      data: {
-        reason: "e2e verified late evidence",
-        detail: `post-close evidence receipt ${runId}`,
-        ref: `E2E-${runId}`,
-      },
-    },
-  );
-  expect(amendment.status()).toBe(200);
+  // Amendment is also a real post-close UI flow; the dialog preserves the
+  // correction rationale and reference as an immutable persisted amendment.
+  const amendmentButton = page.getByRole("button", { name: "소급 보정" });
+  await expect(amendmentButton).toBeVisible({ timeout: 15_000 });
+  await amendmentButton.click();
+  const amendmentDialog = page.getByRole("dialog", { name: "마감 소급 보정" });
+  await expect(amendmentDialog).toBeVisible();
+  await amendmentDialog.getByLabel("보정 사유").fill("e2e verified late evidence");
+  await amendmentDialog
+    .getByLabel("보정 내용")
+    .fill(`post-close evidence receipt ${runId}`);
+  await amendmentDialog.getByLabel("연결 참조").fill(`E2E-${runId}`);
+  await amendmentDialog.getByRole("button", { name: "저장" }).click();
+  await expect(amendmentDialog).toHaveCount(0, { timeout: 15_000 });
   expect(
     scalar(
       `SELECT count(*) FROM attendance_close_amendments WHERE org_id = ${sqlLiteral(ORG_ID)} AND close_id = ${sqlLiteral(closeId)}`,
@@ -383,21 +362,43 @@ test("ATTENDANCE-31 admin resolves a persisted exception, assigns and cancels co
   consoleGuard.assertClean();
 });
 
-test("ATTENDANCE-31 reader persona is denied by omission before attendance data loads", async ({
+test("ATTENDANCE-31 MEMBER direct route falls back to the canonical overview", async ({
   page,
 }) => {
+  const attendanceRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (
+      path.startsWith("/api/v1/attendance") ||
+      path === "/api/v1/hr/attendance-summary"
+    ) {
+      attendanceRequests.push(path);
+    }
+  });
   await loginAs(page, "일반 멤버");
   await page.goto("/console/attendance");
+
+  // A bare MEMBER has no console nav grant. ConsoleShell canonicalizes an
+  // inaccessible or unshipped direct destination to the working console
+  // overview instead of rendering a misleading in-surface denial.
+  await expect(page).toHaveURL(/\/console\/overview(?:$|[?#])/, {
+    timeout: 15_000,
+  });
+  const overviewBody = page.getByLabel("화면 본문");
+  await expect(overviewBody).toBeVisible();
+  await expect(overviewBody).toHaveAttribute("data-cshell-screen", "overview");
+  await expect(
+    overviewBody.getByRole("heading", { name: "업무·운영 개요", level: 1 }),
+  ).toBeVisible();
+  await page.waitForLoadState("networkidle", { timeout: 15_000 });
+  await expect(page.getByLabel("근태")).toHaveCount(0);
+  expect(attendanceRequests).toEqual([]);
   await expect(
     page.getByRole("heading", { name: "근태", level: 1 }),
-  ).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("status")).toHaveText(
-    "근태 현황을 볼 권한이 없습니다.",
-  );
-  await expect(page.getByLabel("근태 예외")).toHaveCount(0);
+  ).toHaveCount(0);
   await assertNoRawI18nKeys(page);
   await assertNoAxeViolations(page, {
-    context: "attendance reader denied-by-omission",
+    context: "attendance MEMBER direct-route canonical fallback",
   });
 });
 });
