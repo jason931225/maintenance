@@ -20,6 +20,8 @@ use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+mod service_auth;
+
 pub const PRODUCTION_PLANS_PATH: &str = "/api/v1/production/plans";
 pub const PRODUCTION_CAPACITY_SLOTS_PATH: &str = "/api/v1/production/capacity-slots";
 pub const PRODUCTION_PLAN_PATH: &str = "/api/v1/production/plans/{plan_id}";

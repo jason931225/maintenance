@@ -13,7 +13,7 @@ use std::str::FromStr;
 
 use mnt_kernel_core::{
     AccessScope, AccessScopeLevel, BranchId, BranchProjection, BranchScope, KernelError, OrgId,
-    UserId,
+    ServicePrincipalId, UserId,
 };
 use sqlx::{PgPool, Row};
 
@@ -723,6 +723,33 @@ pub struct Principal {
     pub authz_freshness: SubjectFreshness,
 }
 
+/// A machine identity resolved from the production-service-principal resolver.
+/// It intentionally has no roles or effective human grants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServicePrincipal {
+    pub id: ServicePrincipalId,
+    pub org_id: OrgId,
+    pub branch_id: BranchId,
+    pub feature: Feature,
+}
+
+impl ServicePrincipal {
+    #[must_use]
+    pub const fn new(
+        id: ServicePrincipalId,
+        org_id: OrgId,
+        branch_id: BranchId,
+        feature: Feature,
+    ) -> Self {
+        Self {
+            id,
+            org_id,
+            branch_id,
+            feature,
+        }
+    }
+}
+
 impl Principal {
     #[must_use]
     pub const fn new(
@@ -935,6 +962,22 @@ pub fn authorize(
         return Err(KernelError::forbidden("role is not allowed to use feature"));
     }
 
+    Ok(())
+}
+
+/// Authorize a machine principal. Unlike [`authorize`], this cannot inherit a
+/// human role or tenant custom grant: both the exact feature and exact branch
+/// must match the credential registration.
+pub fn authorize_service(
+    principal: &ServicePrincipal,
+    action: Action,
+    resource_branch: BranchId,
+) -> Result<(), KernelError> {
+    if principal.feature != action.feature() || principal.branch_id != resource_branch {
+        return Err(KernelError::forbidden(
+            "service principal is not authorized for resource",
+        ));
+    }
     Ok(())
 }
 
@@ -1350,6 +1393,37 @@ fn is_safe_ident(raw: &str) -> bool {
 mod tests {
     use super::*;
     use mnt_kernel_core::{ErrorKind, ScopeNodeId};
+
+    #[test]
+    fn service_authorization_requires_exact_feature_and_branch() {
+        let branch = BranchId::new();
+        let service = ServicePrincipal::new(
+            ServicePrincipalId::new(),
+            OrgId::new(),
+            branch,
+            Feature::ProductionSourceIngest,
+        );
+        assert!(
+            authorize_service(
+                &service,
+                Action::limited(Feature::ProductionSourceIngest),
+                branch,
+            )
+            .is_ok()
+        );
+        assert!(
+            authorize_service(
+                &service,
+                Action::limited(Feature::ProductionSourceIngest),
+                BranchId::new(),
+            )
+            .is_err()
+        );
+        assert!(
+            authorize_service(&service, Action::limited(Feature::DailyPlanRequest), branch,)
+                .is_err()
+        );
+    }
 
     #[test]
     fn effective_scope_preserves_legacy_org_live_scope() -> Result<(), KernelError> {
