@@ -28,7 +28,7 @@ import {
  *
  * Production exclusion is defense in depth:
  * - Playwright only creates this project when MNT_DEV_AUTH_E2E=1.
- * - This module refuses to seed unless both local-dev feature flags are exact.
+ * - This module refuses to seed unless the dev-auth E2E flag is exact.
  * - The app's default/release graph compiles dev-auth out entirely.
  */
 
@@ -125,12 +125,9 @@ const weekStartValue = seoulWeekStart(now);
 type DevRole = "관리자" | "일반 멤버";
 
 function assertDevOnlyEnvironment(): void {
-  if (
-    process.env.MNT_DEV_AUTH_E2E !== "1" ||
-    process.env.VITE_CONSOLE_DEV_PREVIEW !== "1"
-  ) {
+  if (process.env.MNT_DEV_AUTH_E2E !== "1") {
     throw new Error(
-      "ATTENDANCE-31 may run only with MNT_DEV_AUTH_E2E=1 and VITE_CONSOLE_DEV_PREVIEW=1.",
+      "ATTENDANCE-31 may run only with MNT_DEV_AUTH_E2E=1.",
     );
   }
 }
@@ -329,7 +326,7 @@ function seedAttendanceStory(): void {
       worker_name, worker_type, status, idempotency_key, request_fingerprint, created_by
     ) VALUES (
       ${sqlLiteral(randomUUID())}, ${sqlLiteral(ORG_ID)}, 'E2E 현장', ${sqlLiteral(BRANCH_ID)}, '현장 지원',
-      ${sqlLiteral(todayValue)}::date, 540, 1080, ${sqlLiteral(blockedEmployeeId)}, 'NO_SHOW',
+      ${sqlLiteral(todayValue)}::date, 540, 1080, ${sqlLiteral(riskEmployeeId)}, 'NO_SHOW',
       ${sqlLiteral(`e2e overlapping candidate ${runId}`)}, ${sqlLiteral(overlapCandidateId)},
       ${sqlLiteral(overlapCandidateName)}, 'REGULAR', 'ASSIGNED',
       ${sqlLiteral(`attendance-live-e2e-overlap-${runId}`)}, repeat('e', 64), ${sqlLiteral(SEED_ACTOR_ID)}::uuid

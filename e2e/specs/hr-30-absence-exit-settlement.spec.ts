@@ -32,9 +32,8 @@ import {
  *     (holds ExitCaseHqConfirm; user id differs from the HR confirmer).
  *
  * Runs ONLY under the dev-auth Playwright project. Bring up the paired real
- * stack first — `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1 node
- * scripts/dev-up.mjs bootstrap` — then run `MNT_DEV_AUTH_E2E=1
- * VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`; see
+ * stack first — `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap` — then
+ * run `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`; see
  * playwright.config.ts.
  */
 

@@ -663,15 +663,16 @@ function buildAppEnv(role) {
   };
 }
 
-// The console preview is a dev-auth E2E affordance, not a general dev-server
-// default. Strip a caller-supplied flag in buildAppEnv(), then reintroduce it
-// only for the Vite child of an explicitly requested dev-auth stack. The screen
-// itself still requires import.meta.env.DEV, so production builds never mount it.
-function buildViteEnv(appEnv, devAuth) {
+// The console preview is an explicit Vite-only local affordance, independent of
+// the backend's dev-auth feature. Strip the flag from buildAppEnv(), then pass it
+// only to the Vite child when the caller requested the exact preview opt-in. The
+// screen itself still requires import.meta.env.DEV, so production builds never
+// mount it.
+function buildViteEnv(appEnv, consolePreview) {
   return {
     ...appEnv,
     VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}`,
-    ...(devAuth ? { VITE_CONSOLE_DEV_PREVIEW: "1" } : {}),
+    ...(consolePreview ? { VITE_CONSOLE_DEV_PREVIEW: "1" } : {}),
   };
 }
 
@@ -726,7 +727,7 @@ async function cmdUp() {
   const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
   const web = spawn(npmBin, ["run", "web:dev"], {
     cwd: REPO_ROOT,
-    env: buildViteEnv(appEnv, process.env.MNT_DEV_AUTH_E2E === "1"),
+    env: buildViteEnv(appEnv, process.env.VITE_CONSOLE_DEV_PREVIEW === "1"),
     stdio: "inherit",
   });
 
@@ -881,7 +882,7 @@ async function cmdBootstrap() {
     log(`starting vite dev server in the background, logging to ${path.relative(REPO_ROOT, webLogFile)}...`);
     const web = spawn(npmBin, ["run", "web:dev"], {
       cwd: REPO_ROOT,
-      env: buildViteEnv(appEnv, devAuth),
+      env: buildViteEnv(appEnv, process.env.VITE_CONSOLE_DEV_PREVIEW === "1"),
       stdio: ["ignore", webOut, webOut],
       detached: process.platform !== "win32",
     });

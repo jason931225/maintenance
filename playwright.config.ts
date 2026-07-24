@@ -18,23 +18,18 @@ import { defineConfig, devices } from "@playwright/test";
  * switcher, and weakening its DEV-only predicate to make it render there is
  * exactly the wrong fix (mnt-gate-dev-auth-absence + dev_auth_absence.rs
  * already prove the feature is compiled OUT of a default/release build; this
- * spec proves the opposite build actually works). Attendance coverage needs the
- * exact paired local flags: `MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1
- * node scripts/dev-up.mjs bootstrap` starts the backend WITH dev-auth and the
- * console-preview Vite child. Then run `MNT_DEV_AUTH_E2E=1
- * VITE_CONSOLE_DEV_PREVIEW=1 npx playwright test --project=dev-auth`.
- * `node scripts/dev-up.mjs down` tears the stack down. Without the preview flag
- * Attendance is deliberately excluded from the dev-auth project; unset remains
- * the default everywhere else, including the production Browser E2E job.
+ * spec proves the opposite build actually works). Attendance coverage runs in
+ * that same production-faithful Vite development build; it exercises the active
+ * `/attendance` route, not the independently gated `/console/*` preview.
+ * `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap` starts the backend
+ * WITH dev-auth, `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`
+ * runs the suite, and `node scripts/dev-up.mjs down` tears the stack down.
  */
 const PORT = Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 const DEV_AUTH_SPEC =
   /(?:admin-29-console-window|auth-09-dev-role-switcher|chrome-0[123]-(?:mobile-drawer|axe|workspace)|console-01-shell|hr-30-absence-exit-settlement|attendance-31-console-live)\.spec\.ts$/;
 const DEV_AUTH_E2E = process.env.MNT_DEV_AUTH_E2E === "1";
-const DEV_AUTH_CONSOLE_PREVIEW =
-  DEV_AUTH_E2E && process.env.VITE_CONSOLE_DEV_PREVIEW === "1";
-const DEV_AUTH_CONSOLE_SPEC = /attendance-31-console-live\.spec\.ts$/;
 const STATIC_PREVIEW_FALLBACK = process.env.E2E_STATIC_PREVIEW_FALLBACK === "1";
 
 export default defineConfig({
@@ -68,12 +63,6 @@ export default defineConfig({
           {
             name: "dev-auth",
             testMatch: DEV_AUTH_SPEC,
-            // Attendance uses the separate console-preview dev gate. It is
-            // impossible to accidentally select that spec from a dev-auth run
-            // whose Vite child did not receive the matching flag.
-            ...(DEV_AUTH_CONSOLE_PREVIEW
-              ? {}
-              : { testIgnore: DEV_AUTH_CONSOLE_SPEC }),
             use: { ...devices["Desktop Chrome"] },
           },
         ]

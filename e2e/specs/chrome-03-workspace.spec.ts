@@ -7,6 +7,8 @@ import {
   removeVirtualAuthenticator,
 } from "../fixtures/auth";
 
+const TENANT_BRANCH_ID = "00000000-0000-0000-0000-0000000000c1";
+
 /**
  * UI-M1b ConsoleShell window-grammar guard.
  *
@@ -57,19 +59,54 @@ async function resetWorkspace(page: Page, accessToken: string) {
   expect(res.ok()).toBe(true);
 }
 
-async function seedPinnedSupportTicket(page: Page): Promise<string> {
+function accessTokenSubject(accessToken: string): string {
+  const payload = accessToken.split(".")[1];
+  if (!payload) throw new Error("dev-auth access token is not a JWT");
+  const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+    sub?: unknown;
+  };
+  if (typeof claims.sub !== "string" || claims.sub.length === 0) {
+    throw new Error("dev-auth access token is missing its subject");
+  }
+  return claims.sub;
+}
+
+async function seedPinnedSupportTicket(
+  page: Page,
+  accessToken: string,
+): Promise<string> {
   const title = `Workspace window grammar seed ${Date.now()}`;
-  const res = await page.request.post("/api/v1/support/intake", {
+  const authorization = `Bearer ${accessToken}`;
+  const create = await page.request.post("/api/v1/support/tickets", {
+    headers: { authorization },
     data: {
+      branch_id: TENANT_BRANCH_ID,
       category: "OPERATIONAL",
       priority: "URGENT",
       title,
       body: "Seeded by chrome-03-workspace to guarantee a real pinnable overview row.",
-      requester_name: "Workspace E2E",
-      requester_contact: "workspace-e2e@example.invalid",
     },
   });
-  expect(res.ok()).toBe(true);
+  expect(create.status()).toBe(201);
+  const created = (await create.json()) as { id?: unknown };
+  if (typeof created.id !== "string" || created.id.length === 0) {
+    throw new Error("created support ticket is missing its id");
+  }
+
+  // The overview is the caller's action inbox, not an all-ticket catalogue.
+  // Assign through the real support command so this object is a valid member
+  // before exercising the window grammar.
+  const assign = await page.request.post(
+    `/api/v1/support/tickets/${created.id}/assign`,
+    {
+      headers: { authorization },
+      data: {
+        assignee_user_id: accessTokenSubject(accessToken),
+        branch_id: TENANT_BRANCH_ID,
+      },
+    },
+  );
+  expect(assign.ok()).toBe(true);
   return title;
 }
 
@@ -119,7 +156,7 @@ test("window grammar: pin survives screen switch + reload, tray restore, Esc", a
   try {
     const accessToken = await loginWithDevRole(page);
     await resetWorkspace(page, accessToken);
-    const supportTicketTitle = await seedPinnedSupportTicket(page);
+    const supportTicketTitle = await seedPinnedSupportTicket(page, accessToken);
 
     // Use a hard navigation here on purpose: the later reload assertion needs a
     // durable refresh-cookie session. A fresh dev-auth persona has no passkey,

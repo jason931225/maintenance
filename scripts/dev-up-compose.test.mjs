@@ -359,7 +359,7 @@ test("dev seed uses the audited runtime compatibility boundary for ontology defi
   );
 });
 
-test("dev-auth bootstrap alone enables the console preview and CI preserves the paired fence", () => {
+test("dev-auth stays production-faithful while explicit console preview remains Vite-only", () => {
   const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const appRouter = readFileSync(new URL("../web/src/AppRouter.tsx", import.meta.url), "utf8");
   assert.match(
@@ -369,37 +369,40 @@ test("dev-auth bootstrap alone enables the console preview and CI preserves the 
   );
   assert.match(
     devUp,
-    /function buildViteEnv\(appEnv, devAuth\)[\s\S]*?\.\.\.\(devAuth \? \{ VITE_CONSOLE_DEV_PREVIEW: "1" \} : \{\}\)/,
-    "only an explicit dev-auth Vite child may receive the console preview flag",
+    /function buildViteEnv\(appEnv, consolePreview\)[\s\S]*?\.\.\.\(consolePreview \? \{ VITE_CONSOLE_DEV_PREVIEW: "1" \} : \{\}\)/,
+    "only an explicitly opted-in Vite child may receive the console preview flag",
   );
   assert.match(
     devUp,
-    /env: buildViteEnv\(appEnv, devAuth\)/,
-    "dev-auth bootstrap must start Vite with the console preview enabled",
+    /env: buildViteEnv\([\s\S]*?process\.env\.VITE_CONSOLE_DEV_PREVIEW === "1"/,
+    "Vite preview exposure must depend on the explicit preview flag, not dev-auth",
   );
   assert.match(
     appRouter,
     /dev: import\.meta\.env\.DEV,[\s\S]*?flag: import\.meta\.env\.VITE_CONSOLE_DEV_PREVIEW/,
     "the product route must retain its import.meta.env.DEV production fence alongside the preview flag",
   );
-  assert.match(
-    ci,
-    /dev-up bootstrap --features dev-auth[\s\S]*?MNT_DEV_AUTH_E2E: "1"[\s\S]*?VITE_CONSOLE_DEV_PREVIEW: "1"/,
-    "CI must request the paired dev-auth/console-preview stack",
+  const devAuthCi = ci.slice(
+    ci.indexOf("- name: dev-up bootstrap --features dev-auth"),
+    ci.indexOf("- name: Upload dev-auth e2e report"),
   );
   assert.match(
-    ci,
-    /Dev-mode e2e[\s\S]*?MNT_DEV_AUTH_E2E: "1"[\s\S]*?VITE_CONSOLE_DEV_PREVIEW: "1"/,
-    "CI test selection must use the same paired flags",
+    devAuthCi,
+    /MNT_DEV_AUTH_E2E: "1"/,
+  );
+  assert.doesNotMatch(
+    devAuthCi,
+    /VITE_CONSOLE_DEV_PREVIEW/,
+    "the fail-closed dev-auth gate must not globally expose preview inventory",
   );
 });
 
-test("authoritative dev-auth instructions pair console preview with every Attendance command", () => {
-  const pairedEnv = "MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1";
+test("authoritative dev-auth instructions keep preview independent", () => {
+  const devAuthEnv = "MNT_DEV_AUTH_E2E=1";
   const documentedCommands = [
-    `${pairedEnv} npm run dev:bootstrap`,
-    `${pairedEnv} node scripts/dev-up.mjs bootstrap`,
-    `${pairedEnv} npx playwright test --project=dev-auth`,
+    `${devAuthEnv} npm run dev:bootstrap`,
+    `${devAuthEnv} node scripts/dev-up.mjs bootstrap`,
+    `${devAuthEnv} npx playwright test --project=dev-auth`,
   ];
   for (const command of documentedCommands) {
     assert.match(ciGates, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -410,16 +413,16 @@ test("authoritative dev-auth instructions pair console preview with every Attend
       value.includes("MNT_DEV_AUTH_E2E=1") ||
       value.includes("npx playwright test --project=dev-auth")
     ) {
-      assert.match(value, /MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1/);
+      assert.doesNotMatch(value, /VITE_CONSOLE_DEV_PREVIEW=1/);
     }
   }
   assert.match(
     playwrightConfig,
-    /MNT_DEV_AUTH_E2E=1 VITE_CONSOLE_DEV_PREVIEW=1[\s\S]*?node scripts\/dev-up\.mjs bootstrap/,
+    /MNT_DEV_AUTH_E2E=1 node scripts\/dev-up\.mjs bootstrap/,
   );
   assert.match(
     playwrightConfig,
-    /MNT_DEV_AUTH_E2E=1[\s\S]*?VITE_CONSOLE_DEV_PREVIEW=1[\s\S]*?npx playwright test --project=dev-auth/,
+    /MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth/,
   );
   for (const source of e2eSpecInstructionSources) {
     for (const command of source.text.matchAll(/`([^`]+)`/g)) {
@@ -429,10 +432,10 @@ test("authoritative dev-auth instructions pair console preview with every Attend
         (value.includes("node scripts/dev-up.mjs bootstrap") ||
           value.includes("npx playwright test --project=dev-auth"))
       ) {
-        assert.match(
+        assert.doesNotMatch(
           value,
-          /MNT_DEV_AUTH_E2E=1[\s\S]*?VITE_CONSOLE_DEV_PREVIEW=1/,
-          `${source.path} must pair every copy-pastable dev-auth proof command with console preview`,
+          /VITE_CONSOLE_DEV_PREVIEW=1/,
+          `${source.path} must keep the fail-closed dev-auth proof independent of console preview`,
         );
       }
     }
