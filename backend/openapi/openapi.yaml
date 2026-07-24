@@ -14611,6 +14611,38 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/me/exceptions:
+    get:
+      tags: [attendance]
+      operationId: listMyAttendanceExceptions
+      summary: List only the signed principal's linked employee exceptions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: month, in: query, required: false, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: work_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: from_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [OPEN, RESOLVED] } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 1000000 } }
+      responses:
+        '200': { description: Linked employee exception page, or an empty page when the principal is unlinked, content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceExceptionPage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/me/week52:
+    get:
+      tags: [attendance]
+      operationId: getMyAttendanceWeek52
+      summary: Get the signed principal's linked employee Week-52 projection
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: week_start, in: query, required: true, schema: { type: string, format: date }, description: ISO week Monday. }
+      responses:
+        '200': { description: Linked employee Week-52 projection, or null when the principal is unlinked, content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceWeek52', nullable: true } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/attendance/exceptions/{exception_id}:
     get:
       tags: [attendance]
@@ -29983,6 +30015,26 @@ components:
       type: object
       required: [items, total, limit, offset]
       properties: { items: { type: array, items: { $ref: '#/components/schemas/AttendanceException' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    OwnAttendanceExceptionResolution:
+      type: object
+      additionalProperties: false
+      required: [action, reason, resolved_at]
+      properties: { action: { type: string }, reason: { type: string }, ot_hours: { type: string, nullable: true }, resolved_at: { type: string, format: date-time } }
+    OwnAttendanceException:
+      type: object
+      additionalProperties: false
+      required: [id, code, kind, status, work_date, occurred_at, detail, evidence, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, code: { type: string }, kind: { type: string, enum: [LATE, NO_SHOW, UNAPPROVED_OVERTIME, EARLY_LEAVE] }, status: { type: string, enum: [OPEN, RESOLVED] }, work_date: { type: string, format: date }, occurred_at: { type: string, format: date-time }, detail: { type: string }, evidence: { type: array, items: { $ref: '#/components/schemas/AttendanceExceptionEvidence' } }, resolution: { $ref: '#/components/schemas/OwnAttendanceExceptionResolution', nullable: true }, created_at: { type: string, format: date-time } }
+    OwnAttendanceExceptionPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/OwnAttendanceException' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    OwnAttendanceWeek52:
+      type: object
+      additionalProperties: false
+      required: [week_start, current_hours, projected_hours, tone]
+      properties: { week_start: { type: string, format: date }, current_hours: { type: number }, projected_hours: { type: number }, tone: { type: string, enum: [OK, WARN, DANGER] }, acknowledged_at: { type: string, format: date-time, nullable: true } }
     RaiseAttendanceExceptionRequest:
       type: object
       additionalProperties: false

@@ -30,6 +30,8 @@ use serde_json::json;
 use time::{Date, Duration};
 use uuid::Uuid;
 
+mod self_service;
+
 pub const ATTENDANCE_EXCEPTIONS_PATH: &str = "/api/v1/attendance/exceptions";
 pub const ATTENDANCE_EXCEPTION_DETAIL_PATH: &str = "/api/v1/attendance/exceptions/{exception_id}";
 pub const ATTENDANCE_EXCEPTION_RESOLVE_PATH: &str =
@@ -44,6 +46,8 @@ pub const ATTENDANCE_CLOSE_PREFLIGHT_PATH: &str = "/api/v1/attendance/closes/pre
 pub const ATTENDANCE_CLOSE_AMEND_PATH: &str = "/api/v1/attendance/closes/{close_id}/amendments";
 pub const ATTENDANCE_WEEK52_PATH: &str = "/api/v1/attendance/week52";
 pub const ATTENDANCE_WEEK52_ACK_PATH: &str = "/api/v1/attendance/week52/acks";
+pub const ATTENDANCE_ME_EXCEPTIONS_PATH: &str = "/api/v1/attendance/me/exceptions";
+pub const ATTENDANCE_ME_WEEK52_PATH: &str = "/api/v1/attendance/me/week52";
 pub const ATTENDANCE_ROUTE_PATHS: &[&str] = &[
     ATTENDANCE_EXCEPTIONS_PATH,
     ATTENDANCE_EXCEPTION_DETAIL_PATH,
@@ -56,19 +60,23 @@ pub const ATTENDANCE_ROUTE_PATHS: &[&str] = &[
     ATTENDANCE_CLOSE_AMEND_PATH,
     ATTENDANCE_WEEK52_PATH,
     ATTENDANCE_WEEK52_ACK_PATH,
+    ATTENDANCE_ME_EXCEPTIONS_PATH,
+    ATTENDANCE_ME_WEEK52_PATH,
 ];
 const READ: Feature = Feature::EmployeeDirectoryRead;
 const EXCEPTION_MANAGE: Feature = Feature::AttendanceExceptionManage;
 const SUBSTITUTION_MANAGE: Feature = Feature::AttendanceSubstitutionManage;
 const CLOSE: Feature = Feature::PeriodLockManage;
 const ATTENDANCE_REST_READS_TOTAL: &str = "attendance_rest_reads_total";
-const ATTENDANCE_READ_SURFACES: [&str; 6] = [
+const ATTENDANCE_READ_SURFACES: [&str; 8] = [
     "substitutions",
     "substitution_candidates",
     "exceptions",
     "exception_detail",
     "closes",
     "week52",
+    "me_exceptions",
+    "me_week52",
 ];
 
 struct AttendanceQuery<T>(T);
@@ -134,6 +142,14 @@ pub fn router(state: AttendanceRestState) -> Router {
         .route(ATTENDANCE_CLOSE_AMEND_PATH, post(amend_close))
         .route(ATTENDANCE_WEEK52_PATH, get(week52))
         .route(ATTENDANCE_WEEK52_ACK_PATH, post(acknowledge_week52))
+        .route(
+            ATTENDANCE_ME_EXCEPTIONS_PATH,
+            get(self_service::list_own_exceptions),
+        )
+        .route(
+            ATTENDANCE_ME_WEEK52_PATH,
+            get(self_service::read_own_week52),
+        )
         .with_state(state);
     mnt_platform_request_context::with_request_context(r, verifier, pool)
 }
@@ -1467,6 +1483,18 @@ mod tests {
         assert_invalid_query::<ListQuery>("/api/v1/attendance/exceptions?unexpected=true");
         assert_invalid_query::<CloseListQuery>("/api/v1/attendance/closes?unexpected=true");
         assert_invalid_query::<Week52Query>("/api/v1/attendance/week52?unexpected=true");
+        assert_invalid_query::<self_service::OwnExceptionsQuery>(
+            "/api/v1/attendance/me/exceptions?employee_id=00000000-0000-0000-0000-000000000001",
+        );
+        assert_invalid_query::<self_service::OwnExceptionsQuery>(
+            "/api/v1/attendance/me/exceptions?branch_id=00000000-0000-0000-0000-000000000001",
+        );
+        assert_invalid_query::<self_service::OwnWeek52Query>(
+            "/api/v1/attendance/me/week52?employee_id=00000000-0000-0000-0000-000000000001&week_start=2026-07-20",
+        );
+        assert_invalid_query::<self_service::OwnWeek52Query>(
+            "/api/v1/attendance/me/week52?branch_id=00000000-0000-0000-0000-000000000001&week_start=2026-07-20",
+        );
     }
 
     #[test]
@@ -1480,6 +1508,8 @@ mod tests {
                 "exception_detail",
                 "closes",
                 "week52",
+                "me_exceptions",
+                "me_week52",
             ]
         );
     }
@@ -1493,10 +1523,10 @@ mod tests {
     }
 
     #[test]
-    fn private_rest_surface_exposes_all_fourteen_canonical_operations() {
+    fn self_service_paths_extend_but_do_not_change_manager_route_inventory() {
         assert_eq!(
             ATTENDANCE_ROUTE_PATHS.len(),
-            11,
+            13,
             "some paths host two method-specific operations"
         );
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_EXCEPTION_DETAIL_PATH));
@@ -1509,6 +1539,11 @@ mod tests {
             "/api/v1/attendance/closes/{close_id}/amendments"
         );
         assert_eq!(ATTENDANCE_WEEK52_ACK_PATH, "/api/v1/attendance/week52/acks");
+        assert_eq!(
+            ATTENDANCE_ME_EXCEPTIONS_PATH,
+            "/api/v1/attendance/me/exceptions"
+        );
+        assert_eq!(ATTENDANCE_ME_WEEK52_PATH, "/api/v1/attendance/me/week52");
         assert!(
             !ATTENDANCE_ROUTE_PATHS.contains(&"/api/v1/attendance/closes/{close_id}/amend"),
             "the legacy singular amendment route must not remain mounted"

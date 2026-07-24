@@ -28,6 +28,8 @@ use uuid::Uuid;
 const TEST_ISSUER: &str = "mnt-platform-auth";
 const TEST_AUDIENCE: &str = "mnt-api";
 const ME_PATH: &str = "/api/v1/hr/attendance-records/me";
+const MY_EXCEPTIONS_PATH: &str = "/api/v1/attendance/me/exceptions";
+const MY_WEEK52_PATH: &str = "/api/v1/attendance/me/week52";
 
 struct Keys {
     private_pem: String,
@@ -121,6 +123,92 @@ async fn linked_member_reads_only_own_attendance(pool: PgPool) {
     assert_eq!(items[0]["employee_display_name"], "alice");
 }
 
+// The attendance-console self-service surface is a separate, signed-principal
+// read boundary. It deliberately does not require a manager feature grant.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn linked_member_reads_only_own_attendance_console_data(pool: PgPool) {
+    let keys = keys();
+    let alice = UserId::new();
+    let alice_employee = seed_linked_employee(&pool, alice, "MEMBER", "alice-console").await;
+    let bob = UserId::new();
+    let bob_employee = seed_linked_employee(&pool, bob, "MEMBER", "bob-console").await;
+    let unlinked = UserId::new();
+    seed_user(&pool, unlinked, "MEMBER").await;
+    seed_exception(&pool, alice, alice_employee, "alice-console-exception").await;
+    seed_exception(&pool, bob, bob_employee, "bob-console-exception").await;
+
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let alice_token = bearer(&keys, alice, "MEMBER");
+    let unlinked_token = bearer(&keys, unlinked, "MEMBER");
+
+    let own = get(
+        service.clone(),
+        &format!("{MY_EXCEPTIONS_PATH}?work_date=2026-07-20"),
+        &alice_token,
+    )
+    .await;
+    assert_eq!(own.status, StatusCode::OK, "{:?}", own.json);
+    assert_eq!(own.json["total"], 1);
+    let item = &own.json["items"][0];
+    assert_eq!(item["code"], "alice-console-exception");
+    for forbidden in ["employee_id", "employee_name", "team", "branch_id", "links"] {
+        assert!(item.get(forbidden).is_none(), "self DTO leaked {forbidden}");
+    }
+
+    let empty = get(
+        service.clone(),
+        &format!("{MY_EXCEPTIONS_PATH}?work_date=2026-07-20"),
+        &unlinked_token,
+    )
+    .await;
+    assert_eq!(empty.status, StatusCode::OK, "{:?}", empty.json);
+    assert_eq!(empty.json["total"], 0);
+    assert_eq!(empty.json["items"], json!([]));
+
+    let empty_week = get(
+        service.clone(),
+        &format!("{MY_WEEK52_PATH}?week_start=2026-07-20"),
+        &unlinked_token,
+    )
+    .await;
+    assert_eq!(empty_week.status, StatusCode::OK, "{:?}", empty_week.json);
+    assert!(empty_week.json.is_null());
+
+    for selector in ["employee_id", "branch_id"] {
+        let rejected = get(
+            service.clone(),
+            &format!("{MY_EXCEPTIONS_PATH}?work_date=2026-07-20&{selector}={alice_employee}"),
+            &alice_token,
+        )
+        .await;
+        assert_eq!(
+            rejected.status,
+            StatusCode::BAD_REQUEST,
+            "{:?}",
+            rejected.json
+        );
+        assert_eq!(rejected.json["error"]["code"], "invalid_query");
+    }
+
+    let non_monday = get(
+        service.clone(),
+        &format!("{MY_WEEK52_PATH}?week_start=2026-07-21"),
+        &alice_token,
+    )
+    .await;
+    assert_eq!(non_monday.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let method_not_allowed = send(
+        service,
+        "POST",
+        &format!("{MY_WEEK52_PATH}?week_start=2026-07-20"),
+        &alice_token,
+        None,
+    )
+    .await;
+    assert_eq!(method_not_allowed.status, StatusCode::METHOD_NOT_ALLOWED);
+}
+
 // ===========================================================================
 // Helpers (mirror workflow_runtime_instance_api.rs).
 // ===========================================================================
@@ -167,6 +255,21 @@ async fn seed_linked_employee(pool: &PgPool, user_id: UserId, role: &str, name: 
     .await
     .unwrap();
     employee_id
+}
+
+async fn seed_exception(pool: &PgPool, actor: UserId, employee_id: Uuid, code: &str) {
+    sqlx::query(
+        "INSERT INTO attendance_exceptions (org_id, code, kind, employee_id, work_date, occurred_at, detail, idempotency_key, request_fingerprint, created_by) VALUES ($1, $2, 'LATE', $3, DATE '2026-07-20', TIMESTAMPTZ '2026-07-20 09:00:00+00', 'late', $4, $5, $6)",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(code)
+    .bind(employee_id)
+    .bind(format!("{code}-idempotency-key"))
+    .bind("a".repeat(64))
+    .bind(*actor.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 async fn post(service: axum::Router, uri: &str, token: &str, body: Value) -> JsonResponse {
