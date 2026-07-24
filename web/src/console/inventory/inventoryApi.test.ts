@@ -11,6 +11,8 @@ import {
   getInventoryMrp,
   openCycleCount,
   submitCycleCount,
+  milliUnits,
+  nonNegativeMilliUnits,
 } from "./inventoryApi";
 
 const item = {
@@ -46,6 +48,12 @@ function response(data: unknown) {
 }
 
 describe("inventoryApi", () => {
+  it("distinguishes positive receipt quantities from non-negative cycle counts", () => {
+    expect(milliUnits("0")).toBeNull();
+    expect(nonNegativeMilliUnits("0")).toBe(0);
+    expect(nonNegativeMilliUnits("0.250")).toBe(250);
+    expect(nonNegativeMilliUnits("-1")).toBeNull();
+  });
   it("uses only generated inventory paths and forwards list filters", async () => {
     const GET = (path: string) => {
       if (path === "/api/v1/inventory/items") {

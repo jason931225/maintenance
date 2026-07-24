@@ -292,10 +292,16 @@ export function isAccessDenied(error: unknown): boolean {
 
 /** Converts a user-entered unit quantity into the contract's exact milli-unit integer. */
 export function milliUnits(value: string): number | null {
+  const milli = nonNegativeMilliUnits(value);
+  return milli != null && milli > 0 ? milli : null;
+}
+
+/** Converts a counted quantity into milli-units; physical cycle counts may be zero. */
+export function nonNegativeMilliUnits(value: string): number | null {
   const match = /^(?:0|[1-9]\d*)(?:\.(\d{1,3}))?$/.exec(value.trim());
   if (!match) return null;
   const whole = value.trim().split(".")[0];
   const fraction = (match[1] || "").padEnd(3, "0");
   const milli = Number(whole) * 1_000 + Number(fraction);
-  return Number.isSafeInteger(milli) && milli > 0 ? milli : null;
+  return Number.isSafeInteger(milli) && milli >= 0 ? milli : null;
 }
