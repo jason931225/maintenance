@@ -853,7 +853,16 @@ impl OntologyRestState {
                         principal, action_key, &command, &prepared, new_attrs,
                     )
                     .await
-                    .map_err(ActionError::Store)?;
+                    .map_err(|error| match &error {
+                        PgOntologyError::Domain(kernel)
+                            if kernel.kind == ErrorKind::Forbidden
+                                && kernel.message
+                                    == "action gate re-check failed inside the writeback transaction" =>
+                        {
+                            ActionError::GateDenied("an action gate is not satisfied".to_owned())
+                        }
+                        _ => ActionError::Store(error),
+                    })?;
                 Ok(ExecuteOutcome {
                     dispatch: ActionDispatch::InstanceRevision,
                     gates: receipt.gates.clone(),
@@ -1988,5 +1997,36 @@ mod tests {
         let left = serde_json::json!({"z": {"b": 2, "a": 1}, "a": [ {"d": 4, "c": 3} ]});
         let right = serde_json::json!({"a": [ {"c": 3, "d": 4} ], "z": {"a": 1, "b": 2}});
         assert_eq!(canonical_json(&left), canonical_json(&right));
+    }
+
+    #[test]
+    fn command_digest_ignores_current_instance_attributes() {
+        let command = ActionCommand {
+            object_type_id: ObjectTypeId::from_uuid(Uuid::new_v4()),
+            instance_id: Some(InstanceId::from_uuid(Uuid::new_v4())),
+            title: None,
+            params: serde_json::json!({"priority": "hi"}),
+            reason: Some("operator request".to_owned()),
+            valid_from: None,
+            checklist_all_acknowledged: Some(true),
+            four_eyes_request_ref: None,
+            command_id: Some(Uuid::new_v4()),
+            expected_revision: Some(7),
+        };
+
+        let before = action_command_digest(
+            "set_priority",
+            &command,
+            &serde_json::json!({"priority": "lo", "unrelated": "before"}),
+        )
+        .unwrap();
+        let after = action_command_digest(
+            "set_priority",
+            &command,
+            &serde_json::json!({"priority": "lo", "unrelated": "after"}),
+        )
+        .unwrap();
+
+        assert_eq!(before, after);
     }
 }

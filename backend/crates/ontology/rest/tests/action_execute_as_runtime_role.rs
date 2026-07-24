@@ -187,7 +187,15 @@ async fn count_execute_audits(owner_pool: &PgPool, org: OrgId) -> i64 {
     .bind(*org.as_uuid())
     .fetch_one(owner_pool)
     .await
-    .unwrap()
+        .unwrap()
+}
+
+async fn count_command_receipts(owner_pool: &PgPool, org: OrgId) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM ont_action_command_receipts WHERE org_id = $1")
+        .bind(*org.as_uuid())
+        .fetch_one(owner_pool)
+        .await
+        .unwrap()
 }
 
 fn create_command(object_type_id: ObjectTypeId, priority: &str) -> ActionCommand {
@@ -547,4 +555,152 @@ async fn command_receipt_replays_and_stale_editor_cannot_append(owner_pool: PgPo
         2,
         "create + one edit only"
     );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn command_receipt_rejects_same_org_cross_principal_reuse(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let actor_a = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
+    let actor_b = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "b").await;
+    let type_id = seed_instance_type_with_action(
+        &owner_pool,
+        org,
+        actor_a,
+        "wo.command.principal",
+        "set_priority",
+        json!(["authority"]),
+        json!([]),
+    )
+    .await;
+    let command_id = Uuid::new_v4();
+    let command = ActionCommand {
+        command_id: Some(command_id),
+        ..create_command(type_id, "hi")
+    };
+
+    mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor_a, org), "set_priority", command.clone())
+            .await
+    })
+    .await
+    .expect("the command owner must be able to execute it");
+
+    let err = mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor_b, org), "set_priority", command)
+            .await
+    })
+    .await
+    .expect_err("a different principal must not replay another principal's command");
+    assert!(
+        format!("{err:?}").contains("another principal"),
+        "got {err:?}"
+    );
+    assert_eq!(count_instances(&owner_pool, org).await, 1);
+    assert_eq!(count_execute_audits(&owner_pool, org).await, 1);
+    assert_eq!(count_command_receipts(&owner_pool, org).await, 1);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_same_command_creates_one_revision_audit_and_receipt(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
+    let type_id = seed_instance_type_with_action(
+        &owner_pool,
+        org,
+        actor,
+        "wo.command.concurrent",
+        "set_priority",
+        json!(["authority"]),
+        json!([]),
+    )
+    .await;
+    let command = create_command(type_id, "hi");
+    let first_command = command.clone();
+
+    let first = mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor, org), "set_priority", first_command)
+            .await
+    });
+    let second = mnt_platform_request_context::scope_org(org, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor, org), "set_priority", command)
+            .await
+    });
+    let (first, second) = tokio::join!(first, second);
+    let first = first.expect("first concurrent execution must succeed");
+    let second = second.expect("second concurrent execution must replay");
+    assert_eq!(
+        first.receipt.unwrap().payload_digest,
+        second.receipt.unwrap().payload_digest
+    );
+    assert_eq!(count_instances(&owner_pool, org).await, 1);
+    assert_eq!(count_execute_audits(&owner_pool, org).await, 1);
+    assert_eq!(count_command_receipts(&owner_pool, org).await, 1);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn command_id_can_be_reused_by_different_tenants(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
+    let org_a = OrgId::knl();
+    let org_b = OrgId::from_uuid(ORG_B);
+    let actor_a = seed_org_and_super_admin(&owner_pool, *org_a.as_uuid(), "a").await;
+    let actor_b = seed_org_and_super_admin(&owner_pool, *org_b.as_uuid(), "b").await;
+    let type_a = seed_instance_type_with_action(
+        &owner_pool,
+        org_a,
+        actor_a,
+        "wo.command.tenant.a",
+        "set_priority",
+        json!(["authority"]),
+        json!([]),
+    )
+    .await;
+    let type_b = seed_instance_type_with_action(
+        &owner_pool,
+        org_b,
+        actor_b,
+        "wo.command.tenant.b",
+        "set_priority",
+        json!(["authority"]),
+        json!([]),
+    )
+    .await;
+    let command_id = Uuid::new_v4();
+    let command_a = ActionCommand {
+        command_id: Some(command_id),
+        ..create_command(type_a, "hi")
+    };
+    let command_b = ActionCommand {
+        command_id: Some(command_id),
+        ..create_command(type_b, "hi")
+    };
+
+    mnt_platform_request_context::scope_org(org_a, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor_a, org_a), "set_priority", command_a)
+            .await
+    })
+    .await
+    .expect("tenant A command must succeed");
+    mnt_platform_request_context::scope_org(org_b, async {
+        state(&rt, &cmd)
+            .execute_action(&super_admin(actor_b, org_b), "set_priority", command_b)
+            .await
+    })
+    .await
+    .expect("tenant B may reuse tenant A's command id");
+
+    for org in [org_a, org_b] {
+        assert_eq!(count_instances(&owner_pool, org).await, 1);
+        assert_eq!(count_execute_audits(&owner_pool, org).await, 1);
+        assert_eq!(count_command_receipts(&owner_pool, org).await, 1);
+    }
 }
