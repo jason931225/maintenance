@@ -802,12 +802,12 @@ fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
     let ts_enum = bounded_section(
         TS,
         "        DispatchQueueStatus: ",
-        "        DispatchQueueStats: ",
+        "        DispatchQueueDispatch: {",
     );
     let swift_enum = bounded_section(
         SWIFT_TYPES,
-        "        public enum DispatchQueueStatus",
-        "        public struct DispatchQueueStats",
+        "        @frozen public enum DispatchQueueStatus",
+        "        public struct DispatchQueueDispatch",
     );
     for wire in [
         "RECEIVED",
