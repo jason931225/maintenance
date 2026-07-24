@@ -36,8 +36,14 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     let user = UserId::new();
     seed_user(&pool, org, user).await;
     let branch = seed_branch(&pool, org, "People test branch").await;
-    let service =
-        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let service = build_router(
+        app_state(
+            runtime_role_pool(&pool).await,
+            leave_command_role_pool(&pool).await,
+            keys.public_pem.clone(),
+        )
+        .unwrap(),
+    );
     let token = bearer(&keys, org, user);
     let body = create_body(branch, "PEOPLE-001", "same-key", "010-1234-5678", "Kim");
 
@@ -186,7 +192,10 @@ fn create_body(branch: Uuid, employee_number: &str, key: &str, phone: &str, name
 async fn seed_org(pool: &PgPool, org: OrgId) {
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
         .bind(*org.as_uuid())
-        .bind(format!("people-{}", org.as_uuid()))
+        .bind(format!(
+            "people-{}",
+            &org.as_uuid().simple().to_string()[..12]
+        ))
         .bind("People test org")
         .execute(pool)
         .await
@@ -301,12 +310,24 @@ fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
 }
 
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    scoped_role_pool(owner_pool, "mnt_rt").await
+}
+
+async fn leave_command_role_pool(owner_pool: &PgPool) -> PgPool {
+    scoped_role_pool(owner_pool, "mnt_leave_cmd").await
+}
+
+async fn scoped_role_pool(owner_pool: &PgPool, role: &'static str) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
         .max_connections(4)
-        .after_connect(|conn, _| {
+        .after_connect(move |conn, _| {
             Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                match role {
+                    "mnt_rt" => sqlx::query("SET ROLE mnt_rt").execute(conn).await?,
+                    "mnt_leave_cmd" => sqlx::query("SET ROLE mnt_leave_cmd").execute(conn).await?,
+                    _ => unreachable!("test role is fixed by its helper"),
+                };
                 Ok(())
             })
         })
@@ -315,7 +336,11 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
-fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::AppError> {
+fn app_state(
+    runtime_pool: PgPool,
+    leave_command_pool: PgPool,
+    public_key_pem: String,
+) -> Result<AppState, mnt_app::AppError> {
     let config = AppConfig::from_pairs([
         ("MNT_APP_ROLE", AppRole::Api.to_string()),
         ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
@@ -323,5 +348,6 @@ fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::
         ("MNT_JWT_AUDIENCE", TEST_AUDIENCE.to_owned()),
         ("MNT_JWT_PUBLIC_KEY_PEM", public_key_pem),
     ])?;
-    AppState::new(config, DatabaseDependency::Postgres(pool))
+    AppState::new(config, DatabaseDependency::Postgres(runtime_pool))
+        .map(|state| state.with_leave_command_database(leave_command_pool))
 }
