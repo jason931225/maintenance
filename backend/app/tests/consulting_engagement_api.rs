@@ -636,13 +636,26 @@ async fn assert_terminal_runtime_writes_rejected(
         ("consulting_initiatives", initiative_id),
         ("consulting_benefit_observations", observation_id),
     ] {
-        let error = execute_as_org(pool, org, &format!("DELETE FROM {table} WHERE id=$1"), id)
+        let error = execute_as_org(pool, org, consulting_delete_statement(table), id)
             .await
             .expect_err("runtime role must not delete consulting records");
         assert!(
             error.to_string().contains("permission denied"),
             "unexpected runtime DELETE error for {table}: {error}"
         );
+    }
+}
+
+fn consulting_delete_statement(table: &str) -> &'static str {
+    match table {
+        "consulting_engagements" => "DELETE FROM consulting_engagements WHERE id=$1",
+        "consulting_diagnostics" => "DELETE FROM consulting_diagnostics WHERE id=$1",
+        "consulting_findings" => "DELETE FROM consulting_findings WHERE id=$1",
+        "consulting_initiatives" => "DELETE FROM consulting_initiatives WHERE id=$1",
+        "consulting_benefit_observations" => {
+            "DELETE FROM consulting_benefit_observations WHERE id=$1"
+        }
+        _ => panic!("unknown consulting table in deletion allowlist: {table}"),
     }
 }
 
@@ -661,13 +674,11 @@ async fn assert_terminal_owner_deletes_rejected(
         ("consulting_initiatives", initiative_id),
         ("consulting_benefit_observations", observation_id),
     ] {
-        let error = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DELETE FROM {table} WHERE id=$1"
-        )))
-        .bind(id)
-        .execute(pool)
-        .await
-        .expect_err("terminal trigger must reject owner delete");
+        let error = sqlx::query(consulting_delete_statement(table))
+            .bind(id)
+            .execute(pool)
+            .await
+            .expect_err("terminal trigger must reject owner delete");
         assert_terminal_database_error(&error, &format!("owner DELETE on {table}"));
     }
 }
