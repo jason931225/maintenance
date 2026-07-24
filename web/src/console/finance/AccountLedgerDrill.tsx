@@ -94,11 +94,13 @@ export function AccountLedgerDrill({
   onClose: () => void;
 }) {
   const requestEpoch = useRef(0);
+  const activeController = useRef<AbortController | null>(null);
   const [retryEpoch, setRetryEpoch] = useState(0);
   const [state, setState] = useState<LedgerState>({ kind: "loading" });
 
   useEffect(() => {
     const controller = new AbortController();
+    activeController.current = controller;
     const epoch = ++requestEpoch.current;
     void listAccountDrillEntries(api, accountCode, controller.signal)
       .then((entries) => {
@@ -115,6 +117,7 @@ export function AccountLedgerDrill({
       });
     return () => {
       controller.abort();
+      if (activeController.current === controller) activeController.current = null;
     };
   }, [accountCode, api, retryEpoch]);
 
@@ -123,11 +126,17 @@ export function AccountLedgerDrill({
     setRetryEpoch((value) => value + 1);
   }, []);
 
+  const close = useCallback(() => {
+    requestEpoch.current += 1;
+    activeController.current?.abort();
+    onClose();
+  }, [onClose]);
+
   return (
     <section aria-label={copy.title(accountCode)} role="region" style={panelStyle}>
       <div style={headingStyle}>
         <span style={codeStyle}>{copy.title(accountCode)}</span>
-        <button type="button" onClick={onClose} style={buttonStyle}>{copy.close}</button>
+        <button type="button" onClick={close} style={buttonStyle}>{copy.close}</button>
       </div>
       {state.kind === "loading" ? <StatusChip role="status" tone="info">{copy.loading}</StatusChip> : null}
       {state.kind === "denied" ? <StatusChip role="alert" tone="danger">{copy.denied}</StatusChip> : null}

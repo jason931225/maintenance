@@ -9,6 +9,7 @@ import type { components } from "@maintenance/api-client-ts";
 
 import type { ConsoleApiClient } from "../../api/client";
 import { ApiCallError } from "../../api/ontologyActions";
+import { isUuid } from "../../lib/utils";
 
 export type VoucherStatus = components["schemas"]["VoucherStatus"];
 export type DebitCredit = components["schemas"]["DebitCredit"];
@@ -121,18 +122,44 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function isSafeWonAmount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
 }
 
 function hasPairedSourceIdentity(type: unknown, id: unknown): boolean {
   return (type == null && id == null) || (isString(type) && isString(id));
 }
 
+/** Mirrors the strict calendar/time/offset validation used by attendance DTOs.
+ * `Date.parse` alone accepts implementation-specific invalid values, so a
+ * successful parse is necessary but not sufficient for a backend RFC3339
+ * `date-time` field. */
+function isRfc3339DateTime(value: unknown): value is string {
+  if (!isString(value)) return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return false;
+  const [rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond] = match.slice(1, 7);
+  const [year, month, day, hour, minute, second] = [rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond].map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) return false;
+  const rawOffsetHour = match.at(8);
+  const rawOffsetMinute = match.at(9);
+  if (rawOffsetHour !== undefined && (Number(rawOffsetHour) > 23 || rawOffsetMinute === undefined || Number(rawOffsetMinute) > 59)) return false;
+  return Number.isFinite(Date.parse(value));
+}
+
 function isAccountDrillEntry(value: unknown): value is AccountDrillEntry {
   return (
     isRecord(value) &&
     isString(value.voucher_id) &&
+    isUuid(value.voucher_id) &&
     isString(value.voucher_no) &&
     (value.status === "DRAFT" ||
       value.status === "BALANCE_CHECKED" ||
@@ -140,11 +167,12 @@ function isAccountDrillEntry(value: unknown): value is AccountDrillEntry {
       value.status === "POSTED" ||
       value.status === "REVERSED") &&
     isString(value.line_id) &&
+    isUuid(value.line_id) &&
     isString(value.account_code) &&
     (value.side === "DEBIT" || value.side === "CREDIT") &&
-    isFiniteNumber(value.amount_won) &&
+    isSafeWonAmount(value.amount_won) &&
     hasPairedSourceIdentity(value.source_object_type, value.source_object_id) &&
-    isString(value.entry_at)
+    isRfc3339DateTime(value.entry_at)
   );
 }
 

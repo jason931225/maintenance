@@ -61,10 +61,10 @@ function createApi() {
     if (path === "/api/v1/finance-gl/accounts/{account_code}/entries") {
       return {
         data: [{
-          voucher_id: "v-1",
+          voucher_id: "11111111-1111-4111-8111-111111111111",
           voucher_no: "VC-1001",
           status: "POSTED",
-          line_id: "line-1",
+          line_id: "22222222-2222-4222-8222-222222222222",
           account_code: "101",
           side: "DEBIT",
           amount_won: 500_000,
@@ -155,8 +155,16 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
   });
 
   it("discards an older account-ledger response after the operator selects a different account", async () => {
-    const first = Promise.withResolvers<{ data: never[] }>();
-    const second = Promise.withResolvers<{ data: never[] }>();
+    const first = Promise.withResolvers<{ data: Array<{
+      voucher_id: string; voucher_no: string; status: "POSTED"; line_id: string;
+      account_code: string; side: "DEBIT"; amount_won: number;
+      source_object_type: string; source_object_id: string; entry_at: string;
+    }> }>();
+    const second = Promise.withResolvers<{ data: Array<{
+      voucher_id: string; voucher_no: string; status: "POSTED"; line_id: string;
+      account_code: string; side: "CREDIT"; amount_won: number;
+      source_object_type: string; source_object_id: string; entry_at: string;
+    }> }>();
     const api = createConsoleApiClient("finance-module-test-token");
     let accountCalls = 0;
     vi.spyOn(api, "GET").mockImplementation(async (path: unknown) => {
@@ -173,11 +181,34 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "계정 101" }));
     await userEvent.click(screen.getByRole("button", { name: "계정 201" }));
-    second.resolve({ data: [] });
-    expect(await screen.findByText("기록 없음")).toBeVisible();
-    first.resolve({ data: [] });
+    second.resolve({ data: [{
+      voucher_id: "33333333-3333-4333-8333-333333333333",
+      voucher_no: "VC-CURRENT",
+      status: "POSTED",
+      line_id: "44444444-4444-4444-8444-444444444444",
+      account_code: "201",
+      side: "CREDIT",
+      amount_won: 750_000,
+      source_object_type: "invoice",
+      source_object_id: "invoice-current",
+      entry_at: "2026-07-09T01:00:00Z",
+    }] });
+    expect(await screen.findByText("VC-CURRENT")).toBeVisible();
+    first.resolve({ data: [{
+      voucher_id: "55555555-5555-4555-8555-555555555555",
+      voucher_no: "VC-STALE",
+      status: "POSTED",
+      line_id: "66666666-6666-4666-8666-666666666666",
+      account_code: "101",
+      side: "DEBIT",
+      amount_won: 500_000,
+      source_object_type: "purchase_request",
+      source_object_id: "pr-stale",
+      entry_at: "2026-07-09T00:00:00Z",
+    }] });
     await waitFor(() => {
-      expect(screen.queryByText("STALE")).not.toBeInTheDocument();
+      expect(screen.getByText("VC-CURRENT")).toBeVisible();
+      expect(screen.queryByText("VC-STALE")).not.toBeInTheDocument();
     });
   });
 
