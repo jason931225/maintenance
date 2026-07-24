@@ -250,8 +250,11 @@ impl PayrollRunStatus {
     }
 }
 
-/// A close-to-payslip command. The adapter supplies its facts from the same
-/// organization-scoped transaction that updates the run.
+/// A close-to-payslip command.
+///
+/// Approval is a pure transition after close prerequisites have been proven.
+/// Calculation and issuance remain fail-closed until their regulated evidence
+/// contracts are available to the persistence and transport layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayrollRunCommand {
     Calculate,
@@ -286,9 +289,10 @@ pub struct PayrollRunTransition {
 /// its active payroll period lock, and no unresolved attendance exceptions.
 ///
 /// This pure guard is intentionally reusable by every persistence/transport
-/// adapter. It does not substitute for the regulated tax-source release gate;
-/// callers must continue to validate that separately before enabling actual
-/// calculation.
+/// adapter. It permits only the approval transition. Calculation remains
+/// blocked until immutable, validated release-gate evidence can be persisted;
+/// issuance remains blocked until a step-up-authorized actor, audit evidence,
+/// and immutable issuance artifact can be persisted together.
 pub fn transition_payroll_run(
     current: PayrollRunStatus,
     command: PayrollRunCommand,
@@ -298,9 +302,7 @@ pub fn transition_payroll_run(
     // later attendance correction or lock amendment must not turn a network
     // retry into a second mutation or a contradictory failure.
     match (current, command) {
-        (PayrollRunStatus::ReadyForReview, PayrollRunCommand::Calculate)
-        | (PayrollRunStatus::Approved, PayrollRunCommand::Approve { .. })
-        | (PayrollRunStatus::Issued, PayrollRunCommand::MarkIssued) => {
+        (PayrollRunStatus::Approved, PayrollRunCommand::Approve { .. }) => {
             return Ok(PayrollRunTransition {
                 status: current,
                 idempotent: true,
@@ -311,20 +313,11 @@ pub fn transition_payroll_run(
     validate_close_prerequisites(prerequisites)?;
 
     let (status, idempotent) = match command {
-        PayrollRunCommand::Calculate => match current {
-            PayrollRunStatus::Staged => (PayrollRunStatus::ReadyForReview, false),
-            PayrollRunStatus::BlockedLegalGate => {
-                return Err(KernelError::conflict(
-                    "payroll calculation remains blocked until the separate legal release gate is satisfied",
-                ));
-            }
-            PayrollRunStatus::ReadyForReview => unreachable!("handled as retry above"),
-            PayrollRunStatus::Approved | PayrollRunStatus::Issued | PayrollRunStatus::Void => {
-                return Err(KernelError::invalid_transition(
-                    "payroll calculation may only advance a staged run to review",
-                ));
-            }
-        },
+        PayrollRunCommand::Calculate => {
+            return Err(KernelError::conflict(
+                "payroll calculation is blocked until immutable validated release-gate evidence is persisted",
+            ));
+        }
         PayrollRunCommand::Approve {
             approver_is_creator,
         } => match current {
@@ -346,18 +339,11 @@ pub fn transition_payroll_run(
                 ));
             }
         },
-        PayrollRunCommand::MarkIssued => match current {
-            PayrollRunStatus::Approved => (PayrollRunStatus::Issued, false),
-            PayrollRunStatus::Issued => unreachable!("handled as retry above"),
-            PayrollRunStatus::Staged
-            | PayrollRunStatus::BlockedLegalGate
-            | PayrollRunStatus::ReadyForReview
-            | PayrollRunStatus::Void => {
-                return Err(KernelError::invalid_transition(
-                    "payroll issuance requires an approved run",
-                ));
-            }
-        },
+        PayrollRunCommand::MarkIssued => {
+            return Err(KernelError::conflict(
+                "payroll issuance is blocked until step-up authorization, audit evidence, and an immutable issuance artifact are persisted",
+            ));
+        }
     };
     Ok(PayrollRunTransition { status, idempotent })
 }
@@ -965,31 +951,42 @@ mod tests {
     }
 
     #[test]
-    fn close_to_payslip_lifecycle_requires_exact_closed_month_and_is_idempotent() {
-        let prerequisites = closed_june_prerequisites();
-        let calculated = transition_payroll_run(
+    fn calculation_is_blocked_without_persisted_validated_release_evidence() {
+        let error = transition_payroll_run(
             PayrollRunStatus::Staged,
             PayrollRunCommand::Calculate,
-            prerequisites,
+            closed_june_prerequisites(),
         )
-        .unwrap();
-        assert_eq!(calculated.status, PayrollRunStatus::ReadyForReview);
-        assert!(!calculated.idempotent);
+        .unwrap_err();
 
-        let calculation_retry = transition_payroll_run(
-            calculated.status,
-            PayrollRunCommand::Calculate,
-            PayrollClosePrerequisites {
-                org_month_close_present: false,
-                ..prerequisites
-            },
+        assert_eq!(error.kind, mnt_kernel_core::ErrorKind::Conflict);
+        assert!(
+            error
+                .message
+                .contains("immutable validated release-gate evidence")
+        );
+    }
+
+    #[test]
+    fn issuance_is_blocked_without_step_up_audit_and_immutable_artifact() {
+        let error = transition_payroll_run(
+            PayrollRunStatus::Approved,
+            PayrollRunCommand::MarkIssued,
+            closed_june_prerequisites(),
         )
-        .unwrap();
-        assert_eq!(calculation_retry.status, PayrollRunStatus::ReadyForReview);
-        assert!(calculation_retry.idempotent);
+        .unwrap_err();
 
+        assert_eq!(error.kind, mnt_kernel_core::ErrorKind::Conflict);
+        assert!(error.message.contains("step-up authorization"));
+        assert!(error.message.contains("audit evidence"));
+        assert!(error.message.contains("immutable issuance artifact"));
+    }
+
+    #[test]
+    fn approval_requires_exact_closed_month_and_is_idempotent_after_persistence() {
+        let prerequisites = closed_june_prerequisites();
         let approved = transition_payroll_run(
-            calculated.status,
+            PayrollRunStatus::ReadyForReview,
             PayrollRunCommand::Approve {
                 approver_is_creator: false,
             },
@@ -997,23 +994,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(approved.status, PayrollRunStatus::Approved);
+        assert!(!approved.idempotent);
 
-        let issued = transition_payroll_run(
-            approved.status,
-            PayrollRunCommand::MarkIssued,
-            prerequisites,
+        let retry = transition_payroll_run(
+            PayrollRunStatus::Approved,
+            PayrollRunCommand::Approve {
+                approver_is_creator: false,
+            },
+            PayrollClosePrerequisites {
+                org_month_close_present: false,
+                ..prerequisites
+            },
         )
         .unwrap();
-        assert_eq!(issued.status, PayrollRunStatus::Issued);
-        assert!(
-            transition_payroll_run(issued.status, PayrollRunCommand::MarkIssued, prerequisites,)
-                .unwrap()
-                .idempotent
-        );
+        assert!(retry.idempotent);
     }
 
     #[test]
-    fn close_to_payslip_lifecycle_fails_closed_on_missing_close_lock_or_exception() {
+    fn approval_fails_closed_on_missing_close_lock_or_exception() {
         let prerequisites = closed_june_prerequisites();
         for missing in [
             PayrollClosePrerequisites {
@@ -1035,8 +1033,10 @@ mod tests {
         ] {
             assert!(
                 transition_payroll_run(
-                    PayrollRunStatus::Staged,
-                    PayrollRunCommand::Calculate,
+                    PayrollRunStatus::ReadyForReview,
+                    PayrollRunCommand::Approve {
+                        approver_is_creator: false,
+                    },
                     missing,
                 )
                 .is_err()
@@ -1045,18 +1045,7 @@ mod tests {
     }
 
     #[test]
-    fn close_to_payslip_lifecycle_never_bypasses_the_existing_legal_gate() {
-        let error = transition_payroll_run(
-            PayrollRunStatus::BlockedLegalGate,
-            PayrollRunCommand::Calculate,
-            closed_june_prerequisites(),
-        )
-        .unwrap_err();
-        assert_eq!(error.kind, mnt_kernel_core::ErrorKind::Conflict);
-    }
-
-    #[test]
-    fn close_to_payslip_lifecycle_rejects_creator_self_approval() {
+    fn approval_rejects_creator_self_approval() {
         let error = transition_payroll_run(
             PayrollRunStatus::ReadyForReview,
             PayrollRunCommand::Approve {

@@ -12,7 +12,9 @@
 //!    include another employee's rows, even within the same run;
 //!  * an `employee_id` from a DIFFERENT org, looked up under this org's GUC,
 //!    yields zero rows rather than leaking the other org's row (RLS, not
-//!    application-level filtering, is the enforcement boundary).
+//!    application-level filtering, is the enforcement boundary);
+//!  * a proposed payroll approver from a DIFFERENT org is rejected by the
+//!    read-only tenant prerequisite before any future approval write exists.
 
 use mnt_kernel_core::{ErrorKind, OrgId, UserId};
 use mnt_payroll_adapter_postgres::PgPayrollStore;
@@ -79,49 +81,6 @@ async fn seed_run(owner_pool: &PgPool, org: Uuid, source_label: &str) -> Uuid {
     .fetch_one(owner_pool)
     .await
     .unwrap()
-}
-
-async fn seed_run_created_by(
-    owner_pool: &PgPool,
-    org: Uuid,
-    source_label: &str,
-    creator: UserId,
-) -> Uuid {
-    sqlx::query_scalar(
-        "INSERT INTO payroll_draft_runs (org_id, period_start, period_end, source_label, status, created_by) \
-         VALUES ($1, $2, $3, $4, 'STAGED', $5) RETURNING id",
-    )
-    .bind(org)
-    .bind(date!(2026 - 06 - 01))
-    .bind(date!(2026 - 06 - 30))
-    .bind(source_label)
-    .bind(*creator.as_uuid())
-    .fetch_one(owner_pool)
-    .await
-    .unwrap()
-}
-
-async fn seed_active_org_month_close(owner_pool: &PgPool, org: Uuid, attestor: UserId) {
-    let lock_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO period_locks (org_id, domain, period_start, period_end, reason, locked_by) \
-         VALUES ($1, 'payroll', DATE '2026-06-01', DATE '2026-06-30', 'attendance close', $2) \
-         RETURNING id",
-    )
-    .bind(org)
-    .bind(*attestor.as_uuid())
-    .fetch_one(owner_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO attendance_month_closes (org_id, month, checks, attested_by, period_lock_id) \
-         VALUES ($1, DATE '2026-06-01', '{\"exceptions\":\"resolved\"}'::jsonb, $2, $3)",
-    )
-    .bind(org)
-    .bind(*attestor.as_uuid())
-    .bind(lock_id)
-    .execute(owner_pool)
-    .await
-    .unwrap();
 }
 
 async fn seed_line(owner_pool: &PgPool, org: Uuid, run_id: Uuid, employee: Uuid, name: &str) {
@@ -291,90 +250,30 @@ async fn my_lines_for_a_foreign_org_employee_id_yields_nothing(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn close_to_payslip_commands_are_closed_month_gated_sod_safe_and_idempotent(pool: PgPool) {
-    let org = Uuid::new_v4();
-    seed_org(&pool, org, "PAYROLL-CLOSE").await;
-    let employee = seed_employee(&pool, org, "Payroll creator").await;
-    let creator = seed_user_linked_to_employee(&pool, org, employee).await;
-    let approver = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
-        .bind(*approver.as_uuid())
-        .bind("Payroll approver")
-        .bind(vec!["EXECUTIVE".to_string()])
-        .bind(org)
-        .execute(&pool)
-        .await
-        .unwrap();
-    seed_active_org_month_close(&pool, org, creator).await;
+async fn foreign_org_approver_is_rejected_under_runtime_rls(pool: PgPool) {
+    let org_a = Uuid::new_v4();
+    let org_b = Uuid::new_v4();
+    seed_org(&pool, org_a, "Approver A").await;
+    seed_org(&pool, org_b, "Approver B").await;
 
-    let run = seed_run_created_by(&pool, org, "june-close", creator).await;
-    let rt_pool = runtime_role_pool(&pool).await;
-    let store = PgPayrollStore::new(rt_pool);
-    let org_id = OrgId::from_uuid(org);
+    let employee_a = seed_employee(&pool, org_a, "Approver A").await;
+    let employee_b = seed_employee(&pool, org_b, "Approver B").await;
+    let user_a = seed_user_linked_to_employee(&pool, org_a, employee_a).await;
+    let user_b = seed_user_linked_to_employee(&pool, org_b, employee_b).await;
 
-    let calculated =
-        mnt_platform_request_context::scope_org(org_id, async { store.calculate_run(run).await })
-            .await
-            .unwrap();
-    assert_eq!(calculated.status, "READY_FOR_REVIEW");
-    assert!(!calculated.idempotent);
+    let store = PgPayrollStore::new(runtime_role_pool(&pool).await);
+    let org_a_id = OrgId::from_uuid(org_a);
 
-    let calculation_retry =
-        mnt_platform_request_context::scope_org(org_id, async { store.calculate_run(run).await })
-            .await
-            .unwrap();
-    assert!(calculation_retry.idempotent);
+    mnt_platform_request_context::scope_org(org_a_id, async {
+        store.assert_approver_belongs_to_current_org(user_a).await
+    })
+    .await
+    .unwrap();
 
-    let self_approval = mnt_platform_request_context::scope_org(org_id, async {
-        store.approve_run(run, creator).await
+    let error = mnt_platform_request_context::scope_org(org_a_id, async {
+        store.assert_approver_belongs_to_current_org(user_b).await
     })
     .await
     .unwrap_err();
-    assert_eq!(self_approval.kind(), ErrorKind::Forbidden);
-
-    let approved = mnt_platform_request_context::scope_org(org_id, async {
-        store.approve_run(run, approver).await
-    })
-    .await
-    .unwrap();
-    assert_eq!(approved.status, "APPROVED");
-    let approved_retry = mnt_platform_request_context::scope_org(org_id, async {
-        store.approve_run(run, approver).await
-    })
-    .await
-    .unwrap();
-    assert!(approved_retry.idempotent);
-
-    let issued =
-        mnt_platform_request_context::scope_org(org_id, async { store.mark_run_issued(run).await })
-            .await
-            .unwrap();
-    assert_eq!(issued.status, "ISSUED");
-    assert!(
-        mnt_platform_request_context::scope_org(org_id, async { store.mark_run_issued(run).await })
-            .await
-            .unwrap()
-            .idempotent
-    );
-
-    sqlx::query(
-        "INSERT INTO attendance_exceptions \
-         (org_id, code, kind, employee_id, work_date, detail, created_by, idempotency_key, request_fingerprint) \
-         VALUES ($1, 'AT-payroll-open', 'LATE', $2, DATE '2026-06-15', 'unresolved before payroll', $3, \
-                 'payroll-open-exception-0001', $4)",
-    )
-    .bind(org)
-    .bind(employee)
-    .bind(*creator.as_uuid())
-    .bind("a".repeat(64))
-    .execute(&pool)
-    .await
-    .unwrap();
-    let blocked_run = seed_run_created_by(&pool, org, "june-close-open-exception", creator).await;
-    let blocked = mnt_platform_request_context::scope_org(org_id, async {
-        store.calculate_run(blocked_run).await
-    })
-    .await
-    .unwrap_err();
-    assert_eq!(blocked.kind(), ErrorKind::Conflict);
+    assert_eq!(error.kind(), ErrorKind::Forbidden);
 }
