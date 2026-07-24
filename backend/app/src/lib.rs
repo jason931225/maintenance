@@ -473,9 +473,10 @@ pub struct AppConfig {
     /// Lifetime of a boot-seeded cold-start OTP (`MNT_COLDSTART_OTP_TTL_SECS`,
     /// default 3600s).
     pub coldstart_otp_ttl: time::Duration,
-    /// Number of configured reverse-proxy hops in front of the service
-    /// (`MNT_TRUSTED_PROXY_COUNT`, default 0). Forwarding headers are ignored
-    /// unless the direct peer is in [`Self::trusted_proxy_cidrs`].
+    /// Number of configured reverse-proxy hops in front of the service,
+    /// including the direct transport peer (`MNT_TRUSTED_PROXY_COUNT`, default
+    /// 0). Forwarding headers are ignored unless every configured hop is in
+    /// [`Self::trusted_proxy_cidrs`].
     pub trusted_proxy_count: usize,
     /// CIDRs allowed to present forwarding headers at process ingress
     /// (`MNT_TRUSTED_PROXY_CIDRS`, comma-separated). Required when the hop
@@ -969,8 +970,9 @@ fn parse_cookie_secure(raw: Option<&String>) -> Result<bool, AppError> {
     }
 }
 
-/// Number of trusted reverse proxies in front of the process. Zero is the
-/// fail-closed default: raw forwarding headers are ignored.
+/// Number of trusted reverse proxies in front of the process, including the
+/// direct transport peer. Zero is the fail-closed default: raw forwarding
+/// headers are ignored.
 fn parse_trusted_proxy_count(raw: Option<&String>) -> Result<usize, AppError> {
     match raw {
         Some(raw) => raw
@@ -4372,7 +4374,7 @@ mod trusted_ingress_tests {
     }
 
     #[tokio::test]
-    async fn ingress_uses_configured_proxy_suffix_and_rejects_prepended_xff() {
+    async fn ingress_accepts_only_a_complete_trusted_proxy_suffix() {
         async fn observed_client_ip(Extension(ip): Extension<TrustedClientIp>) -> String {
             ip.get().to_string()
         }
@@ -4384,7 +4386,7 @@ mod trusted_ingress_tests {
         );
         let mut request = Request::builder()
             .uri("/__test/client-ip")
-            .header("x-forwarded-for", "198.51.100.250, 203.0.113.7, 10.0.0.2")
+            .header("x-forwarded-for", "198.51.100.250, 10.0.0.2")
             .body(axum::body::Body::empty())
             .unwrap();
         request
@@ -4395,7 +4397,34 @@ mod trusted_ingress_tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        assert_eq!(&body[..], b"203.0.113.7");
+        assert_eq!(&body[..], b"198.51.100.250");
+    }
+
+    #[tokio::test]
+    async fn ingress_rejects_an_untrusted_configured_proxy_suffix() {
+        async fn observed_client_ip(Extension(ip): Extension<TrustedClientIp>) -> String {
+            ip.get().to_string()
+        }
+
+        let app = mnt_platform_request_context::with_trusted_client_ip(
+            axum::Router::new().route("/__test/client-ip", get(observed_client_ip)),
+            2,
+            vec!["10.0.0.0/8".parse().unwrap()],
+        );
+        let mut request = Request::builder()
+            .uri("/__test/client-ip")
+            .header("x-forwarded-for", "198.51.100.250, 203.0.113.7")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("10.0.0.3:443".parse::<SocketAddr>().unwrap()));
+
+        let response = app.oneshot(request).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"10.0.0.3");
     }
 
     #[tokio::test]

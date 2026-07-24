@@ -83,9 +83,12 @@ impl TrustedClientIp {
 ///
 /// A forwarding header is considered only when the deployment explicitly
 /// configures one or more trusted proxy hops *and* Axum supplied the direct
-/// transport peer.  Malformed or incomplete chains fall back to that peer;
-/// they never promote an attacker-controlled header value.  This is the only
-/// place that interprets `X-Forwarded-For` in the HTTP process.
+/// transport peer. `trusted_proxy_count` includes that direct peer; every
+/// remaining expected proxy hop is validated right-to-left against the trusted
+/// CIDRs before the client value immediately to its left is accepted. Malformed
+/// or incomplete chains fall back to that peer; they never promote an
+/// attacker-controlled header value. This is the only place that interprets
+/// `X-Forwarded-For` in the HTTP process.
 #[must_use]
 pub fn resolve_trusted_client_ip(
     headers: &HeaderMap,
@@ -118,15 +121,23 @@ pub fn resolve_trusted_client_ip(
         return peer.ip();
     };
 
-    // The configured count is the number of proxy addresses to the right of
-    // the client in the chain.  A short chain cannot establish that boundary,
-    // so fail closed to the direct transport peer instead of clamping into a
-    // potentially caller-prepended value.
-    entries
-        .len()
-        .checked_sub(trusted_proxy_count)
-        .and_then(|index| entries.get(index).copied())
-        .unwrap_or_else(|| peer.ip())
+    // `trusted_proxy_count` includes the direct peer. The remaining trusted
+    // proxy hops must be the rightmost XFF entries. Validate that complete
+    // suffix before accepting the entry immediately to its left as the client.
+    // This rejects a caller-prepended chain that merely happens to be long
+    // enough, instead of treating an arbitrary untrusted suffix as a proxy.
+    let Some(client_index) = entries.len().checked_sub(trusted_proxy_count) else {
+        return peer.ip();
+    };
+    if entries[client_index + 1..].iter().any(|hop| {
+        !trusted_proxy_cidrs
+            .iter()
+            .any(|network| network.contains(hop))
+    }) {
+        return peer.ip();
+    }
+
+    entries[client_index]
 }
 
 /// Insert a [`TrustedClientIp`] extension at the process ingress.
@@ -701,16 +712,31 @@ mod tests {
     }
 
     #[test]
-    fn ingress_resolver_uses_only_the_configured_trusted_suffix() {
+    fn ingress_resolver_accepts_a_complete_trusted_proxy_suffix() {
         let headers = HeaderMap::from_iter([(
             "x-forwarded-for",
-            "198.51.100.250, 203.0.113.7, 10.0.0.2".parse().unwrap(),
+            "198.51.100.250, 10.0.0.2".parse().unwrap(),
         )]);
         let peer = "10.0.0.3:443".parse().unwrap();
 
         assert_eq!(
             resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
-            "203.0.113.7".parse().unwrap()
+            "198.51.100.250".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_an_untrusted_configured_proxy_suffix() {
+        let headers = HeaderMap::from_iter([(
+            "x-forwarded-for",
+            "198.51.100.250, 203.0.113.7".parse().unwrap(),
+        )]);
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "an untrusted suffix cannot be treated as an intermediary proxy"
         );
     }
 

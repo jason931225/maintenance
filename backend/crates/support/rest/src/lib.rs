@@ -758,8 +758,8 @@ impl IntoResponse for RestError {
 
 #[cfg(test)]
 mod tests {
-    use super::client_ip;
     use axum::http::HeaderMap;
+    use mnt_platform_request_context::TrustedClientIp;
 
     #[sqlx::test(migrations = "../../platform/db/migrations")]
     async fn rate_limit_trips_at_cap_and_resets_after_window(pool: sqlx::PgPool) {
@@ -769,7 +769,7 @@ mod tests {
         use time::OffsetDateTime;
 
         let store = PgSupportStore::new(pool);
-        let headers = headers_with_xff("203.0.113.50");
+        let headers = HeaderMap::new();
         let window1 = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
 
         for attempt in 0..RATE_LIMIT_PER_IP {

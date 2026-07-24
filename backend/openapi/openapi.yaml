@@ -6332,6 +6332,7 @@ paths:
           minimum: 1
           maximum: 200
           default: 50
+          description: Values above 200 are rejected with 422; they are never silently clamped.
       - name: offset
         in: query
         required: false
@@ -6347,6 +6348,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserPage'
+        '400':
+          description: Malformed query string (for example an unparsable boolean or repeated scalar parameter); no directory query ran.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

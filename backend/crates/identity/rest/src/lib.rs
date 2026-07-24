@@ -31,11 +31,12 @@ use mnt_identity_adapter_postgres::{PgOrgError, PgOrgStore};
 use mnt_identity_application::{
     ActivateUserCommand, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
     CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
-    DeactivateRegionCommand, DeactivateUserCommand, DirectoryListQuery, PolicyAuditEventSummary,
-    PolicyRoleAssignmentSummary, PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary,
-    PolicyVersionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
-    UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
-    UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserSummary,
+    DeactivateRegionCommand, DeactivateUserCommand, DirectoryListQuery, MAX_DIRECTORY_PAGE_LIMIT,
+    PolicyAuditEventSummary, PolicyRoleAssignmentSummary, PolicyRoleCondition,
+    PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
+    ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand, UpdatePolicyRoleCommand,
+    UpdatePolicyRoleStatusCommand, UpdateRegionCommand, UpdateSelfProfileCommand,
+    UpdateUserCommand, UserListQuery, UserSummary,
 };
 use mnt_identity_domain::{Team, normalize_directory_search};
 use mnt_kernel_core::{
@@ -398,8 +399,11 @@ impl DirectoryListRequest {
                     .map_err(|_| RestError::validation("branch_id must be a UUID"))
             })
             .transpose()?;
-        if self.limit.is_some_and(|limit| limit <= 0) {
-            return Err(RestError::validation("limit must be positive"));
+        if self
+            .limit
+            .is_some_and(|limit| !(1..=MAX_DIRECTORY_PAGE_LIMIT).contains(&limit))
+        {
+            return Err(RestError::validation("limit must be between 1 and 200"));
         }
         if self.offset.is_some_and(|offset| offset < 0) {
             return Err(RestError::validation("offset must be non-negative"));
@@ -4167,6 +4171,19 @@ mod directory_query_tests {
         };
         assert_eq!(
             invalid_offset.into_query().unwrap_err().status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+
+        let oversized_limit = DirectoryListRequest {
+            search: None,
+            team: None,
+            branch_id: None,
+            include_inactive: false,
+            limit: Some(MAX_DIRECTORY_PAGE_LIMIT + 1),
+            offset: None,
+        };
+        assert_eq!(
+            oversized_limit.into_query().unwrap_err().status,
             StatusCode::UNPROCESSABLE_ENTITY
         );
     }

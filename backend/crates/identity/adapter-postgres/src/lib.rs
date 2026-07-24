@@ -12,14 +12,15 @@ use mnt_identity_application::{
     ActivateUserCommand, BranchSummary, CreateBranchCommand,
     CreatePolicyAssignmentPreviewReceiptCommand, CreatePolicyRoleCommand, CreateRegionCommand,
     CreateUserCommand, DeactivateBranchCommand, DeactivateRegionCommand, DeactivateUserCommand,
-    DirectoryListQuery, EmployeeLinkStatus, PolicyAssignmentPreviewReceiptSummary,
-    PolicyAuditEventSummary, PolicyRoleAssignmentSummary, PolicyRoleCondition,
-    PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary, RegionSummary,
-    ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand, UpdatePolicyRoleCommand,
-    UpdatePolicyRoleStatusCommand, UpdateRegionCommand, UpdateSelfProfileCommand,
-    UpdateUserCommand, UserListQuery, UserPage, UserSummary, account_status_for,
-    branch_audit_event, policy_account_audit_event, policy_role_assignment_audit_event,
-    policy_role_audit_event, region_audit_event, user_audit_event,
+    DirectoryListQuery, EmployeeLinkStatus, MAX_DIRECTORY_PAGE_LIMIT,
+    PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
+    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
+    RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
+    UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
+    UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserPage, UserSummary,
+    account_status_for, branch_audit_event, policy_account_audit_event,
+    policy_role_assignment_audit_event, policy_role_audit_event, region_audit_event,
+    user_audit_event,
 };
 use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
@@ -803,7 +804,7 @@ impl PgOrgStore {
         let limit = query
             .limit
             .unwrap_or(DEFAULT_USER_LIMIT)
-            .clamp(1, MAX_USER_LIMIT);
+            .clamp(1, MAX_DIRECTORY_PAGE_LIMIT);
         let offset = query.offset.unwrap_or(0).max(0);
         // A requested branch is not an additional SQL predicate: it narrows
         // the effective authorization scope itself. Keeping the two EXISTS
