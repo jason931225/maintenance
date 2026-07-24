@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PinButton } from "../../components/shell/workspace/PinButton";
 import { RefreshButton } from "../../components/shell/RefreshButton";
@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { attendanceStrings as attendanceText } from "../../i18n/attendance";
 import { formatKoreanDateTime } from "../../lib/datetime";
 import { attendanceRecordToPin } from "../workspace/adapters";
 
@@ -59,11 +60,14 @@ interface AttendancePunchPanelProps {
 
 /** Reusable personal punch, payroll-linkage, and attendance-history panel. */
 export function AttendancePunchPanel({ active = true }: AttendancePunchPanelProps = {}) {
+  const { session } = useAuth();
+  const sessionIdentity = session?.client_session_incarnation ?? session?.access_token;
   if (!active) return null;
-  return <AttendancePunchPanelInner />;
+  if (!sessionIdentity) return null;
+  return <AttendancePunchPanelInner key={sessionIdentity} sessionIdentity={sessionIdentity} />;
 }
 
-function AttendancePunchPanelInner() {
+function AttendancePunchPanelInner({ sessionIdentity }: { sessionIdentity: string }) {
   const { api, session } = useAuth();
   const t = ko.attendance;
   const [state, setState] = useState<ReadState>("loading");
@@ -72,19 +76,24 @@ function AttendancePunchPanelInner() {
   const [action, setAction] = useState<AttendanceKind>();
   const [recordFailure, setRecordFailure] = useState<RecordFailure>();
   const [replayedRecordId, setReplayedRecordId] = useState<string>();
-  const loadRecords = useCallback(async () => {
+  const generation = useRef(0);
+  const readController = useRef<AbortController | undefined>(undefined);
+  const operationController = useRef<AbortController | undefined>(undefined);
+  const loadRecords = useCallback(async (signal?: AbortSignal, token = generation.current) => {
     setState("loading");
     setStatus(undefined);
     let failureStatus: number | undefined;
     const response = (await api
       .GET("/api/v1/hr/attendance-records/me", {
         params: { query: { limit: 50, offset: 0 } },
+        signal,
       })
       .catch((error: unknown) => {
         failureStatus = errorStatus(error);
         return undefined;
       })) as ApiResult<EmployeeAttendanceRecordPage> | undefined;
 
+    if (signal?.aborted || generation.current !== token) return;
     if (response?.data === undefined) {
       setStatus(response ? response.response.status : failureStatus);
       setState("error");
@@ -96,9 +105,26 @@ function AttendancePunchPanelInner() {
     setState("idle");
   }, [api]);
 
-  useEffect(() => {
-    void Promise.resolve().then(loadRecords);
+  const refreshRecords = useCallback(() => {
+    readController.current?.abort();
+    const controller = new AbortController();
+    readController.current = controller;
+    void loadRecords(controller.signal, generation.current);
   }, [loadRecords]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    readController.current = controller;
+    const token = ++generation.current;
+    void Promise.resolve().then(() => loadRecords(controller.signal, token));
+    return () => {
+      controller.abort();
+      readController.current?.abort();
+      operationController.current?.abort();
+      if (readController.current === controller) readController.current = undefined;
+      generation.current += 1;
+    };
+  }, [loadRecords, sessionIdentity]);
 
   const latest = items.length > 0 ? items[0] : undefined;
   const currentState = latest?.state_after ?? "OFF_DUTY";
@@ -107,6 +133,10 @@ function AttendancePunchPanelInner() {
 
   const handleRecord = useCallback(
     async (kind: AttendanceKind) => {
+      const token = generation.current;
+      operationController.current?.abort();
+      const controller = new AbortController();
+      operationController.current = controller;
       const idempotencyKey =
         recordFailure?.kind === kind
           ? recordFailure.idempotencyKey
@@ -123,11 +153,12 @@ function AttendancePunchPanelInner() {
       setReplayedRecordId(undefined);
 
       const response = (await api
-        .POST("/api/v1/hr/attendance-records/me", { body })
+        .POST("/api/v1/hr/attendance-records/me", { body, signal: controller.signal })
         .catch((error: unknown) => {
           failureStatus = errorStatus(error);
           return undefined;
         })) as ApiResult<EmployeeAttendanceRecord> | undefined;
+      if (controller.signal.aborted || generation.current !== token) return;
       setAction(undefined);
 
       if (response?.data === undefined) {
@@ -141,7 +172,7 @@ function AttendancePunchPanelInner() {
 
       setStatus(response.response.status);
       setReplayedRecordId(response.data.duplicate ? response.data.id : undefined);
-      await loadRecords();
+      await loadRecords(controller.signal, token);
     },
     [api, idPrefix, loadRecords, recordFailure],
   );
@@ -152,12 +183,10 @@ function AttendancePunchPanelInner() {
     <section className="grid max-w-5xl gap-5" aria-labelledby="attendance-personal-heading">
       <div className="flex items-center justify-between gap-3">
         <h3 id="attendance-personal-heading" className="text-xl font-semibold text-ink">
-          출퇴근 및 기록
+          {attendanceText.personal.punch}
         </h3>
         <RefreshButton
-          onClick={() => {
-            void loadRecords();
-          }}
+          onClick={refreshRecords}
           isLoading={state === "loading"}
         />
       </div>
@@ -166,9 +195,7 @@ function AttendancePunchPanelInner() {
           <PageError
             message={t.loadFailed}
             status={status}
-            onRetry={() => {
-              void loadRecords();
-            }}
+            onRetry={refreshRecords}
           />
         ) : null}
 

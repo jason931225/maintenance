@@ -41,7 +41,7 @@ export function AttendanceScreenBody({ active = true }: { active?: boolean }) {
   const personalAttendance = (
     <section className="grid gap-5" aria-labelledby="attendance-personal-area-heading">
       <h2 id="attendance-personal-area-heading" className="text-xl font-semibold text-ink">
-        개인 근태
+        {text.personal.title}
       </h2>
       <AttendancePunchPanel active={active} />
       {selfServicePanel}
@@ -105,6 +105,3 @@ function AuthenticatedAttendanceBody({
 }
 
 /** Public module route uses the same prop-less authenticated body as the registry. */
-export function AttendanceConsoleRoute() {
-  return <AttendanceScreenBody />;
-}

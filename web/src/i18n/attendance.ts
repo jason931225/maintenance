@@ -14,6 +14,8 @@ export const attendanceStrings = {
   loadError: "불러오지 못했습니다.",
   actionError: "요청을 처리하지 못했습니다.",
   today: "오늘",
+  personal: { title: "개인 근태", punch: "출퇴근 및 기록" },
+  manager: { title: "근태 운영" },
 
   header: {
     liveSuffix: "실시간 현황",

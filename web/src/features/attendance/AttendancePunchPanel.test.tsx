@@ -68,7 +68,7 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(session: AuthSession): AuthContextValue {
+function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
   return {
     session,
     restoring: false,
@@ -80,19 +80,17 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
+    api: createConsoleApiClient(session?.access_token ?? ""),
   };
 }
 
-function renderApp() {
+function renderApp(session: AuthSession | undefined = {
+  access_token: "a",
+  user_id: "user-1",
+  roles: ["MECHANIC"],
+}) {
   return render(
-    <AuthContext.Provider
-      value={makeAuthContext({
-        access_token: "a",
-        user_id: "user-1",
-        roles: ["MECHANIC"],
-      })}
-    >
+    <AuthContext.Provider value={makeAuthContext(session)}>
       <AttendancePunchPanel />
     </AuthContext.Provider>,
   );
@@ -186,5 +184,36 @@ describe("AttendancePunchPanel", () => {
       await screen.findByText("근태 기록을 불러오지 못했습니다."),
     ).toBeInTheDocument();
     expect(screen.queryByText("김현장")).not.toBeInTheDocument();
+  });
+
+  it("fences deferred session-A reads and writes after session replacement or logout", async () => {
+    const user = userEvent.setup();
+    let resolveReadA!: (response: HttpResponse) => void;
+    let resolvePostA!: (response: HttpResponse) => void;
+    const readA = new Promise<HttpResponse>((resolve) => { resolveReadA = resolve; });
+    const postA = new Promise<HttpResponse>((resolve) => { resolvePostA = resolve; });
+    let reads = 0;
+    server.use(
+      http.get("*/api/v1/hr/attendance-records/me", () => {
+        reads += 1;
+        if (reads === 1) return readA;
+        return HttpResponse.json({ items: [{ ...baseRecord, employee_display_name: "B 직원", payroll_material_ref_id: "B-PAYROLL" }] });
+      }),
+      http.post("*/api/v1/hr/attendance-records/me", () => postA),
+    );
+    const sessionA: AuthSession = { access_token: "a", user_id: "user-a", roles: ["MECHANIC"] };
+    const sessionB: AuthSession = { access_token: "b", user_id: "user-b", roles: ["MECHANIC"] };
+    const view = renderApp(sessionA);
+    await screen.findByRole("button", { name: "출근 기록" });
+    await user.click(screen.getByRole("button", { name: "출근 기록" }));
+    view.rerender(<AuthContext.Provider value={makeAuthContext(sessionB)}><AttendancePunchPanel /></AuthContext.Provider>);
+    expect(await screen.findByText("B-PAYROLL")).toBeInTheDocument();
+    resolveReadA(HttpResponse.json({ items: [{ ...baseRecord, employee_display_name: "A 직원", payroll_material_ref_id: "A-PAYROLL" }] }));
+    resolvePostA(HttpResponse.json(baseRecord));
+    await Promise.resolve();
+    expect(screen.queryByText("A-PAYROLL")).not.toBeInTheDocument();
+    expect(reads).toBe(2);
+    view.rerender(<AuthContext.Provider value={makeAuthContext(undefined)}><AttendancePunchPanel /></AuthContext.Provider>);
+    expect(screen.queryByRole("heading", { name: "출퇴근 및 기록" })).not.toBeInTheDocument();
   });
 });

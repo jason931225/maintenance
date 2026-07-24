@@ -394,10 +394,10 @@ function AttendanceScreenBodyInner({
   };
 
   return (
-    <section className="attendance" aria-label="근태 운영" aria-busy={busy}>
+    <section className="attendance" aria-label={text.manager.title} aria-busy={busy}>
       <div className="attendance__header">
         <div>
-          <h2>근태 운영</h2>
+          <h2 className="attendance__manager-title">{text.manager.title}</h2>
           <div className="attendance__headmeta">
             <span>
               {today} · {text.header.liveSuffix}
