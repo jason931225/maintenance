@@ -635,9 +635,11 @@ async fn version(tx: &mut sqlx::Transaction<'_, Postgres>, id: Uuid) -> Result<i
         .map_err(DbError::from)
 }
 fn request_hash(body: &CreateEngagement) -> String {
+    // Keep keys in lexical order so the canonical bytes are identical whether
+    // serde_json uses its default sorted map or the `preserve_order` feature.
     let canonical = serde_json::json!({
-        "customer_id": body.customer_id,
         "customer_document_id": body.customer_document_id,
+        "customer_id": body.customer_id,
         "ontology_instance_id": body.ontology_instance_id,
         "title": body.title.trim(),
     });
