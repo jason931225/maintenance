@@ -286,13 +286,10 @@ fn create_body(fixture: &Fixture, key: &str) -> Value {
     })
 }
 
-async fn release_body(pool: &PgPool, fixture: &Fixture, plan_id: &str, key: &str) -> Value {
+async fn release_body(fixture: &Fixture, plan: &Value, key: &str) -> Value {
     let approval = Uuid::new_v4();
-    let digest: String = sqlx::query_scalar("SELECT plan_digest FROM production_plans WHERE id=$1")
-        .bind(Uuid::parse_str(plan_id).unwrap())
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let plan_id = plan["id"].as_str().unwrap();
+    let digest = plan["plan_digest"].as_str().unwrap();
     sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,$4,$5,$6,$7,'approved')")
         .bind(approval).bind(*fixture.org.as_uuid()).bind(Uuid::new_v4()).bind(format!("release:v1:{digest}")).bind(Uuid::parse_str(plan_id).unwrap()).bind(*fixture.planner.as_uuid()).bind(*fixture.reviewer.as_uuid()).execute(pool).await.unwrap();
     json!({"expected_version": 1, "approval_ref": approval, "idempotency_key": key})
@@ -362,7 +359,7 @@ async fn planner_reviewer_operator_complete_a_durable_production_lifecycle(pool:
         service.clone(),
         &format!("/api/v1/production/plans/{plan_id}/release"),
         &reviewer_token,
-        release_body(&pool, &fixture, plan_id, "production-release-1").await,
+        release_body(&fixture, &plan, "production-release-1").await,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{released:?}");
@@ -413,7 +410,7 @@ async fn release_requires_the_bound_reviewer_and_consumes_the_approval_once(pool
     .await;
     assert_eq!(status, StatusCode::CREATED, "{plan:?}");
     let plan_id = plan["id"].as_str().unwrap();
-    let body = release_body(&pool, &fixture, plan_id, "bound-release").await;
+    let body = release_body(&fixture, &plan, "bound-release").await;
     let uri = format!("/api/v1/production/plans/{plan_id}/release");
     let (status, self_release) = post(service.clone(), &uri, &planner, body.clone()).await;
     assert_eq!(status, StatusCode::CONFLICT, "{self_release:?}");
@@ -683,7 +680,7 @@ async fn operation_record_rejects_a_terminal_operation_write(pool: PgPool) {
         service.clone(),
         &format!("/api/v1/production/plans/{plan_id}/release"),
         &reviewer_token,
-        release_body(&pool, &fixture, plan_id, "production-terminal-release").await,
+        release_body(&fixture, &plan, "production-terminal-release").await,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{release:?}");

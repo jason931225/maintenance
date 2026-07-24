@@ -27731,7 +27731,7 @@ components:
           format: int64
     ProductionPlan:
       type: object
-      required: [id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at]
+      required: [id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at, plan_digest]
       properties:
         id: {$ref: '#/components/schemas/Uuid'}
         branch_id: {$ref: '#/components/schemas/Uuid'}
@@ -27743,6 +27743,7 @@ components:
         first_operation_id: {$ref: '#/components/schemas/Uuid'}
         created_at: {type: string, format: date-time}
         due_at: {type: string, format: date-time}
+        plan_digest: {type: string, pattern: '^[0-9a-f]{64}$', description: Immutable server-computed digest required in the matching release approval kind.}
     ProductionCapacitySlot:
       type: object
       required: [id, branch_id, site_id, capacity_date, available_quantity, reserved_quantity, version, source_ref, evaluated_at]
@@ -27804,11 +27805,12 @@ components:
       - $ref: '#/components/schemas/ProductionMaterialIngress'
     RegisterProductionSourceSystem:
       type: object
-      required: [branch_id, principal_id, source_system]
+      required: [branch_id, principal_id, source_system, credential]
       properties:
         branch_id: {$ref: '#/components/schemas/Uuid'}
         principal_id: {$ref: '#/components/schemas/Uuid'}
         source_system: {type: string, minLength: 1, maxLength: 80}
+        credential: {type: string, minLength: 32, maxLength: 512, writeOnly: true}
     ProductionDemandIngress:
       type: object
       required: [kind, branch_id, id, inquiry_id, product_code, quantity, due_at, source_id, source_version]

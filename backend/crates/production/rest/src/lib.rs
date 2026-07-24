@@ -13,7 +13,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{BranchId, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -145,6 +145,11 @@ struct RegisterSourceSystem {
     branch_id: BranchId,
     principal_id: Uuid,
     source_system: String,
+    credential: String,
+}
+#[derive(Deserialize)]
+struct RotateSourceSystem {
+    credential: String,
 }
 #[derive(Deserialize, Serialize)]
 struct RecordOperation {
@@ -235,7 +240,7 @@ async fn list_plans(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let rows = sqlx::query("SELECT id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at FROM production_plans WHERE branch_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3")
+    let rows = sqlx::query("SELECT id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at, plan_digest FROM production_plans WHERE branch_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3")
         .bind(*query.branch_id.as_uuid()).bind(query.limit).bind(query.offset).fetch_all(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok(Json(
@@ -275,6 +280,7 @@ async fn register_source_system(
             "source_system is required and must be at most 80 characters",
         ));
     }
+    valid_source_credential(&request.credential)?;
     let principal = principal(&state, &headers).await?;
     authorize(
         &principal,
@@ -286,8 +292,8 @@ async fn register_source_system(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let id: Uuid = sqlx::query_scalar("INSERT INTO production_source_systems (org_id,branch_id,principal_id,source_system,registered_by) VALUES ($1,$2,$3,$4,$5) RETURNING id")
-        .bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.principal_id).bind(request.source_system.trim()).bind(*principal.user_id.as_uuid()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+    let id: Uuid = sqlx::query_scalar("INSERT INTO production_source_systems (org_id,branch_id,principal_id,source_system,credential_hash,registered_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id")
+        .bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.principal_id).bind(request.source_system.trim()).bind(hash_credential(&request.credential)).bind(*principal.user_id.as_uuid()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok((
         StatusCode::CREATED,
@@ -300,21 +306,22 @@ async fn rotate_source_system(
     State(state): State<ProductionRestState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Json(request): Json<RotateSourceSystem>,
 ) -> Result<Json<serde_json::Value>, RestError> {
-    source_system_lifecycle(&state, &headers, id, true).await
+    source_system_lifecycle(&state, &headers, id, Some(request.credential)).await
 }
 async fn disable_source_system(
     State(state): State<ProductionRestState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, RestError> {
-    source_system_lifecycle(&state, &headers, id, false).await
+    source_system_lifecycle(&state, &headers, id, None).await
 }
 async fn source_system_lifecycle(
     state: &ProductionRestState,
     headers: &HeaderMap,
     id: Uuid,
-    rotate: bool,
+    new_credential: Option<String>,
 ) -> Result<Json<serde_json::Value>, RestError> {
     let principal = principal(state, headers).await?;
     let org = mnt_platform_request_context::current_org()
@@ -334,11 +341,12 @@ async fn source_system_lifecycle(
         BranchId::from_uuid(branch_id),
     )
     .map_err(RestError::kernel)?;
-    let row = if rotate {
-        sqlx::query("UPDATE production_source_systems SET credential_generation=credential_generation+1, rotated_by=$1, rotated_at=now() WHERE id=$2 AND enabled=true RETURNING enabled,credential_generation")
+    let row = if let Some(credential) = new_credential {
+        valid_source_credential(&credential)?;
+        sqlx::query("UPDATE production_source_systems SET credential_hash=$1, credential_generation=credential_generation+1, rotated_by=$2, rotated_at=now() WHERE id=$3 AND enabled=true RETURNING enabled,credential_generation").bind(hash_credential(&credential)).bind(*principal.user_id.as_uuid()).bind(id)
     } else {
-        sqlx::query("UPDATE production_source_systems SET enabled=false, disabled_by=$1, disabled_at=now() WHERE id=$2 AND enabled=true RETURNING enabled,credential_generation")
-    }.bind(*principal.user_id.as_uuid()).bind(id).fetch_optional(&mut *tx).await.map_err(RestError::db)?
+        sqlx::query("UPDATE production_source_systems SET enabled=false, disabled_by=$1, disabled_at=now() WHERE id=$2 AND enabled=true RETURNING enabled,credential_generation").bind(*principal.user_id.as_uuid()).bind(id)
+    }.fetch_optional(&mut *tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::conflict("source system is already disabled"))?;
     let enabled: bool = row.try_get("enabled").map_err(RestError::db)?;
     let generation: i32 = row
@@ -365,6 +373,11 @@ async fn ingest_source(
         | SourceIngress::Material { branch_id, .. } => *branch_id,
     };
     let principal = principal(&state, &headers).await?;
+    if principal.roles.len() != 1 || !principal.roles.contains(&Role::Member) {
+        return Err(RestError::unauthorized(
+            "production source ingress requires a non-human service principal",
+        ));
+    }
     authorize(
         &principal,
         Action::limited(Feature::ProductionSourceIngest),
@@ -390,17 +403,33 @@ async fn ingest_source(
             ..
         } => ("MATERIAL", source_id.clone(), source_version.clone()),
     };
-    if source_id.trim().is_empty() || source_version.trim().is_empty() {
-        return Err(RestError::validation("source id and version are required"));
+    if source_id.trim().is_empty()
+        || source_version.trim().is_empty()
+        || source_id.len() > 160
+        || source_version.len() > 160
+    {
+        return Err(RestError::validation(
+            "source id and version are required and must be at most 160 characters",
+        ));
     }
     let request_hash = hash_request(&request)?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let source = sqlx::query("SELECT id, source_system FROM production_source_systems WHERE principal_id=$1 AND branch_id=$2 AND enabled=true FOR UPDATE")
+    let credential = headers
+        .get("x-production-source-credential")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| RestError::unauthorized("production source credential is required"))?;
+    let source = sqlx::query("SELECT id, source_system, credential_hash FROM production_source_systems WHERE principal_id=$1 AND branch_id=$2 AND enabled=true FOR UPDATE")
         .bind(*principal.user_id.as_uuid()).bind(*branch_id.as_uuid()).fetch_optional(&mut *tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::unauthorized("registered enabled production source workload is required"))?;
     let source_system_id: Uuid = source.try_get("id").map_err(RestError::db)?;
     let source_system: String = source.try_get("source_system").map_err(RestError::db)?;
+    let credential_hash: String = source.try_get("credential_hash").map_err(RestError::db)?;
+    if hash_credential(credential) != credential_hash {
+        return Err(RestError::unauthorized(
+            "production source credential is invalid",
+        ));
+    }
     sqlx::query("INSERT INTO production_source_ingress_claims (org_id,source_system_id,kind,source_id,source_version,payload_hash,ingested_by) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING")
         .bind(*org.as_uuid()).bind(source_system_id).bind(kind).bind(source_id.trim()).bind(source_version.trim()).bind(&request_hash).bind(*principal.user_id.as_uuid()).execute(&mut *tx).await.map_err(RestError::db)?;
     let claim = sqlx::query("SELECT payload_hash,response FROM production_source_ingress_claims WHERE org_id=$1 AND source_system_id=$2 AND kind=$3 AND source_id=$4 AND source_version=$5 FOR UPDATE")
@@ -555,6 +584,7 @@ async fn create_plan(
         first_operation_id: operation_id,
         created_at: now,
         due_at: request.due_at,
+        plan_digest,
     };
     sqlx::query("UPDATE production_idempotency_claims SET response=$1,completed_at=now() WHERE org_id=$2 AND operation='CREATE_PLAN' AND idempotency_key=$3")
         .bind(serde_json::to_value(&plan).map_err(|_| RestError::internal("could not serialize idempotency response"))?)
@@ -739,6 +769,7 @@ async fn get_plan(
             first_operation_id: plan.first_operation_id,
             created_at: plan.created_at,
             due_at: plan.due_at,
+            plan_digest: plan.plan_digest.clone(),
         },
         checks: plan.checks,
         events,
@@ -757,6 +788,7 @@ struct PlanRow {
     first_operation_id: Uuid,
     created_at: OffsetDateTime,
     due_at: OffsetDateTime,
+    plan_digest: String,
     created_by: Uuid,
     plan_digest: String,
     checks: serde_json::Value,
@@ -888,6 +920,7 @@ async fn plan_for_auth_tx(
         first_operation_id: r.try_get("first_operation_id").map_err(RestError::db)?,
         created_at: r.try_get("created_at").map_err(RestError::db)?,
         due_at: r.try_get("due_at").map_err(RestError::db)?,
+        plan_digest: r.try_get("plan_digest").map_err(RestError::db)?,
         created_by: r.try_get("created_by").map_err(RestError::db)?,
         plan_digest: r.try_get("plan_digest").map_err(RestError::db)?,
         checks: r.try_get("checks").map_err(RestError::db)?,
@@ -958,6 +991,7 @@ fn plan_summary_from_plan(plan: &PlanRow) -> PlanSummary {
         first_operation_id: plan.first_operation_id,
         created_at: plan.created_at,
         due_at: plan.due_at,
+        plan_digest: plan.plan_digest.clone(),
     }
 }
 async fn event(
@@ -1025,6 +1059,21 @@ fn hash_request<T: Serialize>(request: &T) -> Result<String, RestError> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect())
+}
+fn hash_credential(credential: &str) -> String {
+    Sha256::digest(credential.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+fn valid_source_credential(credential: &str) -> Result<(), RestError> {
+    if credential.len() < 32 || credential.len() > 512 {
+        Err(RestError::validation(
+            "source credential must be 32..512 bytes",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

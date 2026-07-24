@@ -6,6 +6,7 @@ CREATE TABLE production_source_systems (
     branch_id UUID NOT NULL,
     principal_id UUID NOT NULL,
     source_system TEXT NOT NULL CHECK (btrim(source_system) <> '' AND char_length(source_system) <= 80),
+    credential_hash TEXT NOT NULL CHECK (credential_hash ~ '^[a-f0-9]{64}$'),
     enabled BOOLEAN NOT NULL DEFAULT true,
     credential_generation INTEGER NOT NULL DEFAULT 1 CHECK (credential_generation > 0),
     registered_by UUID NOT NULL,
