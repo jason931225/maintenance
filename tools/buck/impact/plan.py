@@ -153,14 +153,53 @@ def require_commit(repo: Path, revision: str, name: str) -> str:
     return revision
 
 
-def receipt(name: str, argv: list[str], result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+def receipt(
+    name: str,
+    argv: list[str],
+    result: subprocess.CompletedProcess[str],
+    *,
+    normalized_stdout: str | None = None,
+) -> dict[str, Any]:
     return {
         "name": name,
         "argv": argv,
         "exit_code": result.returncode,
-        "stdout_sha256": sha256(result.stdout),
+        # `audit cell` contains temporary-worktree absolute paths.  Its receipt
+        # must preserve the exact command while hashing its canonical semantics,
+        # otherwise equivalent immutable snapshots produce nondeterministic
+        # manifests solely because their temporary directory names differ.
+        "stdout_sha256": sha256(result.stdout if normalized_stdout is None else normalized_stdout),
         "stderr_sha256": sha256(result.stderr),
     }
+
+
+def canonical_cell_map(worktree: Path, raw_audit_cell: str) -> dict[str, str]:
+    """Turn `buck audit cell` paths into a stable cell -> repo-relative map.
+
+    Buck emits absolute paths.  A cell outside the immutable snapshot cannot be
+    compared safely as a repository configuration, so reject it rather than
+    accidentally accepting a host-specific mapping.
+    """
+    # macOS may render the same temporary directory as `/tmp` or `/private/tmp`.
+    # Resolve existing parents before calculating the repository-relative path.
+    root = worktree.resolve()
+    cells: dict[str, str] = {}
+    for line in raw_audit_cell.splitlines():
+        if not line.strip():
+            continue
+        name, separator, location = line.partition(": ")
+        if not separator or not name or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+            raise PlannerError(f"unparseable Buck audit cell output: {line!r}")
+        if name in cells:
+            raise PlannerError(f"duplicate cell in Buck audit output: {name}")
+        try:
+            relative = Path(location).resolve().relative_to(root)
+        except ValueError as error:
+            raise PlannerError(f"Buck cell {name} is outside immutable worktree: {location}") from error
+        cells[name] = relative.as_posix() if relative.parts else "."
+    if not cells:
+        raise PlannerError("Buck audit cell produced no cells")
+    return dict(sorted(cells.items()))
 
 
 def git_output(repo: Path, args: list[str], receipts: list[dict[str, Any]], name: str) -> str:
@@ -226,7 +265,7 @@ def parse_universe(raw: str) -> list[dict[str, Any]]:
     return normalize_universe(entries)
 
 
-def buck_probe(worktree: Path, revision: str, receipts: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+def buck_probe(worktree: Path, revision: str, receipts: list[dict[str, Any]]) -> tuple[dict[str, str], list[dict[str, Any]]]:
     buck = worktree / "tools/buck2"
     if not buck.is_file():
         raise PlannerError(f"candidate {revision} does not contain the pinned tools/buck2 manifest")
@@ -239,11 +278,21 @@ def buck_probe(worktree: Path, revision: str, receipts: list[dict[str, Any]]) ->
     results: list[subprocess.CompletedProcess[str]] = []
     for name, argv in commands:
         result = subprocess.run(argv, cwd=worktree, env=env, text=True, capture_output=True, check=False)
-        receipts.append(receipt(name, ["tools/buck2", *argv[1:]], result))
         if result.returncode != 0:
+            receipts.append(receipt(name, ["tools/buck2", *argv[1:]], result))
             raise PlannerError(f"{name} failed for {revision}: {result.stderr.strip() or result.stdout.strip()}")
         results.append(result)
-    return results[0].stdout, parse_universe(results[1].stdout)
+    cells = canonical_cell_map(worktree, results[0].stdout)
+    receipts.append(
+        receipt(
+            "buck-audit-cell",
+            ["tools/buck2", "audit", "cell"],
+            results[0],
+            normalized_stdout=encode_manifest(cells),
+        )
+    )
+    receipts.append(receipt("buck-target-universe", ["tools/buck2", *commands[1][1][1:]], results[1]))
+    return cells, parse_universe(results[1].stdout)
 
 
 def plan(repo: Path, base: str, candidate: str) -> dict[str, Any]:
@@ -269,7 +318,7 @@ def plan(repo: Path, base: str, candidate: str) -> dict[str, Any]:
                 worktrees[label] = path
             base_cell, _ = buck_probe(worktrees["base"], base, receipts)
             candidate_cell, universe = buck_probe(worktrees["candidate"], candidate, receipts)
-            config_compatible = config_compatible and sha256(base_cell) == sha256(candidate_cell)
+            config_compatible = config_compatible and base_cell == candidate_cell
         finally:
             for label, path in worktrees.items():
                 result = run(repo, ["worktree", "remove", "--force", str(path)])
@@ -283,7 +332,10 @@ def plan(repo: Path, base: str, candidate: str) -> dict[str, Any]:
         config_compatible=config_compatible,
         universe=universe,
         receipts=receipts,
-        graph_identity={"base": base_identity, "candidate": candidate_identity},
+        graph_identity={
+            "base": {**base_identity, "cell_map": base_cell},
+            "candidate": {**candidate_identity, "cell_map": candidate_cell},
+        },
     )
 
 
