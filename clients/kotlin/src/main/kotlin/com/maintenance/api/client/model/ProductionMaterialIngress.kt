@@ -60,7 +60,8 @@ data class ProductionMaterialIngress (
     @SerialName(value = "source_version")
     val sourceVersion: kotlin.String
 
-) {
+) :
+    ProductionSourceIngress {
 
     /**
      *

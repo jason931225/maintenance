@@ -6,105 +6,61 @@
  *
  */
 
-@file:Suppress(
-    "ArrayInDataClass",
-    "DuplicatedCode",
-    "EnumEntryName",
-    "RemoveRedundantQualifierName",
-    "RemoveRedundantCallsOfConversionMethods",
-    "REDUNDANT_CALL_OF_CONVERSION_METHOD",
-    "RedundantUnitReturnType",
-    "RemoveEmptyClassBody",
-    "UnnecessaryVariable",
-    "UnusedImport",
-    "UnnecessaryVariable",
-    "unused"
-)
-
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.ProductionCapacityIngress
-import com.maintenance.api.client.model.ProductionDemandIngress
-import com.maintenance.api.client.model.ProductionMaterialIngress
-
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Contextual
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 
-/**
- *
- *
- * @param kind
- * @param id
- * @param inquiryId
- * @param productCode
- * @param quantity
- * @param dueAt
- * @param sourceId
- * @param sourceVersion
- * @param siteId
- * @param capacityDate
- * @param availableQuantity
- * @param materialItemId
- * @param quantityOnHandMilli
- * @param safetyStockMilli
- */
-@Serializable
+@Serializable(with = ProductionSourceIngressSerializer::class)
+sealed interface ProductionSourceIngress
 
-data class ProductionSourceIngress (
+object ProductionSourceIngressSerializer : KSerializer<ProductionSourceIngress> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("ProductionSourceIngress")
 
-    @SerialName(value = "kind")
-    val kind: ProductionSourceIngress.Kind,
-
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
-
-    @Contextual @SerialName(value = "inquiry_id")
-    val inquiryId: java.util.UUID,
-
-    @SerialName(value = "product_code")
-    val productCode: kotlin.String,
-
-    @SerialName(value = "quantity")
-    val quantity: kotlin.Long,
-
-    @Contextual @SerialName(value = "due_at")
-    val dueAt: java.time.OffsetDateTime,
-
-    @SerialName(value = "source_id")
-    val sourceId: kotlin.String,
-
-    @SerialName(value = "source_version")
-    val sourceVersion: kotlin.String,
-
-    @Contextual @SerialName(value = "site_id")
-    val siteId: java.util.UUID,
-
-    @Contextual @SerialName(value = "capacity_date")
-    val capacityDate: java.time.LocalDate,
-
-    @SerialName(value = "available_quantity")
-    val availableQuantity: kotlin.Long,
-
-    @Contextual @SerialName(value = "material_item_id")
-    val materialItemId: java.util.UUID,
-
-    @SerialName(value = "quantity_on_hand_milli")
-    val quantityOnHandMilli: kotlin.Long,
-
-    @SerialName(value = "safety_stock_milli")
-    val safetyStockMilli: kotlin.Long
-
-) {
-
-    /**
-     *
-     *
-     * Values: MATERIAL
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "material") MATERIAL("material");
+    override fun deserialize(decoder: Decoder): ProductionSourceIngress {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: throw SerializationException("ProductionSourceIngress can only be decoded from JSON")
+        val element = jsonDecoder.decodeJsonElement()
+        val objectValue = element as? JsonObject
+            ?: throw SerializationException("ProductionSourceIngress must decode from a JSON object")
+        val discriminator = (objectValue["kind"] as? JsonPrimitive)
+            ?.takeUnless { it is JsonNull }
+            ?.content
+            ?: throw SerializationException("ProductionSourceIngress requires string discriminator kind")
+        return when (discriminator) {
+            "capacity" -> jsonDecoder.json.decodeFromJsonElement(ProductionCapacityIngress.serializer(), element)
+            "demand" -> jsonDecoder.json.decodeFromJsonElement(ProductionDemandIngress.serializer(), element)
+            "material" -> jsonDecoder.json.decodeFromJsonElement(ProductionMaterialIngress.serializer(), element)
+            else -> throw SerializationException("Unknown ProductionSourceIngress kind: " + discriminator)
+        }
     }
 
+    override fun serialize(encoder: Encoder, value: ProductionSourceIngress) {
+        val jsonEncoder = encoder as? JsonEncoder
+            ?: throw SerializationException("ProductionSourceIngress can only be encoded as JSON")
+        val (expectedDiscriminator, element) = when (value) {
+            is ProductionCapacityIngress -> "capacity" to jsonEncoder.json.encodeToJsonElement(ProductionCapacityIngress.serializer(), value)
+            is ProductionDemandIngress -> "demand" to jsonEncoder.json.encodeToJsonElement(ProductionDemandIngress.serializer(), value)
+            is ProductionMaterialIngress -> "material" to jsonEncoder.json.encodeToJsonElement(ProductionMaterialIngress.serializer(), value)
+        }
+        val actualDiscriminator = ((element as? JsonObject)?.get("kind") as? JsonPrimitive)
+            ?.takeUnless { it is JsonNull }
+            ?.content
+        if (actualDiscriminator != expectedDiscriminator) {
+            throw SerializationException("ProductionSourceIngress serializer expected kind " + expectedDiscriminator)
+        }
+        jsonEncoder.encodeJsonElement(element)
+    }
 }

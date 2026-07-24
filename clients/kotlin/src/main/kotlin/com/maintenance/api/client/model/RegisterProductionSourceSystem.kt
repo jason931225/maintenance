@@ -32,9 +32,7 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param branchId
- * @param principalId
  * @param sourceSystem
- * @param credential
  */
 @Serializable
 
@@ -43,14 +41,8 @@ data class RegisterProductionSourceSystem (
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,
 
-    @Contextual @SerialName(value = "principal_id")
-    val principalId: java.util.UUID,
-
     @SerialName(value = "source_system")
-    val sourceSystem: kotlin.String,
-
-    @SerialName(value = "credential")
-    val credential: kotlin.String
+    val sourceSystem: kotlin.String
 
 ) {
 
