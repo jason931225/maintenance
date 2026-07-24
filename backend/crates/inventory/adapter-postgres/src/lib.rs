@@ -359,6 +359,7 @@ impl PgInventoryStore {
                     source.source,
                     quantity,
                     memo.as_deref(),
+                    command.occurred_at,
                 );
 
                 // The event uniqueness constraint is the durable backstop, but a
@@ -1014,6 +1015,7 @@ fn request_fingerprint(
     source: InventoryConsumptionSource,
     quantity: PositiveQuantityMilli,
     memo: Option<&str>,
+    occurred_at: Option<time::OffsetDateTime>,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(item_id.as_uuid().as_bytes());
@@ -1025,6 +1027,16 @@ fn request_fingerprint(
     hasher.update(quantity.value().to_be_bytes());
     if let Some(memo) = memo {
         hasher.update(memo.as_bytes());
+    }
+    match occurred_at {
+        Some(occurred_at) => {
+            hasher.update(b"occurred_at:explicit");
+            hasher.update(occurred_at.unix_timestamp_nanos().to_be_bytes());
+        }
+        // `requested_at` is server metadata, not a caller-controlled payload
+        // field. Omitted `occurred_at` therefore has a stable presence tag and
+        // deliberately contributes no generated timestamp to the fingerprint.
+        None => hasher.update(b"occurred_at:omitted"),
     }
     hex::encode(hasher.finalize())
 }
