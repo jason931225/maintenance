@@ -352,7 +352,7 @@ async function provisionDatabaseTopology(
   `);
     if (
       topology.rows[0].roles !==
-        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_platform_force_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_rt:true:false:false:false" ||
+        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_platform_force_cmd:true:false:false:false,mnt_rt:true:false:false:false" ||
       topology.rows[0].memberships !==
         "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true" ||
       !topology.rows[0].runtime_defaults_ok

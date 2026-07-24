@@ -25,6 +25,17 @@ describe("OpenAPI app Buck2 gate", () => {
     assert.doesNotMatch(contractRoundtrip, /backend\/target\/debug\/mnt-app/);
   });
 
+  it("keeps the strict topology expectation in PostgreSQL rolname order", () => {
+    const expectedRoles = contractRoundtrip.match(
+      /topology\.rows\[0\]\.roles !==\s*"([^"]+)"/,
+    )?.[1];
+    assert.ok(expectedRoles, "strict role-topology expectation must remain present");
+    const roleNames = expectedRoles
+      .split(",")
+      .map((role) => role.slice(0, role.indexOf(":")));
+    assert.deepEqual(roleNames, [...roleNames].sort());
+  });
+
   it("uses explicit app environments and bounded child shutdown", () => {
     assert.doesNotMatch(openApiGate, /\.\.\.process\.env/);
     assert.doesNotMatch(contractRoundtrip, /\.\.\.process\.env/);
