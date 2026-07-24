@@ -18,6 +18,23 @@ type RawRegulation = components["schemas"]["RegulationImpact"];
 type RawFramework = components["schemas"]["ComplianceFramework"];
 type RawControl = components["schemas"]["ComplianceControl"];
 type RawEvidence = components["schemas"]["EvidenceBinding"];
+type GeneratedReadResult<T> = {
+  data?: T;
+  error?: components["schemas"]["ErrorBody"];
+  response: Response;
+};
+
+/** Preserve the generated response error so authorization denials remain truthful in the UI. */
+function requireGeneratedRead<T>(
+  { data, error, response }: GeneratedReadResult<T>,
+  emptyResponseMessage: string,
+): T {
+  if (data) return data;
+  if (error || response.status === 401 || response.status === 403) {
+    throw new ApiCallError(response.status, error);
+  }
+  throw new Error(emptyResponseMessage);
+}
 
 const PAGE_SIZE = 100;
 /** Keeps evidence hydration responsive and bounded even for large frameworks. */
@@ -67,12 +84,11 @@ async function obligationPage(
   offset: number,
   query: string,
 ): Promise<ApiPage<RawObligation>> {
-  const { data } = await api.GET("/api/v1/compliance/obligations", {
+  const result = await api.GET("/api/v1/compliance/obligations", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
     signal,
   });
-  if (!data) throw new Error("compliance obligations read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance obligations read returned no data");
 }
 
 async function regulationPage(
@@ -81,12 +97,11 @@ async function regulationPage(
   offset: number,
   query: string,
 ): Promise<ApiPage<RawRegulation>> {
-  const { data } = await api.GET("/api/v1/compliance/regulations", {
+  const result = await api.GET("/api/v1/compliance/regulations", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
     signal,
   });
-  if (!data) throw new Error("compliance regulations read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance regulations read returned no data");
 }
 
 async function frameworkPage(
@@ -95,12 +110,11 @@ async function frameworkPage(
   offset: number,
   query: string,
 ): Promise<ApiPage<RawFramework>> {
-  const { data } = await api.GET("/api/v1/compliance/frameworks", {
+  const result = await api.GET("/api/v1/compliance/frameworks", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
     signal,
   });
-  if (!data) throw new Error("compliance frameworks read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance frameworks read returned no data");
 }
 
 async function controlPage(
@@ -109,12 +123,11 @@ async function controlPage(
   frameworkId: string,
   offset: number,
 ): Promise<ApiPage<RawControl>> {
-  const { data } = await api.GET("/api/v1/compliance/framework-controls", {
+  const result = await api.GET("/api/v1/compliance/framework-controls", {
     params: { query: { framework_id: frameworkId, limit: PAGE_SIZE, offset } },
     signal,
   });
-  if (!data) throw new Error("compliance framework controls read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance framework controls read returned no data");
 }
 
 async function evidencePage(
@@ -123,12 +136,11 @@ async function evidencePage(
   controlId: string,
   offset: number,
 ): Promise<ApiPage<RawEvidence>> {
-  const { data } = await api.GET("/api/v1/compliance/evidence-bindings", {
+  const result = await api.GET("/api/v1/compliance/evidence-bindings", {
     params: { query: { control_id: controlId, limit: PAGE_SIZE, offset } },
     signal,
   });
-  if (!data) throw new Error("compliance evidence bindings read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance evidence bindings read returned no data");
 }
 
 function normalizedQuery(query: string): string {
@@ -282,12 +294,11 @@ async function allEvidencePage(
   signal: AbortSignal,
   offset: number,
 ): Promise<ApiPage<RawEvidence>> {
-  const { data } = await api.GET("/api/v1/compliance/evidence-bindings", {
+  const result = await api.GET("/api/v1/compliance/evidence-bindings", {
     params: { query: { limit: PAGE_SIZE, offset } },
     signal,
   });
-  if (!data) throw new Error("compliance evidence bindings read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance evidence bindings read returned no data");
 }
 
 /**
@@ -340,10 +351,11 @@ export type CreateEvidenceBindingRequest = components["schemas"]["CreateEvidence
 export async function createEvidenceBinding(
   api: ConsoleApiClient,
   request: CreateEvidenceBindingRequest,
+  signal?: AbortSignal,
 ): Promise<EvidenceBinding> {
   const { data, error, response } = await api.POST(
     "/api/v1/compliance/evidence-bindings",
-    { body: request },
+    { body: request, signal },
   );
   if (!data) throw new ApiCallError(response.status, error);
   return evidence(data);

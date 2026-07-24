@@ -67,7 +67,9 @@ export function EvidenceBindingWorkbench({
   canWrite: boolean;
 }) {
   const controllerRef = useRef<AbortController | null>(null);
-  const epochRef = useRef(0);
+  const writeControllerRef = useRef<AbortController | null>(null);
+  const readEpochRef = useRef(0);
+  const authorityEpochRef = useRef(0);
   const [workspace, setWorkspace] = useState<EvidenceBindingWorkspace>({ controls: [], obligations: [], bindings: [] });
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -85,16 +87,16 @@ export function EvidenceBindingWorkbench({
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    const epoch = ++epochRef.current;
+    const epoch = ++readEpochRef.current;
     setLoadState("loading");
     try {
       const next = await readEvidenceBindingWorkspace(api, controller.signal);
-      if (controller.signal.aborted || epoch !== epochRef.current) return;
+      if (controller.signal.aborted || epoch !== readEpochRef.current) return;
       setWorkspace(next);
       setSelectedBindingId((current) => current && next.bindings.some((item) => item.id === current) ? current : null);
       setLoadState("ready");
     } catch (error: unknown) {
-      if (controller.signal.aborted || epoch !== epochRef.current) return;
+      if (controller.signal.aborted || epoch !== readEpochRef.current) return;
       setLoadState(isDenied(error) ? "denied" : "error");
     }
   }, [api]);
@@ -106,9 +108,12 @@ export function EvidenceBindingWorkbench({
     };
     void run();
     return () => {
-      epochRef.current += 1;
+      authorityEpochRef.current += 1;
+      readEpochRef.current += 1;
       controllerRef.current?.abort();
       controllerRef.current = null;
+      writeControllerRef.current?.abort();
+      writeControllerRef.current = null;
     };
   }, [authorityKey, canRead, refresh]);
 
@@ -128,7 +133,10 @@ export function EvidenceBindingWorkbench({
       setIssue("range");
       return;
     }
-    const authorityEpoch = epochRef.current;
+    const authorityEpoch = authorityEpochRef.current;
+    const controller = new AbortController();
+    writeControllerRef.current?.abort();
+    writeControllerRef.current = controller;
     setIssue(null);
     setBusy(true);
     try {
@@ -140,17 +148,18 @@ export function EvidenceBindingWorkbench({
         confidence,
         ...(validFrom ? { valid_from: validFrom } : {}),
         ...(validTo ? { valid_to: validTo } : {}),
-      });
-      if (authorityEpoch !== epochRef.current) return;
+      }, controller.signal);
+      if (controller.signal.aborted || authorityEpoch !== authorityEpochRef.current) return;
       setTargetId("");
       setValidFrom("");
       setValidTo("");
       await refresh();
     } catch (error: unknown) {
-      if (authorityEpoch !== epochRef.current) return;
+      if (controller.signal.aborted || authorityEpoch !== authorityEpochRef.current) return;
       setIssue(error instanceof ApiCallError && error.status === 409 ? "conflict" : isDenied(error) ? "denied" : "failed");
     } finally {
-      if (authorityEpoch === epochRef.current) setBusy(false);
+      if (writeControllerRef.current === controller) writeControllerRef.current = null;
+      if (!controller.signal.aborted && authorityEpoch === authorityEpochRef.current) setBusy(false);
     }
   }, [api, confidence, controlId, obligationId, refresh, targetId, targetType, validFrom, validTo]);
 
@@ -227,7 +236,11 @@ export function EvidenceBindingWorkbench({
               <dt>Obligation</dt><dd>{selectedBinding.obligationId ? workspace.obligations.find((item) => item.id === selectedBinding.obligationId)?.code ?? selectedBinding.obligationId : "—"}</dd>
               <dt>Valid from</dt><dd>{selectedBinding.validFrom ?? "—"}</dd>
               <dt>Valid to</dt><dd>{selectedBinding.validTo ?? "—"}</dd>
+              <dt>Source audit event</dt><dd>{selectedBinding.sourceAuditEventId ?? "—"}</dd>
               <dt>Collected at</dt><dd>{formatAt(selectedBinding.collectedAt)}</dd>
+              <dt>Collected by</dt><dd>{selectedBinding.collectedBy ?? "—"}</dd>
+              <dt>Created by</dt><dd>{selectedBinding.createdBy}</dd>
+              <dt>Updated by</dt><dd>{selectedBinding.updatedBy}</dd>
               <dt>Hash</dt><dd>{selectedBinding.hashSha256 ?? "—"}</dd>
             </dl>
           </aside> : null}

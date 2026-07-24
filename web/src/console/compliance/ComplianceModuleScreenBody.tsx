@@ -67,6 +67,7 @@ export function ComplianceModuleScreenBody() {
     <PolicyGateProvider gate={gate}>
       <GenericModuleScreen config={complianceModuleScreen} api={api} authorityKey={authorityKey} />
       <EvidenceBindingWorkbench
+        key={authorityKey ?? "no-authority"}
         api={api}
         authorityKey={authorityKey}
         canRead={canRead}

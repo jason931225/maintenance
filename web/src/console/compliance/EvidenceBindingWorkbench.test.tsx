@@ -23,7 +23,7 @@ const obligation = {
 };
 const evidence = {
   id: "33333333-3333-4333-8333-333333333333", control_id: control.id, obligation_id: "44444444-4444-4444-8444-444444444444",
-  evidence_target_type: "external_document" as const, evidence_target_id: "POL-2026-17", source_audit_event_id: null,
+  evidence_target_type: "external_document" as const, evidence_target_id: "POL-2026-17", source_audit_event_id: "55555555-5555-4555-8555-555555555555",
   status: "ACCEPTED" as const, confidence: "HIGH" as const, collected_at: "2026-07-20T08:00:00Z", collected_by: "actor",
   valid_from: "2026-01-01", valid_to: "2026-12-31", hash_sha256: "abc", metadata: { source: "records" },
   created_by: "actor", updated_by: "actor", created_at: "2026-07-20T08:00:00Z", updated_at: "2026-07-20T08:00:00Z",
@@ -56,6 +56,8 @@ describe("EvidenceBindingWorkbench", () => {
     const detail = within(region).getByRole("complementary", { name: "Selected evidence details" });
     expect(within(detail).getByText("external_document")).toBeVisible();
     expect(within(detail).getByText("2026-12-31")).toBeVisible();
+    expect(within(detail).getByText("55555555-5555-4555-8555-555555555555")).toBeVisible();
+    expect(within(detail).getAllByText("actor")).toHaveLength(3);
     expect(GET).toHaveBeenCalledWith("/api/v1/compliance/frameworks", expect.anything());
     expect(GET).toHaveBeenCalledWith("/api/v1/compliance/obligations", expect.anything());
     expect(GET).toHaveBeenCalledWith("/api/v1/compliance/framework-controls", expect.objectContaining({ params: { query: expect.objectContaining({ framework_id: framework.id }) } }));
@@ -84,6 +86,7 @@ describe("EvidenceBindingWorkbench", () => {
         valid_from: "2026-08-01",
         valid_to: "2026-12-31",
       },
+      signal: expect.any(AbortSignal),
     }); });
     await waitFor(() => { expect(GET).toHaveBeenCalledTimes(8); });
   });
@@ -101,12 +104,52 @@ describe("EvidenceBindingWorkbench", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
   });
 
+  it("renders a generated 403 read result as an authorization denial", async () => {
+    const error = { error: { code: "forbidden", message: "evidence read is not authorized" } };
+    const { GET } = renderWorkbench({ getImpl: () => Promise.resolve({
+      error,
+      response: new Response(JSON.stringify(error), { status: 403 }),
+    }) });
+    expect(await screen.findByRole("alert")).toHaveTextContent("You are not authorized to view evidence bindings.");
+    expect(GET).toHaveBeenCalled();
+  });
+
   it("does not render or request the workbench for a caller without the parent read authority", () => {
     const api = createConsoleApiClient("compliance-test-token");
     const GET = vi.spyOn(api, "GET");
     render(<EvidenceBindingWorkbench api={api} authorityKey="tenant-a:user-a:incarnation-a" canRead={false} canWrite={false} />);
     expect(screen.queryByRole("region", { name: "Evidence bindings" })).not.toBeInTheDocument();
     expect(GET).not.toHaveBeenCalled();
+  });
+
+  it("aborts a submitted proposal and synchronously clears write state on an authority switch", async () => {
+    const api = createConsoleApiClient("compliance-test-token");
+    vi.spyOn(api, "GET").mockImplementation((path: string) => {
+      if (path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([framework]) });
+      if (path === "/api/v1/compliance/obligations") return Promise.resolve({ data: page([obligation]) });
+      if (path === "/api/v1/compliance/framework-controls") return Promise.resolve({ data: page([control]) });
+      if (path === "/api/v1/compliance/evidence-bindings") return Promise.resolve({ data: page([evidence]) });
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+    let writeSignal: AbortSignal | undefined;
+    const POST = vi.spyOn(api, "POST").mockImplementation((_path: string, init: { signal?: AbortSignal }) => new Promise((_, reject) => {
+      writeSignal = init.signal;
+      init.signal?.addEventListener("abort", () => {
+        reject(new DOMException("aborted", "AbortError"));
+      }, { once: true });
+    }) as never);
+    const view = render(<EvidenceBindingWorkbench key="tenant-a:user-a:incarnation-a" api={api} authorityKey="tenant-a:user-a:incarnation-a" canWrite />);
+    await screen.findByRole("region", { name: "Evidence bindings" });
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Control"), control.id);
+    await user.type(screen.getByLabelText("Evidence ID"), "POL-2026-18");
+    await user.click(screen.getByRole("button", { name: "Propose binding" }));
+    expect(await screen.findByRole("button", { name: "Linking…" })).toBeDisabled();
+    view.rerender(<EvidenceBindingWorkbench key="tenant-b:user-b:incarnation-b" api={api} authorityKey="tenant-b:user-b:incarnation-b" canWrite />);
+    expect(writeSignal?.aborted).toBe(true);
+    expect(await screen.findByRole("button", { name: "Propose binding" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Linking…" })).not.toBeInTheDocument();
+    expect(POST).toHaveBeenCalledTimes(1);
   });
 
   it("aborts a prior scoped read when authority changes", async () => {
