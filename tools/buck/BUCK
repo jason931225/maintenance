@@ -3,3 +3,44 @@ export_file(
     src = "rust_source_layout.bzl",
     visibility = ["PUBLIC"],
 )
+
+export_file(
+    name = "generated-face-registry",
+    src = "generated_face_registry.json",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "generated-face-first-party",
+    src = "generated-face-first-party.sh",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "generated-face-reindeer",
+    src = "generated-face-reindeer.sh",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "generated-face-openapi-ts",
+    src = "generated-face-openapi-ts.sh",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "generated-face-openapi-kotlin",
+    src = "generated-face-openapi-kotlin.sh",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "generated-face-openapi-swift",
+    src = "generated-face-openapi-swift.sh",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)

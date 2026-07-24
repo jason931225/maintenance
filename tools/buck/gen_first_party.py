@@ -229,6 +229,34 @@ def tree_has(root, *markers):
     return False
 
 
+def test_body_uses_postgres(contents):
+    """Detect DB use only after a Rust test/module anchor.
+
+    A REST crate can use PgPool in production handlers while its inline tests
+    exercise pure authorization/state-machine helpers. Classifying the whole
+    library would serialise those unit tests behind a disposable database for no
+    reason. The source after a test anchor is the reviewed test body boundary;
+    unusual layouts must add explicit reviewed metadata rather than widening
+    this heuristic to all implementation code.
+    """
+    anchors = ("#[cfg(test)]",) + TEST_MARKERS
+    return any(marker in contents[index:] for anchor in anchors if (index := contents.find(anchor)) >= 0 for marker in PG_MARKERS)
+
+
+def source_test_tree_uses_postgres(root):
+    for dp, _, files in os.walk(root):
+        for filename in files:
+            if filename.endswith(".rs"):
+                try:
+                    with open(os.path.join(dp, filename), encoding="utf-8", errors="ignore") as source_file:
+                        contents = source_file.read()
+                except OSError:
+                    continue
+                if test_body_uses_postgres(contents):
+                    return True
+    return False
+
+
 def map_deps(dep_table, first_party):
     """Map a [dependencies]/[dev-dependencies] table to (deps_list, named_dict)."""
     deps, named = [], {}
@@ -429,7 +457,7 @@ def emit(d, name, deps, named, dev_deps, dev_named):
         # tests are pure (for example mnt-production-rest). Classify execution
         # evidence, not unrelated library source.
         uses_postgres = (
-            name not in PURE_UNIT_PACKAGES and tree_has(src, *PG_MARKERS)
+            name not in PURE_UNIT_PACKAGES and source_test_tree_uses_postgres(src)
         )
         labels = test_labels(package, "test.unit", uses_postgres)
         out.append("")
@@ -458,7 +486,7 @@ def emit(d, name, deps, named, dev_deps, dev_named):
             labels = test_labels(
                 package,
                 "test.integration",
-                any(marker in contents for marker in PG_MARKERS),
+                test_body_uses_postgres(contents),
             )
             config = integration_resource_config(name, tf)
             srcs_expr = listsrcs(sorted(set([tf] + helpers)))
