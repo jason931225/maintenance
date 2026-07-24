@@ -20,13 +20,19 @@
 //! task-local. A handler that spawns work which itself touches tenant-scoped
 //! tables must re-enter the scope, e.g. `CURRENT_ORG.scope(org, async { .. })`.
 
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::Arc;
 
-use axum::extract::Request;
+use axum::extract::{ConnectInfo, Request};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
-use mnt_kernel_core::{AccessScope, BranchScope, ErrorKind, KernelError, OrgId, UserId};
+use ipnet::IpNet;
+use mnt_kernel_core::{
+    AccessScope, AuditRequestContext, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
+};
 use mnt_platform_auth::{JwtVerifier, TenantAccessContext};
 use mnt_platform_authz::{
     PlatformPrincipal, Principal, Role, SubjectFreshness, effective_branch_scope_for_tenant,
@@ -40,6 +46,147 @@ tokio::task_local! {
     /// The tenant of the in-flight request. Set once per request by the shared
     /// middleware; read by [`current_org`].
     pub static CURRENT_ORG: OrgId;
+
+    /// Trace and transport metadata captured once at the authenticated HTTP
+    /// boundary, then reused by every audit event emitted by that request.
+    static CURRENT_AUDIT_CONTEXT: RequestAuditContext;
+}
+
+/// Request-correlated metadata suitable for an [`mnt_kernel_core::AuditEvent`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestAuditContext {
+    pub trace: TraceContext,
+    pub request: AuditRequestContext,
+}
+
+/// Client address resolved by a trusted ingress boundary.
+///
+/// Request-context middleware never interprets forwarding headers. The ingress
+/// that owns proxy trust policy must validate the chain and insert this
+/// extension. Without it, audit metadata falls back only to the transport peer
+/// supplied by Axum's [`ConnectInfo`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedClientIp(IpAddr);
+
+impl TrustedClientIp {
+    #[must_use]
+    pub const fn new(ip: IpAddr) -> Self {
+        Self(ip)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> IpAddr {
+        self.0
+    }
+}
+
+/// Resolve the client IP at the sole trusted HTTP ingress boundary.
+///
+/// A forwarding header is considered only when the deployment explicitly
+/// configures one or more trusted proxy hops *and* Axum supplied the direct
+/// transport peer. `trusted_proxy_count` includes that direct peer; every
+/// remaining expected proxy hop is validated right-to-left against the trusted
+/// CIDRs before the client value immediately to its left is accepted. There must
+/// be exactly one `X-Forwarded-For` field and every comma-delimited token must
+/// be a non-empty IP address. Duplicate fields, malformed or incomplete chains
+/// fall back to the direct peer; they never promote an attacker-controlled
+/// header value. This is the only place that interprets `X-Forwarded-For` in the
+/// HTTP process.
+#[must_use]
+pub fn resolve_trusted_client_ip(
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    trusted_proxy_count: usize,
+    trusted_proxy_cidrs: &[IpNet],
+) -> IpAddr {
+    if trusted_proxy_count == 0
+        || !trusted_proxy_cidrs
+            .iter()
+            .any(|network| network.contains(&peer.ip()))
+    {
+        return peer.ip();
+    }
+
+    let forwarded_values = headers.get_all("x-forwarded-for");
+    if forwarded_values.iter().count() != 1 {
+        return peer.ip();
+    }
+    let Some(forwarded) = forwarded_values
+        .iter()
+        .next()
+        .and_then(|value| value.to_str().ok())
+    else {
+        return peer.ip();
+    };
+
+    let entries = forwarded
+        .split(',')
+        .map(str::trim)
+        .map(|entry| {
+            if entry.is_empty() {
+                Err(())
+            } else {
+                entry.parse::<IpAddr>().map_err(|_| ())
+            }
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(entries) = entries else {
+        return peer.ip();
+    };
+
+    // `trusted_proxy_count` includes the direct peer. The remaining trusted
+    // proxy hops must be the rightmost XFF entries. Validate that complete
+    // suffix before accepting the entry immediately to its left as the client.
+    // This rejects a caller-prepended chain that merely happens to be long
+    // enough, instead of treating an arbitrary untrusted suffix as a proxy.
+    let Some(client_index) = entries.len().checked_sub(trusted_proxy_count) else {
+        return peer.ip();
+    };
+    if entries[client_index + 1..].iter().any(|hop| {
+        !trusted_proxy_cidrs
+            .iter()
+            .any(|network| network.contains(hop))
+    }) {
+        return peer.ip();
+    }
+
+    entries[client_index]
+}
+
+/// Insert a [`TrustedClientIp`] extension at the process ingress.
+///
+/// Call this once on the fully-composed app router. Domain routers and rate
+/// limiters consume the extension and never parse raw forwarding headers.
+pub fn with_trusted_client_ip<S>(
+    router: axum::Router<S>,
+    trusted_proxy_count: usize,
+    trusted_proxy_cidrs: Vec<IpNet>,
+) -> axum::Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    let trusted_proxy_cidrs: Arc<[IpNet]> = trusted_proxy_cidrs.into();
+    router.layer(axum::middleware::from_fn(
+        move |mut request: Request, next: Next| {
+            let trusted_proxy_cidrs = Arc::clone(&trusted_proxy_cidrs);
+            async move {
+                if let Some(ConnectInfo(peer)) =
+                    request.extensions().get::<ConnectInfo<SocketAddr>>()
+                {
+                    let client_ip = resolve_trusted_client_ip(
+                        request.headers(),
+                        *peer,
+                        trusted_proxy_count,
+                        &trusted_proxy_cidrs,
+                    );
+                    request
+                        .extensions_mut()
+                        .insert(TrustedClientIp::new(client_ip));
+                }
+                next.run(request).await
+            }
+        },
+    ))
 }
 
 /// Why a request could not be given a tenant context.
@@ -109,6 +256,16 @@ pub fn current_org() -> Result<OrgId, RequestContextError> {
     CURRENT_ORG
         .try_with(|org| *org)
         .map_err(|_| RequestContextError::MissingOrg)
+}
+
+/// Return the audit context bound by [`with_request_context`].
+///
+/// `None` means the caller is outside an authenticated HTTP request. Mutation
+/// handlers must treat that as an invariant failure instead of fabricating an
+/// unrelated trace at the persistence boundary.
+#[must_use]
+pub fn current_audit_context() -> Option<RequestAuditContext> {
+    CURRENT_AUDIT_CONTEXT.try_with(Clone::clone).ok()
 }
 
 /// Extract the raw bearer token from an Authorization header.
@@ -317,11 +474,84 @@ where
                     Err(err) => return error_response_for(&err),
                 };
                 let org = principal.org_id;
+                let audit_context = request_audit_context(&request);
                 request.extensions_mut().insert(principal);
-                CURRENT_ORG.scope(org, next.run(request)).await
+                CURRENT_ORG
+                    .scope(
+                        org,
+                        CURRENT_AUDIT_CONTEXT.scope(audit_context, next.run(request)),
+                    )
+                    .await
             }
         },
     ))
+}
+
+fn request_audit_context(request: &Request) -> RequestAuditContext {
+    let headers = request.headers();
+    RequestAuditContext {
+        trace: trace_context(headers),
+        request: AuditRequestContext {
+            ip: trusted_or_direct_client_ip(request).map(|ip| ip.to_string()),
+            user_agent: header_text(headers, http::header::USER_AGENT.as_str()).map(str::to_owned),
+            auth_method: Some("bearer".to_owned()),
+            device: header_text(headers, "x-device-id").map(str::to_owned),
+        },
+    }
+}
+
+fn trusted_or_direct_client_ip(request: &Request) -> Option<IpAddr> {
+    request
+        .extensions()
+        .get::<TrustedClientIp>()
+        .copied()
+        .map(TrustedClientIp::get)
+        .or_else(|| {
+            request
+                .extensions()
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|ConnectInfo(peer)| peer.ip())
+        })
+}
+
+fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(name)?
+        .to_str()
+        .ok()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn trace_context(headers: &HeaderMap) -> TraceContext {
+    header_text(headers, "traceparent")
+        .and_then(parse_traceparent)
+        .unwrap_or_else(TraceContext::generate)
+}
+
+fn parse_traceparent(value: &str) -> Option<TraceContext> {
+    let mut fields = value.split('-');
+    let version = fields.next()?;
+    let trace_id = fields.next()?;
+    let span_id = fields.next()?;
+    let flags = fields.next()?;
+    if fields.next().is_some()
+        || version == "ff"
+        || !is_lower_hex(version, 2)
+        || !is_lower_hex(flags, 2)
+        || trace_id.bytes().all(|byte| byte == b'0')
+        || span_id.bytes().all(|byte| byte == b'0')
+    {
+        return None;
+    }
+    TraceContext::new(trace_id, span_id).ok()
+}
+
+fn is_lower_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn error_response(status: StatusCode, message: &str) -> Response {
@@ -432,7 +662,280 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::extract::Extension;
+    use axum::routing::get;
     use mnt_platform_authz::{Action, Feature, authorize_org_wide};
+    use tower::Service;
+
+    fn forwarded_headers(value: &'static str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", value.parse().unwrap());
+        headers
+    }
+
+    fn request_with_network_metadata(
+        forwarded_for: &str,
+        direct_peer: &str,
+        trusted_client: Option<&str>,
+    ) -> Request {
+        let mut request = Request::builder()
+            .header("x-forwarded-for", forwarded_for)
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            direct_peer.parse::<SocketAddr>().expect("direct peer"),
+        ));
+        if let Some(trusted_client) = trusted_client {
+            request.extensions_mut().insert(TrustedClientIp::new(
+                trusted_client.parse().expect("trusted client IP"),
+            ));
+        }
+        request
+    }
+
+    #[test]
+    fn audit_ip_ignores_client_prepended_forwarded_value() {
+        let request = request_with_network_metadata(
+            "198.51.100.250, 203.0.113.7",
+            "10.0.0.3:443",
+            Some("203.0.113.7"),
+        );
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("203.0.113.7".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn audit_ip_accepts_ingress_resolution_across_multiple_trusted_hops() {
+        let request = request_with_network_metadata(
+            "198.51.100.250, 203.0.113.7, 10.0.0.2",
+            "10.0.0.3:443",
+            Some("203.0.113.7"),
+        );
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("203.0.113.7".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn audit_ip_uses_direct_peer_when_forwarded_chain_is_insufficient() {
+        let request = request_with_network_metadata("203.0.113.7", "192.0.2.10:8443", None);
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("192.0.2.10".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn audit_ip_uses_direct_peer_when_forwarded_chain_is_invalid() {
+        let request =
+            request_with_network_metadata("not-an-ip, 203.0.113.7", "192.0.2.11:8443", None);
+        assert_eq!(
+            trusted_or_direct_client_ip(&request),
+            Some("192.0.2.11".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_accepts_a_complete_trusted_proxy_suffix() {
+        let headers = forwarded_headers("198.51.100.250, 10.0.0.2");
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            "198.51.100.250".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_duplicate_forwarded_fields() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            "x-forwarded-for",
+            "198.51.100.250, 10.0.0.2".parse().unwrap(),
+        );
+        headers.append(
+            "x-forwarded-for",
+            "198.51.100.251, 10.0.0.2".parse().unwrap(),
+        );
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "ambiguous repeated forwarding fields must fail closed"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_empty_forwarded_tokens() {
+        let headers = forwarded_headers("198.51.100.250, , 10.0.0.2");
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "empty forwarded tokens must not be silently discarded"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_malformed_forwarded_tokens() {
+        let headers = forwarded_headers("198.51.100.250, not-an-ip, 10.0.0.2");
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "malformed forwarded tokens must fail closed"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_an_untrusted_configured_proxy_suffix() {
+        let headers = forwarded_headers("198.51.100.250, 203.0.113.7");
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "an untrusted suffix cannot be treated as an intermediary proxy"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_never_uses_raw_xff_without_a_configured_proxy() {
+        let headers = forwarded_headers("198.51.100.250");
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(resolve_trusted_client_ip(&headers, peer, 0, &[]), peer.ip());
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "a short chain cannot turn a caller header into the trusted client"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_xff_from_an_untrusted_transport_peer() {
+        let headers = forwarded_headers("198.51.100.250");
+        let peer = "192.0.2.10:443".parse().unwrap();
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 1, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip()
+        );
+    }
+
+    #[tokio::test]
+    async fn ingress_middleware_reuses_proxy_policy_and_rejects_a_spoofed_suffix() {
+        let mut app = with_trusted_client_ip(
+            axum::Router::new().route(
+                "/",
+                get(
+                    |Extension(client_ip): Extension<TrustedClientIp>| async move {
+                        client_ip.get().to_string()
+                    },
+                ),
+            ),
+            2,
+            vec!["10.0.0.0/8".parse().unwrap()],
+        );
+        let peer: SocketAddr = "10.0.0.3:443".parse().unwrap();
+
+        for (forwarded_for, expected) in [
+            ("198.51.100.250, 10.0.0.2", "198.51.100.250"),
+            ("198.51.100.250, 203.0.113.7", "10.0.0.3"),
+        ] {
+            let mut request = Request::builder()
+                .uri("/")
+                .header("x-forwarded-for", forwarded_for)
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(peer));
+
+            let response = Service::call(&mut app, request).await.unwrap();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(body.as_ref(), expected.as_bytes());
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_request_metadata_propagates_exactly_to_audit_context() {
+        let mut request = request_with_network_metadata(
+            "198.51.100.250, 203.0.113.7",
+            "10.0.0.3:443",
+            Some("203.0.113.7"),
+        );
+        request.headers_mut().insert(
+            "traceparent",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+                .parse()
+                .unwrap(),
+        );
+        request
+            .headers_mut()
+            .insert(http::header::USER_AGENT, "audit-test/1.0".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("x-device-id", "trusted-device".parse().unwrap());
+
+        let expected = RequestAuditContext {
+            trace: TraceContext::new("4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7")
+                .unwrap(),
+            request: AuditRequestContext {
+                ip: Some("203.0.113.7".to_owned()),
+                user_agent: Some("audit-test/1.0".to_owned()),
+                auth_method: Some("bearer".to_owned()),
+                device: Some("trusted-device".to_owned()),
+            },
+        };
+        assert_eq!(request_audit_context(&request), expected);
+        CURRENT_AUDIT_CONTEXT
+            .scope(expected.clone(), async {
+                assert_eq!(current_audit_context(), Some(expected));
+            })
+            .await;
+        assert_eq!(current_audit_context(), None);
+    }
+
+    #[tokio::test]
+    async fn nested_audit_context_scope_restores_outer_then_clears() {
+        let outer = RequestAuditContext {
+            trace: TraceContext::new("11111111111111111111111111111111", "1111111111111111")
+                .unwrap(),
+            request: AuditRequestContext {
+                device: Some("outer-device".to_owned()),
+                ..AuditRequestContext::default()
+            },
+        };
+        let inner = RequestAuditContext {
+            trace: TraceContext::new("22222222222222222222222222222222", "2222222222222222")
+                .unwrap(),
+            request: AuditRequestContext {
+                device: Some("inner-device".to_owned()),
+                ..AuditRequestContext::default()
+            },
+        };
+
+        assert_eq!(current_audit_context(), None);
+        CURRENT_AUDIT_CONTEXT
+            .scope(outer.clone(), async {
+                assert_eq!(current_audit_context(), Some(outer.clone()));
+                CURRENT_AUDIT_CONTEXT
+                    .scope(inner.clone(), async {
+                        assert_eq!(current_audit_context(), Some(inner));
+                    })
+                    .await;
+                assert_eq!(current_audit_context(), Some(outer));
+            })
+            .await;
+        assert_eq!(current_audit_context(), None);
+    }
 
     #[test]
     fn delegated_group_admin_principal_does_not_gain_executive_queue_triage() -> Result<(), String>

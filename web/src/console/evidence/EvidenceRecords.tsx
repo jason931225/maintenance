@@ -4,7 +4,7 @@
 // Real-wired: GET /api/v1/evidence/objects (list) + GET .../{id} (detail on
 // open) + verify/hold via evidenceApi. After every mutation the full detail is
 // refetched — never client-synthesized (§4-25-⑥).
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
@@ -16,7 +16,7 @@ import {
   applyLegalHold,
   decideHoldReleaseApproval,
   getEvidenceObjectDetail,
-  listEvidenceObjects,
+  listEvidenceObjectPage,
   releaseLegalHold,
   requestHoldReleaseApproval,
   verifyEvidenceObject,
@@ -185,11 +185,23 @@ function timestampLabel(value: string): string {
 
 export interface EvidenceRecordsProps {
   api: ConsoleApiClient;
+  /** Effective-session boundary; a new incarnation must discard prior data synchronously. */
+  sessionIncarnation: string | undefined;
   /** The signed-in user — blocks a self-decide in the hold-release UI. */
   currentUserId?: string;
 }
 
-export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
+export function EvidenceRecords({ api, currentUserId, sessionIncarnation }: EvidenceRecordsProps) {
+  return (
+    <EvidenceRecordsContent
+      key={sessionIncarnation ?? "evidence-anonymous"}
+      api={api}
+      currentUserId={currentUserId}
+    />
+  );
+}
+
+function EvidenceRecordsContent({ api, currentUserId }: Omit<EvidenceRecordsProps, "sessionIncarnation">) {
   const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [users, setUsers] = useState<Map<string, string>>(new Map());
@@ -197,6 +209,8 @@ export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const listRequest = useRef(0);
+  const listController = useRef<AbortController | null>(null);
   const windowManager = useOptionalWindowManager();
 
   const resolveName = useCallback(
@@ -217,28 +231,43 @@ export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
   );
 
   const loadList = useCallback(async () => {
+    listController.current?.abort();
+    const controller = new AbortController();
+    listController.current = controller;
+    const request = ++listRequest.current;
     setListState("loading");
     try {
-      const items = await listEvidenceObjects(api);
-      setRows(items.map(resolveNames));
+      const page = await listEvidenceObjectPage(api, 200, 0, controller.signal);
+      if (controller.signal.aborted || request !== listRequest.current) return;
+      setRows(page.items.map(resolveNames));
       setListState("ready");
     } catch {
+      if (controller.signal.aborted || request !== listRequest.current) return;
       setListState("error");
     }
   }, [api, resolveNames]);
 
   useEffect(() => {
     void Promise.resolve().then(loadList);
+    return () => {
+      listController.current?.abort();
+    };
   }, [loadList]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let current = true;
     void api
-      .GET("/api/v1/users")
+      .GET("/api/v1/users", { signal: controller.signal })
       .then((res) => {
-        if (!res.data) return;
+        if (!current || controller.signal.aborted || !res.data) return;
         setUsers(new Map(res.data.items.map((u) => [u.id, u.display_name])));
       })
       .catch(() => undefined);
+    return () => {
+      current = false;
+      controller.abort();
+    };
   }, [api]);
 
   const counts = useMemo(() => {

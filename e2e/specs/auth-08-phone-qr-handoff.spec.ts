@@ -36,6 +36,11 @@ async function seedDeviceId(page: Page): Promise<void> {
   }, `e2e-phone-qr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 }
 
+async function refreshCookieValue(page: Page): Promise<string | undefined> {
+  const cookies = await page.context().cookies();
+  return cookies.find((cookie) => cookie.name === "mnt_refresh")?.value;
+}
+
 test("AUTH-08 phone QR enrollment completes the waiting desktop and clears pending setup", async ({
   browser,
   page,
@@ -44,6 +49,8 @@ test("AUTH-08 phone QR enrollment completes the waiting desktop and clears pendi
   await redeemOtp(page, TENANT_ADMIN_OTP);
   await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
   await acceptRequiredPrivacyConsent(page);
+  const refreshBeforeHandoff = await refreshCookieValue(page);
+  expect(refreshBeforeHandoff).toBeTruthy();
 
   // Desktop: show the phone-QR handoff and capture the real, backend-minted link.
   await page.getByRole("button", { name: /휴대폰으로 등록 \(QR\)/ }).click();
@@ -75,6 +82,9 @@ test("AUTH-08 phone QR enrollment completes the waiting desktop and clears pendi
     // Desktop: the waiting QR screen must observe completion and leave onboarding
     // on its own. This is the failed path from the bug report; no refresh allowed.
     await expect(page).toHaveURL(/\/overview/, { timeout: 20_000 });
+    await expect
+      .poll(() => refreshCookieValue(page))
+      .not.toBe(refreshBeforeHandoff);
 
     // The visible user-management status must no longer say "설정 대기".
     await page.goto("/settings/users");

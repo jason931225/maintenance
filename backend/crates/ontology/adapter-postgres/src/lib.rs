@@ -35,6 +35,9 @@ pub enum PgOntologyError {
     #[error("ontology object type write precondition failed")]
     PreconditionFailed { current: ObjectTypeWriteVersion },
 
+    #[error("ontology action revision precondition failed")]
+    ActionPreconditionFailed { current: i64 },
+
     #[error("ontology command database capability is unavailable")]
     CommandUnavailable,
 }

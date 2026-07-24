@@ -6,6 +6,8 @@ use mnt_platform_rest::PLATFORM_ROUTE_OPERATIONS;
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 const REQUIRED_CONFIGURED_SURFACES: &[&str] = &[
     "audit",
+    "attendance",
+    "inventory",
     "dispatch",
     "benefit",
     "financial",
@@ -33,6 +35,18 @@ struct RouteSource {
 }
 
 const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
+    RouteSource {
+        name: "attendance REST router",
+        surface: "attendance",
+        source: include_str!("../../crates/attendance/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
+    RouteSource {
+        name: "inventory REST router",
+        surface: "inventory",
+        source: include_str!("../../crates/inventory/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
     RouteSource {
         name: "dispatch REST router",
         surface: "dispatch",
@@ -212,6 +226,12 @@ const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
         source: include_str!("../../crates/analytics-quant/rest/src/lib.rs"),
         ignored_route_refs: &[],
     },
+    RouteSource {
+        name: "equipment 3R REST router",
+        surface: "equipment-3r",
+        source: include_str!("../../crates/equipment/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
 ];
 
 #[test]
@@ -308,6 +328,183 @@ fn openapi_yaml_covers_configured_route_inventory() {
             );
         }
     }
+}
+
+#[test]
+fn openapi_documents_closed_inventory_movement_source_variants() {
+    let start = OPENAPI_YAML
+        .find("    InventoryMovementSourceWorkOrder:\n")
+        .expect("OpenAPI YAML must define the work-order movement source");
+    let end = OPENAPI_YAML[start..]
+        .find("    InventoryReceiptResult:\n")
+        .map(|offset| start + offset)
+        .expect("Inventory movement source variants must precede receipt results");
+    let schema = &OPENAPI_YAML[start..end];
+
+    for variant in [
+        "InventoryMovementSourceWorkOrder",
+        "InventoryMovementSourceP1Dispatch",
+        "InventoryMovementSourceCycleCount",
+        "InventoryMovementSourceExternalRef",
+    ] {
+        assert!(
+            schema.contains(variant),
+            "OpenAPI movement source is missing {variant}"
+        );
+    }
+    assert!(
+        schema.contains("source: { $ref: '#/components/schemas/InventoryMovementSource' }"),
+        "InventoryMovement.source must not degrade to an untyped object"
+    );
+    assert!(
+        schema.contains("InventoryMovementSource:\n      oneOf:")
+            && schema.contains("discriminator:\n        propertyName: kind"),
+        "Inventory movement sources must remain a kind-discriminated union"
+    );
+    assert!(
+        schema.matches("additionalProperties: false").count() >= 4,
+        "every inventory movement source variant must be closed to unknown fields"
+    );
+    for wire_kind in ["work_order", "p1_dispatch", "cycle_count", "external_ref"] {
+        assert!(
+            schema.contains(wire_kind),
+            "OpenAPI movement source must document the {wire_kind} runtime discriminator"
+        );
+    }
+}
+
+#[test]
+fn openapi_documents_closed_month_as_year_month_not_calendar_date() {
+    let start = OPENAPI_YAML
+        .find("    AttendanceMonthClose:\n")
+        .expect("OpenAPI YAML must define AttendanceMonthClose");
+    let end = OPENAPI_YAML[start..]
+        .find("    AttendanceCloseBoard:\n")
+        .map(|offset| start + offset)
+        .expect("AttendanceMonthClose must precede AttendanceCloseBoard");
+    let schema = &OPENAPI_YAML[start..end];
+    assert!(
+        schema.contains("month: { type: string, pattern: '^\\\\d{4}-\\\\d{2}$' }"),
+        "closed-month response must match the server's YYYY-MM wire value, not an OpenAPI calendar date"
+    );
+}
+
+#[test]
+fn openapi_documents_hr_attendance_branch_scope_query() {
+    for (path, next_path) in [
+        (
+            "/api/v1/hr/attendance-summary:",
+            "/api/v1/hr/readiness-summary:",
+        ),
+        (
+            "/api/v1/hr/attendance-records:",
+            "/api/v1/employees/import:",
+        ),
+    ] {
+        let start = OPENAPI_YAML
+            .find(path)
+            .unwrap_or_else(|| panic!("OpenAPI YAML is missing {path}"));
+        let end = OPENAPI_YAML[start..]
+            .find(next_path)
+            .map(|offset| start + offset)
+            .unwrap_or(OPENAPI_YAML.len());
+        let operation = &OPENAPI_YAML[start..end];
+        assert!(
+            operation.contains("- name: branch_id\n        in: query"),
+            "{path} must expose the optional snake_case branch_id query accepted by its Axum handler"
+        );
+    }
+}
+
+#[test]
+fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
+    let endpoint_start = OPENAPI_YAML
+        .find("  /api/v1/evidence/objects:\\n")
+        .expect("OpenAPI YAML must define the EV object list endpoint");
+    let endpoint_end = OPENAPI_YAML[endpoint_start..]
+        .find("  /api/v1/evidence/objects/{id}:")
+        .map(|offset| endpoint_start + offset)
+        .expect("EV object detail endpoint must follow the list endpoint");
+    let endpoint = &OPENAPI_YAML[endpoint_start..endpoint_end];
+
+    for parameter in ["offset", "as_of", "cursor"] {
+        assert!(
+            endpoint.contains(&format!("name: {parameter}, in: query")),
+            "EV list endpoint must document the runtime-supported {parameter} query parameter"
+        );
+    }
+    assert!(
+        endpoint.contains(
+            "name: as_of, in: query, required: false, schema: { type: integer, format: int64 }"
+        ),
+        "EV as_of must be an optional immutable registration sequence"
+    );
+    assert!(
+        endpoint.contains("name: cursor, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }"),
+        "EV cursor must expose the runtime's opaque unpadded-base64url wire contract"
+    );
+    assert!(
+        endpoint.contains("When cursor is supplied, offset must be omitted or zero."),
+        "EV cursor pagination must document its offset compatibility boundary"
+    );
+    assert!(
+        endpoint.contains("When cursor is supplied, as_of must match that cursor's snapshot."),
+        "EV cursor pagination must document its immutable snapshot boundary"
+    );
+    assert!(
+        endpoint.contains("'422': { $ref: '#/components/responses/ValidationError' }"),
+        "EV list endpoint must document validation failures for inconsistent pagination inputs"
+    );
+
+    let page_start = OPENAPI_YAML
+        .find("    EvidenceObjectPage:\\n")
+        .expect("OpenAPI YAML must define EvidenceObjectPage");
+    let page_end = OPENAPI_YAML[page_start..]
+        .find("    EvidenceCopyView:\\n")
+        .map(|offset| page_start + offset)
+        .expect("EvidenceCopyView must follow EvidenceObjectPage");
+    let page = &OPENAPI_YAML[page_start..page_end];
+    assert!(
+        page.contains("required: [items, limit, offset, total, as_of, next_cursor]"),
+        "EV list response must always return the registered snapshot and nullable continuation token"
+    );
+    assert!(page.contains("as_of: { type: integer, format: int64 }"));
+    assert!(
+        page.contains("next_cursor:\n          type:\n          - string\n          - 'null'"),
+        "EV next_cursor must use the OpenAPI 3.1 nullable-string form consumed by every generated client"
+    );
+
+    let copy_start = OPENAPI_YAML
+        .find("    EvidenceCopyView:\\n")
+        .expect("OpenAPI YAML must define EvidenceCopyView");
+    let copy_end = OPENAPI_YAML[copy_start..]
+        .find("    TimestampAuthorityProofView:\\n")
+        .map(|offset| copy_start + offset)
+        .expect("TimestampAuthorityProofView must follow EvidenceCopyView");
+    let copy = &OPENAPI_YAML[copy_start..copy_end];
+    assert!(
+        copy.contains(
+            "evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }"
+        ),
+        "EV copy view must expose the server-derived evidentiary classification"
+    );
+    assert!(
+        copy.contains("required: [id, evidence_object_id, copy_kind, evidentiary_status, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]"),
+        "EV copy view must require the server-derived evidentiary classification"
+    );
+
+    let status_start = OPENAPI_YAML
+        .find("    EvidenceCopyEvidentiaryStatus:\\n")
+        .expect("OpenAPI YAML must define EvidenceCopyEvidentiaryStatus");
+    let status_end = OPENAPI_YAML[status_start..]
+        .find("    EvidenceCopyView:\\n")
+        .map(|offset| status_start + offset)
+        .expect("EvidenceCopyView must follow EvidenceCopyEvidentiaryStatus");
+    let status = &OPENAPI_YAML[status_start..status_end];
+    assert!(
+        status
+            .contains("enum: [VERIFIED_ORIGINAL, ORIGINAL_UNVERIFIED, NON_EVIDENTIARY_DERIVATIVE]")
+    );
 }
 
 #[test]
@@ -611,4 +808,204 @@ fn normalize_path_parameters(path: &str) -> String {
         }
     }
     normalized
+}
+
+#[test]
+fn dispatch_read_openapi_operations_match_generated_client_faces() {
+    const TS: &str = include_str!("../../../clients/ts/src/schema.d.ts");
+    const KOTLIN: &str = include_str!(
+        "../../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
+    );
+    const SWIFT: &str =
+        include_str!("../../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+    for (path, operation, schema) in [
+        (
+            "/api/v1/console/dispatch/queue",
+            "listConsoleDispatchQueue",
+            "DispatchQueuePage",
+        ),
+        (
+            "/api/v1/p1-dispatches/{dispatchId}/candidates",
+            "listP1DispatchCandidates",
+            "DispatchCandidatePage",
+        ),
+        (
+            "/api/v1/p1-dispatches/{dispatchId}/responses",
+            "listP1DispatchResponses",
+            "P1DispatchResponsePage",
+        ),
+    ] {
+        let start = OPENAPI_YAML
+            .find(&format!("  {path}:\n"))
+            .unwrap_or_else(|| panic!("missing {path}"));
+        let operation_yaml = &OPENAPI_YAML[start..];
+        assert!(
+            operation_yaml.contains(&format!("operationId: {operation}"))
+                && operation_yaml.contains(&format!("$ref: '#/components/schemas/{schema}'"))
+        );
+        assert!(
+            TS.contains(operation),
+            "TS generated client lacks {operation}"
+        );
+        assert!(
+            KOTLIN.contains(operation),
+            "Kotlin generated client lacks {operation}"
+        );
+        assert!(
+            SWIFT.contains(operation),
+            "Swift generated client lacks {operation}"
+        );
+    }
+}
+
+fn operation_section<'a>(yaml: &'a str, path: &str, operation: &str) -> &'a str {
+    let start = yaml
+        .find(&format!("  {path}:\n"))
+        .unwrap_or_else(|| panic!("missing {path}"));
+    let remainder = &yaml[start..];
+    let end = remainder[1..]
+        .find("\n  /")
+        .map(|offset| start + offset + 1)
+        .unwrap_or(yaml.len());
+    let section = &yaml[start..end];
+    assert!(section.contains(&format!("operationId: {operation}")));
+    section
+}
+
+fn bounded_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    let start = source
+        .find(start)
+        .unwrap_or_else(|| panic!("missing start {start}"));
+    let after_start = start + source[start..].find('\n').unwrap_or(0) + 1;
+    let end = source[after_start..]
+        .find(end)
+        .map(|offset| after_start + offset)
+        .unwrap_or_else(|| panic!("missing end {end}"));
+    &source[start..end]
+}
+
+#[test]
+fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
+    const TS: &str = include_str!("../../../clients/ts/src/schema.d.ts");
+    const KOTLIN: &str = include_str!(
+        "../../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
+    );
+    const KOTLIN_ENUM: &str = include_str!(
+        "../../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/model/DispatchQueueStatus.kt"
+    );
+    const SWIFT: &str =
+        include_str!("../../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+    const SWIFT_TYPES: &str =
+        include_str!("../../../clients/swift/Sources/MaintenanceAPIClient/Generated/Types.swift");
+    let queue = operation_section(
+        OPENAPI_YAML,
+        "/api/v1/console/dispatch/queue",
+        "listConsoleDispatchQueue",
+    );
+    for required in [
+        "type: array",
+        "style: form",
+        "explode: false",
+        "'400': { $ref: '#/components/responses/BadRequest' }",
+    ] {
+        assert!(
+            queue.contains(required),
+            "queue OpenAPI contract lacks {required}"
+        );
+    }
+    let openapi_enum = bounded_section(
+        OPENAPI_YAML,
+        "    DispatchQueueStatus:\n",
+        "    DispatchQueueDispatch:\n",
+    );
+    let ts_op = bounded_section(
+        TS,
+        "    listConsoleDispatchQueue: {",
+        "    listP1DispatchCandidates: {",
+    );
+    let kotlin_op = bounded_section(
+        KOTLIN,
+        "    fun listConsoleDispatchQueueRequestConfig",
+        "    /**\n     * GET /api/v1/p1-dispatches/{dispatchId}/candidates",
+    );
+    let swift_op = bounded_section(
+        SWIFT,
+        "    public func listConsoleDispatchQueue",
+        "    /// List manager-authorized ranked dispatch candidates",
+    );
+    let ts_enum = bounded_section(
+        TS,
+        "        DispatchQueueStatus: ",
+        "        DispatchQueueDispatch: {",
+    );
+    let swift_enum = bounded_section(
+        SWIFT_TYPES,
+        "        @frozen public enum DispatchQueueStatus",
+        "        public struct DispatchQueueDispatch",
+    );
+    for wire in [
+        "RECEIVED",
+        "UNASSIGNED",
+        "ASSIGNED",
+        "IN_PROGRESS",
+        "PART_WAITING",
+        "DELAYED",
+    ] {
+        assert!(
+            openapi_enum.contains(wire),
+            "OpenAPI DispatchQueueStatus lacks {wire}"
+        );
+        assert!(
+            ts_enum.contains(wire),
+            "TS DispatchQueueStatus lacks {wire}"
+        );
+        assert!(
+            KOTLIN_ENUM.contains(wire),
+            "Kotlin DispatchQueueStatus lacks {wire}"
+        );
+        assert!(
+            swift_enum.contains(wire),
+            "Swift DispatchQueueStatus lacks {wire}"
+        );
+    }
+    assert!(
+        ts_op.contains("status?: components[\"schemas\"][\"DispatchQueueStatus\"][]")
+            && ts_op.contains("400: components[\"responses\"][\"BadRequest\"]")
+    );
+    assert!(
+        kotlin_op.contains("kotlin.collections.List<DispatchQueueStatus>")
+            && kotlin_op.contains("toMultiValue(status.toList(), \"csv\")")
+            && kotlin_op.contains("Accept\"] = \"application/json\"")
+    );
+    assert!(
+        swift_op.contains("style: .form,")
+            && swift_op.contains("explode: false,")
+            && swift_op.contains("name: \"status\"")
+            && swift_op.contains("case 400:")
+            && swift_op.contains("\"application/json\"")
+    );
+}
+
+#[test]
+fn bounded_generated_sections_reject_later_operation_or_enum_text() {
+    let operation = bounded_section("target\nnext target", "target", "next");
+    assert!(
+        !operation.contains("next target"),
+        "later operation text must not satisfy target assertions"
+    );
+    let status = bounded_section(
+        "DispatchQueueStatus\nRECEIVED\nOtherStatus\nDELAYED",
+        "DispatchQueueStatus",
+        "OtherStatus",
+    );
+    assert!(
+        status.contains("RECEIVED") && !status.contains("DELAYED"),
+        "later enum text must not satisfy target assertions"
+    );
+}
+
+#[test]
+#[should_panic(expected = "missing end absent")]
+fn bounded_generated_sections_reject_missing_end_boundary() {
+    let _ = bounded_section("target only", "target", "absent");
 }

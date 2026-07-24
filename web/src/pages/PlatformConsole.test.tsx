@@ -9,7 +9,7 @@ import {
   Outlet,
   Route,
   Routes,
-} from "react-router-dom";
+} from "react-router";
 import {
   afterAll,
   afterEach,

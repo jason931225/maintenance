@@ -62,6 +62,17 @@ describe("GraphExplorer", () => {
     expect(screen.getByText(G.zoomLevel(110))).toBeInTheDocument();
   });
 
+  it("stacks the graph and contextual rail below the narrow viewport breakpoint", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
+    render(<GraphExplorer model={model} />);
+
+    expect(screen.getByLabelText(G.pane)).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr)",
+    });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+  });
+
   it("resolves the focus-node inspector card on mount, before any click", async () => {
     const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
     render(<GraphExplorer model={model} resolveNodeDescriptor={resolve} />);
@@ -145,5 +156,27 @@ describe("GraphExplorer", () => {
     // Focus node (t1) is projected → the notice shows without a resolve attempt.
     expect(screen.getByText(G.projectedNotice)).toBeInTheDocument();
     expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("moves graph focus with arrow keys and exposes the same typed relations as a list", async () => {
+    const onFocusChange = vi.fn();
+    render(<GraphExplorer model={model} onFocusChange={onFocusChange} />);
+
+    const first = screen.getByRole("button", {
+      name: ko.console.explore.actions.recenter("NK보안 경비용역"),
+    });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+
+    await waitFor(() => {
+      expect(onFocusChange).toHaveBeenCalledWith("n2");
+      expect(document.activeElement).toHaveAttribute(
+        "aria-label",
+        ko.console.explore.actions.recenter("경비 근무 장구"),
+      );
+    });
+    expect(
+      screen.getByRole("list", { name: G.relationList }),
+    ).toHaveTextContent("NK보안 경비용역 공급 경비 근무 장구");
   });
 });

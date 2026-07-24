@@ -43,6 +43,7 @@ rust_test(
     crate_root = "backend/ci/gates/dev-auth-absence/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/dev-auth-absence"},
+    labels = ["owner.backend.ci.gates.dev-auth-absence", "domain.ci", "test.unit", "resource.none"],
     deps = [
         "//third-party/rust:serde_json",
     ],

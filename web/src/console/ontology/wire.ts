@@ -390,7 +390,11 @@ export function objectCardDescriptorFrom({
     code: instanceCode(head.id),
     title: head.title,
     objectType: detail
-      ? { key: detail.object_type.stable_key, title: detail.object_type.title }
+      ? {
+          id: detail.object_type.id,
+          key: detail.object_type.stable_key,
+          title: detail.object_type.title,
+        }
       : { key: head.object_type_id, title: instanceCode(head.object_type_id) },
     lifecycleState: head.lifecycle_state,
     schemaVersion: detail?.object_type.schema_version,

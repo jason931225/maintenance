@@ -349,6 +349,413 @@ async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool)
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn people_directory_filters_scope_orders_and_counts_truthfully(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let visible_branch = seed_branch(&pool).await;
+    let hidden_branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Directory Admin", &["ADMIN"], Some(visible_branch)).await;
+    let first = seed_user_with_team(
+        &pool,
+        "ALPHA",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let employee_id = seed_employee_link(&pool, first, "EMP-ALPHA", "Alpha Employee").await;
+    let _second = seed_user_with_team(
+        &pool,
+        "alpha",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let inactive = seed_user_with_team(
+        &pool,
+        "alpha inactive",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    seed_user_active(&pool, inactive, false).await;
+    let shared = seed_user_with_team(
+        &pool,
+        "beta shared",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    seed_user_branch(&pool, shared, hidden_branch).await;
+    let _hidden = seed_user_with_team(
+        &pool,
+        "alpha hidden",
+        &["MECHANIC"],
+        Some(hidden_branch),
+        Some("정비"),
+    )
+    .await;
+    let same_name_a = seed_user_with_team(
+        &pool,
+        "same name",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let same_name_b = seed_user_with_team(
+        &pool,
+        "same name",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let token = harness.token(admin, &["ADMIN"], vec![visible_branch]);
+
+    let (status, page) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=%20ALPHA%20&team=MAINTENANCE&limit=10",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page:?}");
+    assert_eq!(page["total"], 2, "inactive and hidden users are omitted");
+    let names: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["display_name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["ALPHA", "alpha"]);
+    let linked = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == first.to_string())
+        .unwrap();
+    assert_eq!(linked["employee_id"], employee_id.to_string());
+    assert_eq!(linked["employee_link_status"], "LINKED");
+    assert_eq!(linked["employee_name"], "Alpha Employee");
+
+    let (status, second_page) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=alpha&team=MAINTENANCE&limit=1&offset=1",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second_page:?}");
+    assert_eq!(second_page["total"], 2);
+    assert_eq!(second_page["limit"], 1);
+    assert_eq!(second_page["offset"], 1);
+    assert_eq!(second_page["items"].as_array().unwrap().len(), 1);
+
+    let (status, same_names) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=same%20name&team=MAINTENANCE",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{same_names:?}");
+    let returned_ids: Vec<String> = same_names["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect();
+    let mut expected_ids = vec![same_name_a.to_string(), same_name_b.to_string()];
+    expected_ids.sort();
+    assert_eq!(
+        returned_ids, expected_ids,
+        "same-name rows use id as a tie-breaker"
+    );
+
+    let (status, scoped) = send(
+        &harness,
+        "GET",
+        &format!("/api/v1/directory/people?branch_id={visible_branch}&team=MAINTENANCE"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{scoped:?}");
+    let shared_row = scoped["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == shared.to_string())
+        .unwrap();
+    assert_eq!(
+        shared_row["branch_ids"],
+        json!([visible_branch.to_string()])
+    );
+
+    let (status, including_inactive) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=alpha&team=MAINTENANCE&include_inactive=true",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{including_inactive:?}");
+    assert_eq!(including_inactive["total"], 3);
+
+    for invalid in [
+        "/api/v1/directory/people?team=UNKNOWN",
+        "/api/v1/directory/people?branch_id=not-a-uuid",
+        "/api/v1/directory/people?offset=-1",
+    ] {
+        let (status, body) = send(&harness, "GET", invalid, &token, None).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    }
+}
+
+/// The people directory is a runtime-authz surface: custom roles become
+/// effective only when the resolver sees ACTIVE assignments, and every grant
+/// is bounded by both its branch condition and the caller's live membership.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn people_directory_custom_role_resolution_is_active_only_and_membership_bounded(
+    pool: PgPool,
+) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch_a = seed_branch(&pool).await;
+    let branch_b = seed_branch(&pool).await;
+    let branch_outside = seed_branch(&pool).await;
+    let owner = seed_user(&pool, "Directory Policy Owner", &["SUPER_ADMIN"], None).await;
+
+    let visible_a = seed_user(&pool, "Directory Scoped A", &["MECHANIC"], Some(branch_a)).await;
+    let visible_b = seed_user(&pool, "Directory Scoped B", &["MECHANIC"], Some(branch_b)).await;
+    let shared = seed_user(
+        &pool,
+        "Directory Scoped Shared",
+        &["MECHANIC"],
+        Some(branch_a),
+    )
+    .await;
+    seed_user_branch(&pool, shared, branch_outside).await;
+    let hidden = seed_user(
+        &pool,
+        "Directory Scoped Outside",
+        &["MECHANIC"],
+        Some(branch_outside),
+    )
+    .await;
+
+    // No built-in feature grant and no runtime custom grant: deny, never an
+    // empty successful page that could conceal an authorization defect.
+    let no_grant = seed_user(&pool, "Directory No Grant", &["MEMBER"], Some(branch_a)).await;
+    let no_grant_token = harness.token(no_grant, &["MEMBER"], vec![branch_a]);
+    let (status, body) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=directory%20scoped",
+        &no_grant_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+
+    let reader = seed_user(
+        &pool,
+        "Directory Custom Reader",
+        &["MEMBER"],
+        Some(branch_a),
+    )
+    .await;
+    seed_user_branch(&pool, reader, branch_b).await;
+    let reader_token = harness.token(reader, &["MEMBER"], vec![branch_a, branch_b]);
+
+    let active_a = seed_policy_role(
+        &pool,
+        owner,
+        "directory_reader_branch_a",
+        "지점 A 구성원 조회",
+        "ACTIVE",
+        false,
+        &[("employee_directory_read", "allow")],
+    )
+    .await;
+    let branch_a_value = branch_a.to_string();
+    seed_policy_role_condition(
+        &pool,
+        active_a,
+        "branch_scope",
+        "branch",
+        "equals",
+        &[branch_a_value.as_str()],
+    )
+    .await;
+    seed_policy_assignment(&pool, reader, active_a, owner).await;
+
+    // ACTIVE grants resolve through the request principal and expose only the
+    // grant/live-membership intersection. The shared user must not disclose
+    // its otherwise-hidden outside branch.
+    let (status, active_page) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=directory%20scoped",
+        &reader_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{active_page:?}");
+    assert_eq!(active_page["total"], 2, "{active_page:?}");
+    let active_ids: BTreeSet<String> = active_page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        active_ids,
+        BTreeSet::from([visible_a.to_string(), shared.to_string()])
+    );
+    let shared_row = active_page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == shared.to_string())
+        .unwrap();
+    assert_eq!(shared_row["branch_ids"], json!([branch_a.to_string()]));
+    assert!(
+        !shared_row.to_string().contains(&branch_outside.to_string()),
+        "out-of-scope branch id must not be disclosed: {shared_row:?}"
+    );
+
+    // A member may hold multiple custom grants, but only the intersections
+    // with their actual membership may be unioned. The out-of-scope grant is
+    // deliberately assigned alongside the valid B grant to lock that boundary.
+    let active_b = seed_policy_role(
+        &pool,
+        owner,
+        "directory_reader_branch_b",
+        "지점 B 구성원 조회",
+        "ACTIVE",
+        false,
+        &[("employee_directory_read", "allow")],
+    )
+    .await;
+    let branch_b_value = branch_b.to_string();
+    seed_policy_role_condition(
+        &pool,
+        active_b,
+        "branch_scope",
+        "branch",
+        "equals",
+        &[branch_b_value.as_str()],
+    )
+    .await;
+    let outside_only = seed_policy_role(
+        &pool,
+        owner,
+        "directory_reader_outside",
+        "외부 지점 구성원 조회",
+        "ACTIVE",
+        false,
+        &[("employee_directory_read", "allow")],
+    )
+    .await;
+    let outside_value = branch_outside.to_string();
+    seed_policy_role_condition(
+        &pool,
+        outside_only,
+        "branch_scope",
+        "branch",
+        "equals",
+        &[outside_value.as_str()],
+    )
+    .await;
+    seed_policy_assignment(&pool, reader, active_b, owner).await;
+    seed_policy_assignment(&pool, reader, outside_only, owner).await;
+
+    let (status, union_page) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=directory%20scoped",
+        &reader_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{union_page:?}");
+    assert_eq!(union_page["total"], 3, "{union_page:?}");
+    assert_eq!(
+        union_page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            visible_a.to_string(),
+            visible_b.to_string(),
+            shared.to_string(),
+        ])
+    );
+    assert!(
+        !union_page.to_string().contains(&hidden.to_string()),
+        "an out-of-membership grant must not return outside rows: {union_page:?}"
+    );
+
+    let (status, outside_page) = send(
+        &harness,
+        "GET",
+        &format!("/api/v1/directory/people?search=directory%20scoped&branch_id={branch_outside}"),
+        &reader_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{outside_page:?}");
+    assert_eq!(outside_page["total"], 0, "{outside_page:?}");
+    assert_eq!(outside_page["items"], json!([]));
+
+    // The same resolver intentionally excludes DRAFT and RETIRED assignments.
+    // Each principal has a live branch membership, so 403 proves lifecycle
+    // status—not membership absence—is the fail-closed reason.
+    for (status_name, role_key) in [
+        ("DRAFT", "directory_reader_draft"),
+        ("RETIRED", "directory_reader_retired"),
+    ] {
+        let lifecycle_reader = seed_user(
+            &pool,
+            &format!("Directory {status_name} Reader"),
+            &["MEMBER"],
+            Some(branch_a),
+        )
+        .await;
+        let role = seed_policy_role(
+            &pool,
+            owner,
+            role_key,
+            &format!("{status_name} 구성원 조회"),
+            status_name,
+            false,
+            &[("employee_directory_read", "allow")],
+        )
+        .await;
+        seed_policy_assignment(&pool, lifecycle_reader, role, owner).await;
+        let token = harness.token(lifecycle_reader, &["MEMBER"], vec![branch_a]);
+        let (status, body) = send(
+            &harness,
+            "GET",
+            "/api/v1/directory/people?search=directory%20scoped",
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{status_name}: {body:?}");
+    }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn non_super_admin_cannot_create_elevated_user(pool: PgPool) {
     let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
@@ -3015,6 +3422,78 @@ async fn seed_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
     })
     .await
     .unwrap();
+}
+
+async fn seed_user_active(pool: &PgPool, user_id: UserId, is_active: bool) {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user_active").unwrap(),
+        "user",
+        user_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query("UPDATE users SET is_active = $1 WHERE id = $2")
+                .bind(is_active)
+                .bind(*user_id.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+async fn seed_employee_link(
+    pool: &PgPool,
+    user_id: UserId,
+    number: &str,
+    name: &str,
+) -> uuid::Uuid {
+    let employee_id = uuid::Uuid::new_v4();
+    let number = number.to_owned();
+    let name = name.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_employee_link").unwrap(),
+        "employee",
+        employee_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO employees \
+                 (id, org_id, company, name, employee_number, source_filename, source_sheet, source_row, source_key) \
+                 VALUES ($1, $2, 'Test Company', $3, $4, 'test.csv', 'employees', 1, $5)",
+            )
+            .bind(employee_id)
+            .bind(*OrgId::knl().as_uuid())
+            .bind(name)
+            .bind(&number)
+            .bind(format!("test:{number}"))
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            sqlx::query("UPDATE users SET employee_id = $1 WHERE id = $2")
+                .bind(employee_id)
+                .bind(*user_id.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+    employee_id
 }
 
 async fn seed_policy_role(

@@ -773,7 +773,8 @@ paths:
       operationId: listWorkOrders
       summary: List branch-scoped work orders
       description: Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`,
-        `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches
+        `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `branch_id` narrows results
+        within the caller's existing branch/RLS scope. `around_work_order_id` searches
         around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment.
         The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and
         customer/site listograms for drill-to-act dashboards.
@@ -814,6 +815,12 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/Uuid'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+        description: Narrows results to one branch already visible to the caller; it never expands branch/RLS visibility.
       - name: around_work_order_id
         in: query
         required: false
@@ -1950,6 +1957,11 @@ paths:
       security:
       - bearerAuth: []
       parameters:
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
       - name: limit
         in: query
         required: false
@@ -1985,7 +1997,8 @@ paths:
       operationId: getHrReadinessSummary
       summary: Read HR data readiness counters
       description: Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without
-        exposing raw workbook rows.
+        exposing raw workbook rows. `payroll.active_close_runs` counts only STAGED, BLOCKED_LEGAL_GATE,
+        READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
       security:
       - bearerAuth: []
       responses:
@@ -1995,6 +2008,20 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                - payroll
+                properties:
+                  payroll:
+                    type: object
+                    required:
+                    - active_close_runs
+                    properties:
+                      active_close_runs:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                        description: Number of inspectable non-terminal payroll close runs.
+                    additionalProperties: true
                 additionalProperties: true
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -2410,6 +2437,11 @@ paths:
       - bearerAuth: []
       parameters:
       - name: employee_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: branch_id
         in: query
         required: false
         schema:
@@ -5171,6 +5203,73 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests:
+    get:
+      tags:
+        - financial
+      operationId: listPurchaseRequests
+      summary: List a branch-scoped purchase-request queue
+      description: >-
+        Returns only purchase requests visible to the caller in the required
+        branch. Repeat the plain `status` query key to filter lifecycle states;
+        `status[]`, comma-delimited values, unknown keys, and malformed values
+        are rejected. The response is an offset page with required metadata.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: branch_id
+        in: query
+        required: true
+        description: Branch whose purchase-request queue is requested.
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: status
+        in: query
+        required: false
+        description: Repeat this plain key to filter one or more lifecycle states.
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseStatus'
+      - name: limit
+        in: query
+        required: false
+        description: Page size; defaults to 25 and must be between 1 and 100.
+        schema:
+          type: integer
+          format: int64
+          default: 25
+          minimum: 1
+          maximum: 100
+      - name: offset
+        in: query
+        required: false
+        description: Zero-based offset; defaults to 0.
+        schema:
+          type: integer
+          format: int64
+          default: 0
+          minimum: 0
+      responses:
+        '200':
+          description: Branch-scoped purchase-request page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseRequestPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          description: An unexpected persistence or infrastructure error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
     post:
       tags:
         - financial
@@ -5495,7 +5594,61 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/console/dispatch/queue:
+    get:
+      tags: [p1-dispatches]
+      operationId: listConsoleDispatchQueue
+      summary: List the bounded operational dispatch queue
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - name: status
+        in: query
+        style: form
+        explode: false
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/DispatchQueueStatus'
+        description: Comma-separated DispatchQueueStatus values serialized as one CSV query value.
+      - name: limit
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      - name: after
+        in: query
+        schema: { type: string }
+        description: Opaque cursor returned by a previous page.
+      responses:
+        '200': { description: Dispatch queue page., content: { application/json: { schema: { $ref: '#/components/schemas/DispatchQueuePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/p1-dispatches/{dispatchId}/candidates:
+    get:
+      tags: [p1-dispatches]
+      operationId: listP1DispatchCandidates
+      summary: List manager-authorized ranked dispatch candidates
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DispatchId' }]
+      responses:
+        '200': { description: Dispatch candidate page., content: { application/json: { schema: { $ref: '#/components/schemas/DispatchCandidatePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/p1-dispatches/{dispatchId}/responses:
+    get:
+      tags: [p1-dispatches]
+      operationId: listP1DispatchResponses
+      summary: List authorized P1 dispatch responses
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DispatchId' }]
+      responses:
+        '200': { description: Dispatch response page., content: { application/json: { schema: { $ref: '#/components/schemas/P1DispatchResponsePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags:
         - p1-dispatches
@@ -6209,6 +6362,84 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/directory/people:
+    get:
+      tags:
+        - directory
+      operationId: listDirectoryPeople
+      summary: List people visible through the caller's effective directory scope
+      description: >-
+        Returns the tenant people directory after intersecting live branch
+        membership with EmployeeDirectoryRead grants. A requested branch_id
+        narrows that effective scope; it never widens it. Results are ordered by
+        display_name then id, and branch_ids are redacted to the resulting scope.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: search
+        in: query
+        required: false
+        description: Case-insensitive display-name search after trimming and lowercase normalization.
+        schema:
+          type: string
+          maxLength: 200
+      - name: team
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Team'
+      - name: branch_id
+        in: query
+        required: false
+        description: Exact branch filter, intersected with the caller's effective directory scope.
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: include_inactive
+        in: query
+        required: false
+        description: Include archived users; defaults to false.
+        schema:
+          type: boolean
+          default: false
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 50
+          description: Values above 200 are rejected with 422; they are never silently clamped.
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Filtered page of people and the exact total within the effective directory scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPage'
+        '400':
+          description: Malformed query string (for example an unparsable boolean or repeated scalar parameter); no directory query ran.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
         '503':
@@ -7537,6 +7768,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/workbench:
+    get:
+      tags:
+        - me
+      operationId: getMyWorkbench
+      summary: Read the authenticated principal's bounded operations workbench
+      description: >-
+        Composes the native action-inbox, owner-scoped todo, and collaboration
+        calendar reads under one captured request instant. Each source remains
+        independently authorized and may return a redacted denied or unavailable
+        envelope; the aggregate never owns mutations or duplicates source data.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      - name: to
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: action_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: todo_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: calendar_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Workbench source snapshots at one request ceiling.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyWorkbenchResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/me/workspace:
     get:
       tags:
@@ -10457,6 +10756,60 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-runs/for-object:
+    get:
+      tags:
+        - workflow-studio
+      operationId: listWorkflowRunsForObject
+      summary: List visible workflow runs for one authorized object
+      description: >-
+        Read-only exact-pair bridge for work_order and support_ticket subjects.
+        The server authorizes the native subject first, then returns only workflow
+        runs visible to the same principal. Unknown or invisible cursors fail with
+        the same validation code and do not disclose foreign rows.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: object_type
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/WorkflowObjectKind'
+      - name: object_id
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      - name: before
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Visible workflow runs bound to the exact subject pair.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunsForObjectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/workflow-runs/{run_id}/post-finalization-rejection:
     post:
       tags:
@@ -11985,8 +12338,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/OntologyActionExecuteOutcome'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -11995,6 +12347,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          description: The supplied expected_revision is stale.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
         '501':
@@ -12477,9 +12835,12 @@ paths:
         - { name: custody_stage, in: query, required: false, schema: { $ref: '#/components/schemas/CustodyStage' } }
         - { name: classification, in: query, required: false, schema: { $ref: '#/components/schemas/EvidenceClassification' } }
         - { name: limit, in: query, required: false, schema: { type: integer, format: int64 } }
-        - { name: offset, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, format: int64 }, description: "Backward-compatible offset accepted by the runtime. When cursor is supplied, offset must be omitted or zero." }
+        - { name: as_of, in: query, required: false, schema: { type: integer, format: int64 }, description: "Immutable evidence-register sequence returned by the first page; omit to establish the current snapshot. When cursor is supplied, as_of must match that cursor's snapshot." }
+        - { name: cursor, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }, description: Opaque unpadded-base64url continuation token returned as next_cursor by the preceding page. }
       responses:
         '200': { description: A page of EV objects., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceObjectPage' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/evidence/objects/{id}:
     get:
       tags: [Evidence]
@@ -12496,8 +12857,19 @@ paths:
       parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
       responses:
         '200': { description: Fixity report (outcome + per-copy verdict)., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceVerifyReport' } } } }
-        '404': { description: Not found. }
-        '503': { description: Object storage not configured — fixity cannot be checked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: >-
+            Fixity storage is unavailable only when ErrorBody.error.code is
+            evidence_store_unavailable (for example, storage is not configured).
+            Generic auth or platform service failures also use HTTP 503 but retain
+            the generic unavailable code and must remain retryable rather than
+            being presented as an evidence-storage condition.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
   /api/v1/evidence/objects/{id}/hold:
     post:
       tags: [Evidence]
@@ -13646,8 +14018,1050 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/facilities/cases:
+    get:
+      tags: [facilities]
+      operationId: listFacilitiesCases
+      summary: List the facilities cases the caller may observe
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Facilities cases ordered by creation time, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FacilitiesCase' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [facilities]
+      operationId: createDueFacilitiesCase
+      summary: Create or replay an idempotent due facilities case
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesDueCaseRequest' } } } }
+      responses:
+        '200': { description: Newly created case or the prior idempotent result, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}:
+    get:
+      tags: [facilities]
+      operationId: getFacilitiesCase
+      summary: Get one facilities case with its derived service readback
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Case including derived SLA and energy delta, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}/triage:
+    post:
+      tags: [facilities]
+      operationId: triageFacilitiesCase
+      summary: Schedule a due facilities case for service
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesTriageRequest' } } } }
+      responses:
+        '200': { description: Scheduled case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}/assign:
+    post:
+      tags: [facilities]
+      operationId: assignFacilitiesCase
+      summary: Assign a scheduled facilities case to a technician
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesAssignRequest' } } } }
+      responses:
+        '200': { description: Assigned case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}/start:
+    post:
+      tags: [facilities]
+      operationId: startFacilitiesCase
+      summary: Start assigned facilities execution after safety acknowledgement
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Safety-acknowledged case in progress, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}/submit:
+    post:
+      tags: [facilities]
+      operationId: submitFacilitiesExecution
+      summary: Submit execution evidence and await customer acceptance
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesSubmitRequest' } } } }
+      responses:
+        '200': { description: Case awaiting customer acceptance, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { description: Required execution evidence is not confirmed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}/acceptance:
+    post:
+      tags: [facilities]
+      operationId: decideFacilitiesAcceptance
+      summary: Record customer acceptance or rejection of completed facilities work
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesAcceptanceRequest' } } } }
+      responses:
+        '200': { description: Closed or rework-required case, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/facilities/cases/{case_id}/observations:
+    post:
+      tags: [facilities]
+      operationId: recordFacilitiesObservation
+      summary: Record facilities energy or cost observations and return the case readback
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesObservationRequest' } } } }
+      responses:
+        '200': { description: Case with derived energy and cost readback, content: { application/json: { schema: { $ref: '#/components/schemas/FacilitiesCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/logistics/asns:
+    post:
+      tags: [logistics]
+      operationId: createLogisticsAsn
+      summary: Create a pilot ASN for one branch warehouse
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, externalReference, sku, expectedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, externalReference: { type: string }, sku: { type: string }, expectedQuantity: { type: integer, minimum: 1 } } } } } }
+      responses: { '201': { description: ASN created, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsAsnCreated' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/logistics/asns/{asn_id}/receipts:
+    post:
+      tags: [logistics]
+      operationId: receiveLogisticsAsn
+      summary: Record an idempotent full or partial receipt; over-receipt is rejected
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, receivedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, receivedQuantity: { type: integer, minimum: 1 } } } } } }
+      responses: { '200': { description: Receipt recorded or replayed, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsAsnReceipt' } } } }, '409': { description: "Conflicting replay, over-receipt, or illegal state" }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/logistics/asns/{asn_id}/putaway:
+    post:
+      tags: [logistics]
+      operationId: putawayLogisticsAsn
+      summary: Put received stock away into the pilot warehouse
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId], properties: { branchId: { $ref: '#/components/schemas/Uuid' } } } } } }
+      responses: { '200': { description: Stock available for fulfillment, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsAsnPutaway' } } } }, '409': { description: Illegal state } }
+  /api/v1/logistics/fulfillments:
+    post:
+      tags: [logistics]
+      operationId: releaseLogisticsFulfillment
+      summary: Atomically reserve available pilot stock; never oversells
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, warehouseCode, sku, requestedQuantity, dueAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, warehouseCode: { type: string }, sku: { type: string }, requestedQuantity: { type: integer, minimum: 1 }, dueAt: { $ref: '#/components/schemas/LogisticsTimeTuple' } } } } } }
+      responses: { '201': { description: Fulfillment released, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsFulfillmentReleased' } } } }, '409': { description: Insufficient available stock } }
+  /api/v1/logistics/fulfillments/{fulfillment_id}/pick:
+    post:
+      tags: [logistics]
+      operationId: pickLogisticsFulfillment
+      summary: Pick reserved stock, recording explicit short-pick when applicable
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, pickedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, pickedQuantity: { type: integer, format: int64, minimum: 0 } } } } } }
+      responses: { '200': { description: Pick outcome, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsFulfillmentPicked' } } } }, '409': { description: Illegal state } }
+  /api/v1/logistics/fulfillments/{fulfillment_id}/pack:
+    post:
+      tags: [logistics]
+      operationId: packLogisticsFulfillment
+      summary: Pack a picked or short-picked fulfillment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId], properties: { branchId: { $ref: '#/components/schemas/Uuid' } } } } } }
+      responses: { '200': { description: Fulfillment packed, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsFulfillmentPacked' } } } }, '409': { description: Illegal state } }
+  /api/v1/logistics/fulfillments/{fulfillment_id}/dispatch:
+    post:
+      tags: [logistics]
+      operationId: dispatchLogisticsShipment
+      summary: Dispatch one packed carrier and vehicle leg
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, carrierName, vehicleReference], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, carrierName: { type: string, maxLength: 120 }, vehicleReference: { type: string, maxLength: 120 } } } } } }
+      responses: { '201': { description: Shipment dispatched, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsShipmentDispatched' } } } }, '409': { description: Illegal transition } }
+  /api/v1/logistics/shipments/{shipment_id}/pod:
+    post:
+      tags: [logistics]
+      operationId: verifyLogisticsPod
+      summary: Verify recipient-confirmed immutable evidence and derive calendar-time SLA
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, recipientName, evidenceReference, confirmedAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, recipientName: { type: string, maxLength: 160 }, evidenceReference: { type: string, pattern: '^evidence://' }, confirmedAt: { $ref: '#/components/schemas/LogisticsTimeTuple' } } } } } }
+      responses: { '200': { description: POD verified with MET or BREACHED SLA, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsPodVerified' } } } }, '409': { description: Illegal transition or reused evidence } }
+  /api/v1/logistics/shipments/{shipment_id}/settlements:
+    post:
+      tags: [logistics]
+      operationId: settleLogisticsOperationalCost
+      summary: Settle one KRW operational transport cost; no finance or GL posting
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [branchId, currencyCode, amountMinor, settledAt], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, currencyCode: { type: string, enum: [KRW] }, amountMinor: { type: integer, format: int64, minimum: 0 }, settledAt: { $ref: '#/components/schemas/LogisticsTimeTuple' } } } } } }
+      responses: { '200': { description: Operational cost settled, content: { application/json: { schema: { $ref: '#/components/schemas/LogisticsShipmentSettlement' } } } }, '409': { description: Verified POD required } }
+  /api/v1/equipment-3r/units:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rUnits
+      summary: List 3R units, newest first (org-wide observe)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Units, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Equipment3rUnitView' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [equipment-3r]
+      operationId: registerEquipment3rUnit
+      summary: Register a serialized rental unit (org-unique serial)
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, serialNo, modelName, capacityClass, acquisitionCostMinor], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, serialNo: { type: string, minLength: 1, maxLength: 80 }, modelName: { type: string, minLength: 1, maxLength: 120 }, capacityClass: { type: string, minLength: 1, maxLength: 40 }, acquisitionCostMinor: { type: integer, format: int64, minimum: 0 } } } } } }
+      responses:
+        '201': { description: Unit registered, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rUnitView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Duplicate serial in organization }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/units/{unit_id}:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rUnit
+      summary: Unit detail with active case and open disposition links
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: unit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Unit detail, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rUnitDetailView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org unit }
+  /api/v1/equipment-3r/units/{unit_id}/history:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rUnitHistory
+      summary: Transition history for the unit, its cases, and dispositions, newest first
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: unit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: History entries, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Equipment3rHistoryEntry' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org unit }
+  /api/v1/equipment-3r/rental-cases:
+    get:
+      tags: [equipment-3r]
+      operationId: listEquipment3rRentalCases
+      summary: List rental cases, newest first (org-wide observe)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Rental cases, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Equipment3rCaseView' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [equipment-3r]
+      operationId: quoteEquipment3rRentalCase
+      summary: Idempotently open a rental-case quote against an unsold unit
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, unitId, customerName, siteReference, monthlyRateMinor, durationMonths, currencyCode], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, unitId: { $ref: '#/components/schemas/Uuid' }, customerName: { type: string, minLength: 1, maxLength: 160 }, siteReference: { type: string, minLength: 1, maxLength: 200 }, monthlyRateMinor: { type: integer, format: int64, minimum: 1 }, durationMonths: { type: integer, minimum: 1, maximum: 120 }, currencyCode: { type: string, enum: [KRW] } } } } } }
+      responses:
+        '200': { description: Idempotent replay of the stored quote (replayed=true), content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '201': { description: Quote created, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unit not found in branch }
+        '409': { description: "Key reused with different fingerprint, or unit is SOLD" }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}:
+    get:
+      tags: [equipment-3r]
+      operationId: getEquipment3rRentalCase
+      summary: Rental-case detail with approval, legs, inspections, and assessment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Case detail, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseDetailView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+  /api/v1/equipment-3r/rental-cases/{case_id}/approval:
+    post:
+      tags: [equipment-3r]
+      operationId: decideEquipment3rApproval
+      summary: Four-eyes approval; APPROVED reserves the unit (single winner)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [APPROVED, DECLINED] }, reason: { type: string, minLength: 1, maxLength: 500 } } } } } }
+      responses:
+        '200': { description: Decision recorded, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: "Missing grant, branch outside scope, or four-eyes violation" }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not QUOTED or unit not AVAILABLE }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/dispatch:
+    post:
+      tags: [equipment-3r]
+      operationId: dispatchEquipment3rCase
+      summary: Record the physical delivery leg of an approved case
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [carrierName, vehicleReference], properties: { carrierName: { type: string, minLength: 1, maxLength: 120 }, vehicleReference: { type: string, minLength: 1, maxLength: 120 } } } } } }
+      responses:
+        '200': { description: Case dispatched, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not APPROVED }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/handover:
+    post:
+      tags: [equipment-3r]
+      operationId: handoverEquipment3rCase
+      summary: Customer handover with immutable evidence; unit goes ON_RENT
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [recipientName, evidenceReference, handedOverAt], properties: { recipientName: { type: string, minLength: 1, maxLength: 160 }, evidenceReference: { type: string, pattern: '^evidence://[A-Za-z0-9._/-]{8,400}$' }, handedOverAt: { type: string, format: date-time } } } } } }
+      responses:
+        '200': { description: Case handed over, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not DISPATCHED }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/inspections:
+    post:
+      tags: [equipment-3r]
+      operationId: inspectEquipment3rCase
+      summary: Append an on-rent inspection or maintenance record
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [outcome, findings], properties: { outcome: { type: string, enum: [PASS, MAINTENANCE_PERFORMED] }, findings: { type: string, minLength: 1, maxLength: 2000 }, maintenanceNote: { type: string, minLength: 1, maxLength: 2000 } } } } } }
+      responses:
+        '201': { description: Inspection recorded, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rInspectionView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not HANDED_OVER }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/return:
+    post:
+      tags: [equipment-3r]
+      operationId: returnEquipment3rCase
+      summary: Record the unit return; unit enters assessment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [returnedAt], properties: { returnedAt: { type: string, format: date-time } } } } } }
+      responses:
+        '200': { description: Case returned, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not HANDED_OVER }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/rental-cases/{case_id}/assessment:
+    post:
+      tags: [equipment-3r]
+      operationId: assessEquipment3rReturn
+      summary: Post the return assessment; closes the case and opens the disposition
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: case_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [conditionGrade, findings, disposition], properties: { conditionGrade: { type: string, enum: [A, B, C, D] }, findings: { type: string, minLength: 1, maxLength: 2000 }, disposition: { type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY] } } } } } }
+      responses:
+        '200': { description: Case closed with disposition opened, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rCaseDetailView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org case }
+        '409': { description: Case not RETURNED }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/equipment-3r/dispositions/{disposition_id}/completion:
+    post:
+      tags: [equipment-3r]
+      operationId: completeEquipment3rDisposition
+      summary: Complete a repair/refurbish/resale disposition; no GL posting occurs
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: disposition_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { costMinor: { type: integer, format: int64, minimum: 0 }, saleAmountMinor: { type: integer, format: int64, minimum: 0 }, buyerName: { type: string, minLength: 1, maxLength: 160 } } } } } }
+      responses:
+        '200': { description: Disposition completed (financeGlPosting is always null), content: { application/json: { schema: { $ref: '#/components/schemas/Equipment3rDispositionView' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Unknown or cross-org disposition }
+        '409': { description: Disposition not OPEN }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/production/plans:
+    get:
+      operationId: listProductionPlans
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters:
+      - name: branch_id
+        in: query
+        required: true
+        schema: {$ref: '#/components/schemas/Uuid'}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+      - name: offset
+        in: query
+        schema: {type: integer, minimum: 0, default: 0}
+      responses:
+        '200': {description: Tenant- and branch-authorized production plans, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProductionPlan'}}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: createProductionPlan
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateProductionPlan'}}}}
+      responses:
+        '201': {description: Draft plan and first operation created, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlan'}}}}
+        '200': {description: Idempotent replay returns the existing plan, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlan'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/production/capacity-slots:
+    get:
+      operationId: listProductionCapacitySlots
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters:
+      - {name: branch_id, in: query, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+      - {name: capacity_date, in: query, required: true, schema: {type: string, format: date}}
+      responses:
+        '200': {description: Tenant and branch scoped capacity slots, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProductionCapacitySlot'}}}}}
+  /api/v1/production/source-ingress:
+    post:
+      operationId: ingestProductionSource
+      tags: [Production]
+      summary: Ingest one idempotent machine-owned production source fact
+      security: [{basicAuth: []}]
+      description: Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngress'}}}}
+      responses:
+        '200': {description: Existing source-version replay or accepted source fact receipt, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngressReceipt'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '500': {$ref: '#/components/responses/InternalServerError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/production/source-systems:
+    post:
+      operationId: registerProductionSourceSystem
+      tags: [Production]
+      summary: Register a production source system and disclose its first credential once
+      security: [{bearerAuth: []}]
+      description: RoleManage-only registration of a tenant-scoped non-human source principal. Registration, rotation, and disable actions are audited server-side.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RegisterProductionSourceSystem'}}}}
+      responses:
+        '201': {description: Registered source system with one-time credential disclosure, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceSystemCredential'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '500': {$ref: '#/components/responses/InternalServerError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/production/source-systems/{source_system_id}/rotate:
+    post:
+      operationId: rotateProductionSourceSystem
+      tags: [Production]
+      summary: Rotate a production source system credential at the expected generation
+      security: [{bearerAuth: []}]
+      parameters: [{name: source_system_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceSystemGenerationRequest'}}}}
+      responses:
+        '200': {description: Rotated source system with one-time replacement credential disclosure, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceSystemCredential'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '500': {$ref: '#/components/responses/InternalServerError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/production/source-systems/{source_system_id}/disable:
+    post:
+      operationId: disableProductionSourceSystem
+      tags: [Production]
+      summary: Disable a production source system at the expected generation
+      security: [{bearerAuth: []}]
+      parameters: [{name: source_system_id, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceSystemGenerationRequest'}}}}
+      responses:
+        '200': {description: Disabled source system receipt, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceSystemReceipt'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '500': {$ref: '#/components/responses/InternalServerError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/production/plans/{plan_id}:
+    get:
+      operationId: getProductionPlan
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Uuid'}
+      responses:
+        '200': {description: "Plan, first operation, checks, and durable lifecycle lineage", content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlanDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/production/plans/{plan_id}/release:
+    post:
+      operationId: releaseProductionPlan
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Uuid'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseProductionPlan'}}}}
+      responses:
+        '200': {description: Plan and first operation released exactly once, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlan'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/production/plans/{plan_id}/operations/{operation_id}/records:
+    post:
+      operationId: recordProductionOperation
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Uuid'}
+      - name: operation_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Uuid'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordProductionOperation'}}}}
+      responses:
+        '200': {description: "Output, scrap, downtime, and quality evidence recorded idempotently", content: {application/json: {schema: {$ref: '#/components/schemas/ProductionOperation'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/v1/consulting/engagements:
+    get:
+      tags: [consulting]
+      operationId: listConsultingEngagements
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: q, in: query, schema: { type: string } }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses: { '200': { description: Tenant-visible engagements, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementPage' } } } } }
+    post:
+      tags: [consulting]
+      operationId: createConsultingEngagement
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementCreateRequest' } } } }
+      responses:
+        '201': { description: Created or idempotently replayed original response for this exact idempotency key and request payload, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagement' } } } }
+        '409': { description: Idempotency key was previously used with a different request payload, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } } }
+  /api/v1/consulting/engagements/{engagement_id}:
+    get:
+      tags: [consulting]
+      operationId: getConsultingEngagement
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Evidence and KPI-lineage detail, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/consulting/engagements/{engagement_id}/diagnostics:
+    post:
+      tags: [consulting]
+      operationId: createConsultingDiagnostic
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnosticCreateRequest' } } } }
+      responses: { '201': { description: Created diagnostic, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnostic' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/consulting/engagements/{engagement_id}/findings:
+    post:
+      tags: [consulting]
+      operationId: createConsultingFinding
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFindingCreateRequest' } } } }
+      responses: { '201': { description: Created evidence-linked finding, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFinding' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/consulting/engagements/{engagement_id}/initiatives:
+    post:
+      tags: [consulting]
+      operationId: createConsultingInitiative
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiativeCreateRequest' } } } }
+      responses: { '201': { description: Created KPI-referenced initiative, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiative' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/consulting/engagements/{engagement_id}/transition:
+    post:
+      tags: [consulting]
+      operationId: transitionConsultingEngagement
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingTransitionRequest' } } } }
+      responses: { '200': { description: Transitioned engagement, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagement' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/consulting/engagements/{engagement_id}/observations:
+    post:
+      tags: [consulting]
+      operationId: createConsultingBenefitObservation
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingObservationCreateRequest' } } } }
+      responses: { '201': { description: KPI/evidence lineage reference, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingBenefitObservation' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/consulting/engagements/{engagement_id}/history:
+    get:
+      tags: [consulting]
+      operationId: listConsultingEngagementHistory
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200':
+          description: Append-only engagement history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ConsultingHistoryEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/attendance/exceptions:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceExceptions
+      summary: List branch-scoped attendance exceptions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        # Supply exactly one selector: `month`, `work_date`, or the complete
+        # `from_date` + `to_date` pair. The server rejects ambiguous, absent,
+        # and partial ranges.
+        - { name: month, in: query, required: false, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: work_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: from_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [OPEN, RESOLVED] } }
+        - { name: employee_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Typed exception page, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceExceptionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [attendance]
+      operationId: raiseAttendanceException
+      summary: Raise an idempotent attendance exception
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RaiseAttendanceExceptionRequest' } } } }
+      responses:
+        '201': { description: Created exception, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceException' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/me/exceptions:
+    get:
+      tags: [attendance]
+      operationId: listMyAttendanceExceptions
+      summary: List only the signed principal's linked employee exceptions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: month, in: query, required: false, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: work_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: from_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [OPEN, RESOLVED] } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 1000000 } }
+      responses:
+        '200': { description: "Linked employee exception page, or an empty page when the principal is unlinked", content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceExceptionPage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/me/week52:
+    get:
+      tags: [attendance]
+      operationId: getMyAttendanceWeek52
+      summary: Get the signed principal's linked employee Week-52 projection
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: week_start, in: query, required: true, schema: { type: string, format: date }, description: ISO week Monday. }
+      responses:
+        '200': { description: "Linked employee Week-52 availability and projection", content: { application/json: { schema: { $ref: '#/components/schemas/OwnAttendanceWeek52Response' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/exceptions/{exception_id}:
+    get:
+      tags: [attendance]
+      operationId: getAttendanceException
+      summary: Get one branch-authorized attendance exception
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: exception_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Typed exception detail, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceException' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/attendance/exceptions/{exception_id}/resolve:
+    post:
+      tags: [attendance]
+      operationId: resolveAttendanceException
+      summary: Resolve an exception with an auditable reason
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: exception_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveAttendanceExceptionRequest' } } } }
+      responses:
+        '200': { description: Resolved exception, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceException' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/substitutions:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceSubstitutions
+      summary: List branch-scoped substitute assignments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        # Supply exactly one selector: `month`, `work_date`, or the complete
+        # `from_date` + `to_date` pair. The server rejects ambiguous, absent,
+        # and partial ranges.
+        - { name: month, in: query, required: false, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: work_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: from_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to_date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Typed substitution page, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitutionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [attendance]
+      operationId: assignAttendanceSubstitute
+      summary: Create an idempotent substitute assignment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AssignAttendanceSubstituteRequest' } } } }
+      responses:
+        '201': { description: Created assignment, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitution' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/substitution-candidates:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceSubstitutionCandidates
+      summary: List eligible substitute candidates for one covered shift
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branch_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' }, description: Required even for organization-wide principals. }
+        - { name: covered_employee_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: cover_date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: from_minutes, in: query, required: true, schema: { type: integer, minimum: 0, maximum: 1439 } }
+        - { name: to_minutes, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 1440 } }
+        - { name: search, in: query, required: false, schema: { type: string, maxLength: 120 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 1000000 } }
+      responses:
+        '200': { description: Eligible substitute candidate page, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitutionCandidatePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/substitutions/{substitution_id}/cancel:
+    post:
+      tags: [attendance]
+      operationId: cancelAttendanceSubstitution
+      summary: Cancel a substitute assignment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: substitution_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CancelAttendanceSubstitutionRequest' } } } }
+      responses:
+        '200': { description: Cancelled assignment, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceSubstitution' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/closes:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceCloses
+      summary: List branch-scoped close records
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: month, in: query, required: true, schema: { type: string, pattern: '^\\d{4}-\\d{2}$' } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '200': { description: Typed close board, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseBoard' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [attendance]
+      operationId: closeAttendanceMonth
+      summary: Commit a server-validated monthly close
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseRequest' } } } }
+      responses:
+        '201': { description: Committed close, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceMonthClose' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/closes/preflight:
+    post:
+      tags: [attendance]
+      operationId: preflightAttendanceClose
+      summary: Calculate close gates without writing a close
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseRequest' } } } }
+      responses:
+        '200': { description: Server-derived close readiness, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceClosePreflight' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/closes/{close_id}/amendments:
+    post:
+      tags: [attendance]
+      operationId: amendAttendanceClose
+      summary: Append an idempotent post-close amendment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: close_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseAmendmentRequest' } } } }
+      responses:
+        '200': { description: Recorded amendment, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceCloseAmendment' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/week52:
+    get:
+      tags: [attendance]
+      operationId: listAttendanceWeek52
+      summary: List weekly working-hour projections
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: week_start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '200': { description: Week-52 projection board, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceWeek52Board' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/attendance/week52/acks:
+    post:
+      tags: [attendance]
+      operationId: acknowledgeAttendanceWeek52
+      summary: Idempotently acknowledge a week-52 adjustment
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceWeek52AckRequest' } } } }
+      responses:
+        '200': { description: Acknowledged complete Week-52 row, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceWeek52Row' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/inventory/items:
+    get:
+      tags: [inventory]
+      operationId: listInventoryItems
+      summary: List tenant-scoped inventory items
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: site_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: stock_location_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: low_stock, in: query, required: false, schema: { type: boolean } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Inventory page, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryItemPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/inventory/items/{item_id}:
+    get:
+      tags: [inventory]
+      operationId: getInventoryItem
+      summary: Get one tenant-authorized inventory item
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Inventory item, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/inventory/items/{item_id}/consumptions:
+    get:
+      tags: [inventory]
+      operationId: listInventoryConsumptions
+      summary: List immutable item-consumption events
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: source_kind, in: query, required: false, schema: { type: string } }
+        - { name: work_order_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: dispatch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Consumption event page, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/InventoryConsumptionEvent' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [inventory]
+      operationId: consumeInventoryItem
+      summary: Record an idempotent, non-negative inventory consumption
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsumeInventoryItemRequest' } } } }
+      responses:
+        '200': { description: Consumption result, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryConsumptionResult' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/inventory/items/{item_id}/movements:
+    get:
+      tags: [inventory]
+      operationId: listInventoryMovements
+      summary: Read the tenant- and branch-scoped unified ISSUE, RECEIPT, and ADJUSTMENT ledger
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }]
+      responses: { '200': { description: Unified movement ledger, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/InventoryMovement' } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/inventory/items/{item_id}/receipts:
+    post:
+      tags: [inventory]
+      operationId: receiveInventoryItem
+      summary: Idempotently record a positive receipt and its before delta after ledger row
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: item_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RecordInventoryReceiptRequest' } } } }
+      responses: { '200': { description: Receipt result, content: { application/json: { schema: { $ref: '#/components/schemas/InventoryReceiptResult' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/mrp:
+    get:
+      tags: [inventory]
+      operationId: getInventoryMrp
+      summary: Deterministic movement-derived MRP with explicit zero inbound and reservation values until those modules exist
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: branchId, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: MRP lines, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/InventoryMrpLine' } } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /api/v1/inventory/cycle-counts:
+    get:
+      tags: [inventory]
+      operationId: listInventoryCycleCounts
+      summary: List tenant- and branch-scoped cycle counts
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: branchId, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: status, in: query, required: false, schema: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, REJECTED, CANCELLED] } }, { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }]
+      responses: { '200': { description: Cycle count page, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountPage' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [inventory]
+      operationId: openInventoryCycleCount
+      summary: Open a cycle count in an authorized branch and stock location
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OpenCycleCountRequest' } } } }
+      responses: { '200': { description: Cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/cycle-counts/{count_id}:
+    get:
+      tags: [inventory]
+      operationId: getInventoryCycleCount
+      summary: Read one authorized cycle count with count lines and applied adjustment movement ids
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Cycle count detail, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/inventory/cycle-counts/{count_id}/lines:
+    post:
+      tags: [inventory]
+      operationId: upsertInventoryCycleCountLine
+      summary: Upsert a DRAFT count line; a nonzero variance requires a typed reason
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpsertCycleCountLineRequest' } } } }
+      responses: { '200': { description: Updated cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/cycle-counts/{count_id}/submit:
+    post:
+      tags: [inventory]
+      operationId: submitInventoryCycleCount
+      summary: Submit a nonempty DRAFT cycle count using optimistic version control
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountVersionRequest' } } } }
+      responses: { '200': { description: Submitted cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/inventory/cycle-counts/{count_id}/decision:
+    post:
+      tags: [inventory]
+      operationId: decideInventoryCycleCount
+      summary: Distinct checker approves idempotent adjustments or rejects with a memo
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DecideCycleCountRequest' } } } }
+      responses: { '200': { description: Decided cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/inventory/cycle-counts/{count_id}/cancel:
+    post:
+      tags: [inventory]
+      operationId: cancelInventoryCycleCount
+      summary: Cancel a DRAFT or SUBMITTED count without mutating ledger history
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: count_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountVersionRequest' } } } }
+      responses: { '200': { description: Cancelled cycle count, content: { application/json: { schema: { $ref: '#/components/schemas/CycleCountDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' } }
 components:
   securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
     bearerAuth:
       type: http
       scheme: bearer
@@ -13988,6 +15402,50 @@ components:
         tiers: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogTier' } }
         conditions: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogCondition' } }
         lifecycle: { $ref: '#/components/schemas/BenefitCatalogLifecycleBinding' }
+    ConsultingEngagement:
+      type: object
+      required: [id, customer_id, title, status, version, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        customer_id: { $ref: '#/components/schemas/Uuid' }
+        customer_document_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        ontology_instance_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        title: { type: string }
+        status: { type: string, enum: [DRAFT, PROPOSED, APPROVED, IMPLEMENTED, MEASURED, SUSTAINED, CORRECTIVE] }
+        approval_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        workflow_execution_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        version: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ConsultingEngagementPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/ConsultingEngagement' } }, limit: { type: integer }, offset: { type: integer }, total: { type: integer } }
+    ConsultingEngagementDetail:
+      allOf:
+      - { $ref: '#/components/schemas/ConsultingEngagement' }
+      - type: object
+        required: [diagnostics, findings, initiatives, observations]
+        properties:
+          diagnostics: { type: array, items: { $ref: '#/components/schemas/ConsultingDiagnostic' } }
+          findings: { type: array, items: { $ref: '#/components/schemas/ConsultingFinding' } }
+          initiatives: { type: array, items: { $ref: '#/components/schemas/ConsultingInitiative' } }
+          observations: { type: array, items: { $ref: '#/components/schemas/ConsultingBenefitObservation' } }
+    ConsultingEngagementCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [customerId, title, idempotencyKey]
+      properties: { customerId: { $ref: '#/components/schemas/Uuid' }, customerDocumentId: { $ref: '#/components/schemas/Uuid', nullable: true }, ontologyInstanceId: { $ref: '#/components/schemas/Uuid', nullable: true }, title: { type: string, minLength: 1 }, idempotencyKey: { type: string, minLength: 1 } }
+    ConsultingDiagnostic: { type: object, required: [id, summary, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, summary: { type: string }, document_id: { $ref: '#/components/schemas/Uuid', nullable: true }, created_at: { type: string, format: date-time } } }
+    ConsultingDiagnosticCreateRequest: { type: object, additionalProperties: false, required: [summary], properties: { summary: { type: string, minLength: 1 }, documentId: { $ref: '#/components/schemas/Uuid', nullable: true } } }
+    ConsultingFinding: { type: object, required: [id, diagnostic_id, statement, evidence_id, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, diagnostic_id: { $ref: '#/components/schemas/Uuid' }, statement: { type: string }, evidence_id: { $ref: '#/components/schemas/Uuid' }, document_id: { $ref: '#/components/schemas/Uuid', nullable: true }, created_at: { type: string, format: date-time } } }
+    ConsultingFindingCreateRequest: { type: object, additionalProperties: false, required: [diagnosticId, statement, evidenceId], properties: { diagnosticId: { $ref: '#/components/schemas/Uuid' }, statement: { type: string, minLength: 1 }, evidenceId: { $ref: '#/components/schemas/Uuid' }, documentId: { $ref: '#/components/schemas/Uuid', nullable: true } } }
+    ConsultingInitiative: { type: object, required: [id, finding_id, title, hypothesis, kpi_definition_id, target_direction, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, finding_id: { $ref: '#/components/schemas/Uuid' }, title: { type: string }, hypothesis: { type: string }, kpi_definition_id: { $ref: '#/components/schemas/Uuid' }, target_direction: { type: string, enum: [INCREASE, DECREASE] }, created_at: { type: string, format: date-time } } }
+    ConsultingInitiativeCreateRequest: { type: object, additionalProperties: false, required: [findingId, title, hypothesis, kpiDefinitionId, targetDirection], properties: { findingId: { $ref: '#/components/schemas/Uuid' }, title: { type: string, minLength: 1 }, hypothesis: { type: string, minLength: 1 }, kpiDefinitionId: { $ref: '#/components/schemas/Uuid' }, targetDirection: { type: string, enum: [INCREASE, DECREASE] } } }
+    ConsultingBenefitObservation: { type: object, required: [id, initiative_id, kpi_definition_id, evidence_id, observed_at, note, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, initiative_id: { $ref: '#/components/schemas/Uuid' }, kpi_definition_id: { $ref: '#/components/schemas/Uuid' }, evidence_id: { $ref: '#/components/schemas/Uuid' }, observed_at: { type: string, format: date-time }, note: { type: string }, created_at: { type: string, format: date-time } } }
+    ConsultingObservationCreateRequest: { type: object, additionalProperties: false, required: [initiativeId, kpiDefinitionId, evidenceId, observedAt, note], properties: { initiativeId: { $ref: '#/components/schemas/Uuid' }, kpiDefinitionId: { $ref: '#/components/schemas/Uuid' }, evidenceId: { $ref: '#/components/schemas/Uuid' }, observedAt: { type: string, format: date-time }, note: { type: string, minLength: 1 } } }
+    ConsultingTransitionRequest: { type: object, additionalProperties: false, required: [toStatus, expectedVersion, reason], properties: { toStatus: { type: string, enum: [PROPOSED, APPROVED, IMPLEMENTED, MEASURED, SUSTAINED, CORRECTIVE] }, expectedVersion: { type: integer, format: int64, minimum: 1 }, approvalId: { $ref: '#/components/schemas/Uuid', nullable: true }, reason: { type: string, minLength: 1 } } }
+    ConsultingHistoryEntry: { type: object, required: [id, event_type, version, payload, occurred_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, event_type: { type: string }, from_status: { type: string, nullable: true }, to_status: { type: string, nullable: true }, version: { type: integer, format: int64 }, payload: { type: object, additionalProperties: true }, occurred_at: { type: string, format: date-time } } }
     ComplianceRiskLevel:
       type: string
       enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL]
@@ -22469,6 +23927,405 @@ components:
           - string
           - 'null'
           description: Opaque cursor for the next immutable-keyset page, or null when exhausted.
+    WorkbenchUrgency:
+      type: string
+      enum:
+      - now
+      - today
+      - wait
+    WorkbenchSourceRef:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - id
+      properties:
+        kind:
+          type: string
+        id:
+          $ref: '#/components/schemas/Uuid'
+    WorkbenchTarget:
+      type: object
+      additionalProperties: false
+      description: Server-issued bounded module target; never an arbitrary URL.
+      required:
+      - module
+      - id
+      properties:
+        module:
+          type: string
+        id:
+          type: string
+    WorkbenchActionInboxItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - urgency
+      - title
+      - source
+      - target
+      properties:
+        id:
+          type: string
+        urgency:
+          $ref: '#/components/schemas/WorkbenchUrgency'
+        title:
+          type: string
+        due_at:
+          $ref: '#/components/schemas/Timestamp'
+        source:
+          $ref: '#/components/schemas/WorkbenchSourceRef'
+        target:
+          $ref: '#/components/schemas/WorkbenchTarget'
+    WorkbenchTodoItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - text
+      - done
+      - source_order
+      - target
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        text:
+          type: string
+        done:
+          type: boolean
+        source_order:
+          type: integer
+          format: int64
+          minimum: 0
+        target:
+          $ref: '#/components/schemas/WorkbenchTarget'
+    WorkbenchCalendarItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - starts_at
+      - ends_at
+      - target
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        starts_at:
+          $ref: '#/components/schemas/Timestamp'
+        ends_at:
+          $ref: '#/components/schemas/Timestamp'
+        target:
+          $ref: '#/components/schemas/WorkbenchTarget'
+    WorkbenchScopeAll:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - all
+        selected_branch_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkbenchScopeBranches:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - branch_ids
+      properties:
+        kind:
+          type: string
+          enum:
+          - branches
+        branch_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Uuid'
+        selected_branch_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkbenchEffectiveScope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchScopeAll'
+      - $ref: '#/components/schemas/WorkbenchScopeBranches'
+      discriminator:
+        propertyName: kind
+        mapping:
+          all: '#/components/schemas/WorkbenchScopeAll'
+          branches: '#/components/schemas/WorkbenchScopeBranches'
+    WorkbenchRange:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - to
+      properties:
+        from:
+          $ref: '#/components/schemas/Timestamp'
+        to:
+          $ref: '#/components/schemas/Timestamp'
+    WorkbenchDeniedSourceEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - code
+      properties:
+        status:
+          type: string
+          enum:
+          - denied
+        code:
+          type: string
+    WorkbenchUnavailableSourceEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - code
+      properties:
+        status:
+          type: string
+          enum:
+          - unavailable
+        code:
+          type: string
+    WorkbenchActionSourceOk:
+      type: object
+      description: >-
+        Exact, complete action-inbox snapshot admitted at the request ceiling.
+        The server follows the public immutable cursor contract in pages of at
+        most 200 items and fails this source closed rather than returning a
+        priority-ranked prefix when the exact set exceeds its 1000-item budget,
+        drifts, repeats a cursor, or repeats an item id.
+      additionalProperties: false
+      required:
+      - status
+      - as_of
+      - items
+      - total
+      - truncated
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkbenchActionInboxItem'
+        total:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+    WorkbenchTodoSourceOk:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - as_of
+      - items
+      - total
+      - truncated
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkbenchTodoItem'
+        total:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+    WorkbenchCalendarSourceOk:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - as_of
+      - items
+      - total
+      - truncated
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkbenchCalendarItem'
+        total:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+    WorkbenchActionSourceEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchActionSourceOk'
+      - $ref: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+      - $ref: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/WorkbenchActionSourceOk'
+          denied: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+          unavailable: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+    WorkbenchTodoSourceEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchTodoSourceOk'
+      - $ref: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+      - $ref: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/WorkbenchTodoSourceOk'
+          denied: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+          unavailable: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+    WorkbenchCalendarSourceEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchCalendarSourceOk'
+      - $ref: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+      - $ref: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/WorkbenchCalendarSourceOk'
+          denied: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+          unavailable: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+    MyWorkbenchResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - timezone
+      - range
+      - scope
+      - partial
+      - action_inbox
+      - todos
+      - calendar
+      properties:
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        timezone:
+          type: string
+          enum:
+          - Asia/Seoul
+        range:
+          $ref: '#/components/schemas/WorkbenchRange'
+        scope:
+          $ref: '#/components/schemas/WorkbenchEffectiveScope'
+        partial:
+          type: boolean
+        action_inbox:
+          $ref: '#/components/schemas/WorkbenchActionSourceEnvelope'
+        todos:
+          $ref: '#/components/schemas/WorkbenchTodoSourceEnvelope'
+        calendar:
+          $ref: '#/components/schemas/WorkbenchCalendarSourceEnvelope'
+    WorkflowObjectKind:
+      type: string
+      enum:
+      - work_order
+      - support_ticket
+    WorkflowObjectSubject:
+      type: object
+      additionalProperties: false
+      required:
+      - object_type
+      - object_id
+      properties:
+        object_type:
+          $ref: '#/components/schemas/WorkflowObjectKind'
+        object_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkflowRunDetailTarget:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - run_id
+      properties:
+        kind:
+          type: string
+          enum:
+          - workflow_run_detail
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkflowRunForObjectSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - run_id
+      - definition_id
+      - definition_version
+      - status
+      - trigger_type
+      - object_type
+      - object_id
+      - started_at
+      - updated_at
+      - detail_target
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        definition_version:
+          type: integer
+          format: int32
+        status:
+          type: string
+        trigger_type:
+          type: string
+        object_type:
+          $ref: '#/components/schemas/WorkflowObjectKind'
+        object_id:
+          $ref: '#/components/schemas/Uuid'
+        started_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        completed_at:
+          $ref: '#/components/schemas/Timestamp'
+        detail_target:
+          $ref: '#/components/schemas/WorkflowRunDetailTarget'
+    WorkflowRunsForObjectResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - subject
+      - as_of
+      - items
+      properties:
+        subject:
+          $ref: '#/components/schemas/WorkflowObjectSubject'
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunForObjectSummary'
+        next_before:
+          $ref: '#/components/schemas/Uuid'
     EquipmentStatus:
       type: string
       enum:
@@ -23916,6 +25773,32 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: "#/components/schemas/Timestamp"
+    PurchaseRequestPage:
+      type: object
+      description: Stable offset page for the branch-scoped purchase-request queue.
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseRequestSummary'
+        limit:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          format: int64
+          minimum: 0
+        total:
+          type: integer
+          format: int64
+          minimum: 0
     FinancialStepUpRequest:
       type: object
       description: Fresh passkey step-up evidence required before sensitive financial state transitions.
@@ -24025,6 +25908,85 @@ components:
       properties:
         mechanic_id:
           $ref: '#/components/schemas/Uuid'
+    DispatchQueueStatus:
+      type: string
+      enum: [RECEIVED, UNASSIGNED, ASSIGNED, IN_PROGRESS, PART_WAITING, DELAYED]
+    DispatchQueueDispatch:
+      type: object
+      required: [id, status, accept_window_ends_at, target_count, accepted_count, declined_count, manual_call_required]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/DispatchStatus' }
+        accept_window_ends_at: { $ref: '#/components/schemas/Timestamp' }
+        target_count: { type: integer, format: int64 }
+        accepted_count: { type: integer, format: int64 }
+        declined_count: { type: integer, format: int64 }
+        manual_call_required: { type: boolean }
+    DispatchQueueItem:
+      type: object
+      required: [work_order_id, request_no, branch_id, status, priority, symptom, equipment_id, customer_id, site_id, updated_at]
+      properties:
+        work_order_id: { $ref: '#/components/schemas/Uuid' }
+        request_no: { type: string }
+        branch_id: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/WorkOrderStatus' }
+        priority: { $ref: '#/components/schemas/PriorityLevel' }
+        symptom: { type: string }
+        equipment_id: { $ref: '#/components/schemas/Uuid' }
+        customer_id: { $ref: '#/components/schemas/Uuid' }
+        site_id: { $ref: '#/components/schemas/Uuid' }
+        target_due_at: { $ref: '#/components/schemas/Timestamp' }
+        assigned_mechanic_id: { $ref: '#/components/schemas/Uuid' }
+        dispatch: { $ref: '#/components/schemas/DispatchQueueDispatch' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    DispatchQueueStats:
+      type: object
+      required: [unassigned_count, sla_due_count]
+      properties:
+        unassigned_count: { type: integer, format: int64 }
+        sla_due_count: { type: integer, format: int64 }
+    DispatchQueuePage:
+      type: object
+      required: [items, stats]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DispatchQueueItem' } }
+        next_after: { type: string }
+        stats: { $ref: '#/components/schemas/DispatchQueueStats' }
+    DispatchCandidateSummary:
+      type: object
+      required: [mechanic_id, score_milli, gps_ranked, workload, score_reason]
+      properties:
+        mechanic_id: { $ref: '#/components/schemas/Uuid' }
+        score_milli: { type: integer, format: int64 }
+        gps_ranked: { type: boolean }
+        distance_meters: { type: integer, format: int64 }
+        location_recorded_at: { $ref: '#/components/schemas/Timestamp' }
+        workload: { type: object, additionalProperties: true }
+        score_reason: { type: string }
+        response: { $ref: '#/components/schemas/DispatchResponseKind' }
+        responded_at: { $ref: '#/components/schemas/Timestamp' }
+    DispatchCandidatePage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DispatchCandidateSummary' } }
+    P1DispatchResponseSummary:
+      type: object
+      required: [dispatch_id, user_id, response, responded_at, gps_ranked]
+      properties:
+        dispatch_id: { $ref: '#/components/schemas/Uuid' }
+        user_id: { $ref: '#/components/schemas/Uuid' }
+        response: { $ref: '#/components/schemas/DispatchResponseKind' }
+        responded_at: { $ref: '#/components/schemas/Timestamp' }
+        score_milli: { type: integer, format: int64 }
+        gps_ranked: { type: boolean }
+        distance_meters: { type: integer, format: int64 }
+        score_reason: { type: string }
+    P1DispatchResponsePage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/P1DispatchResponseSummary' } }
     P1DispatchSummary:
       type: object
       required:
@@ -26446,6 +28408,52 @@ components:
           type: boolean
         four_eyes_request_ref:
           $ref: '#/components/schemas/Uuid'
+        command_id:
+          $ref: '#/components/schemas/Uuid'
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 1
+    OntologyActionCommandReceipt:
+      type: object
+      description: Immutable replay receipt for an accepted instance_revision action command.
+      required:
+      - command_id
+      - payload_digest
+      - instance
+      - gates
+      properties:
+        command_id:
+          $ref: '#/components/schemas/Uuid'
+        payload_digest:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        instance:
+          type: object
+          additionalProperties: true
+        gates:
+          type: object
+          additionalProperties: true
+    OntologyActionExecuteOutcome:
+      type: object
+      required:
+      - dispatch
+      - gates
+      properties:
+        dispatch:
+          type: string
+          enum: [instance_revision, projected_usecase]
+        gates:
+          type: object
+          additionalProperties: true
+        instance:
+          type: object
+          additionalProperties: true
+        projected:
+          type: object
+          additionalProperties: true
+        receipt:
+          $ref: '#/components/schemas/OntologyActionCommandReceipt'
     GovernanceOpenOverrideRequest:
       type: object
       required:
@@ -26759,19 +28767,30 @@ components:
         disposed_at: { type: string, format: date-time, nullable: true }
     EvidenceObjectPage:
       type: object
-      required: [items, limit, offset, total]
+      required: [items, limit, offset, total, as_of, next_cursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/EvidenceObjectView' } }
         limit: { type: integer, format: int64 }
         offset: { type: integer, format: int64 }
         total: { type: integer, format: int64 }
+        as_of: { type: integer, format: int64, description: Immutable evidence-register sequence that fences every row in this response. }
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Opaque unpadded-base64url continuation token, or null at the end of the snapshot.
+    EvidenceCopyEvidentiaryStatus:
+      type: string
+      description: Server-derived classification; verified replicas of derivative copies never become evidence-equivalent originals.
+      enum: [VERIFIED_ORIGINAL, ORIGINAL_UNVERIFIED, NON_EVIDENTIARY_DERIVATIVE]
     EvidenceCopyView:
       type: object
-      required: [id, evidence_object_id, copy_kind, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]
+      required: [id, evidence_object_id, copy_kind, evidentiary_status, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]
       properties:
         id: { type: string, format: uuid }
         evidence_object_id: { type: string, format: uuid }
         copy_kind: { $ref: '#/components/schemas/EvidenceCopyKind' }
+        evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }
         derivative_kind: { type: string, nullable: true, enum: [REDACTED, THUMBNAIL, TRANSCODED, EXCERPT, EXPORT_MANIFEST, NORMALIZED_TEXT, OTHER] }
         parent_copy_id: { type: string, format: uuid, nullable: true }
         storage: { $ref: '#/components/schemas/EvidenceStorageRef' }
@@ -27848,3 +29867,645 @@ components:
         offset:
           type: integer
           format: int64
+    FacilitiesDueCaseRequest:
+      type: object
+      required: [obligationId, idempotencyKey]
+      properties: { obligationId: { $ref: '#/components/schemas/Uuid' }, idempotencyKey: { type: string, minLength: 16 } }
+    FacilitiesTriageRequest:
+      type: object
+      required: [scheduledFor]
+      properties: { scheduledFor: { type: string, format: date-time } }
+    FacilitiesAssignRequest:
+      type: object
+      required: [assigneeId]
+      properties: { assigneeId: { $ref: '#/components/schemas/Uuid' } }
+    FacilitiesSubmitRequest:
+      type: object
+      required: [safetyChecklistEvidenceId, serviceReportEvidenceId]
+      properties: { safetyChecklistEvidenceId: { $ref: '#/components/schemas/Uuid' }, serviceReportEvidenceId: { $ref: '#/components/schemas/Uuid' }, photoEvidenceId: { $ref: '#/components/schemas/Uuid' } }
+    FacilitiesAcceptanceRequest:
+      type: object
+      required: [decision]
+      properties: { decision: { type: string, enum: [ACCEPTED, REJECTED] }, reason: { type: string, maxLength: 1000 } }
+    FacilitiesObservationRequest:
+      type: object
+      required: [observedAt]
+      properties: { preKwh: { type: string, pattern: '^[0-9]+(\\.[0-9]{1,3})?$' }, postKwh: { type: string, pattern: '^[0-9]+(\\.[0-9]{1,3})?$' }, observedAt: { type: string, format: date-time }, costKrw: { type: integer, format: int64, minimum: 0 } }
+    FacilitiesCase:
+      type: object
+      required: [id, branchId, status, responseDueAt, completionDueAt, acceptanceDueAt, totalCostKrw]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        branchId: { $ref: '#/components/schemas/Uuid', description: Persisted case branch used for capability scoping. }
+        status: { type: string, enum: [DUE, TRIAGED, SCHEDULED, ASSIGNED, IN_PROGRESS, SUBMITTED, REWORK_REQUIRED, AWAITING_ACCEPTANCE, CLOSED] }
+        assigneeId: { type: [string, 'null'], format: uuid }
+        responseDueAt: { type: string, format: date-time }
+        completionDueAt: { type: string, format: date-time }
+        acceptanceDueAt: { type: string, format: date-time }
+        energyDeltaKwh: { type: [string, 'null'] }
+        totalCostKrw: { type: integer, format: int64 }
+    ProductionPlan:
+      type: object
+      required: [id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at, plan_digest]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        customer_demand_id: {$ref: '#/components/schemas/Uuid'}
+        product_code: {type: string}
+        quantity: {type: integer, format: int64}
+        status: {type: string, enum: [DRAFT, RELEASED]}
+        version: {type: integer}
+        first_operation_id: {$ref: '#/components/schemas/Uuid'}
+        created_at: {type: string, format: date-time}
+        due_at: {type: string, format: date-time}
+        plan_digest: {type: string, pattern: '^[0-9a-f]{64}$', description: Immutable server-computed digest required in the matching release approval kind.}
+    ProductionCapacitySlot:
+      type: object
+      required: [id, branch_id, site_id, capacity_date, available_quantity, reserved_quantity, version, source_ref, evaluated_at]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        site_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_date: {type: string, format: date}
+        available_quantity: {type: integer, format: int64}
+        reserved_quantity: {type: integer, format: int64}
+        version: {type: integer}
+        source_ref: {type: string}
+        evaluated_at: {type: string, format: date-time}
+    ProductionOperation:
+      type: object
+      required: [id, sequence, status, output_quantity, scrap_quantity, downtime_minutes, version]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        sequence: {type: integer}
+        status: {type: string, enum: [PENDING, RELEASED, RECORDED]}
+        output_quantity: {type: integer, format: int64}
+        scrap_quantity: {type: integer, format: int64}
+        downtime_minutes: {type: integer}
+        quality_evidence_ref: {type: [string, 'null']}
+        quality_passed: {type: [boolean, 'null']}
+        version: {type: integer}
+    ProductionPlanDetail:
+      allOf:
+      - $ref: '#/components/schemas/ProductionPlan'
+      - type: object
+        required: [checks, events, operation]
+        properties:
+          checks: {type: object, additionalProperties: true}
+          events: {type: array, items: {type: object, required: [id, event_type, actor_id, payload, occurred_at], properties: {id: {$ref: '#/components/schemas/Uuid'}, event_type: {type: string}, actor_id: {$ref: '#/components/schemas/Uuid'}, payload: {type: object, additionalProperties: true}, occurred_at: {type: string, format: date-time}}}}
+          operation: {$ref: '#/components/schemas/ProductionOperation'}
+    CreateProductionPlan:
+      type: object
+      required: [branch_id, customer_demand_id, capacity_slot_id, material_item_id, quantity, due_at, ontology_type_id, idempotency_key]
+      properties:
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        customer_demand_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_slot_id: {$ref: '#/components/schemas/Uuid'}
+        material_item_id: {$ref: '#/components/schemas/Uuid'}
+        quantity: {type: integer, format: int64, minimum: 1}
+        due_at: {type: string, format: date-time}
+        ontology_type_id: {$ref: '#/components/schemas/Uuid'}
+        idempotency_key: {type: string, minLength: 1, maxLength: 128}
+    ReleaseProductionPlan:
+      type: object
+      required: [expected_version, approval_ref, idempotency_key]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        approval_ref: {$ref: '#/components/schemas/Uuid', description: 'Approved production_plan_release:v{expected_version} decision bound to this persisted plan. It is consumed exactly once by the current approver.'}
+        idempotency_key: {type: string, minLength: 1, maxLength: 128}
+    ProductionSourceIngress:
+      oneOf:
+      - $ref: '#/components/schemas/ProductionDemandIngress'
+      - $ref: '#/components/schemas/ProductionCapacityIngress'
+      - $ref: '#/components/schemas/ProductionMaterialIngress'
+      discriminator:
+        propertyName: kind
+        mapping:
+          demand: '#/components/schemas/ProductionDemandIngress'
+          capacity: '#/components/schemas/ProductionCapacityIngress'
+          material: '#/components/schemas/ProductionMaterialIngress'
+    RegisterProductionSourceSystem:
+      type: object
+      required: [branch_id, source_system]
+      properties:
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        source_system: {type: string, minLength: 1, maxLength: 80}
+    ProductionSourceSystemGenerationRequest:
+      type: object
+      required: [expected_generation]
+      properties:
+        expected_generation: {type: integer, format: int32, minimum: 1}
+    ProductionSourceSystemCredential:
+      type: object
+      required: [id, source_system, enabled, credential_generation, secret]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        source_system: {type: string}
+        enabled: {type: boolean, description: Always true for a newly registered or rotated source system.}
+        credential_generation: {type: integer, format: int32, minimum: 1}
+        secret: {type: string, readOnly: true, description: One-time standard-base64 disclosure of exactly 32 server-generated bytes.}
+    ProductionSourceSystemReceipt:
+      type: object
+      required: [id, enabled, credential_generation]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        enabled: {type: boolean, description: Always false after a source system is disabled.}
+        credential_generation: {type: integer, format: int32, minimum: 1}
+    ProductionSourceIngressReceipt:
+      type: object
+      required: [kind, id, source_version]
+      properties:
+        kind: {type: string, enum: [demand, capacity, material]}
+        id: {$ref: '#/components/schemas/Uuid'}
+        source_version: {type: string}
+    ProductionDemandIngress:
+      type: object
+      required: [kind, id, inquiry_id, product_code, quantity, due_at, source_id, source_version]
+      properties:
+        kind: {type: string, enum: [demand]}
+        id: {$ref: '#/components/schemas/Uuid'}
+        inquiry_id: {$ref: '#/components/schemas/Uuid'}
+        product_code: {type: string, minLength: 1}
+        quantity: {type: integer, format: int64, minimum: 1}
+        due_at: {type: string, format: date-time}
+        source_id: {type: string, minLength: 1, maxLength: 160}
+        source_version: {type: string, minLength: 1, maxLength: 160}
+    ProductionCapacityIngress:
+      type: object
+      required: [kind, id, site_id, capacity_date, available_quantity, source_id, source_version]
+      properties:
+        kind: {type: string, enum: [capacity]}
+        id: {$ref: '#/components/schemas/Uuid'}
+        site_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_date: {type: string, format: date}
+        available_quantity: {type: integer, format: int64, minimum: 1}
+        source_id: {type: string, minLength: 1, maxLength: 160}
+        source_version: {type: string, minLength: 1, maxLength: 160}
+    ProductionMaterialIngress:
+      type: object
+      required: [kind, material_item_id, quantity_on_hand_milli, safety_stock_milli, source_id, source_version]
+      properties:
+        kind: {type: string, enum: [material]}
+        material_item_id: {$ref: '#/components/schemas/Uuid'}
+        quantity_on_hand_milli: {type: integer, format: int64, minimum: 0}
+        safety_stock_milli: {type: integer, format: int64, minimum: 0}
+        source_id: {type: string, minLength: 1, maxLength: 160}
+        source_version: {type: string, minLength: 1, maxLength: 160}
+    RecordProductionOperation:
+      type: object
+      required: [expected_version, idempotency_key, output_quantity, scrap_quantity, downtime_minutes, quality_evidence_ref, quality_passed, note]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        idempotency_key: {type: string, minLength: 1, maxLength: 128}
+        output_quantity: {type: integer, format: int64, minimum: 0}
+        scrap_quantity: {type: integer, format: int64, minimum: 0}
+        downtime_minutes: {type: integer, minimum: 0}
+        quality_evidence_ref: {type: string, minLength: 1}
+        quality_passed: {type: boolean}
+        note: {type: string, maxLength: 500}
+    Equipment3rUnitView:
+      type: object
+      required: [id, serialNo, modelName, capacityClass, availability, acquisitionCostMinor, branchId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        serialNo: { type: string }
+        modelName: { type: string }
+        capacityClass: { type: string }
+        availability: { type: string, enum: [AVAILABLE, RESERVED, ON_RENT, IN_ASSESSMENT, IN_REPAIR, IN_REFURBISHMENT, FOR_SALE, SOLD] }
+        acquisitionCostMinor: { type: integer, format: int64 }
+        branchId: { $ref: '#/components/schemas/Uuid' }
+    Equipment3rUnitDetailView:
+      allOf:
+        - $ref: '#/components/schemas/Equipment3rUnitView'
+        - type: object
+          required: [createdAt, updatedAt]
+          properties:
+            activeCaseId: { $ref: '#/components/schemas/Uuid', nullable: true }
+            openDispositionId: { $ref: '#/components/schemas/Uuid', nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Equipment3rCaseView:
+      type: object
+      required: [id, unitId, status, customerName, siteReference, monthlyRateMinor, durationMonths, currencyCode, branchId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        unitId: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [QUOTED, APPROVED, DECLINED, DISPATCHED, HANDED_OVER, RETURNED, CLOSED] }
+        customerName: { type: string }
+        siteReference: { type: string }
+        monthlyRateMinor: { type: integer, format: int64 }
+        durationMonths: { type: integer }
+        currencyCode: { type: string, enum: [KRW] }
+        branchId: { $ref: '#/components/schemas/Uuid' }
+        replayed: { type: boolean, description: Present and true only on an idempotent replay }
+    Equipment3rCaseDetailView:
+      allOf:
+        - $ref: '#/components/schemas/Equipment3rCaseView'
+        - type: object
+          required: [inspections, createdBy, createdAt, updatedAt]
+          properties:
+            approval:
+              type: object
+              nullable: true
+              properties:
+                decision: { type: string, enum: [APPROVED, DECLINED] }
+                reason: { type: string, nullable: true }
+                decidedBy: { $ref: '#/components/schemas/Uuid' }
+                decidedAt: { type: string, format: date-time }
+            dispatch:
+              type: object
+              nullable: true
+              properties:
+                carrierName: { type: string }
+                vehicleReference: { type: string }
+                dispatchedAt: { type: string, format: date-time }
+            handover:
+              type: object
+              nullable: true
+              properties:
+                recipientName: { type: string }
+                evidenceReference: { type: string }
+                handedOverAt: { type: string, format: date-time }
+            returnedAt: { type: string, format: date-time, nullable: true }
+            assessment:
+              type: object
+              nullable: true
+              properties:
+                conditionGrade: { type: string, enum: [A, B, C, D] }
+                findings: { type: string }
+                disposition: { type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY] }
+                assessedBy: { $ref: '#/components/schemas/Uuid' }
+                assessedAt: { type: string, format: date-time }
+            dispositionId: { $ref: '#/components/schemas/Uuid', nullable: true }
+            inspections:
+              type: array
+              items: { $ref: '#/components/schemas/Equipment3rInspectionView' }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Equipment3rInspectionView:
+      type: object
+      required: [id, caseId, outcome, findings, inspectedBy, inspectedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        caseId: { $ref: '#/components/schemas/Uuid' }
+        outcome: { type: string, enum: [PASS, MAINTENANCE_PERFORMED] }
+        findings: { type: string }
+        maintenanceNote: { type: string, nullable: true }
+        inspectedBy: { $ref: '#/components/schemas/Uuid' }
+        inspectedAt: { type: string, format: date-time }
+    Equipment3rDispositionView:
+      type: object
+      required: [id, unitId, caseId, kind, status, completedBy, completedAt, financeGlPosting]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        unitId: { $ref: '#/components/schemas/Uuid' }
+        caseId: { $ref: '#/components/schemas/Uuid' }
+        kind: { type: string, enum: [REPAIR, REFURBISH, RESALE, REDEPLOY] }
+        status: { type: string, enum: [OPEN, COMPLETED] }
+        costMinor: { type: integer, format: int64, nullable: true }
+        saleAmountMinor: { type: integer, format: int64, nullable: true }
+        buyerName: { type: string, nullable: true }
+        completedBy: { $ref: '#/components/schemas/Uuid' }
+        completedAt: { type: string, format: date-time }
+        financeGlPosting: { nullable: true, description: Always null — the pilot records no GL posting }
+    Equipment3rHistoryEntry:
+      type: object
+      required: [aggregateKind, aggregateId, transition, actorId, occurredAt]
+      properties:
+        aggregateKind: { type: string, enum: [unit, case, disposition] }
+        aggregateId: { $ref: '#/components/schemas/Uuid' }
+        transition: { type: string }
+        actorId: { $ref: '#/components/schemas/Uuid' }
+        occurredAt: { type: string, format: date-time }
+    LogisticsTimeTuple:
+      type: array
+      minItems: 9
+      maxItems: 9
+      items: { type: integer }
+      description: 'Wire form of the logistics pilot datetime fields (dueAt, confirmedAt, settledAt): the time-crate
+        default serde tuple [year, ordinal-day, hour, minute, second, nanosecond, offsetHours, offsetMinutes, offsetSeconds].
+        The deployed rest crate deserializes these as plain OffsetDateTime without rfc3339 serde, so an RFC3339 string is
+        rejected with 422. Encode in UTC (offsets 0). Divergence recorded in
+        docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/openapi-applied-notes.md.'
+    LogisticsAsnCreated:
+      type: object
+      required: [id, status, branchId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [EXPECTED] }
+        branchId: { $ref: '#/components/schemas/Uuid' }
+    LogisticsAsnReceipt:
+      type: object
+      required: [id, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PARTIAL_RECEIVED, RECEIVED] }
+        receivedQuantity: { type: integer, format: int64, description: cumulative received total; absent on an idempotent replay }
+        replayed: { type: boolean, description: present and true only on an idempotent replay }
+    LogisticsAsnPutaway:
+      type: object
+      required: [id, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PUTAWAY] }
+    LogisticsFulfillmentReleased:
+      type: object
+      required: [id, status, reservedQuantity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [RELEASED] }
+        reservedQuantity: { type: integer, format: int64 }
+    LogisticsFulfillmentPicked:
+      type: object
+      required: [id, status, pickedQuantity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PICKED, SHORT_PICK] }
+        pickedQuantity: { type: integer, format: int64 }
+    LogisticsFulfillmentPacked:
+      type: object
+      required: [id, status, pickedQuantity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PACKED] }
+        pickedQuantity: { type: integer, format: int64 }
+    LogisticsShipmentDispatched:
+      type: object
+      required: [id, fulfillmentId, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid', description: created shipment id }
+        fulfillmentId: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [DISPATCHED] }
+    LogisticsPodVerified:
+      type: object
+      required: [id, status, recipientConfirmedEvidenceReference, slaAssessment]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [DELIVERED] }
+        recipientConfirmedEvidenceReference: { type: string }
+        slaAssessment: { type: string, enum: [MET, BREACHED] }
+    LogisticsShipmentSettlement:
+      type: object
+      required: [id, status, operationalCost, financeGlPosting]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [SETTLED] }
+        operationalCost:
+          type: object
+          required: [currency, amountMinor]
+          properties:
+            currency: { type: string, enum: [KRW] }
+            amountMinor: { type: integer, format: int64 }
+        financeGlPosting: { nullable: true, description: 'Always null by design — no GL/finance edge in the pilot' }
+
+    AttendanceExceptionEvidence:
+      type: object
+      required: [name]
+      properties: { name: { type: string }, size: { type: string, nullable: true } }
+    AttendanceExceptionLink:
+      type: object
+      required: [kind, label]
+      properties: { kind: { type: string }, label: { type: string }, ref: { type: string, nullable: true } }
+    AttendanceExceptionResolution:
+      type: object
+      required: [action, reason, actor, resolved_at]
+      properties: { action: { type: string }, reason: { type: string }, linked_work_ref: { type: string, nullable: true }, ot_hours: { type: number, nullable: true }, actor: { $ref: '#/components/schemas/Uuid' }, resolved_at: { type: string, format: date-time } }
+    AttendanceException:
+      type: object
+      required: [id, code, kind, status, employee_id, employee_name, work_date, occurred_at, detail, evidence, links, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, code: { type: string }, kind: { type: string, enum: [LATE, NO_SHOW, UNAPPROVED_OVERTIME, EARLY_LEAVE] }, status: { type: string, enum: [OPEN, RESOLVED] }, employee_id: { $ref: '#/components/schemas/Uuid' }, employee_name: { type: string }, team: { type: string, nullable: true }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, work_date: { type: string, format: date }, occurred_at: { type: string, format: date-time }, detail: { type: string }, evidence: { type: array, items: { $ref: '#/components/schemas/AttendanceExceptionEvidence' } }, links: { type: array, items: { $ref: '#/components/schemas/AttendanceExceptionLink' } }, resolution: { $ref: '#/components/schemas/AttendanceExceptionResolution', nullable: true }, created_at: { type: string, format: date-time } }
+    AttendanceExceptionPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/AttendanceException' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    OwnAttendanceExceptionResolution:
+      type: object
+      additionalProperties: false
+      required: [action, reason, resolved_at]
+      properties: { action: { type: string }, reason: { type: string }, ot_hours: { type: string, nullable: true }, resolved_at: { type: string, format: date-time } }
+    OwnAttendanceException:
+      type: object
+      additionalProperties: false
+      required: [id, code, kind, status, work_date, occurred_at, detail, evidence, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, code: { type: string }, kind: { type: string, enum: [LATE, NO_SHOW, UNAPPROVED_OVERTIME, EARLY_LEAVE] }, status: { type: string, enum: [OPEN, RESOLVED] }, work_date: { type: string, format: date }, occurred_at: { type: string, format: date-time }, detail: { type: string }, evidence: { type: array, items: { $ref: '#/components/schemas/AttendanceExceptionEvidence' } }, resolution: { $ref: '#/components/schemas/OwnAttendanceExceptionResolution', nullable: true }, created_at: { type: string, format: date-time } }
+    OwnAttendanceExceptionPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/OwnAttendanceException' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    OwnAttendanceWeek52:
+      type: object
+      additionalProperties: false
+      required: [week_start, current_hours, projected_hours, tone]
+      properties: { week_start: { type: string, format: date }, current_hours: { type: number }, projected_hours: { type: number }, tone: { type: string, enum: [OK, WARN, DANGER] }, acknowledged_at: { type: string, format: date-time, nullable: true } }
+    OwnAttendanceWeek52Response:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [available, not_available] }
+        projection: { $ref: '#/components/schemas/OwnAttendanceWeek52' }
+    RaiseAttendanceExceptionRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, employee_id, work_date, detail]
+      properties: { kind: { type: string, enum: [LATE, NO_SHOW, UNAPPROVED_OVERTIME, EARLY_LEAVE] }, employee_id: { $ref: '#/components/schemas/Uuid' }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, work_date: { type: string, format: date }, detail: { type: string }, evidence: { type: array, items: { type: object, additionalProperties: false, required: [name], properties: { name: { type: string }, size: { type: string, nullable: true } } } } }
+    ResolveAttendanceExceptionRequest:
+      type: object
+      additionalProperties: false
+      required: [action, reason]
+      properties: { action: { type: string }, reason: { type: string }, linked_work_ref: { type: string, nullable: true }, ot_hours: { type: number, nullable: true } }
+    AttendanceSubstitution:
+      type: object
+      required: [id, site, role, cover_date, from_minutes, to_minutes, covered_employee_id, covered_name, reason_kind, worker_name, worker_type, status, created_by, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, site: { type: string }, branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }, role: { type: string }, cover_date: { type: string, format: date }, from_minutes: { type: integer }, to_minutes: { type: integer }, covered_employee_id: { $ref: '#/components/schemas/Uuid' }, covered_name: { type: string }, reason_kind: { type: string }, reason_detail: { type: string, nullable: true }, worker_employee_id: { $ref: '#/components/schemas/Uuid', nullable: true }, worker_name: { type: string }, worker_type: { type: string }, worker_rate: { type: string, nullable: true }, status: { type: string, enum: [ASSIGNED, CANCELLED] }, exception_id: { $ref: '#/components/schemas/Uuid', nullable: true }, created_by: { $ref: '#/components/schemas/Uuid' }, created_at: { type: string, format: date-time } }
+    AttendanceSubstitutionPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/AttendanceSubstitution' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    AttendanceSubstitutionCandidate:
+      type: object
+      required: [employee_id, employee_name, branch_id]
+      properties: { employee_id: { $ref: '#/components/schemas/Uuid' }, employee_name: { type: string }, branch_id: { $ref: '#/components/schemas/Uuid' } }
+    AttendanceSubstitutionCandidatePage:
+      type: object
+      required: [items, total, limit, offset]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/AttendanceSubstitutionCandidate' } }, total: { type: integer, format: int64 }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 } }
+    AssignAttendanceSubstituteRequest:
+      type: object
+      additionalProperties: false
+      required: [site, role, cover_date, from_minutes, to_minutes, covered_employee_id, reason_kind, worker_employee_id]
+      properties: { site: { type: string }, branch_id: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }, role: { type: string }, cover_date: { type: string, format: date }, from_minutes: { type: integer, minimum: 0, maximum: 1439 }, to_minutes: { type: integer, minimum: 1, maximum: 1440 }, covered_employee_id: { $ref: '#/components/schemas/Uuid' }, reason_kind: { type: string }, reason_detail: { type: string, nullable: true }, worker_employee_id: { $ref: '#/components/schemas/Uuid' }, exception_id: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] } }
+    CancelAttendanceSubstitutionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties: { reason: { type: string, minLength: 1 } }
+    AttendanceCloseCheck:
+      type: object
+      required: [key, ok]
+      properties: { key: { type: string }, ok: { type: boolean }, warn: { type: boolean }, note: { type: string, nullable: true } }
+    AttendanceCloseAmendment:
+      type: object
+      required: [id, reason, actor, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, reason: { type: string }, actor: { $ref: '#/components/schemas/Uuid' }, created_at: { type: string, format: date-time } }
+    AttendanceMonthClose:
+      type: object
+      required: [id, month, branch_scope, checks, attested_by, attested_at, closed_at, amendments]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, month: { type: string, pattern: '^\\d{4}-\\d{2}$' }, branch_scope: { type: string }, checks: { type: array, items: { $ref: '#/components/schemas/AttendanceCloseCheck' } }, attested_by: { $ref: '#/components/schemas/Uuid' }, attested_at: { type: string, format: date-time }, period_lock_id: { $ref: '#/components/schemas/Uuid', nullable: true }, closed_at: { type: string, format: date-time }, amendments: { type: array, items: { $ref: '#/components/schemas/AttendanceCloseAmendment' } } }
+    AttendanceCloseBoard:
+      type: object
+      required: [month, items]
+      properties: { month: { type: string, pattern: '^\\d{4}-\\d{2}$' }, items: { type: array, items: { $ref: '#/components/schemas/AttendanceMonthCloseItem' } } }
+    AttendanceMonthCloseItem:
+      type: object
+      required: [branch_scope, closed, open_exceptions, pending_leave]
+      properties: { branch_scope: { type: string }, closed: { type: boolean }, close: { $ref: '#/components/schemas/AttendanceMonthClose', nullable: true }, open_exceptions: { type: integer, format: int64 }, pending_leave: { type: integer, format: int64 } }
+    AttendanceCloseRequest:
+      type: object
+      additionalProperties: false
+      required: [month]
+      properties: { month: { type: string, pattern: '^\\d{4}-\\d{2}$' }, branch_scope: { $ref: '#/components/schemas/Uuid', nullable: true }, attest: { type: boolean, nullable: true } }
+    AttendanceClosePreflight:
+      type: object
+      required: [month, branch_scope, checks, can_close]
+      properties: { month: { type: string }, branch_scope: { type: string }, checks: { type: array, items: { $ref: '#/components/schemas/AttendanceCloseCheck' } }, can_close: { type: boolean } }
+    AttendanceCloseAmendmentRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, detail]
+      properties: { reason: { type: string }, detail: { type: string }, ref: { type: string, nullable: true } }
+    AttendanceWeek52Row:
+      type: object
+      required: [employee_id, name, week_start, current_hours, projected_hours, tone, acked]
+      properties: { employee_id: { $ref: '#/components/schemas/Uuid' }, name: { type: string }, team: { type: string, nullable: true }, week_start: { type: string, format: date }, current_hours: { type: number }, projected_hours: { type: number }, tone: { type: string, enum: [OK, WARN, DANGER] }, acked: { type: boolean }, acked_at: { type: string, format: date-time, nullable: true } }
+    AttendanceWeek52Board:
+      type: object
+      required: [week_start, items]
+      properties: { week_start: { type: string, format: date }, items: { type: array, items: { $ref: '#/components/schemas/AttendanceWeek52Row' } } }
+    AttendanceWeek52AckRequest:
+      type: object
+      additionalProperties: false
+      required: [employee_id, week_start]
+      properties: { employee_id: { $ref: '#/components/schemas/Uuid' }, week_start: { type: string, format: date } }
+    InventoryStockLocationSummary:
+      type: object
+      required: [id, label]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, label: { type: string } }
+    InventoryItem:
+      type: object
+      required: [id, branch_id, stock_location, iv_code, display_name, unit_code, quantity_on_hand_milli, safety_stock_milli, low_stock, status, href, created_by, created_at, updated_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, branch_id: { $ref: '#/components/schemas/Uuid' }, site_id: { $ref: '#/components/schemas/Uuid', nullable: true }, stock_location: { $ref: '#/components/schemas/InventoryStockLocationSummary' }, iv_code: { type: string }, sku: { type: string, nullable: true }, display_name: { type: string }, description: { type: string, nullable: true }, unit_code: { type: string }, quantity_on_hand_milli: { type: integer, format: int64 }, safety_stock_milli: { type: integer, format: int64 }, unit_cost_won: { type: integer, format: int64, nullable: true }, low_stock: { type: boolean }, status: { type: string }, href: { type: string }, created_by: { $ref: '#/components/schemas/Uuid' }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } }
+    InventoryItemPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/InventoryItem' } }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 }, total: { type: integer, format: int64 } }
+    InventoryConsumptionSource:
+      oneOf:
+        - type: object
+          required: [kind, work_order_id]
+          properties: { kind: { type: string, enum: [work_order] }, work_order_id: { $ref: '#/components/schemas/Uuid' } }
+        - type: object
+          required: [kind, dispatch_id]
+          properties: { kind: { type: string, enum: [p1_dispatch] }, dispatch_id: { $ref: '#/components/schemas/Uuid' } }
+    InventoryConsumptionEvent:
+      type: object
+      required: [id, item_id, iv_code, branch_id, stock_location_id, source, quantity_before_milli, quantity_consumed_milli, quantity_after_milli, consumed_by, occurred_at, created_at]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, item_id: { $ref: '#/components/schemas/Uuid' }, iv_code: { type: string }, branch_id: { $ref: '#/components/schemas/Uuid' }, stock_location_id: { $ref: '#/components/schemas/Uuid' }, source: { $ref: '#/components/schemas/InventoryConsumptionSource' }, quantity_before_milli: { type: integer, format: int64 }, quantity_consumed_milli: { type: integer, format: int64 }, quantity_after_milli: { type: integer, format: int64 }, unit_cost_won: { type: integer, format: int64, nullable: true }, cost_won: { type: integer, format: int64, nullable: true }, consumed_by: { $ref: '#/components/schemas/Uuid' }, occurred_at: { type: string, format: date-time }, memo: { type: string, nullable: true }, created_at: { type: string, format: date-time } }
+    InventoryConsumptionResult:
+      type: object
+      required: [event, item]
+      properties: { event: { $ref: '#/components/schemas/InventoryConsumptionEvent' }, item: { $ref: '#/components/schemas/InventoryItem' } }
+    ConsumeInventoryItemRequest:
+      type: object
+      additionalProperties: false
+      required: [source, quantity_consumed_milli, idempotency_key]
+      properties: { source: { $ref: '#/components/schemas/InventoryConsumptionSource' }, quantity_consumed_milli: { type: integer, format: int64, minimum: 1 }, occurred_at: { type: string, format: date-time, nullable: true }, memo: { type: string, nullable: true }, idempotency_key: { type: string, minLength: 16, maxLength: 200 } }
+
+    RecordInventoryReceiptRequest:
+      type: object
+      additionalProperties: false
+      required: [quantityReceivedMilli, idempotencyKey]
+      properties: { quantityReceivedMilli: { type: integer, format: int64, minimum: 1 }, sourceRef: { type: string, nullable: true }, memo: { type: string, nullable: true }, idempotencyKey: { type: string, minLength: 16, maxLength: 200 } }
+    InventoryMovementSourceWorkOrder:
+      type: object
+      additionalProperties: false
+      required: [kind, workOrderId]
+      properties: { kind: { type: string, enum: [work_order] }, workOrderId: { $ref: '#/components/schemas/Uuid' } }
+    InventoryMovementSourceP1Dispatch:
+      type: object
+      additionalProperties: false
+      required: [kind, dispatchId, workOrderId]
+      properties: { kind: { type: string, enum: [p1_dispatch] }, dispatchId: { $ref: '#/components/schemas/Uuid' }, workOrderId: { $ref: '#/components/schemas/Uuid' } }
+    InventoryMovementSourceCycleCount:
+      type: object
+      additionalProperties: false
+      required: [kind, cycleCountId, ccCode]
+      properties: { kind: { type: string, enum: [cycle_count] }, cycleCountId: { $ref: '#/components/schemas/Uuid' }, ccCode: { type: string } }
+    InventoryMovementSourceExternalRef:
+      type: object
+      additionalProperties: false
+      required: [kind, sourceRef]
+      properties: { kind: { type: string, enum: [external_ref] }, sourceRef: { type: string, nullable: true } }
+    InventoryMovementSource:
+      oneOf:
+      - $ref: '#/components/schemas/InventoryMovementSourceWorkOrder'
+      - $ref: '#/components/schemas/InventoryMovementSourceP1Dispatch'
+      - $ref: '#/components/schemas/InventoryMovementSourceCycleCount'
+      - $ref: '#/components/schemas/InventoryMovementSourceExternalRef'
+      discriminator:
+        propertyName: kind
+        mapping:
+          work_order: '#/components/schemas/InventoryMovementSourceWorkOrder'
+          p1_dispatch: '#/components/schemas/InventoryMovementSourceP1Dispatch'
+          cycle_count: '#/components/schemas/InventoryMovementSourceCycleCount'
+          external_ref: '#/components/schemas/InventoryMovementSourceExternalRef'
+    InventoryMovement:
+      type: object
+      required: [id, itemId, ivCode, kind, quantityDeltaMilli, quantityBeforeMilli, quantityAfterMilli, source, actor, occurredAt]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, kind: { type: string, enum: [ISSUE, RECEIPT, ADJUSTMENT] }, quantityDeltaMilli: { type: integer, format: int64 }, quantityBeforeMilli: { type: integer, format: int64 }, quantityAfterMilli: { type: integer, format: int64 }, source: { $ref: '#/components/schemas/InventoryMovementSource' }, actor: { $ref: '#/components/schemas/Uuid' }, occurredAt: { type: string, format: date-time }, memo: { type: string, nullable: true } }
+    InventoryReceiptResult:
+      type: object
+      required: [movement, item]
+      properties: { movement: { $ref: '#/components/schemas/InventoryMovement' }, item: { $ref: '#/components/schemas/InventoryItem' } }
+    InventoryMrpLine:
+      type: object
+      required: [itemId, ivCode, displayName, unitCode, quantityOnHandMilli, safetyStockMilli, inboundExpectedMilli, reservedOutboundMilli, monthlyUsageMilli, short, proposedOrderMilli]
+      properties: { itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, displayName: { type: string }, unitCode: { type: string }, quantityOnHandMilli: { type: integer, format: int64 }, safetyStockMilli: { type: integer, format: int64 }, inboundExpectedMilli: { type: integer, format: int64 }, reservedOutboundMilli: { type: integer, format: int64 }, monthlyUsageMilli: { type: integer, format: int64 }, coverMonthsCenti: { type: integer, format: int64, nullable: true }, short: { type: boolean }, proposedOrderMilli: { type: integer, format: int64 } }
+    CycleCount:
+      type: object
+      required: [id, ccCode, branchId, stockLocation, status, version, openedBy, lineCount, varianceLineCount, createdAt, updatedAt]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, ccCode: { type: string }, branchId: { $ref: '#/components/schemas/Uuid' }, stockLocation: { $ref: '#/components/schemas/InventoryStockLocationSummary' }, status: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, REJECTED, CANCELLED] }, version: { type: integer }, openedBy: { $ref: '#/components/schemas/Uuid' }, submittedBy: { $ref: '#/components/schemas/Uuid', nullable: true }, submittedAt: { type: string, format: date-time, nullable: true }, decidedBy: { $ref: '#/components/schemas/Uuid', nullable: true }, decidedAt: { type: string, format: date-time, nullable: true }, decisionMemo: { type: string, nullable: true }, lineCount: { type: integer, format: int64 }, varianceLineCount: { type: integer, format: int64 }, createdAt: { type: string, format: date-time }, updatedAt: { type: string, format: date-time } }
+    CycleCountLine:
+      type: object
+      required: [id, itemId, ivCode, displayName, unitCode, systemQuantityMilli, countedQuantityMilli, varianceMilli, recordedBy, recordedAt]
+      properties: { id: { $ref: '#/components/schemas/Uuid' }, itemId: { $ref: '#/components/schemas/Uuid' }, ivCode: { type: string }, displayName: { type: string }, unitCode: { type: string }, systemQuantityMilli: { type: integer, format: int64 }, countedQuantityMilli: { type: integer, format: int64 }, varianceMilli: { type: integer, format: int64 }, reason: { type: string, nullable: true, enum: [DAMAGE, LOSS, MISCOUNT, FOUND, OTHER] }, note: { type: string, nullable: true }, recordedBy: { $ref: '#/components/schemas/Uuid' }, recordedAt: { type: string, format: date-time } }
+    CycleCountDetail:
+      type: object
+      required: [count, lines, appliedMovementIds]
+      properties: { count: { $ref: '#/components/schemas/CycleCount' }, lines: { type: array, items: { $ref: '#/components/schemas/CycleCountLine' } }, appliedMovementIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } } }
+    CycleCountPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/CycleCount' } }, limit: { type: integer, format: int64 }, offset: { type: integer, format: int64 }, total: { type: integer, format: int64 } }
+    OpenCycleCountRequest:
+      type: object
+      additionalProperties: false
+      required: [branchId, stockLocationId]
+      properties: { branchId: { $ref: '#/components/schemas/Uuid' }, stockLocationId: { $ref: '#/components/schemas/Uuid' } }
+    UpsertCycleCountLineRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, itemId, countedQuantityMilli]
+      properties: { expectedVersion: { type: integer, minimum: 1 }, itemId: { $ref: '#/components/schemas/Uuid' }, countedQuantityMilli: { type: integer, format: int64, minimum: 0 }, reason: { type: string, nullable: true, enum: [DAMAGE, LOSS, MISCOUNT, FOUND, OTHER] }, note: { type: string, nullable: true } }
+    CycleCountVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties: { expectedVersion: { type: integer, minimum: 1 } }
+    DecideCycleCountRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, decision]
+      properties: { expectedVersion: { type: integer, minimum: 1 }, decision: { type: string, enum: [APPROVE, REJECT] }, memo: { type: string, nullable: true }, idempotencyKey: { type: string, nullable: true, minLength: 16, maxLength: 200 } }

@@ -29,6 +29,12 @@ on:
       - "docs/release/**"
       - "ops/**"
       - "scripts/**"
+      - "tools/buck/**"
+      - "tools/buck2"
+      - "toolchains/**"
+      - "third-party/rust/**"
+      - "BUCK"
+      - ".buckconfig"
       - "fastlane/**"
       - "Gemfile"
       - "Gemfile.lock"
@@ -59,6 +65,12 @@ on:
       - "docs/release/**"
       - "ops/**"
       - "scripts/**"
+      - "tools/buck/**"
+      - "tools/buck2"
+      - "toolchains/**"
+      - "third-party/rust/**"
+      - "BUCK"
+      - ".buckconfig"
       - "fastlane/**"
       - "Gemfile"
       - "Gemfile.lock"
@@ -75,8 +87,8 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   # Cancel superseded runs only for PRs. On main, every push must run CI to
-  # completion: the image-release ci-gate requires CI success for the exact
-  # sha, and a rapid merge train cancelling predecessors starves it of images.
+  # completion: image-release is triggered by this completed successful CI run
+  # for the exact SHA, so a rapid merge train must not cancel main CI.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -91,6 +103,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned DotSlash runtime
+        run: tools/buck/install_dotslash.sh
+
+      - name: Install Rust toolchain for Cargo.lock consistency
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -99,6 +119,9 @@ jobs:
 
       - name: Install workspace dependencies
         run: npm ci
+
+      - name: Cheap Buck2 generated-face admission
+        run: tools/buck/preflight.sh
 
       - name: Foundation gate contract
         run: npm run check:foundation-gates
@@ -117,6 +140,58 @@ jobs:
 
       - name: Canonical npm lockfile
         run: npm run check:package-lock
+
+      - name: Cargo.lock consistency
+        run: cargo metadata --manifest-path backend/Cargo.toml --locked --format-version=1 >/dev/null
+
+  generated-face-authority:
+    # This status is the complete generated-face closure required by policy.
+    # It becomes merge-enforced only after the live GitHub ruleset admits this
+    # exact status; cheap `preflight` intentionally defers expensive faces.
+    name: Generated faces — full required drift authority
+    runs-on: macos-latest
+    needs: preflight
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install pinned DotSlash runtime
+        run: tools/buck/install_dotslash.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.16.0"
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Install lock-pinned Reindeer Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=third-party/rust/reindeer/upstream.lock
+          source third-party/rust/reindeer/upstream.lock
+          rustup toolchain install "$REINDEER_TOOLCHAIN" --profile minimal
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Full generated-face closure
+        run: tools/buck/preflight.sh --full-generated-faces
 
   backend:
     name: Backend — fmt / clippy / test / gates
@@ -162,6 +237,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned DotSlash runtime
+        run: ../tools/buck/install_dotslash.sh
+
       - name: Free runner disk for Rust backend
         uses: ./.github/actions/free-runner-disk
 
@@ -181,10 +259,6 @@ jobs:
         with:
           workspaces: backend
 
-      - name: Cargo.lock freshness gate
-        if: ${{ !cancelled() }}
-        run: cargo tree --locked --workspace --target all >/dev/null
-
       - name: rustfmt check
         if: ${{ !cancelled() }}
         run: cargo fmt --all -- --check
@@ -193,7 +267,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
-      # Migration 0165 fails closed unless the portable six-role topology
+      # Migration 0165 fails closed unless the portable seven-role topology
       # already exists. Reconcile it before any database test applies the
       # migration, using the distinct service administrator only for this
       # cluster-scoped bootstrap.
@@ -204,6 +278,7 @@ jobs:
           RT_PASSWORD="$(openssl rand -hex 32)"
           LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
@@ -212,6 +287,7 @@ jobs:
             -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
             -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
 
@@ -267,6 +343,7 @@ jobs:
           RT_PASSWORD="$(openssl rand -hex 32)"
           LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
@@ -275,12 +352,14 @@ jobs:
             -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
             -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4 /usr/local/bin/postgres-reconcile-topology
 
           OWNER_DATABASE_URL="postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_ci"
           RUNTIME_DATABASE_URL="postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_ci"
           LEAVE_COMMAND_DATABASE_URL="postgres://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
           ONTOLOGY_COMMAND_DATABASE_URL="postgres://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
+          PLATFORM_FORCE_COMMAND_DATABASE_URL="postgres://mnt_platform_force_cmd:${PLATFORM_FORCE_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
           export DATABASE_URL="$OWNER_DATABASE_URL"
 
           MNT_APP_ROLE=migrate SQLX_OFFLINE=true cargo run -q -p mnt-app
@@ -293,6 +372,7 @@ jobs:
           DATABASE_URL="$RUNTIME_DATABASE_URL" \
           LEAVE_COMMAND_DATABASE_URL="$LEAVE_COMMAND_DATABASE_URL" \
           ONTOLOGY_COMMAND_DATABASE_URL="$ONTOLOGY_COMMAND_DATABASE_URL" \
+          PLATFORM_FORCE_COMMAND_DATABASE_URL="$PLATFORM_FORCE_COMMAND_DATABASE_URL" \
           MNT_HTTP_ADDR=127.0.0.1:8092 \
           MNT_JWT_ISSUER=ci-boot-smoke \
           MNT_JWT_AUDIENCE=ci-boot-smoke \
@@ -359,15 +439,23 @@ jobs:
         # `dev-auth` is NOT in default features (proven above) — build/test it
         # explicitly so its code path still compiles and its own tests
         # (including the route-present-under-the-feature session tests) run.
-        # `set -e` would abort on the first failing invocation and hide the rest;
-        # run all three, recording failure, then propagate the real exit code so
-        # one run reports every failing suite (no exit-code masking).
+        # The mnt-app dev-auth suite runs through its Buck feature variant below.
+        # Keep these two direct-Cargo commands until equivalent Buck feature
+        # variants exist for their non-app packages; aggregate failures here.
         run: |
           rc=0
           SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast -- --test-threads=1 || rc=1
-          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast -- --test-threads=1 || rc=1
           SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast -- --test-threads=1 || rc=1
           exit $rc
+
+      - name: Buck2 mnt-app unit and inline PostgreSQL suites
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          env -u DATABASE_URL tools/buck2 test //backend/app:mnt-app-unit
+          tools/buck/test_needs_postgres.sh \
+            //backend/app:mnt-app-itest-inline-postgres \
+            //backend/app:mnt-app-itest-dev_auth_persona_guard_feature
 
   dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e
@@ -632,9 +720,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test --workspace @console/web
 
+      - name: Production dev-auth artifact entrypoint assertions
+        if: ${{ !cancelled() }}
+        run: npm run test:production-dev-auth-guards --workspace @console/web
+
       - name: Production build
         if: ${{ !cancelled() }}
-        run: npm run build --workspace @console/web
+        run: npm run check:production-dev-auth-absence --workspace @console/web
 
   api-contract:
     name: API contract — app OpenAPI and generated TS round-trip
@@ -657,7 +749,6 @@ jobs:
           --health-retries 5
     env:
       CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
-      MNT_APP_BIN: ${{ github.workspace }}/backend/target/debug/mnt-app
       # This job builds mnt-app before comparing the app-served OpenAPI and
       # running the generated-client round-trip. Match the backend job's lean
       # Cargo artifacts so the standard runner does not exhaust disk on cache
@@ -668,6 +759,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install pinned DotSlash runtime
+        run: tools/buck/install_dotslash.sh
 
       - name: Free runner disk for API contract
         uses: ./.github/actions/free-runner-disk
@@ -694,6 +788,16 @@ jobs:
       - name: OpenAPI app-served drift gate
         if: ${{ !cancelled() }}
         run: npm run check:openapi-app
+
+      - name: Capture Buck2-built app for contract test
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # check:openapi-app is the sole Buck2 producer for this handoff.
+          mnt_app_bin="${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"
+          test -x "${mnt_app_bin}"
+          printf 'MNT_APP_BIN=%s\n' "${mnt_app_bin}" >> "${GITHUB_ENV}"
 
       - name: Employee import replay contract
         if: ${{ !cancelled() }}
@@ -979,7 +1083,8 @@ jobs:
             E2E_MNT_APP_POSTGRES_PASSWORD \
             E2E_MNT_RT_POSTGRES_PASSWORD \
             E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD \
-            E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD
+            E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD \
+            E2E_MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD
           do
             role_password="$(openssl rand -hex 32)"
             printf '::add-mask::%s\n' "$role_password"

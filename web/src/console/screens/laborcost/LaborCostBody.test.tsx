@@ -9,7 +9,7 @@ import { LaborCostBody } from "./LaborCostBody";
 const S = laborCostStrings();
 
 const navigateSpy = vi.fn();
-vi.mock("react-router-dom", () => ({
+vi.mock("react-router", () => ({
   useNavigate: () => navigateSpy,
 }));
 

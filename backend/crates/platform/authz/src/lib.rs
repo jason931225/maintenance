@@ -13,7 +13,7 @@ use std::str::FromStr;
 
 use mnt_kernel_core::{
     AccessScope, AccessScopeLevel, BranchId, BranchProjection, BranchScope, KernelError, OrgId,
-    UserId,
+    ServicePrincipalId, UserId,
 };
 use sqlx::{PgPool, Row};
 
@@ -166,6 +166,27 @@ pub enum Feature {
     /// Manage the public sales catalog (#6 지게차 매매): create/update/withdraw
     /// used-forklift listings and triage inbound customer inquiries. ADMIN tier.
     SalesManage,
+    /// Receive an advance shipping notice and record warehouse receipt
+    /// exceptions. Custom-grant only: no built-in role fallback.
+    LogisticsReceive,
+    /// Complete governed putaway into a warehouse stock location. Custom-grant
+    /// only: no built-in role fallback.
+    LogisticsPutaway,
+    /// Release a fulfillment order and reserve available stock. Custom-grant
+    /// only: no built-in role fallback.
+    LogisticsRelease,
+    /// Pick and pack released inventory. Custom-grant only: no built-in role
+    /// fallback.
+    LogisticsPickPack,
+    /// Dispatch a packed shipment through its assigned carrier/vehicle leg.
+    /// Custom-grant only: no built-in role fallback.
+    LogisticsDispatch,
+    /// Record recipient-confirmed proof of delivery with immutable evidence.
+    /// Custom-grant only: no built-in role fallback.
+    LogisticsPod,
+    /// Derive the SLA assessment and operational-cost settlement after delivery.
+    /// Custom-grant only: no built-in role fallback.
+    LogisticsSettle,
     /// Read IV inventory stock objects/events inside the caller's branch scope.
     InventoryRead,
     /// Create/update/archive IV inventory items, locations, and thresholds.
@@ -178,6 +199,11 @@ pub enum Feature {
     BenefitCatalogRead,
     /// Create and maintain tenant benefit-catalog rows, tiers, and conditions.
     BenefitCatalogManage,
+    /// Dedicated consulting pilot read gate. Kept distinct from benefit policy
+    /// management so rollout may remain dark without borrowing authority.
+    ConsultingRead,
+    /// Dedicated consulting pilot mutation gate.
+    ConsultingManage,
     /// Read the tenant compliance domain (regulations, obligations, frameworks,
     /// and controls). Org-wide catalog rows require an org-wide principal;
     /// branch-scoped obligations are separately authorized at their branch.
@@ -230,6 +256,12 @@ pub enum Feature {
     /// Generate/draft the exit settlement package + submit it for approval
     /// (퇴직 정산 초안/승인 상신). ADMIN + SUPER_ADMIN — the HR settlement tier.
     ExitSettlementManage,
+    /// Manage attendance exceptions. ADMIN + SUPER_ADMIN only; the Attendance
+    /// REST boundary continues to enforce branch/resource scope independently.
+    AttendanceExceptionManage,
+    /// Manage attendance substitutions. ADMIN + SUPER_ADMIN only; the
+    /// Attendance REST boundary continues to enforce branch/resource scope independently.
+    AttendanceSubstitutionManage,
     /// Read the CEO/top-clearance covert audit stream. This is deliberately
     /// denied by the legacy role matrix and enrolled only through Cedar/PBAC
     /// clearance facts.
@@ -262,10 +294,48 @@ pub enum Feature {
     /// authenticated org member — this feature gates only draft visibility and
     /// the publish/progress mutations.
     NoticeManage,
+    /// Operate the scheduled HVAC preventive-maintenance queue.
+    FacilitiesManage,
+    /// Triage and assign scheduled facilities cases.
+    FacilitiesDispatch,
+    /// Start and submit assigned facilities work.
+    FacilitiesExecute,
+    /// Accept or reject submitted facilities work.
+    FacilitiesAccept,
+    /// Read facilities cases and record metering observations.
+    FacilitiesObserve,
+    /// Dedicated workload-only production source ingress. Built-in human roles
+    /// are all denied; a registered service principal receives this only via an
+    /// explicit tenant-scoped effective grant.
+    ProductionSourceIngest,
+    /// Register serialized 3R rental units. Custom-grant only: no built-in
+    /// role fallback.
+    Equipment3rRegistry,
+    /// Create idempotent 3R rental-case quotes. Custom-grant only: no built-in
+    /// role fallback.
+    Equipment3rQuote,
+    /// Approve or decline a quoted 3R rental case (four-eyes enforced).
+    /// Custom-grant only: no built-in role fallback.
+    Equipment3rApprove,
+    /// Dispatch an approved 3R case and record customer handover. Custom-grant
+    /// only: no built-in role fallback.
+    Equipment3rDispatch,
+    /// Record on-rent 3R inspections and maintenance. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rInspect,
+    /// Record 3R returns and return assessments. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rAssess,
+    /// Complete repair/refurbish/resale dispositions. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rDisposition,
+    /// Read 3R units, rental cases, and history. Custom-grant only: no
+    /// built-in role fallback.
+    Equipment3rObserve,
 }
 
 impl Feature {
-    pub const ALL: [Self; 65] = [
+    pub const ALL: [Self; 90] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -305,12 +375,21 @@ impl Feature {
         Self::ExcelDownload,
         Self::OpsDashboardRead,
         Self::SalesManage,
+        Self::LogisticsReceive,
+        Self::LogisticsPutaway,
+        Self::LogisticsRelease,
+        Self::LogisticsPickPack,
+        Self::LogisticsDispatch,
+        Self::LogisticsPod,
+        Self::LogisticsSettle,
         Self::InventoryRead,
         Self::InventoryManage,
         Self::InventoryConsume,
         Self::InventoryReorder,
         Self::BenefitCatalogRead,
         Self::BenefitCatalogManage,
+        Self::ConsultingRead,
+        Self::ConsultingManage,
         Self::ComplianceDomainRead,
         Self::ComplianceDomainManage,
         Self::ComplianceEvidenceLink,
@@ -325,12 +404,28 @@ impl Feature {
         Self::ExitCaseHrConfirm,
         Self::ExitCaseHqConfirm,
         Self::ExitSettlementManage,
+        Self::AttendanceExceptionManage,
+        Self::AttendanceSubstitutionManage,
         Self::AuditStreamRead,
         Self::AuditStreamAccessLogRead,
         Self::PeriodLockManage,
         Self::LifecycleManage,
         Self::PayrollRunRead,
         Self::NoticeManage,
+        Self::FacilitiesManage,
+        Self::FacilitiesDispatch,
+        Self::FacilitiesExecute,
+        Self::FacilitiesAccept,
+        Self::FacilitiesObserve,
+        Self::ProductionSourceIngest,
+        Self::Equipment3rRegistry,
+        Self::Equipment3rQuote,
+        Self::Equipment3rApprove,
+        Self::Equipment3rDispatch,
+        Self::Equipment3rInspect,
+        Self::Equipment3rAssess,
+        Self::Equipment3rDisposition,
+        Self::Equipment3rObserve,
     ];
 
     #[must_use]
@@ -375,12 +470,21 @@ impl Feature {
             Self::ExcelDownload => "excel_download",
             Self::OpsDashboardRead => "ops_dashboard_read",
             Self::SalesManage => "sales_manage",
+            Self::LogisticsReceive => "logistics_receive",
+            Self::LogisticsPutaway => "logistics_putaway",
+            Self::LogisticsRelease => "logistics_release",
+            Self::LogisticsPickPack => "logistics_pick_pack",
+            Self::LogisticsDispatch => "logistics_dispatch",
+            Self::LogisticsPod => "logistics_pod",
+            Self::LogisticsSettle => "logistics_settle",
             Self::InventoryRead => "inventory_read",
             Self::InventoryManage => "inventory_manage",
             Self::InventoryConsume => "inventory_consume",
             Self::InventoryReorder => "inventory_reorder",
             Self::BenefitCatalogRead => "benefit_catalog_read",
             Self::BenefitCatalogManage => "benefit_catalog_manage",
+            Self::ConsultingRead => "consulting_read",
+            Self::ConsultingManage => "consulting_manage",
             Self::ComplianceDomainRead => "compliance_domain_read",
             Self::ComplianceDomainManage => "compliance_domain_manage",
             Self::ComplianceEvidenceLink => "compliance_evidence_link",
@@ -395,12 +499,28 @@ impl Feature {
             Self::ExitCaseHrConfirm => "exit_case_hr_confirm",
             Self::ExitCaseHqConfirm => "exit_case_hq_confirm",
             Self::ExitSettlementManage => "exit_settlement_manage",
+            Self::AttendanceExceptionManage => "attendance_exception_manage",
+            Self::AttendanceSubstitutionManage => "attendance_substitution_manage",
             Self::AuditStreamRead => "audit_stream_read",
             Self::AuditStreamAccessLogRead => "audit_stream_access_log_read",
             Self::PeriodLockManage => "period_lock_manage",
             Self::LifecycleManage => "lifecycle_manage",
             Self::PayrollRunRead => "payroll_run_read",
             Self::NoticeManage => "notice_manage",
+            Self::FacilitiesManage => "facilities_manage",
+            Self::FacilitiesDispatch => "facilities_dispatch",
+            Self::FacilitiesExecute => "facilities_execute",
+            Self::FacilitiesAccept => "facilities_accept",
+            Self::FacilitiesObserve => "facilities_observe",
+            Self::ProductionSourceIngest => "production_source_ingest",
+            Self::Equipment3rRegistry => "equipment_3r_registry",
+            Self::Equipment3rQuote => "equipment_3r_quote",
+            Self::Equipment3rApprove => "equipment_3r_approve",
+            Self::Equipment3rDispatch => "equipment_3r_dispatch",
+            Self::Equipment3rInspect => "equipment_3r_inspect",
+            Self::Equipment3rAssess => "equipment_3r_assess",
+            Self::Equipment3rDisposition => "equipment_3r_disposition",
+            Self::Equipment3rObserve => "equipment_3r_observe",
         }
     }
 
@@ -455,6 +575,16 @@ impl Feature {
             Self::ExcelDownload => [D, A, A, A, A, A],
             Self::OpsDashboardRead => [D, D, D, A, D, A],
             Self::SalesManage => [D, D, D, A, A, A],
+            // Logistics is capability-driven from its first slice. Built-in
+            // roles do not silently widen access; explicit tenant grants are
+            // the only allow path.
+            Self::LogisticsReceive
+            | Self::LogisticsPutaway
+            | Self::LogisticsRelease
+            | Self::LogisticsPickPack
+            | Self::LogisticsDispatch
+            | Self::LogisticsPod
+            | Self::LogisticsSettle => [D, D, D, D, D, D],
             // IV inventory is branch-operational: front-office/mechanics may
             // read stock; mechanics/admins may consume; management/reorder
             // remains the admin tier until purchase integration lands.
@@ -466,6 +596,9 @@ impl Feature {
             // executives can read org-wide catalog state for policy oversight.
             Self::BenefitCatalogRead => [D, D, D, A, A, A],
             Self::BenefitCatalogManage => [D, D, D, A, D, A],
+            // Deliberately deny every built-in role while the console is dark.
+            Self::ConsultingRead => [D, D, D, D, D, D],
+            Self::ConsultingManage => [D, D, D, D, D, D],
             // Compliance's org-owned catalog objects are additionally guarded
             // by the REST boundary's org-wide scope check. The ADMIN cells keep
             // branch-scoped obligation work available without granting an
@@ -497,6 +630,9 @@ impl Feature {
             Self::ExitCaseHrConfirm => [D, D, D, A, D, A],
             Self::ExitCaseHqConfirm => [D, D, D, D, A, A],
             Self::ExitSettlementManage => [D, D, D, A, D, A],
+            Self::AttendanceExceptionManage | Self::AttendanceSubstitutionManage => {
+                [D, D, D, A, D, A]
+            }
             // B26b covert audit stream: no legacy/static-role fallback. Cedar
             // clearance facts are the only allow path; omission denies.
             Self::AuditStreamRead | Self::AuditStreamAccessLogRead => [D, D, D, D, D, D],
@@ -512,6 +648,23 @@ impl Feature {
             Self::PayrollRunRead => [D, D, D, A, A, A],
             // The HQ/announcement tier: ADMIN + EXECUTIVE + SUPER_ADMIN.
             Self::NoticeManage => [D, D, D, A, A, A],
+            Self::FacilitiesManage => [D, D, D, A, D, A],
+            Self::FacilitiesDispatch => [D, D, D, A, D, A],
+            Self::FacilitiesExecute => [D, D, A, A, D, A],
+            Self::FacilitiesAccept => [D, D, D, A, D, A],
+            Self::FacilitiesObserve => [D, A, A, A, A, A],
+            Self::ProductionSourceIngest => [D, D, D, D, D, D],
+            // Equipment 3R is capability-driven from its first slice. Built-in
+            // roles do not silently widen access; explicit tenant grants are
+            // the only allow path.
+            Self::Equipment3rRegistry
+            | Self::Equipment3rQuote
+            | Self::Equipment3rApprove
+            | Self::Equipment3rDispatch
+            | Self::Equipment3rInspect
+            | Self::Equipment3rAssess
+            | Self::Equipment3rDisposition
+            | Self::Equipment3rObserve => [D, D, D, D, D, D],
         }
     }
 }
@@ -560,12 +713,21 @@ impl FromStr for Feature {
             "excel_download" => Ok(Self::ExcelDownload),
             "ops_dashboard_read" => Ok(Self::OpsDashboardRead),
             "sales_manage" => Ok(Self::SalesManage),
+            "logistics_receive" => Ok(Self::LogisticsReceive),
+            "logistics_putaway" => Ok(Self::LogisticsPutaway),
+            "logistics_release" => Ok(Self::LogisticsRelease),
+            "logistics_pick_pack" => Ok(Self::LogisticsPickPack),
+            "logistics_dispatch" => Ok(Self::LogisticsDispatch),
+            "logistics_pod" => Ok(Self::LogisticsPod),
+            "logistics_settle" => Ok(Self::LogisticsSettle),
             "inventory_read" => Ok(Self::InventoryRead),
             "inventory_manage" => Ok(Self::InventoryManage),
             "inventory_consume" => Ok(Self::InventoryConsume),
             "inventory_reorder" => Ok(Self::InventoryReorder),
             "benefit_catalog_read" => Ok(Self::BenefitCatalogRead),
             "benefit_catalog_manage" => Ok(Self::BenefitCatalogManage),
+            "consulting_read" => Ok(Self::ConsultingRead),
+            "consulting_manage" => Ok(Self::ConsultingManage),
             "compliance_domain_read" => Ok(Self::ComplianceDomainRead),
             "compliance_domain_manage" => Ok(Self::ComplianceDomainManage),
             "compliance_evidence_link" => Ok(Self::ComplianceEvidenceLink),
@@ -580,12 +742,28 @@ impl FromStr for Feature {
             "exit_case_hr_confirm" => Ok(Self::ExitCaseHrConfirm),
             "exit_case_hq_confirm" => Ok(Self::ExitCaseHqConfirm),
             "exit_settlement_manage" => Ok(Self::ExitSettlementManage),
+            "attendance_exception_manage" => Ok(Self::AttendanceExceptionManage),
+            "attendance_substitution_manage" => Ok(Self::AttendanceSubstitutionManage),
             "audit_stream_read" => Ok(Self::AuditStreamRead),
             "audit_stream_access_log_read" => Ok(Self::AuditStreamAccessLogRead),
             "period_lock_manage" => Ok(Self::PeriodLockManage),
             "lifecycle_manage" => Ok(Self::LifecycleManage),
             "payroll_run_read" => Ok(Self::PayrollRunRead),
             "notice_manage" => Ok(Self::NoticeManage),
+            "facilities_manage" => Ok(Self::FacilitiesManage),
+            "facilities_dispatch" => Ok(Self::FacilitiesDispatch),
+            "facilities_execute" => Ok(Self::FacilitiesExecute),
+            "facilities_accept" => Ok(Self::FacilitiesAccept),
+            "facilities_observe" => Ok(Self::FacilitiesObserve),
+            "production_source_ingest" => Ok(Self::ProductionSourceIngest),
+            "equipment_3r_registry" => Ok(Self::Equipment3rRegistry),
+            "equipment_3r_quote" => Ok(Self::Equipment3rQuote),
+            "equipment_3r_approve" => Ok(Self::Equipment3rApprove),
+            "equipment_3r_dispatch" => Ok(Self::Equipment3rDispatch),
+            "equipment_3r_inspect" => Ok(Self::Equipment3rInspect),
+            "equipment_3r_assess" => Ok(Self::Equipment3rAssess),
+            "equipment_3r_disposition" => Ok(Self::Equipment3rDisposition),
+            "equipment_3r_observe" => Ok(Self::Equipment3rObserve),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
@@ -713,6 +891,33 @@ pub struct Principal {
     /// [`SubjectFreshness::default`] and every current live path is unchanged.
     #[serde(default)]
     pub authz_freshness: SubjectFreshness,
+}
+
+/// A machine identity resolved from the production-service-principal resolver.
+/// It intentionally has no roles or effective human grants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServicePrincipal {
+    pub id: ServicePrincipalId,
+    pub org_id: OrgId,
+    pub branch_id: BranchId,
+    pub feature: Feature,
+}
+
+impl ServicePrincipal {
+    #[must_use]
+    pub const fn new(
+        id: ServicePrincipalId,
+        org_id: OrgId,
+        branch_id: BranchId,
+        feature: Feature,
+    ) -> Self {
+        Self {
+            id,
+            org_id,
+            branch_id,
+            feature,
+        }
+    }
 }
 
 impl Principal {
@@ -927,6 +1132,22 @@ pub fn authorize(
         return Err(KernelError::forbidden("role is not allowed to use feature"));
     }
 
+    Ok(())
+}
+
+/// Authorize a machine principal. Unlike [`authorize`], this cannot inherit a
+/// human role or tenant custom grant: both the exact feature and exact branch
+/// must match the credential registration.
+pub fn authorize_service(
+    principal: &ServicePrincipal,
+    action: Action,
+    resource_branch: BranchId,
+) -> Result<(), KernelError> {
+    if principal.feature != action.feature() || principal.branch_id != resource_branch {
+        return Err(KernelError::forbidden(
+            "service principal is not authorized for resource",
+        ));
+    }
     Ok(())
 }
 
@@ -1342,6 +1563,79 @@ fn is_safe_ident(raw: &str) -> bool {
 mod tests {
     use super::*;
     use mnt_kernel_core::{ErrorKind, ScopeNodeId};
+
+    #[test]
+    fn attendance_management_features_are_admin_and_super_admin_only() {
+        let cases = [
+            (
+                Feature::AttendanceExceptionManage,
+                "attendance_exception_manage",
+            ),
+            (
+                Feature::AttendanceSubstitutionManage,
+                "attendance_substitution_manage",
+            ),
+        ];
+
+        for (feature, code) in cases {
+            assert!(Feature::ALL.contains(&feature));
+            assert_eq!(feature.as_str(), code);
+            assert_eq!(code.parse::<Feature>().unwrap(), feature);
+            assert_eq!(
+                serde_json::to_string(&feature).unwrap(),
+                format!("\"{code}\"")
+            );
+            assert_eq!(
+                serde_json::from_str::<Feature>(&format!("\"{code}\"")).unwrap(),
+                feature
+            );
+
+            for role in Role::ALL {
+                let expected = match role {
+                    Role::Admin | Role::SuperAdmin => PermissionLevel::Allow,
+                    Role::Member | Role::Receptionist | Role::Mechanic | Role::Executive => {
+                        PermissionLevel::Deny
+                    }
+                };
+                assert_eq!(
+                    permission_for(role, feature),
+                    expected,
+                    "{role:?} on {feature:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn service_authorization_requires_exact_feature_and_branch() {
+        let branch = BranchId::new();
+        let service = ServicePrincipal::new(
+            ServicePrincipalId::new(),
+            OrgId::new(),
+            branch,
+            Feature::ProductionSourceIngest,
+        );
+        assert!(
+            authorize_service(
+                &service,
+                Action::limited(Feature::ProductionSourceIngest),
+                branch,
+            )
+            .is_ok()
+        );
+        assert!(
+            authorize_service(
+                &service,
+                Action::limited(Feature::ProductionSourceIngest),
+                BranchId::new(),
+            )
+            .is_err()
+        );
+        assert!(
+            authorize_service(&service, Action::limited(Feature::DailyPlanRequest), branch,)
+                .is_err()
+        );
+    }
 
     #[test]
     fn effective_scope_preserves_legacy_org_live_scope() -> Result<(), KernelError> {

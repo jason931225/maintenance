@@ -31,8 +31,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_docs_adapter_postgres::PgDocsStore;
 use mnt_docs_application::{
-    ApplyLegalHoldCommand, EvidenceObjectDetail, EvidenceObjectPage, LegalHoldRecordView,
-    ListEvidenceObjectsQuery, ReleaseLegalHoldCommand,
+    ApplyLegalHoldCommand, EvidenceObjectCursor, EvidenceObjectDetail, EvidenceObjectPage,
+    LegalHoldRecordView, ListEvidenceObjectsQuery, ReleaseLegalHoldCommand,
 };
 use mnt_docs_domain::{
     AdmissibilityStatus, CustodyStage, EvidenceClassification, EvidenceCopyKind,
@@ -151,11 +151,30 @@ struct ListQuery {
     limit: Option<i64>,
     #[serde(default)]
     offset: Option<i64>,
+    #[serde(default)]
+    as_of: Option<String>,
+    #[serde(default)]
+    cursor: Option<String>,
 }
 
-impl From<ListQuery> for ListEvidenceObjectsQuery {
-    fn from(value: ListQuery) -> Self {
-        Self {
+impl TryFrom<ListQuery> for ListEvidenceObjectsQuery {
+    type Error = KernelError;
+
+    fn try_from(value: ListQuery) -> Result<Self, Self::Error> {
+        let as_of = value
+            .as_of
+            .as_deref()
+            .map(|raw| {
+                raw.parse::<i64>()
+                    .map_err(|_| KernelError::validation("as_of must be a register sequence"))
+            })
+            .transpose()?;
+        let cursor = value
+            .cursor
+            .as_deref()
+            .map(decode_register_cursor)
+            .transpose()?;
+        Ok(Self {
             q: value.q,
             source_type: value.source_type,
             source_id: value.source_id,
@@ -165,7 +184,53 @@ impl From<ListQuery> for ListEvidenceObjectsQuery {
             classification: value.classification,
             limit: value.limit,
             offset: value.offset,
-        }
+            as_of,
+            cursor,
+        })
+    }
+}
+
+fn decode_register_cursor(raw: &str) -> Result<EvidenceObjectCursor, KernelError> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(raw)
+        .map_err(|_| KernelError::validation("cursor is not valid base64url"))?;
+    serde_json::from_slice(&bytes).map_err(|_| KernelError::validation("cursor payload is invalid"))
+}
+
+fn encode_register_cursor(cursor: &EvidenceObjectCursor) -> Result<String, KernelError> {
+    use base64::Engine as _;
+    let bytes = serde_json::to_vec(cursor)
+        .map_err(|_| KernelError::internal("EV cursor serialization failed"))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceObjectPageResponse {
+    items: Vec<mnt_docs_application::EvidenceObjectView>,
+    limit: i64,
+    offset: i64,
+    total: i64,
+    as_of: i64,
+    next_cursor: Option<String>,
+}
+
+impl TryFrom<EvidenceObjectPage> for EvidenceObjectPageResponse {
+    type Error = KernelError;
+
+    fn try_from(page: EvidenceObjectPage) -> Result<Self, Self::Error> {
+        Ok(Self {
+            items: page.items,
+            limit: page.limit,
+            offset: page.offset,
+            total: page.total,
+            as_of: page.as_of,
+            next_cursor: page
+                .next_cursor
+                .as_ref()
+                .map(encode_register_cursor)
+                .transpose()?,
+        })
     }
 }
 
@@ -173,14 +238,14 @@ async fn list_objects(
     State(state): State<DocsRestState>,
     headers: HeaderMap,
     Query(query): Query<ListQuery>,
-) -> Result<Json<EvidenceObjectPage>, RestError> {
+) -> Result<Json<EvidenceObjectPageResponse>, RestError> {
     authorize(&state, &headers, Feature::EvidenceAttach).await?;
     let page = state
         .docs
-        .list_objects(query.into())
+        .list_objects(query.try_into().map_err(RestError::from_kernel)?)
         .await
         .map_err(RestError::from_docs)?;
-    Ok(Json(page))
+    Ok(Json(page.try_into().map_err(RestError::from_kernel)?))
 }
 
 async fn get_object(
@@ -619,6 +684,16 @@ impl RestError {
         }
     }
 
+    /// Distinguishes a fixity-storage outage from generic 503s (for example,
+    /// JWT verifier infrastructure), which the console must keep retryable.
+    fn evidence_store_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "evidence_store_unavailable",
+            message: message.into(),
+        }
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -645,9 +720,9 @@ impl RestError {
 
     fn from_verify(error: VerifyError) -> Self {
         match error {
-            VerifyError::StorageUnconfigured => {
-                Self::unavailable("evidence storage is not configured for fixity verification")
-            }
+            VerifyError::StorageUnconfigured => Self::evidence_store_unavailable(
+                "evidence storage is not configured for fixity verification",
+            ),
             VerifyError::NotFound => {
                 Self::from_kernel(KernelError::not_found("EV object was not found"))
             }
@@ -770,6 +845,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn evidence_store_unavailability_has_a_stable_distinct_error_code() {
+        let error = RestError::from_verify(VerifyError::StorageUnconfigured);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "evidence_store_unavailable");
+    }
+
+    #[test]
+    fn generic_service_unavailability_keeps_the_generic_error_code() {
+        let error = RestError::unavailable("JWT verification is not configured for evidence API");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "unavailable");
+    }
+
+    #[test]
     fn normalize_accepts_hex_and_base64_and_rejects_junk() {
         let digest = "a".repeat(64);
         assert_eq!(
@@ -784,6 +873,19 @@ mod tests {
 
         assert_eq!(normalize_sha256("not-a-digest"), None);
         assert_eq!(normalize_sha256(""), None);
+    }
+
+    #[test]
+    fn register_cursor_round_trips_as_an_opaque_base64url_token() {
+        let cursor = EvidenceObjectCursor {
+            snapshot_sequence: 42,
+            register_sequence: 41,
+            id: EvidenceObjectId::new(),
+        };
+        let token = encode_register_cursor(&cursor).expect("cursor encodes");
+        assert!(!token.contains('{'));
+        assert_eq!(decode_register_cursor(&token).unwrap(), cursor);
+        assert!(decode_register_cursor("not_base64!").is_err());
     }
 
     #[test]

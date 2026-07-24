@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use axum::body::{Body, to_bytes};
+use axum::extract::ConnectInfo;
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
 use mnt_financial_adapter_postgres::PgFinancialStore;
@@ -19,6 +20,7 @@ use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use std::net::SocketAddr;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 use url::Url;
@@ -1556,7 +1558,7 @@ async fn otp_redeem_rate_limit_wires_up_on_real_clock_path(pool: PgPool) {
         .unwrap();
 
     let service = build_router(
-        app_state(
+        app_state_with_trusted_proxy(
             pool.clone(),
             private_key_pem.to_string(),
             public_key_pem.clone(),
@@ -1564,10 +1566,11 @@ async fn otp_redeem_rate_limit_wires_up_on_real_clock_path(pool: PgPool) {
         .unwrap(),
     );
 
-    // Well under the per-IP cap (10/min): every request is a normal generic
-    // rejection, not rate limited.
-    for i in 0..3 {
-        let response = post_raw_with_ip(
+    // Drive the real ingress boundary: the XFF identity is accepted only from
+    // the configured trusted transport peer. The first identity exhausts its
+    // own bucket while the second remains independently usable.
+    for i in 0..10 {
+        let response = post_raw_with_trusted_ip(
             service.clone(),
             "/api/v1/auth/otp/redeem",
             "203.0.113.7",
@@ -1577,12 +1580,24 @@ async fn otp_redeem_rate_limit_wires_up_on_real_clock_path(pool: PgPool) {
         assert_eq!(
             response.status(),
             StatusCode::UNAUTHORIZED,
-            "request {i} should be a normal generic rejection, not rate limited"
+            "request {i} within the first identity's cap must not be rate limited"
         );
     }
 
-    // A DIFFERENT IP is unaffected by the first IP's bucket.
-    let other_ip = post_raw_with_ip(
+    let exhausted = post_raw_with_trusted_ip(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        "203.0.113.7",
+        json!({ "otp": "badcode1" }),
+    )
+    .await;
+    assert_eq!(
+        exhausted.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "the trusted ingress identity must select the first per-IP bucket"
+    );
+
+    let other_ip = post_raw_with_trusted_ip(
         service,
         "/api/v1/auth/otp/redeem",
         "203.0.113.99",
@@ -1592,7 +1607,7 @@ async fn otp_redeem_rate_limit_wires_up_on_real_clock_path(pool: PgPool) {
     assert_eq!(
         other_ip.status(),
         StatusCode::UNAUTHORIZED,
-        "a different IP must have its own bucket"
+        "a second trusted ingress identity must have a separate per-IP bucket"
     );
 }
 
@@ -2646,21 +2661,23 @@ async fn post_raw(
         .unwrap()
 }
 
-async fn post_raw_with_ip(
+async fn post_raw_with_trusted_ip(
     service: axum::Router,
     uri: &str,
     ip: &str,
     body: Value,
 ) -> http::Response<Body> {
-    let builder = Request::builder()
+    let mut request = Request::builder()
         .uri(uri)
         .method("POST")
         .header(header::CONTENT_TYPE, "application/json")
-        .header("x-forwarded-for", ip);
-    service
-        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
-        .await
-        .unwrap()
+        .header("x-forwarded-for", ip)
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo("10.0.0.3:443".parse::<SocketAddr>().unwrap()));
+    service.oneshot(request).await.unwrap()
 }
 
 /// POST as a WEB client: sends `X-Auth-Transport: cookie` and, optionally, a
@@ -2739,6 +2756,28 @@ fn cookie_token(set_cookie: &str) -> &str {
 async fn body_json(response: http::Response<Body>) -> Value {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+fn app_state_with_trusted_proxy(
+    pool: PgPool,
+    private_key_pem: String,
+    public_key_pem: String,
+) -> Result<AppState, mnt_app::AppError> {
+    let config = AppConfig::from_pairs([
+        ("MNT_APP_ROLE", AppRole::Api.to_string()),
+        ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ("MNT_JWT_ISSUER", TEST_ISSUER.to_owned()),
+        ("MNT_JWT_AUDIENCE", TEST_AUDIENCE.to_owned()),
+        ("MNT_JWT_PRIVATE_KEY_PEM", private_key_pem),
+        ("MNT_JWT_PUBLIC_KEY_PEM", public_key_pem),
+        ("MNT_WEBAUTHN_RP_ID", "example.com".to_owned()),
+        ("MNT_WEBAUTHN_RP_ORIGIN", TEST_ORIGIN.to_owned()),
+        ("MNT_WEBAUTHN_RP_NAME", "MNT Maintenance".to_owned()),
+        ("MNT_TRUSTED_PROXY_COUNT", "1".to_owned()),
+        ("MNT_TRUSTED_PROXY_CIDRS", "10.0.0.0/8".to_owned()),
+    ])?;
+
+    AppState::new(config, DatabaseDependency::Postgres(pool))
 }
 
 fn app_state(

@@ -8,16 +8,17 @@
 use mnt_docs_application::{
     AppendCustodyEventCommand, ApplyLegalHoldCommand, CreateEvidenceObjectCommand,
     CustodyEventView, DisposeEvidenceObjectCommand, EvidenceCopyView, EvidenceExportView,
-    EvidenceObjectDetail, EvidenceObjectPage, EvidenceObjectView, LegalHoldRecordView,
-    ListEvidenceObjectsQuery, RecomputeAdmissibilityCommand, RecordTsaProofCommand,
-    RegisterEvidenceCopyCommand, RegisterEvidenceCopyInput, ReleaseLegalHoldCommand,
-    TimestampAuthorityProofInput, TimestampAuthorityProofView, evidence_audit_event,
+    EvidenceObjectCursor, EvidenceObjectDetail, EvidenceObjectPage, EvidenceObjectView,
+    LegalHoldRecordView, ListEvidenceObjectsQuery, RecomputeAdmissibilityCommand,
+    RecordTsaProofCommand, RegisterEvidenceCopyCommand, RegisterEvidenceCopyInput,
+    ReleaseLegalHoldCommand, TimestampAuthorityProofInput, TimestampAuthorityProofView,
+    evidence_audit_event,
 };
 use mnt_docs_domain::{
     AdmissibilityInputs, AdmissibilityReason, AdmissibilityStatus, CustodyStage, DerivativeKind,
-    EvidenceClassification, EvidenceCode, EvidenceCopyKind, EvidenceSourceRef, EvidenceSourceType,
-    EvidenceStorageRef, LegalHoldState, LegalHoldStatus, Sha256Digest, TsaProofStatus,
-    WormStorageStatus, evaluate_admissibility,
+    EvidenceClassification, EvidenceCode, EvidenceCopyEvidentiaryStatus, EvidenceCopyKind,
+    EvidenceSourceRef, EvidenceSourceType, EvidenceStorageRef, LegalHoldState, LegalHoldStatus,
+    Sha256Digest, TsaProofStatus, WormStorageStatus, evaluate_admissibility,
 };
 use mnt_kernel_core::{
     AuditEventId, ErrorKind, EvidenceCopyId, EvidenceCustodyEventId, EvidenceExportId, EvidenceId,
@@ -95,41 +96,88 @@ impl PgDocsStore {
     ) -> Result<EvidenceObjectPage, PgDocsError> {
         let limit = normalized_limit(query.limit);
         let offset = query.offset.unwrap_or(0).max(0);
-        let query_for_count = query.clone();
-        let mut count_builder =
-            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM docs_evidence_objects WHERE ");
-        push_object_filters(&mut count_builder, &query_for_count)?;
-
-        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
-        builder.push(OBJECT_COLUMNS);
-        builder.push(" FROM docs_evidence_objects WHERE ");
-        push_object_filters(&mut builder, &query)?;
-        builder.push(" ORDER BY updated_at DESC, id DESC LIMIT ");
-        builder.push_bind(limit);
-        builder.push(" OFFSET ");
-        builder.push_bind(offset);
+        let using_cursor = query.cursor.is_some();
+        if using_cursor && offset != 0 {
+            return Err(
+                KernelError::validation("EV cursor paging cannot be combined with offset").into(),
+            );
+        }
+        if let (Some(as_of), Some(cursor)) = (query.as_of, query.cursor.as_ref())
+            && as_of != cursor.snapshot_sequence
+        {
+            return Err(KernelError::validation("EV cursor snapshot does not match as_of").into());
+        }
 
         let org = current_org().map_err(KernelError::from)?;
-        let (total, rows) = with_org_conn::<_, _, PgDocsError>(&self.pool, org, move |tx| {
-            Box::pin(async move {
-                let total: i64 = count_builder
-                    .build_query_scalar()
-                    .fetch_one(tx.as_mut())
-                    .await?;
-                let rows = builder.build().fetch_all(tx.as_mut()).await?;
-                Ok((total, rows))
+        let (snapshot_sequence, total, rows) =
+            with_org_conn::<_, _, PgDocsError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let snapshot_sequence = match query.cursor.as_ref() {
+                        Some(cursor) => cursor.snapshot_sequence,
+                        None => match query.as_of {
+                            Some(as_of) => as_of,
+                            None => sqlx::query_scalar(
+                                "SELECT COALESCE(MAX(register_sequence), 0) FROM docs_evidence_objects",
+                            )
+                            .fetch_one(tx.as_mut())
+                            .await?,
+                        },
+                    };
+                    let query_for_count = query.clone();
+                    let mut count_builder = QueryBuilder::<Postgres>::new(
+                        "SELECT COUNT(*) FROM docs_evidence_objects WHERE ",
+                    );
+                    push_object_filters(&mut count_builder, &query_for_count)?;
+                    push_register_snapshot(&mut count_builder, snapshot_sequence, None);
+
+                    let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+                    builder.push(OBJECT_COLUMNS);
+                    builder.push(" FROM docs_evidence_objects WHERE ");
+                    push_object_filters(&mut builder, &query)?;
+                    push_register_snapshot(
+                        &mut builder,
+                        snapshot_sequence,
+                        query.cursor.as_ref(),
+                    );
+                    builder.push(" ORDER BY register_sequence DESC, id DESC LIMIT ");
+                    builder.push_bind(limit);
+                    if query.cursor.is_none() {
+                        builder.push(" OFFSET ");
+                        builder.push_bind(offset);
+                    }
+                    let total: i64 = count_builder
+                        .build_query_scalar()
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                    let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                    Ok((snapshot_sequence, total, rows))
+                })
             })
-        })
-        .await?;
+            .await?;
         let mut items = Vec::with_capacity(rows.len());
         for row in &rows {
             items.push(object_from_row(row)?);
         }
+        let next_cursor = if items.len() == limit as usize {
+            rows.last()
+                .map(|row| -> Result<EvidenceObjectCursor, PgDocsError> {
+                    Ok(EvidenceObjectCursor {
+                        snapshot_sequence,
+                        register_sequence: row.try_get("register_sequence")?,
+                        id: EvidenceObjectId::from_uuid(row.try_get("id")?),
+                    })
+                })
+                .transpose()?
+        } else {
+            None
+        };
         Ok(EvidenceObjectPage {
             items,
             limit,
-            offset,
+            offset: if using_cursor { 0 } else { offset },
             total,
+            as_of: snapshot_sequence,
+            next_cursor,
         })
     }
 
@@ -739,10 +787,28 @@ impl PgDocsStore {
 const OBJECT_COLUMNS: &str = "id, code, title, description, source_type, source_id, source_code, \
     classification, record_owner_user_id, current_custody_stage, legal_hold_state, \
     admissibility_status, admissibility_reasons, admissibility_inputs, created_by, \
-    updated_by, created_at, updated_at, disposed_at";
+    updated_by, created_at, updated_at, disposed_at, register_sequence";
 
 fn normalized_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
+}
+
+fn push_register_snapshot(
+    builder: &mut QueryBuilder<Postgres>,
+    snapshot_sequence: i64,
+    cursor: Option<&EvidenceObjectCursor>,
+) {
+    // `register_sequence` is database-assigned and immutable. Unlike an event
+    // timestamp, a post-snapshot insert cannot be backdated into this scan.
+    builder.push(" AND register_sequence <= ");
+    builder.push_bind(snapshot_sequence);
+    if let Some(cursor) = cursor {
+        builder.push(" AND (register_sequence, id) < (");
+        builder.push_bind(cursor.register_sequence);
+        builder.push(", ");
+        builder.push_bind(*cursor.id.as_uuid());
+        builder.push(")");
+    }
 }
 
 fn push_object_filters(
@@ -855,27 +921,14 @@ async fn insert_copy_tx(
             return Err(KernelError::not_found("derivative parent copy was not found").into());
         }
     }
-    if let Some(media_id) = input.source_evidence_media_id {
-        let media_status: Option<String> =
-            sqlx::query_scalar("SELECT worm_replica_status FROM evidence_media WHERE id = $1")
-                .bind(*media_id.as_uuid())
-                .fetch_optional(tx.as_mut())
-                .await?;
-        let media_status = media_status
-            .ok_or_else(|| KernelError::not_found("source evidence media was not found"))?;
-        if input.worm_status == WormStorageStatus::Verified && media_status != "VERIFIED" {
-            return Err(KernelError::conflict(
-                "source evidence media must be WORM verified before EV copy verification",
-            )
-            .into());
-        }
-    }
+    // WORM state is never a command assertion. The migration-owned BEFORE INSERT
+    // trigger derives it from the storage service's immutable replica attestation:
+    // same tenant, media identity, object key, SHA-256, and verified timestamp.
+    // Always insert PENDING here so a caller cannot manufacture verification while
+    // bypassing the adapter's intent; only that trigger can promote the row.
     let copy_id = EvidenceCopyId::new();
-    let verified_at = if input.worm_status.is_verified() {
-        Some(input.verified_at.unwrap_or(occurred_at))
-    } else {
-        None
-    };
+    let worm_status = WormStorageStatus::Pending;
+    let verified_at = None::<Timestamp>;
     sqlx::query(
         r#"
         INSERT INTO docs_evidence_copies (
@@ -901,7 +954,7 @@ async fn insert_copy_tx(
     .bind(input.digest_sha256.as_str())
     .bind(&content_type)
     .bind(input.size_bytes)
-    .bind(input.worm_status.as_db_str())
+    .bind(worm_status.as_db_str())
     .bind(*actor.as_uuid())
     .bind(occurred_at)
     .bind(verified_at)
@@ -1248,7 +1301,7 @@ async fn fetch_copy_tx(
 ) -> Result<Option<EvidenceCopyView>, PgDocsError> {
     let row = sqlx::query(
         r#"
-        SELECT id, evidence_object_id, copy_kind, derivative_kind, parent_copy_id,
+        SELECT id, evidence_object_id, copy_kind, evidentiary_status, derivative_kind, parent_copy_id,
                storage_provider, storage_object_id, storage_key_ref, storage_version_id,
                source_evidence_media_id, digest_sha256, content_type, size_bytes,
                worm_status, verified_at, created_by, created_at
@@ -1267,7 +1320,7 @@ async fn fetch_copies_tx(
 ) -> Result<Vec<EvidenceCopyView>, PgDocsError> {
     let rows = sqlx::query(
         r#"
-        SELECT id, evidence_object_id, copy_kind, derivative_kind, parent_copy_id,
+        SELECT id, evidence_object_id, copy_kind, evidentiary_status, derivative_kind, parent_copy_id,
                storage_provider, storage_object_id, storage_key_ref, storage_version_id,
                source_evidence_media_id, digest_sha256, content_type, size_bytes,
                worm_status, verified_at, created_by, created_at
@@ -1449,13 +1502,22 @@ fn object_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceObjectView, Pg
 }
 
 fn copy_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceCopyView, PgDocsError> {
-    let copy_kind: String = row.try_get("copy_kind")?;
+    let copy_kind = EvidenceCopyKind::parse(&row.try_get::<String, _>("copy_kind")?)?;
+    let worm_status = WormStorageStatus::parse(&row.try_get::<String, _>("worm_status")?)?;
+    let evidentiary_status =
+        EvidenceCopyEvidentiaryStatus::parse(&row.try_get::<String, _>("evidentiary_status")?)?;
+    if evidentiary_status != EvidenceCopyEvidentiaryStatus::expected(copy_kind, worm_status) {
+        return Err(KernelError::internal(
+            "EV copy evidentiary status is inconsistent with kind/WORM state",
+        )
+        .into());
+    }
     let derivative_kind: Option<String> = row.try_get("derivative_kind")?;
-    let worm_status: String = row.try_get("worm_status")?;
     Ok(EvidenceCopyView {
         id: EvidenceCopyId::from_uuid(row.try_get("id")?),
         evidence_object_id: EvidenceObjectId::from_uuid(row.try_get("evidence_object_id")?),
-        copy_kind: EvidenceCopyKind::parse(&copy_kind)?,
+        copy_kind,
+        evidentiary_status,
         derivative_kind: derivative_kind
             .as_deref()
             .map(DerivativeKind::parse)
@@ -1475,7 +1537,7 @@ fn copy_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceCopyView, PgDocs
         digest_sha256: Sha256Digest::new(row.try_get::<String, _>("digest_sha256")?)?,
         content_type: row.try_get("content_type")?,
         size_bytes: row.try_get("size_bytes")?,
-        worm_status: WormStorageStatus::parse(&worm_status)?,
+        worm_status,
         verified_at: row.try_get("verified_at")?,
         created_by: UserId::from_uuid(row.try_get("created_by")?),
         created_at: row.try_get("created_at")?,

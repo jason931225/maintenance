@@ -1,5 +1,5 @@
 import { Mail, MessageSquare, PanelRightClose } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { ko } from "../../i18n/ko";
 import { cn } from "../../lib/utils";

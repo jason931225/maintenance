@@ -1200,6 +1200,7 @@ mod tests {
 
     const SECRET: &str = "test-office-shared-secret";
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn callback_token_round_trips_and_rejects_tamper() {
         let token = sign_hs256(
@@ -1220,6 +1221,7 @@ mod tests {
         assert!(verify_hs256::<CallbackToken>("other-secret", &token, true, 0).is_err());
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn expired_callback_token_is_rejected() {
         let token = sign_hs256(
@@ -1235,6 +1237,7 @@ mod tests {
         assert!(verify_hs256::<CallbackToken>(SECRET, &token, true, 0).is_err());
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn onlyoffice_callback_claims_verify_from_signed_payload() {
         // Simulate what DocumentServer sends: a JWT signing the callback body.
@@ -1250,6 +1253,7 @@ mod tests {
         assert_eq!(claims.url.as_deref(), Some("http://ds/doc.docx"));
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn onlyoffice_callback_claims_reject_expired_payload_beyond_leeway() {
         // A captured/replayed callback whose OWN exp claim has lapsed well
@@ -1270,6 +1274,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn onlyoffice_callback_claims_accept_expiry_within_clock_skew_leeway() {
         // Just past `exp` but inside the tolerance — normal clock drift, not
@@ -1290,6 +1295,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn document_key_changes_with_version_and_is_editor_safe() {
         let org = OrgId::from_uuid(Uuid::from_u128(7));
@@ -1306,6 +1312,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn config_token_signs_the_whole_config() {
         let payload = json!({ "document": { "key": "k-v1" }, "editorConfig": { "mode": "edit" } });
@@ -1314,12 +1321,14 @@ mod tests {
         assert_eq!(claims["document"]["key"], "k-v1");
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn file_type_allowlist_rejects_unknown() {
         assert!(validate_file_type("docx").is_ok());
         assert!(validate_file_type("exe").is_err());
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn document_ref_is_trimmed_bounded_and_control_free() {
         assert_eq!(normalize_document_ref("  DOC-1  ").unwrap(), "DOC-1");
@@ -1333,6 +1342,7 @@ mod tests {
     // configured DocumentServer's full origin (scheme + host + port), not
     // just its host.
     // -----------------------------------------------------------------------
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn same_origin_rejects_same_host_different_port_attack_url() {
         let configured = url::Url::parse("http://docserver.internal:8080").unwrap();
@@ -1346,6 +1356,7 @@ mod tests {
         assert!(same_origin(&legit, &configured));
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn same_origin_rejects_scheme_and_host_mismatch() {
         let configured = url::Url::parse("https://docserver.internal").unwrap();
@@ -1359,6 +1370,7 @@ mod tests {
         ));
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn same_origin_is_default_port_aware() {
         let configured = url::Url::parse("http://docserver.internal").unwrap();

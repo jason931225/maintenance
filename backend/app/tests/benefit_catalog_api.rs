@@ -66,7 +66,7 @@ async fn benefit_catalog_routes_enforce_pbac_and_audit_catalog_and_lifecycle_wri
     .await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     assert_eq!(
-        count_rows(&owner_pool, "benefit_catalog_items").await,
+        benefit_catalog_item_count(&owner_pool).await,
         0,
         "a denied principal must not reach the write path"
     );
@@ -190,8 +190,8 @@ async fn body_json(response: axum::response::Response) -> Value {
     serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap()
 }
 
-async fn count_rows(pool: &PgPool, table: &str) -> i64 {
-    sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+async fn benefit_catalog_item_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM benefit_catalog_items")
         .fetch_one(pool)
         .await
         .unwrap()

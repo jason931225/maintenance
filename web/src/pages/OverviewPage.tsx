@@ -7,7 +7,7 @@
 
 import { CalendarClock, CheckSquare, LifeBuoy, Siren } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 
 import type {
   AttendanceSummaryItem,

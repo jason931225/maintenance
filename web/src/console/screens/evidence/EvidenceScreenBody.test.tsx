@@ -5,11 +5,21 @@ import { describe, expect, it, vi } from "vitest";
 import { createConsoleApiClient } from "../../../api/client";
 import { AuthContext, type AuthContextValue } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
+import type { EvidenceObjectDetail } from "../../evidence";
+import type { ConsoleApiClient } from "../../../api/client";
 import { EvidenceScreenBody } from "./EvidenceScreenBody";
+import {
+  readEvidenceRetentions,
+  RETENTION_READ_CONCURRENCY,
+} from "./evidenceRetention";
 
 const now = new Date();
 const thisMonthIso = now.toISOString();
 const soonIso = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+function retentionRow(id: string): EvidenceObjectDetail {
+  return { id } as EvidenceObjectDetail;
+}
 
 const evidenceObjectView = {
   id: "ev-1",
@@ -31,11 +41,13 @@ const evidenceObjectView = {
   disposed_at: null,
 };
 
-function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>) {
-  const api = createConsoleApiClient("evidence-screen-test-token");
-  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
-  const authValue = {
-    session: { access_token: "evidence-screen-test-token", roles: ["ADMIN"] },
+function authValue(api: ConsoleApiClient, incarnation: string): AuthContextValue {
+  return {
+    session: {
+      access_token: "evidence-screen-test-token",
+      client_session_incarnation: incarnation,
+      roles: ["ADMIN"],
+    },
     restoring: false,
     login: vi.fn(),
     logout: vi.fn(),
@@ -46,14 +58,84 @@ function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>
     viewAs: undefined,
     enterViewAs: vi.fn(),
     exitViewAs: vi.fn(),
-  } as unknown as AuthContextValue;
+  };
+}
 
-  return render(
-    <AuthContext.Provider value={authValue}>
+function screenTree(api: ConsoleApiClient, incarnation: string) {
+  return (
+    <AuthContext.Provider value={authValue(api, incarnation)}>
       <EvidenceScreenBody />
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
 }
+
+function renderBody(getImpl: (path: unknown, opts?: unknown) => Promise<unknown>) {
+  const api = createConsoleApiClient("evidence-screen-test-token");
+  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
+  return render(screenTree(api, "evidence-screen-test-session"));
+}
+
+
+describe("readEvidenceRetentions", () => {
+  it("bounds lifecycle reads and produces an explicit unavailable state", async () => {
+    let active = 0;
+    let maximum = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const rows = Array.from(
+      { length: RETENTION_READ_CONCURRENCY + 3 },
+      (_, index) => retentionRow(`ev-${String(index)}`),
+    );
+    const GET = vi.fn(async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await gate;
+      active -= 1;
+      return { data: undefined, response: { status: 503 } };
+    });
+
+    const task = readEvidenceRetentions({ GET } as unknown as ConsoleApiClient, rows, new AbortController().signal);
+    await waitFor(() => {
+      expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
+    });
+    expect(maximum).toBe(RETENTION_READ_CONCURRENCY);
+    release?.();
+
+    const entries = await task;
+    expect(GET).toHaveBeenCalledTimes(rows.length);
+    expect([...entries.values()]).toEqual(
+      Array.from({ length: rows.length }, () => ({ state: "unavailable", retentionUntil: null })),
+    );
+  });
+
+  it("aborts between worker batches without starting another lifecycle request", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const rows = Array.from(
+      { length: RETENTION_READ_CONCURRENCY + 1 },
+      (_, index) => retentionRow(`ev-${String(index)}`),
+    );
+    const GET = vi.fn(async () => {
+      await gate;
+      return { data: undefined, response: { status: 404 } };
+    });
+
+    const task = readEvidenceRetentions({ GET } as unknown as ConsoleApiClient, rows, controller.signal);
+    await waitFor(() => {
+      expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
+    });
+    controller.abort();
+    release?.();
+
+    await expect(task).rejects.toMatchObject({ name: "AbortError" });
+    expect(GET).toHaveBeenCalledTimes(RETENTION_READ_CONCURRENCY);
+  });
+});
 
 describe("EvidenceScreenBody", () => {
   it("renders the 문서·기록물 shell with a real stat strip and the 증거 row, retention drilled from the lifecycle API", async () => {
@@ -89,18 +171,14 @@ describe("EvidenceScreenBody", () => {
     expect(screen.getByText("현장 CCTV 클립")).toBeVisible();
     expect(screen.getByText("정하늘")).toBeVisible();
 
-    // Real stat strip — total + this-month + expiring-soon, computed, not zeros.
-    const totalButton = screen.getByRole("button", { name: /총 기록물/ });
-    expect(totalButton).toHaveTextContent("1");
+    // The bounded page never presents a synthetic total; page-local filters
+    // retain their observed counts.
     const expiringButton = screen.getByRole("button", { name: /보존 만료 임박/ });
     await waitFor(() => {
       expect(expiringButton).toHaveTextContent("1");
     });
 
-    // Aggregate footer under the table (verdict r13 "evidence lower region
-    // sparse") — the same rollup as the stat strip, so a short row count
-    // still ends the table on real information instead of blank space.
-    expect(await screen.findByText("총 기록물 1 · 이번달 등록 1 · 보존 만료 임박 1")).toBeVisible();
+    expect(await screen.findByText("이번달 등록 1 · 보존 만료 임박 1")).toBeVisible();
   });
 
   it("renders each row's real 유형 from its source_type, not a hardcoded 증거 chip on every row", async () => {
@@ -185,40 +263,51 @@ describe("EvidenceScreenBody", () => {
     expect(screen.getByText("EV-202")).toBeVisible();
   });
 
-  it("shows an empty-until-backend chip for a 유형 tab with no real domain wired (never fabricates rows)", async () => {
-    renderBody(async (path: unknown) => {
-      await Promise.resolve();
+  it("exposes only backed evidence interactions and no unsupported document actions", async () => {
+    renderBody((path: unknown) => {
       if (path === "/api/v1/evidence/objects") {
-        return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
+        return Promise.resolve({ data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } });
       }
-      if (path === "/api/v1/users") return { data: { items: [] } };
-      return { data: undefined, response: { status: 404 } };
+      if (path === "/api/v1/users") return Promise.resolve({ data: { items: [] } });
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
     });
 
     await screen.findByText("EV-101");
-    await userEvent.click(screen.getByRole("tab", { name: "계약" }));
-    expect(screen.queryByText("EV-101")).not.toBeInTheDocument();
-    expect(screen.getByText("이 문서 유형은 아직 연동되지 않았습니다")).toBeVisible();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("button", { name: ko.console.documents.actions.register })).toBeNull();
+    expect(screen.queryByText(ko.console.documents.blockedType)).toBeNull();
   });
 
-  it("기록물 등재 has no real create endpoint yet, so it honestly surfaces a pending notice instead of faking a registration (§4-25-⑥)", async () => {
-    renderBody(async (path: unknown) => {
-      await Promise.resolve();
+  it("loads a subsequent bounded page without asserting that same-total paging is complete", async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      ...evidenceObjectView,
+      id: `ev-${String(index + 1)}`,
+      code: `EV-${String(index + 1)}`,
+      title: `기록 ${String(index + 1)}`,
+    }));
+    const laterPage = [
+      { ...evidenceObjectView, id: "ev-202", code: "EV-202", title: "나중 기록" },
+      { ...evidenceObjectView, id: "ev-201", code: "EV-201", title: "재정렬 기록" },
+    ];
+    let objectPageCalls = 0;
+    renderBody((path: unknown, opts?: unknown) => {
       if (path === "/api/v1/evidence/objects") {
-        return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
+        objectPageCalls += 1;
+        const offset = (opts as { params: { query?: { offset?: number } } }).params.query?.offset ?? 0;
+        if (offset === 0) return Promise.resolve({ data: { items: firstPage, limit: 200, offset: 0, total: 400 } });
+        return Promise.resolve({ data: { items: laterPage, limit: 200, offset: 200, total: 400 } });
       }
-      if (path === "/api/v1/users") return { data: { items: [] } };
-      return { data: undefined, response: { status: 404 } };
+      if (path === "/api/v1/users") return Promise.resolve({ data: { items: [] } });
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
     });
-    await screen.findByText("EV-101");
 
-    expect(screen.queryByRole("status")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: ko.console.documents.actions.register }));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      ko.console.documents.actions.registerUnavailable,
-    );
-    // No fabricated row was added and the real table is untouched.
-    expect(screen.getByText("EV-101")).toBeVisible();
+    await screen.findByText("EV-1");
+    expect(screen.getByText("200건+")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: ko.common.loadMore }));
+    expect(await screen.findByText("나중 기록")).toBeVisible();
+    expect(screen.getByText("재정렬 기록")).toBeVisible();
+    expect(screen.queryByText("400 / 400")).toBeNull();
+    expect(objectPageCalls).toBe(2);
   });
 
   it("내보내기 downloads a CSV of the rows actually on screen (real export, not a fabricated bulk one)", async () => {
@@ -249,6 +338,80 @@ describe("EvidenceScreenBody", () => {
 
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it("owns and aborts the paged register request on unmount", async () => {
+    let listSignal: AbortSignal | undefined;
+    const never = new Promise<never>(() => undefined);
+    const { unmount } = renderBody((path: unknown, opts?: unknown) => {
+      if (path === "/api/v1/evidence/objects") {
+        listSignal = (opts as { signal: AbortSignal }).signal;
+        return never;
+      }
+      return Promise.resolve({ data: { items: [] } });
+    });
+
+    await waitFor(() => {
+      expect(listSignal).toBeDefined();
+    });
+    unmount();
+    expect(listSignal?.aborted).toBe(true);
+  });
+
+  it("fences prior-session evidence, users, lifecycle data, and CSV synchronously", async () => {
+    let resolveLifecycleA: ((value: unknown) => void) | undefined;
+    const lifecycleA = new Promise<unknown>((resolve) => {
+      resolveLifecycleA = resolve;
+    });
+    let resolveEvidenceB: ((value: unknown) => void) | undefined;
+    const evidenceB = new Promise<unknown>((resolve) => {
+      resolveEvidenceB = resolve;
+    });
+    const apiA = createConsoleApiClient("session-a-token");
+    const apiB = createConsoleApiClient("session-b-token");
+    vi.spyOn(apiA, "GET").mockImplementation(((path: unknown) => {
+      if (path === "/api/v1/evidence/objects") {
+        return Promise.resolve({ data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } });
+      }
+      if (path === "/api/v1/users") return Promise.resolve({ data: { items: [{ id: "user-1", display_name: "A 사용자" }] } });
+      if (path === "/api/v1/lifecycles/{objectType}/{objectId}") return lifecycleA;
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
+    }) as never);
+    vi.spyOn(apiB, "GET").mockImplementation(((path: unknown) => {
+      if (path === "/api/v1/evidence/objects") return evidenceB;
+      if (path === "/api/v1/users") return new Promise(() => undefined);
+      return Promise.resolve({ data: undefined, response: { status: 404 } });
+    }) as never);
+
+    const view = render(screenTree(apiA, "session-a"));
+    expect(await screen.findByText("EV-101")).toBeVisible();
+    expect(await screen.findByText("A 사용자")).toBeVisible();
+
+    view.rerender(screenTree(apiB, "session-b"));
+    expect(screen.queryByText("EV-101")).toBeNull();
+    expect(screen.queryByText("A 사용자")).toBeNull();
+    expect(screen.getByText(ko.console.documents.loading)).toBeVisible();
+
+    const createObjectURL = vi.fn().mockReturnValue("blob:session-b");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    await userEvent.click(screen.getByRole("button", { name: ko.console.documents.actions.export }));
+    const [blob] = createObjectURL.mock.calls[0] as [Blob];
+    expect(await blob.text()).not.toContain("EV-101");
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    resolveLifecycleA?.({
+      data: {
+        objectType: "evidence_object",
+        objectId: "ev-1",
+        retentionUntil: "2030-01-01T00:00:00Z",
+      },
+    });
+    await Promise.resolve();
+    expect(screen.queryByText("EV-101")).toBeNull();
+    resolveEvidenceB?.({ data: { items: [], limit: 200, offset: 0, total: 0 } });
   });
 
   it("shows the list-load error state with a working retry", async () => {

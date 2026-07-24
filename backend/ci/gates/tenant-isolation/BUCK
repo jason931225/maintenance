@@ -39,7 +39,7 @@ rust_test(
     crate_root = "backend/ci/gates/tenant-isolation/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/tenant-isolation"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.ci.gates.tenant-isolation", "domain.ci", "test.unit", "resource.postgres", "needs-postgres"],
     deps = [
         "//third-party/rust:sqlx",
         "//third-party/rust:tokio",
@@ -54,7 +54,7 @@ rust_test(
     crate_root = "backend/ci/gates/tenant-isolation/tests/owner_only_acl_postgres18.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/tenant-isolation"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.ci.gates.tenant-isolation", "domain.ci", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//third-party/rust:sqlx",
         "//third-party/rust:tokio",

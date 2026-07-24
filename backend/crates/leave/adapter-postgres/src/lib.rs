@@ -143,6 +143,33 @@ pub struct EmployeeHomeBranchUpdate {
     pub updated_at: time::OffsetDateTime,
 }
 
+/// Validated input for the atomic People employee-create command.
+#[derive(Debug)]
+pub struct CreateEmployeeCommand {
+    pub employee_id: uuid::Uuid,
+    pub employee_number: String,
+    pub name: String,
+    pub company: String,
+    pub employment_type: String,
+    pub phone_e164: String,
+    pub org_unit: String,
+    pub position: String,
+    pub site: String,
+    pub home_branch_id: uuid::Uuid,
+    pub base_pay: String,
+    pub idempotency_key: String,
+    pub request_hash: String,
+    pub actor: UserId,
+    pub trace: mnt_kernel_core::TraceContext,
+}
+
+/// Result of the atomic People employee-create command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmployeeCreateResult {
+    pub employee_id: uuid::Uuid,
+    pub replayed: bool,
+}
+
 #[derive(Clone)]
 pub struct PgLeaveStore {
     pool: PgPool,
@@ -216,6 +243,44 @@ impl PgLeaveStore {
         self.leave_command_pool
             .as_ref()
             .ok_or(PgLeaveError::CommandUnavailable)
+    }
+
+    /// Create one employee and its employment facts through the isolated
+    /// command capability. The database owns idempotency, branch authority,
+    /// lifecycle evidence, and audit in one transaction.
+    pub async fn create_employee(
+        &self,
+        command: CreateEmployeeCommand,
+    ) -> Result<EmployeeCreateResult, PgLeaveError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let row = sqlx::query(
+            "SELECT * FROM leave_api.create_employee(\
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15,$16,$17)",
+        )
+        .bind(org.as_uuid())
+        .bind(command.employee_id)
+        .bind(command.employee_number)
+        .bind(command.name)
+        .bind(command.company)
+        .bind(command.employment_type)
+        .bind(command.phone_e164)
+        .bind(command.org_unit)
+        .bind(command.position)
+        .bind(command.site)
+        .bind(command.home_branch_id)
+        .bind(command.base_pay)
+        .bind(command.idempotency_key)
+        .bind(command.request_hash)
+        .bind(command.actor.as_uuid())
+        .bind(command.trace.trace_id())
+        .bind(command.trace.span_id())
+        .fetch_one(self.command_pool()?)
+        .await
+        .map_err(map_leave_command_sqlx)?;
+        Ok(EmployeeCreateResult {
+            employee_id: row.try_get("employee_id")?,
+            replayed: row.try_get("replayed")?,
+        })
     }
 
     /// Set the authoritative employee approval-routing branch through the
@@ -1170,13 +1235,16 @@ fn map_leave_command_sqlx(error: sqlx::Error) -> PgLeaveError {
         | "leave_home_branch.employee_not_found"
         | "leave_balance_import.employee_not_found"
         | "employee_import_batch.run_not_found"
-        | "leave_home_branch.active_branch_required" => {
+        | "leave_home_branch.active_branch_required"
+        | "employee_create.active_branch_required" => {
             PgLeaveError::Domain(KernelError::not_found(message.to_owned()))
         }
         "leave_resolve.not_pending"
         | "leave_decide.not_pending"
         | "employee_import_batch.run_not_dry_run"
         | "leave_create.idempotency_conflict"
+        | "employee_create.idempotency_conflict"
+        | "employee_create.employee_number_conflict"
         | "leave_balance_import.idempotency_conflict" => {
             PgLeaveError::Domain(KernelError::conflict(message.to_owned()))
         }
@@ -1184,6 +1252,7 @@ fn map_leave_command_sqlx(error: sqlx::Error) -> PgLeaveError {
         | "leave_write.branch_forbidden"
         | "leave_write.org_admin_required"
         | "leave_balance_import.actor_forbidden"
+        | "employee_create.actor_forbidden"
         | "leave_create.self_employee_required"
         | "leave_resolve.requester_forbidden"
         | "leave_decide.requester_forbidden"
@@ -1195,6 +1264,7 @@ fn map_leave_command_sqlx(error: sqlx::Error) -> PgLeaveError {
         )),
         message
             if message.starts_with("leave_create.")
+                || message.starts_with("employee_create.")
                 || message.starts_with("leave_charge.")
                 || message.starts_with("leave_resolve.")
                 || message.starts_with("leave_decide.")

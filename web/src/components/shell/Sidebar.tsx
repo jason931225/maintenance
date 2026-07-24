@@ -1,6 +1,6 @@
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 
 import type { components } from "@maintenance/api-client-ts";
 import type { AuthSession } from "../../context/auth";

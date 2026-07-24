@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parseSingleBuckOutput, resolveRepoBuckOutput } from "./lib/dev-up-buck-output.mjs";
+import { parseWindowsProcessIdentity, processIdentityMatches, shouldSignalManagedProcess } from "./lib/dev-up-process-identity.mjs";
+import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
 
 const compose = readFileSync(
   new URL("../ops/compose.dev-deps.yml", import.meta.url),
@@ -10,6 +15,10 @@ const compose = readFileSync(
 );
 const baseCompose = readFileSync(
   new URL("../ops/compose.yml", import.meta.url),
+  "utf8",
+);
+const imageRelease = readFileSync(
+  new URL("../.github/workflows/image-release.yml", import.meta.url),
   "utf8",
 );
 const devUp = readFileSync(new URL("./dev-up.mjs", import.meta.url), "utf8");
@@ -33,6 +42,16 @@ const commandRoleInit = readFileSync(
   new URL("../ops/postgres-reconcile-topology.sh", import.meta.url),
   "utf8",
 );
+const ciGates = readFileSync(new URL("../docs/CI-GATES.md", import.meta.url), "utf8");
+const playwrightConfig = readFileSync(new URL("../playwright.config.ts", import.meta.url), "utf8");
+const e2eSpecInstructionSources = readdirSync(new URL("../e2e/specs/", import.meta.url), {
+  recursive: true,
+})
+  .filter((entry) => entry.endsWith(".spec.ts"))
+  .map((entry) => ({
+    path: String(entry),
+    text: readFileSync(new URL(`../e2e/specs/${entry}`, import.meta.url), "utf8"),
+  }));
 
 test("mox localserve creates its config below the named volume root", () => {
   assert.match(compose, /localserve/);
@@ -87,10 +106,17 @@ test("Compose migrates as mnt_app and serves as mnt_rt without owner/admin crede
     /ONTOLOGY_COMMAND_DATABASE_URL: postgresql:\/\/mnt_ontology_cmd:/,
   );
   assert.match(
+    appBlock,
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL: postgresql:\/\/mnt_platform_force_cmd:/,
+  );
+  assert.match(
     baseCompose,
     /x-app-env:[\s\S]*?DATABASE_URL: postgresql:\/\/mnt_rt:/,
   );
-  assert.doesNotMatch(workerBlock, /(?:LEAVE|ONTOLOGY)_COMMAND_DATABASE_URL/);
+  assert.doesNotMatch(
+    workerBlock,
+    /(?:LEAVE|ONTOLOGY|PLATFORM_FORCE)_COMMAND_DATABASE_URL/,
+  );
   assert.doesNotMatch(
     `${appBlock}\n${workerBlock}`,
     /mnt_app:|MNT_POSTGRES_ADMIN/,
@@ -115,15 +141,21 @@ test("Compose migrates as mnt_app and serves as mnt_rt without owner/admin crede
     baseCompose,
     /MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:\s+\$\{[^}]+:\?/,
   );
+  assert.match(
+    baseCompose,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s+\$\{[^}]+:\?/,
+  );
   assert.match(baseCompose, /postgres-socket:\/var\/run\/postgresql/);
 });
 
-test("fresh and existing databases reconcile the exact hardened six-role topology", () => {
+test("fresh and existing databases reconcile the exact hardened seven-role topology", () => {
+  assert.match(devUp, /reconciling and verifying the seven-role database topology/);
   for (const role of [
     "mnt_app",
     "mnt_rt",
     "mnt_leave_cmd",
     "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
   ]) {
     assert.match(commandRoleInit, new RegExp(`CREATE ROLE ${role} LOGIN`));
     assert.match(commandRoleInit, new RegExp(`ALTER ROLE ${role} LOGIN`));
@@ -158,7 +190,12 @@ test("fresh and existing databases reconcile the exact hardened six-role topolog
   );
   assert.match(commandRoleInit, /SET LOCAL log_min_error_statement = 'panic'/);
   assert.match(commandRoleInit, /OR granted\.rolname IN/);
-  for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+  for (const role of [
+    "mnt_rt",
+    "mnt_leave_cmd",
+    "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
+  ]) {
     assert.match(
       commandRoleInit,
       new RegExp(`ALTER ROLE ${role} SET statement_timeout = '30s'`),
@@ -215,7 +252,12 @@ test("fresh and existing databases reconcile the exact hardened six-role topolog
   assert.match(topologyIntegration, /query_as_direct_login mnt_app/);
   assert.match(topologyIntegration, /pg_database_owner/);
   assert.match(topologyIntegration, /session_user,current_user/);
-  for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+  for (const role of [
+    "mnt_rt",
+    "mnt_leave_cmd",
+    "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
+  ]) {
     assert.match(topologyIntegration, new RegExp(`\\"${role}\\|`));
   }
   assert.match(
@@ -249,13 +291,14 @@ test("fresh and existing databases reconcile the exact hardened six-role topolog
   assert.match(devUp, /ONTOLOGY_COMMAND_DATABASE_URL: commandDatabaseUrl/);
 });
 
-test("quickstart supplies all five distinct login passwords and Compose accepts it", (t) => {
+test("quickstart supplies all six distinct login passwords and Compose accepts it", (t) => {
   for (const variable of [
     "MNT_POSTGRES_ADMIN_PASSWORD",
     "MNT_APP_POSTGRES_PASSWORD",
     "MNT_RT_POSTGRES_PASSWORD",
     "MNT_LEAVE_COMMAND_POSTGRES_PASSWORD",
     "MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD",
+    "MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD",
   ]) {
     assert.match(
       opsReadme,
@@ -289,11 +332,20 @@ test("quickstart supplies all five distinct login passwords and Compose accepts 
         MNT_RT_POSTGRES_PASSWORD: "runtime-quickstart",
         MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: "leave-quickstart",
         MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: "ontology-quickstart",
+        MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD: "platform-force-quickstart",
       },
       encoding: "utf8",
     },
   );
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("image release probe provisions and passes the isolated platform-force command capability", () => {
+  assert.match(imageRelease, /PLATFORM_FORCE_COMMAND_PASSWORD="\$\(openssl rand -hex 32\)"/);
+  assert.match(imageRelease, /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="\$PLATFORM_FORCE_COMMAND_PASSWORD"/);
+  assert.match(imageRelease, /PROBE_PLATFORM_FORCE_COMMAND_DATABASE_URL=postgres:\/\/mnt_platform_force_cmd:\$\{PLATFORM_FORCE_COMMAND_PASSWORD\}@127\.0\.0\.1:5432\/mnt_release_probe/);
+  assert.match(imageRelease, /PLATFORM_FORCE_COMMAND_DATABASE_URL="\$PROBE_PLATFORM_FORCE_COMMAND_DATABASE_URL"/);
+  assert.match(imageRelease, /echo "::add-mask::\$PLATFORM_FORCE_COMMAND_PASSWORD"/);
 });
 
 test("documented runtime URI uses its generated URL-safe password consistently", () => {
@@ -346,5 +398,297 @@ test("dev seed uses the audited runtime compatibility boundary for ontology defi
     devSeed.slice(protectedAuditInsert, finalReset),
     /o\.xmin = pg_current_xact_id\(\)::xid/,
     "idempotent retries must audit only parents created by the current transaction",
+  );
+});
+
+test("dev-auth stays production-faithful while explicit console preview remains Vite-only", () => {
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const appRouter = readFileSync(new URL("../web/src/AppRouter.tsx", import.meta.url), "utf8");
+  assert.match(
+    devUp,
+    /const \{ VITE_CONSOLE_DEV_PREVIEW: _ignoredConsolePreview, \.\.\.parentEnv \} = process\.env/,
+    "caller-supplied console preview flags must not leak through the shared app environment",
+  );
+  assert.match(
+    devUp,
+    /function buildViteEnv\(appEnv, consolePreview\)[\s\S]*?\.\.\.\(consolePreview \? \{ VITE_CONSOLE_DEV_PREVIEW: "1" \} : \{\}\)/,
+    "only an explicitly opted-in Vite child may receive the console preview flag",
+  );
+  assert.match(
+    devUp,
+    /env: buildViteEnv\([\s\S]*?process\.env\.VITE_CONSOLE_DEV_PREVIEW === "1"/,
+    "Vite preview exposure must depend on the explicit preview flag, not dev-auth",
+  );
+  assert.match(
+    appRouter,
+    /dev: import\.meta\.env\.DEV,[\s\S]*?flag: import\.meta\.env\.VITE_CONSOLE_DEV_PREVIEW/,
+    "the product route must retain its import.meta.env.DEV production fence alongside the preview flag",
+  );
+  const devAuthCi = ci.slice(
+    ci.indexOf("- name: dev-up bootstrap --features dev-auth"),
+    ci.indexOf("- name: Upload dev-auth e2e report"),
+  );
+  assert.match(
+    devAuthCi,
+    /MNT_DEV_AUTH_E2E: "1"/,
+  );
+  assert.doesNotMatch(
+    devAuthCi,
+    /VITE_CONSOLE_DEV_PREVIEW/,
+    "the fail-closed dev-auth gate must not globally expose preview inventory",
+  );
+});
+
+test("preview-only bootstrap starts Vite without enabling or seeding dev-auth", () => {
+  const appRouter = readFileSync(
+    new URL("../web/src/AppRouter.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.deepEqual(resolveBootstrapModes({}), {
+    devAuth: false,
+    consolePreview: false,
+    startVite: false,
+  });
+  assert.deepEqual(
+    resolveBootstrapModes({ VITE_CONSOLE_DEV_PREVIEW: "1" }),
+    {
+      devAuth: false,
+      consolePreview: true,
+      startVite: true,
+    },
+  );
+  assert.deepEqual(resolveBootstrapModes({ MNT_DEV_AUTH_E2E: "1" }), {
+    devAuth: true,
+    consolePreview: false,
+    startVite: true,
+  });
+
+  const bootstrap = devUp.slice(
+    devUp.indexOf("async function cmdBootstrap()"),
+    devUp.indexOf("async function cmdDown()"),
+  );
+  assert.match(
+    bootstrap,
+    /const \{ devAuth, consolePreview, startVite \} =\s*resolveBootstrapModes\(process\.env\)/,
+  );
+  assert.match(bootstrap, /if \(devAuth\) runSeed\(compose\)/);
+  assert.match(bootstrap, /const appBinary = buildAppBinary\(devAuth\)/);
+  assert.match(bootstrap, /if \(startVite\)/);
+  assert.match(bootstrap, /env: buildViteEnv\(appEnv, consolePreview\)/);
+  assert.doesNotMatch(
+    bootstrap,
+    /buildViteEnv\(appEnv, devAuth\)/,
+    "dev-auth must not implicitly arm console preview",
+  );
+  assert.match(
+    ciGates,
+    /`VITE_CONSOLE_DEV_PREVIEW=1 npm run dev:bootstrap`/,
+    "the documented preview-only command must exercise this bootstrap mode",
+  );
+  assert.match(
+    appRouter,
+    /dev: import\.meta\.env\.DEV,[\s\S]*?flag: import\.meta\.env\.VITE_CONSOLE_DEV_PREVIEW/,
+    "preview exposure must remain impossible in production builds",
+  );
+});
+
+test("authoritative dev-auth instructions keep preview independent", () => {
+  const devAuthEnv = "MNT_DEV_AUTH_E2E=1";
+  const documentedCommands = [
+    `${devAuthEnv} npm run dev:bootstrap`,
+    `${devAuthEnv} node scripts/dev-up.mjs bootstrap`,
+    `${devAuthEnv} npx playwright test --project=dev-auth`,
+  ];
+  for (const command of documentedCommands) {
+    assert.match(ciGates, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  for (const command of ciGates.matchAll(/`([^`]+)`/g)) {
+    const value = command[1];
+    if (
+      value.includes("MNT_DEV_AUTH_E2E=1") ||
+      value.includes("npx playwright test --project=dev-auth")
+    ) {
+      assert.doesNotMatch(value, /VITE_CONSOLE_DEV_PREVIEW=1/);
+    }
+  }
+  assert.match(
+    playwrightConfig,
+    /MNT_DEV_AUTH_E2E=1 node scripts\/dev-up\.mjs bootstrap/,
+  );
+  assert.match(
+    playwrightConfig,
+    /MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth/,
+  );
+  for (const source of e2eSpecInstructionSources) {
+    for (const command of source.text.matchAll(/`([^`]+)`/g)) {
+      const value = command[1];
+      if (
+        value.includes("MNT_DEV_AUTH_E2E=1") &&
+        (value.includes("node scripts/dev-up.mjs bootstrap") ||
+          value.includes("npx playwright test --project=dev-auth"))
+      ) {
+        assert.doesNotMatch(
+          value,
+          /VITE_CONSOLE_DEV_PREVIEW=1/,
+          `${source.path} must keep the fail-closed dev-auth proof independent of console preview`,
+        );
+      }
+    }
+  }
+});
+
+test("dev-up executes one validated Buck2 output for both migration and API roles", () => {
+  const target = "//backend/app:mnt-app";
+  assert.equal(
+    parseSingleBuckOutput(target, `${target} buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app\n`),
+    "buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app",
+  );
+  assert.equal(
+    parseSingleBuckOutput(target, `root${target} buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app\n`),
+    "buck-out/v2/gen/root/backend/app/__mnt-app__/mnt-app",
+  );
+  assert.throws(
+    () => parseSingleBuckOutput(target, `${target} one\n${target} two\n`),
+    /exactly one output/,
+  );
+  assert.throws(() => parseSingleBuckOutput(target, "//other:binary buck-out/other\n"), /exactly one output/);
+
+  const bootstrap = devUp.slice(
+    devUp.indexOf("async function cmdBootstrap()"),
+    devUp.indexOf("async function cmdDown()"),
+  );
+  assert.match(devUp, /const BUCK2_BIN = path\.join\(REPO_ROOT, "tools", "buck2"\)/);
+  assert.match(devUp, /spawnSync\(BUCK2_BIN, \["build", target, "--show-output"\]/);
+  assert.match(bootstrap, /const appBinary = buildAppBinary\(devAuth\);[\s\S]*?runMigrations\(appBinary\)/);
+  assert.match(bootstrap, /spawn\(appBinary\.outputPath, \[\]/);
+  assert.match(bootstrap, /mode: "buck2",[\s\S]*?target: appBinary\.target,[\s\S]*?outputPath: appBinary\.outputPath/);
+  assert.doesNotMatch(devUp, /\bcargo\b/i);
+  assert.doesNotMatch(devUp, /target\/debug/);
+});
+
+
+test("Buck2 launcher accepts only a single executable under this repo's buck-out", () => {
+  const repo = mkdtempSync(path.join(tmpdir(), "mnt-dev-up-buck-output-"));
+  const buckOut = path.join(repo, "buck-out");
+  const executable = path.join(buckOut, "mnt-app");
+  const nonExecutable = path.join(buckOut, "not-executable");
+  const outsideBuckOut = path.join(repo, "backend", "target", "debug", "mnt-app");
+  try {
+    mkdirSync(path.dirname(executable), { recursive: true });
+    mkdirSync(path.dirname(outsideBuckOut), { recursive: true });
+    writeFileSync(executable, "#!/bin/sh\\nexit 0\\n");
+    writeFileSync(nonExecutable, "not executable\\n");
+    writeFileSync(outsideBuckOut, "#!/bin/sh\\nexit 0\\n");
+    chmodSync(executable, 0o700);
+    chmodSync(nonExecutable, 0o600);
+    chmodSync(outsideBuckOut, 0o700);
+
+    assert.equal(resolveRepoBuckOutput(repo, "buck-out/mnt-app"), executable);
+    assert.throws(() => resolveRepoBuckOutput(repo, executable), /invalid Buck2 output/);
+    assert.throws(
+      () => resolveRepoBuckOutput(repo, "backend/target/debug/mnt-app"),
+      /invalid Buck2 output/,
+    );
+    assert.throws(() => resolveRepoBuckOutput(repo, "../mnt-app"), /invalid Buck2 output/);
+    assert.throws(() => resolveRepoBuckOutput(repo, "buck-out/missing"), /does not exist/);
+    assert.throws(
+      () => resolveRepoBuckOutput(repo, "buck-out/not-executable"),
+      /not executable/,
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("dev-up signals only a process whose persisted start identity still matches", () => {
+  const expected = {
+    startToken: "Fri Jul 24 10:00:00 2026",
+    command: "/repo/buck-out/mnt-app",
+  };
+  const stale = { ...expected, startToken: "Fri Jul 24 10:01:00 2026" };
+  let signals = 0;
+  if (shouldSignalManagedProcess(expected, stale)) signals += 1;
+  assert.equal(signals, 0, "a reused PID must be cleaned up without signalling its new owner");
+  assert.equal(processIdentityMatches(expected, stale), false);
+
+  if (shouldSignalManagedProcess(expected, { ...expected })) signals += 1;
+  assert.equal(signals, 1, "the recorded process remains stoppable when its identity is intact");
+
+  const down = devUp.slice(devUp.indexOf("async function cmdDown()"));
+  assert.match(devUp, /function readProcessIdentity\(pid\)/);
+  assert.match(devUp, /processIdentityMatches\(proc\.identity, currentIdentity\)/);
+  assert.match(down, /if \(existsSync\(PID_FILE\)\) rmSync\(PID_FILE\)/);
+});
+
+
+test("Windows identity parsing requires the PowerShell start token and executable path", () => {
+  assert.deepEqual(
+    parseWindowsProcessIdentity(JSON.stringify({ StartTime: "2026-07-24T14:00:00.1234567-04:00", Path: "C:\\repo\\buck-out\\mnt-app.exe" })),
+    {
+      startToken: "2026-07-24T14:00:00.1234567-04:00",
+      command: "C:\\repo\\buck-out\\mnt-app.exe",
+    },
+  );
+  assert.equal(parseWindowsProcessIdentity('{"StartTime":"2026-07-24T14:00:00Z"}'), null);
+  assert.equal(parseWindowsProcessIdentity("not-json"), null);
+
+  assert.match(devUp, /Get-Process -Id \$targetPid/);
+  assert.match(devUp, /parseWindowsProcessIdentity\(result\.stdout\)/);
+  assert.match(devUp, /spawnSync\("taskkill", \["\/T", "\/F", "\/PID", String\(proc\.pid\)\]\)/);
+});
+
+test("Buck2 host backend receives the same dedicated platform-force command capability as local topology", () => {
+  const buildAppEnv = devUp.slice(
+    devUp.indexOf("function buildAppEnv(role)"),
+    devUp.indexOf("function buildViteEnv(appEnv, consolePreview)"),
+  );
+  const devComposeEnvironment = devUp.slice(
+    devUp.indexOf("async function bringUpDeps()"),
+    devUp.indexOf("function databaseUrl()"),
+  );
+
+  assert.match(
+    devUp,
+    /const PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD =\s*process\.env\.MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.match(
+    buildAppEnv,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.match(
+    buildAppEnv,
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL:\s*commandDatabaseUrl\(\s*"mnt_platform_force_cmd",\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.match(
+    devComposeEnvironment,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  const reconcile = devUp.slice(
+    devUp.indexOf("function reconcileDatabaseTopology(compose)"),
+    devUp.indexOf("function runSeed(compose)"),
+  );
+  assert.match(
+    reconcile,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.ok(
+    buildAppEnv.indexOf("...parentEnv") <
+      buildAppEnv.indexOf("PLATFORM_FORCE_COMMAND_DATABASE_URL"),
+    "a caller-supplied mismatched platform-force URL must be replaced by the topology-derived URL",
+  );
+  assert.doesNotMatch(
+    buildAppEnv,
+    /process\.env\.PLATFORM_FORCE_COMMAND_DATABASE_URL/,
+    "the host backend must not accept a mismatched inherited platform-force URL",
+  );
+  assert.doesNotMatch(
+    devUp.slice(devUp.indexOf("function writePidState"), devUp.indexOf("function printUrls")),
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL|MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+    "dev state must never persist the platform-force credential or URL",
+  );
+  assert.doesNotMatch(
+    devUp,
+    /log\([^)]*PLATFORM_FORCE_COMMAND_DATABASE_URL|log\([^)]*MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+    "dev-up must not log the platform-force credential or URL",
   );
 });

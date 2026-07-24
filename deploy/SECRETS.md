@@ -28,6 +28,7 @@ Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
 | `MNT_S3_ACCESS_KEY_ID` | Context-local S3-compatible access key (OCI Object Storage on `oci-guest`; SeaweedFS on `on-prem-ha`) |
 | `MNT_S3_SECRET_ACCESS_KEY` | Matching context-local S3-compatible secret key |
 | `MNT_MAIL_MASTER_KEY` | Base64-encoded 32-byte webmail credential KEK from the context's authoritative secret store |
+| `MNT_PRODUCTION_SERVICE_PRINCIPAL_HMAC_KEY` | Base64-encoded 32-byte server HMAC key for production source service-principal verifiers; never disclose or reuse it as a client secret |
 | `MNT_MAIL_MOX_WEBHOOK_SECRET` | Hex/base64url shared secret mox uses as `Authorization: Bearer ...` for the internal delivery webhook |
 
 Optional (enable when the integrations go live — operator-blocked on KCC 신고 /

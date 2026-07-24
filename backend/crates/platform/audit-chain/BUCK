@@ -42,7 +42,7 @@ rust_test(
     crate_root = "backend/crates/platform/audit-chain/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/audit-chain", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.platform.audit-chain", "domain.platform", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -72,7 +72,7 @@ rust_test(
     crate_root = "backend/crates/platform/audit-chain/tests/audit_chain_rls.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/audit-chain", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.platform.audit-chain", "domain.platform", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",

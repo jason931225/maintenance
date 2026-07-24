@@ -17,6 +17,7 @@ printf ' %q' "$@" >>"${HARNESS_LOG}"
 printf '\n' >>"${HARNESS_LOG}"
 case "$1" in
   run) echo fake-container ;;
+  cp) exit 0 ;;
   exec) exit 0 ;;
   port) echo '127.0.0.1:49123' ;;
   rm) exit 0 ;;
@@ -46,17 +47,41 @@ PATH="${fake_bin}:${PATH}" HARNESS_LOG="${log}" \
   "${harness}" //backend/crates/platform/db:db-itest-runtime --test-filter smoke
 
 calls="$(cat "${log}")"
+
+assert_fixed_absent() {
+  local pattern="$1"
+  local input="$2"
+  if grep -Fq -- "${pattern}" <<<"${input}"; then
+    echo "unexpected fixed string in harness calls: ${pattern}" >&2
+    exit 1
+  fi
+}
+
+assert_regex_absent() {
+  local pattern="$1"
+  local input="$2"
+  if grep -Eq "${pattern}" <<<"${input}"; then
+    echo "unexpected pattern in harness calls: ${pattern}" >&2
+    exit 1
+  fi
+}
+
 grep -Fq -- '-p 127.0.0.1::5432' <<<"${calls}"
-! grep -Fq -- '127.0.0.1:5432:5432' <<<"${calls}"
+assert_fixed_absent '127.0.0.1:5432:5432' "${calls}"
 grep -Fq -- 'postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56' <<<"${calls}"
+grep -Fq -- 'docker cp' <<<"${calls}"
+grep -Fq -- 'ops/postgres-reconcile-topology.sh' <<<"${calls}"
+grep -Fq -- ':/topology.sh' <<<"${calls}"
+assert_fixed_absent '-v' "$(grep '^docker run ' "${log}")"
 grep -Fq -- 'bash /topology.sh' <<<"${calls}"
 grep -Eq 'buck BUCK_ISOLATION_DIR=mnt-buck-postgres-[^/ ]+' <<<"${calls}"
-! grep -Eq 'buck BUCK_ISOLATION_DIR=[^ ]*/' <<<"${calls}"
-! grep -Eq 'buck BUCK_ISOLATION_DIR=[^ ]+ kill$' <<<"${calls}"
+assert_regex_absent 'buck BUCK_ISOLATION_DIR=[^ ]*/' "${calls}"
+assert_regex_absent 'buck BUCK_ISOLATION_DIR=[^ ]+ kill$' "${calls}"
 grep -Fq -- 'test --local-only //backend/crates/platform/db:db-itest-runtime --test-filter smoke -- --env DATABASE_URL=postgres://mnt_buck_admin:' <<<"${calls}"
 grep -Fq -- '--env RUST_TEST_THREADS=1' <<<"${calls}"
-! grep -Fq -- 'DATABASE_URL=postgres://mnt_app:' <<<"${calls}"
+assert_fixed_absent 'DATABASE_URL=postgres://mnt_app:' "${calls}"
 grep -Fq -- '@127.0.0.1:49123/mnt_buck_test_' <<<"${calls}"
+grep -Fq -- '?options%5Bmnt.sqlx_test_bootstrap%5D=buck-sqlx-superuser-v1' <<<"${calls}"
 grep -Fq -- 'docker rm -f mnt-buck-postgres-' <<<"${calls}"
 
 if PATH="${fake_bin}:${PATH}" HARNESS_LOG="${log}" \

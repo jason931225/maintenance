@@ -2,7 +2,7 @@
 // real action + governance REST (§16 gate chain, §20 override, lifecycle
 // preflight). Composition keeps ObjectCard presentational: the card's action /
 // edit gestures route into the flows below instead of bare host callbacks.
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 import {
   executeOntologyAction,
@@ -27,9 +27,10 @@ import {
   type WireLifecycleState,
 } from "../../api/governance";
 import type { ConsoleApiClient } from "../../api/client";
+import { AuthContext } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
-import { PolicyGated, usePolicyGate } from "../policy";
+import { PolicyGated, usePolicyGate, type PolicyGate } from "../policy";
 import { ObjectCard } from "./ObjectCard";
 import { objectCardGovStrings } from "./strings";
 import {
@@ -189,6 +190,7 @@ function ErrorChip({ message }: { message: string | null }) {
 // ── Action preflight → execute flow ──────────────────────────────────────
 
 interface ActionFlow {
+  contextEpoch: number;
   action: ObjectCardAction;
   fourEyesRef: string;
   preflight: ActionPreflight | null;
@@ -238,6 +240,21 @@ export interface GovernedObjectCardProps {
     lifecycleState: string;
     version: number;
   }) => void;
+  /** Causes a fresh acting read without replacing the card that owns a receipt. */
+  refreshEpoch?: number;
+}
+
+const identityIds = new WeakMap<object, number>();
+let nextIdentityId = 1;
+
+function identityId(value: object | null | undefined): number {
+  if (!value) return 0;
+  const known = identityIds.get(value);
+  if (known) return known;
+  const id = nextIdentityId;
+  nextIdentityId += 1;
+  identityIds.set(value, id);
+  return id;
 }
 
 export function GovernedObjectCard({
@@ -246,9 +263,72 @@ export function GovernedObjectCard({
   handlers,
   buildActionRequest,
   onInstanceChange,
+  refreshEpoch,
 }: GovernedObjectCardProps) {
-  const S = objectCardGovStrings();
   const gate = usePolicyGate();
+  const auth = useContext(AuthContext);
+  const authorityRef = useRef({ fingerprint: "", epoch: 0 });
+  const descriptorRequestKey = JSON.stringify({
+    id: descriptor.id,
+    typeId: descriptor.objectType.id,
+    typeKey: descriptor.objectType.key,
+    lifecycleState: descriptor.lifecycleState,
+    properties: descriptor.properties.map(({ key, value }) => [key, value]),
+  });
+  const gateDecisionKey = Object.values(OBJECT_CARD_ACTIONS)
+    .map((action) => String(gate.can(action, { kind: "object", id: descriptor.id })))
+    .join(",");
+  const fingerprint = [
+    identityId(api),
+    identityId(auth),
+    gateDecisionKey,
+    descriptorRequestKey,
+    identityId(buildActionRequest),
+    identityId(handlers?.onEdit),
+  ].join("|");
+  /* eslint-disable react-hooks/refs -- Updating this authority token during render is the synchronous fence that prevents an old continuation surviving a context replacement. */
+  if (authorityRef.current.fingerprint !== fingerprint) {
+    authorityRef.current = {
+      fingerprint,
+      epoch: authorityRef.current.epoch + 1,
+    };
+  }
+
+  return (
+    <GovernedObjectCardContent
+      key={fingerprint}
+      api={api}
+      descriptor={descriptor}
+      handlers={handlers}
+      buildActionRequest={buildActionRequest}
+      onInstanceChange={onInstanceChange}
+      refreshEpoch={refreshEpoch}
+      gate={gate}
+      authorityRef={authorityRef}
+      contextEpoch={authorityRef.current.epoch}
+    />
+  );
+  /* eslint-enable react-hooks/refs */
+}
+
+interface GovernedObjectCardContentProps extends GovernedObjectCardProps {
+  gate: PolicyGate;
+  authorityRef: RefObject<{ fingerprint: string; epoch: number }>;
+  contextEpoch: number;
+}
+
+function GovernedObjectCardContent({
+  api,
+  descriptor,
+  handlers,
+  buildActionRequest,
+  onInstanceChange,
+  refreshEpoch,
+  gate,
+  authorityRef,
+  contextEpoch,
+}: GovernedObjectCardContentProps) {
+  const S = objectCardGovStrings();
 
   const [actionFlow, setActionFlow] = useState<ActionFlow | null>(null);
   const [override, setOverride] = useState<OverridePending | null>(null);
@@ -266,9 +346,12 @@ export function GovernedObjectCard({
   const [lifecycleState, setLifecycleState] =
     useState<ObjectLifecycleState | null>(null);
   const [acting, setActing] = useState<ObjectCardActingChip[] | null>(null);
-
   const typeId = descriptor.objectType.id;
   const currentState = lifecycleState ?? descriptor.lifecycleState;
+  const isCurrent = useCallback(
+    () => authorityRef.current.epoch === contextEpoch,
+    [authorityRef, contextEpoch],
+  );
 
   // GET /ontology/instances/{id}/acting — dynamic-layer chips (§2 dynamics).
   // Fail-closed: a fetch error degrades to no chips, never a stale/fabricated set.
@@ -285,7 +368,7 @@ export function GovernedObjectCard({
     return () => {
       cancelled = true;
     };
-  }, [api, descriptor.id]);
+  }, [api, descriptor.id, refreshEpoch]);
 
   const actionBody = useCallback(
     (flow: Pick<ActionFlow, "action" | "fourEyesRef" | "checklistAck" | "reason">) => {
@@ -304,6 +387,7 @@ export function GovernedObjectCard({
 
   const runPreflight = useCallback(
     async (flow: ActionFlow) => {
+      if (flow.contextEpoch !== contextEpoch || !isCurrent()) return;
       setActionFlow({ ...flow, checking: true, error: null });
       try {
         const preflight = await preflightOntologyAction(
@@ -311,8 +395,10 @@ export function GovernedObjectCard({
           flow.action.key,
           actionBody(flow),
         );
+        if (flow.contextEpoch !== contextEpoch || !isCurrent()) return;
         setActionFlow({ ...flow, checking: false, preflight, error: null });
       } catch (error) {
+        if (flow.contextEpoch !== contextEpoch || !isCurrent()) return;
         setActionFlow({
           ...flow,
           checking: false,
@@ -321,13 +407,14 @@ export function GovernedObjectCard({
         });
       }
     },
-    [api, actionBody, S.preflight.failed],
+    [api, actionBody, contextEpoch, isCurrent, S.preflight.failed],
   );
 
   function startAction(action: ObjectCardAction) {
     setToast(null);
     if (!typeId) {
       setActionFlow({
+        contextEpoch,
         action,
         fourEyesRef: crypto.randomUUID(),
         preflight: null,
@@ -340,6 +427,7 @@ export function GovernedObjectCard({
       return;
     }
     void runPreflight({
+      contextEpoch,
       action,
       fourEyesRef: crypto.randomUUID(),
       preflight: null,
@@ -354,7 +442,11 @@ export function GovernedObjectCard({
   async function execute(flow: ActionFlow) {
     // Fail-closed: never call execute unless preflight allowed it and a
     // required reason is present.
-    if (!flow.preflight?.wouldExecute) return;
+    if (
+      flow.contextEpoch !== contextEpoch ||
+      !isCurrent() ||
+      !flow.preflight?.wouldExecute
+    ) return;
     if (flow.action.requiresReason && flow.reason.trim().length === 0) {
       setActionFlow({ ...flow, error: T.edit.reasonRequired });
       return;
@@ -366,6 +458,7 @@ export function GovernedObjectCard({
         flow.action.key,
         actionBody(flow),
       );
+      if (flow.contextEpoch !== contextEpoch || !isCurrent()) return;
       setToast(
         S.executedToast(flow.action.title, result.instance.version, descriptor.code),
       );
@@ -378,18 +471,21 @@ export function GovernedObjectCard({
       ];
       const nextState = states.find((s) => s === result.instance.lifecycleState);
       if (nextState) setLifecycleState(nextState);
+      // A committed execute appended a revision — refresh the timeline.
+      try {
+        const rows = await fetchInstanceHistory(api, descriptor.id);
+        if (flow.contextEpoch !== contextEpoch || !isCurrent()) return;
+        setHistory(toCardRevisions(rows));
+      } catch {
+        // Keep the pre-execute timeline; the toast already reports the commit.
+      }
       onInstanceChange?.({
         lifecycleState: result.instance.lifecycleState,
         version: result.instance.version,
       });
       setActionFlow(null);
-      // A committed execute appended a revision — refresh the timeline.
-      try {
-        setHistory(toCardRevisions(await fetchInstanceHistory(api, descriptor.id)));
-      } catch {
-        // Keep the pre-execute timeline; the toast already reports the commit.
-      }
     } catch (error) {
+      if (flow.contextEpoch !== contextEpoch || !isCurrent()) return;
       setActionFlow({
         ...flow,
         executing: false,
@@ -405,6 +501,7 @@ export function GovernedObjectCard({
       handlers?.onEdit?.(ctx);
       return;
     }
+    const requestEpoch = contextEpoch;
     setOverrideError(null);
     setOverrideDecision(null);
     try {
@@ -416,8 +513,10 @@ export function GovernedObjectCard({
           descriptor.properties.map((property) => [property.key, property.value]),
         ),
       });
+      if (requestEpoch !== contextEpoch || !isCurrent()) return;
       setOverride(pending);
     } catch (error) {
+      if (requestEpoch !== contextEpoch || !isCurrent()) return;
       setOverrideError(
         error instanceof Error ? error.message : S.override.failed,
       );
@@ -426,19 +525,23 @@ export function GovernedObjectCard({
 
   async function decideOverride(decision: "approved" | "rejected") {
     if (!override) return;
+    const pending = override;
+    const requestEpoch = contextEpoch;
     setOverrideError(null);
     try {
       const decided = await decideGovernanceApproval(api, {
-        request_ref: override.id,
+        request_ref: pending.id,
         kind: "override",
-        requested_by: override.actor,
+        requested_by: pending.actor,
         decision,
       });
+      if (requestEpoch !== contextEpoch || !isCurrent()) return;
       setOverrideDecision(decided.decision);
       if (decided.decision === "approved") {
-        handlers?.onEdit?.({ mode: "override", reason: override.reason });
+        handlers?.onEdit?.({ mode: "override", reason: pending.reason });
       }
     } catch (error) {
+      if (requestEpoch !== contextEpoch || !isCurrent()) return;
       // Self-approval (approver == requester) lands here with the server's
       // message; the requester line above keeps the distinct-principal rule visible.
       setOverrideError(
@@ -458,18 +561,19 @@ export function GovernedObjectCard({
       return;
     }
     try {
-      setLifecyclePreflight(
-        await preflightLifecycleTransition(api, {
-          object_type_id: typeId,
-          from_state: toWireState(currentState),
-          to_state: toWireState(target),
-          authority_allow: gate.can(OBJECT_CARD_ACTIONS.lifecycleTransition, {
-            kind: "object",
-            id: descriptor.id,
-          }),
+      const preflight = await preflightLifecycleTransition(api, {
+        object_type_id: typeId,
+        from_state: toWireState(currentState),
+        to_state: toWireState(target),
+        authority_allow: gate.can(OBJECT_CARD_ACTIONS.lifecycleTransition, {
+          kind: "object",
+          id: descriptor.id,
         }),
-      );
+      });
+      if (!isCurrent()) return;
+      setLifecyclePreflight(preflight);
     } catch (error) {
+      if (!isCurrent()) return;
       setLifecycleError(
         error instanceof Error ? error.message : S.lifecycle.failed,
       );
@@ -483,6 +587,7 @@ export function GovernedObjectCard({
       const result = await commitInstanceLifecycle(api, descriptor.id, {
         to_state: target,
       });
+      if (!isCurrent()) return;
       setLifecycleState(result.instance.lifecycle_state);
       setLifecycleTarget(null);
       setLifecyclePreflight(null);
@@ -491,6 +596,7 @@ export function GovernedObjectCard({
       let version: number | undefined;
       try {
         const rows = await fetchInstanceHistory(api, descriptor.id);
+        if (!isCurrent()) return;
         setHistory(toCardRevisions(rows));
         version = rows[0]?.version;
       } catch {
@@ -502,6 +608,7 @@ export function GovernedObjectCard({
       });
       handlers?.onLifecycleTransition?.(target);
     } catch (error) {
+      if (!isCurrent()) return;
       setLifecycleError(
         error instanceof Error ? error.message : S.lifecycle.failed,
       );

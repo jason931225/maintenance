@@ -7878,6 +7878,7 @@ fn error_code(kind: ErrorKind) -> &'static str {
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn allowlist_rejects_unknown_connector_actions() -> Result<(), String> {
         let err = match validate_action_allowlist(&[json!({
@@ -7898,6 +7899,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn catalog_uses_electronic_approval_system_name_for_internal_approvals_connector() {
         let connector = ALLOWED_CONNECTORS
@@ -7969,6 +7971,7 @@ mod tests {
         })
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn completion_approval_payroll_execution_graph_validates() -> Result<(), String> {
         // The canonical wf.exec.v1 completion→approval→payroll graph is a valid
@@ -7992,6 +7995,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn receipt_required_approval_definition_includes_receipt_waiting_node() -> Result<(), String> {
         let definition = build_approval_execution_definition("leave")
@@ -8026,6 +8030,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn all_approval_template_builder_outputs_validate() -> Result<(), String> {
         for template in APPROVAL_TEMPLATES {
@@ -8052,6 +8057,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn human_task_without_required_policy_fails_authoring() -> Result<(), String> {
         // Security H1(a): a human_task node MUST declare required_policy at authoring
@@ -8077,6 +8083,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn job_node_without_start_policy_fails_authoring() -> Result<(), String> {
         // Engine-Gen follow-up: a graph containing a `job` node MUST declare a
@@ -8127,6 +8134,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn oversize_run_payload_is_rejected() -> Result<(), String> {
         // Security M2: a payload over the 64 KiB serialized ceiling is a 422.
@@ -8142,6 +8150,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn policy_less_task_has_no_authorization_boundary() -> Result<(), String> {
         // Security H1(b): the claim/decide path fails closed (403) on a legacy
@@ -8157,6 +8166,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn execution_graph_job_node_requires_allowlisted_connector() -> Result<(), String> {
         // Swap the payroll node onto an unknown connector: publish-validation of the
@@ -8173,6 +8183,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn execution_graph_accepts_guardrail_control_point_nodes() -> Result<(), String> {
         let definition = json!({
@@ -8239,6 +8250,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn required_lines_block_publish() {
         let row = WorkflowVersionRow {
@@ -8278,6 +8290,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn create_rejects_invalid_canonical_workflow_graphs() -> Result<(), String> {
         let mut missing_schema = canonical_workflow_definition("leave_request");
@@ -8342,6 +8355,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn create_rejects_unsafe_condition_branch_config() -> Result<(), String> {
         let mut invalid_expression_op = canonical_workflow_definition("leave_request");
@@ -8397,6 +8411,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn create_rejects_browser_defined_object_scope_and_update_handles() -> Result<(), String> {
         let mut trigger_object_mismatch = canonical_workflow_definition("leave_request");
@@ -8451,6 +8466,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn accepts_leave_and_catalog_canonical_workflow_templates() -> Result<(), String> {
         let mut object_types = vec!["leave_request"];
@@ -8471,6 +8487,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn publish_validation_blocks_invalid_canonical_workflow_graphs() {
         let mut invalid_definition = canonical_workflow_definition("leave_request");
@@ -8487,6 +8504,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn publish_validation_messages_include_stable_codes() {
         let mut invalid_definition = canonical_workflow_definition("leave_request");
@@ -8500,6 +8518,7 @@ mod tests {
         assert!(!message.contains("missing_port"));
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn publish_validation_messages_hide_action_allowlist_payload_values() {
         let mut row = workflow_row(
@@ -8818,6 +8837,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn policy_decision_blocks_unsupported_templates() -> Result<(), String> {
         let mut definition = policy_decision_definition();
@@ -8835,6 +8855,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn definition_schema_version_is_required() -> Result<(), String> {
         let err = match validate_definition_object(json!({ "trigger": "work_order.completed" })) {
@@ -8847,6 +8868,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn definition_schema_version_must_match_supported_version() -> Result<(), String> {
         let err = match validate_definition_object(json!({
@@ -8862,6 +8884,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn policy_decision_simulation_surfaces_cedar_pbac_tuple() {
         let simulation = simulation_for(&policy_row(policy_decision_definition()));
@@ -8875,6 +8898,7 @@ mod tests {
         }));
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn policy_decision_metadata_requires_valid_schema() {
         let mut definition = policy_decision_definition();
@@ -8894,6 +8918,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn simulation_surfaces_non_blocking_findings() {
         let mut row = policy_row(policy_decision_definition());
@@ -8910,6 +8935,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn policy_decision_missing_scope_blocks_publish() -> Result<(), String> {
         let mut definition = policy_decision_definition();
@@ -8926,6 +8952,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn draft_update_merges_partial_payload_without_mutating_identity() -> Result<(), String> {
         let current = policy_row(policy_decision_definition());
@@ -8972,6 +8999,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn active_definition_is_editable_as_a_staged_revision() -> Result<(), String> {
         // pendingRev: editing a LIVE (ACTIVE) definition is allowed — it stages a
@@ -8984,6 +9012,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn retired_definition_is_not_editable() -> Result<(), String> {
         let mut current = policy_row(policy_decision_definition());
@@ -8995,6 +9024,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn definition_with_pending_revision_is_not_editable() -> Result<(), String> {
         let mut current = policy_row(policy_decision_definition());
@@ -9008,6 +9038,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn draft_update_rejects_empty_payload() -> Result<(), String> {
         let err = match normalize_update_request(UpdateWorkflowDefinitionRequest {
@@ -9029,6 +9060,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(feature = "test-postgres"))]
     #[test]
     fn retired_definitions_cannot_take_sensitive_lifecycle_actions() -> Result<(), String> {
         let mut current = policy_row(policy_decision_definition());

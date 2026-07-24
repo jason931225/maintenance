@@ -34,9 +34,10 @@ app_password="$(secret)"
 runtime_password="$(secret)"
 leave_command_password="$(secret)"
 ontology_command_password="$(secret)"
+platform_force_command_password="$(secret)"
 passwords=(
   "${admin_password}" "${app_password}" "${runtime_password}"
-  "${leave_command_password}" "${ontology_command_password}"
+  "${leave_command_password}" "${ontology_command_password}" "${platform_force_command_password}"
 )
 for ((i = 0; i < ${#passwords[@]}; i++)); do
   for ((j = i + 1; j < ${#passwords[@]}; j++)); do
@@ -49,11 +50,14 @@ done
 
 docker run -d --rm --name "${container_name}" \
   -p 127.0.0.1::5432 \
-  -v "${repo_root}/ops/postgres-reconcile-topology.sh:/topology.sh:ro" \
   -e POSTGRES_DB="${database}" \
   -e POSTGRES_USER=mnt_buck_admin \
   -e POSTGRES_PASSWORD="${admin_password}" \
   "${postgres_image}" >/dev/null
+
+docker cp \
+  "${repo_root}/ops/postgres-reconcile-topology.sh" \
+  "${container_name}:/topology.sh"
 
 for attempt in {1..30}; do
   if docker exec "${container_name}" pg_isready -U mnt_buck_admin -d "${database}" >/dev/null 2>&1; then
@@ -76,6 +80,7 @@ docker exec \
   -e MNT_RT_POSTGRES_PASSWORD="${runtime_password}" \
   -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${leave_command_password}" \
   -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${ontology_command_password}" \
+  -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="${platform_force_command_password}" \
   "${container_name}" bash /topology.sh
 
 port_mapping="$(docker port "${container_name}" 5432/tcp)"
@@ -84,7 +89,11 @@ if [[ ! "${port}" =~ ^[0-9]+$ ]]; then
   echo "buck-postgres: could not resolve disposable PostgreSQL loopback port" >&2
   exit 1
 fi
-database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}"
+# SQLx creates one `_sqlx_test_*` database per test and runs migrations there
+# as this disposable container's superuser. Carry an explicit startup marker
+# only on those test-process connections; production migration URLs never set
+# it, and destroying the per-invocation container ends its lifecycle.
+database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}?options%5Bmnt.sqlx_test_bootstrap%5D=buck-sqlx-superuser-v1"
 
 BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" test --local-only "$@" \
   -- --env "DATABASE_URL=${database_url}" --env RUST_TEST_THREADS=1

@@ -43,6 +43,103 @@ impl InventoryItemStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CycleCountStatus {
+    Draft,
+    Submitted,
+    Approved,
+    Rejected,
+    Cancelled,
+}
+impl CycleCountStatus {
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Draft => "DRAFT",
+            Self::Submitted => "SUBMITTED",
+            Self::Approved => "APPROVED",
+            Self::Rejected => "REJECTED",
+            Self::Cancelled => "CANCELLED",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value.trim() {
+            "DRAFT" => Ok(Self::Draft),
+            "SUBMITTED" => Ok(Self::Submitted),
+            "APPROVED" => Ok(Self::Approved),
+            "REJECTED" => Ok(Self::Rejected),
+            "CANCELLED" => Ok(Self::Cancelled),
+            other => Err(KernelError::validation(format!(
+                "unknown cycle count status {other:?}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MovementKind {
+    /// Legacy consumption ledger projection; never persisted in inventory_movements.
+    Issue,
+    Receipt,
+    Adjustment,
+}
+impl MovementKind {
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Issue => "ISSUE",
+            Self::Receipt => "RECEIPT",
+            Self::Adjustment => "ADJUSTMENT",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value.trim() {
+            "ISSUE" => Ok(Self::Issue),
+            "RECEIPT" => Ok(Self::Receipt),
+            "ADJUSTMENT" => Ok(Self::Adjustment),
+            other => Err(KernelError::validation(format!(
+                "unknown inventory movement kind {other:?}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum VarianceReason {
+    Damage,
+    Loss,
+    Miscount,
+    Found,
+    Other,
+}
+impl VarianceReason {
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Damage => "DAMAGE",
+            Self::Loss => "LOSS",
+            Self::Miscount => "MISCOUNT",
+            Self::Found => "FOUND",
+            Self::Other => "OTHER",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value.trim() {
+            "DAMAGE" => Ok(Self::Damage),
+            "LOSS" => Ok(Self::Loss),
+            "MISCOUNT" => Ok(Self::Miscount),
+            "FOUND" => Ok(Self::Found),
+            "OTHER" => Ok(Self::Other),
+            other => Err(KernelError::validation(format!(
+                "unknown inventory variance reason {other:?}"
+            ))),
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -396,6 +493,53 @@ mod tests {
             SafetyStockMilli::new(5_000).unwrap(),
             Some(MoneyWon::new(1_200).unwrap()),
         )
+    }
+
+    #[test]
+    fn cycle_count_movement_and_variance_wires_match_0191_constraints() {
+        for (status, wire) in [
+            (CycleCountStatus::Draft, "DRAFT"),
+            (CycleCountStatus::Submitted, "SUBMITTED"),
+            (CycleCountStatus::Approved, "APPROVED"),
+            (CycleCountStatus::Rejected, "REJECTED"),
+            (CycleCountStatus::Cancelled, "CANCELLED"),
+        ] {
+            assert_eq!(status.as_db_str(), wire);
+            assert_eq!(
+                serde_json::to_string(&status).unwrap(),
+                format!("\"{wire}\"")
+            );
+            assert_eq!(CycleCountStatus::parse(wire).unwrap(), status);
+        }
+        for (kind, wire) in [
+            (MovementKind::Issue, "ISSUE"),
+            (MovementKind::Receipt, "RECEIPT"),
+            (MovementKind::Adjustment, "ADJUSTMENT"),
+        ] {
+            assert_eq!(kind.as_db_str(), wire);
+            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{wire}\""));
+            assert_eq!(MovementKind::parse(wire).unwrap(), kind);
+        }
+        for (reason, wire) in [
+            (VarianceReason::Damage, "DAMAGE"),
+            (VarianceReason::Loss, "LOSS"),
+            (VarianceReason::Miscount, "MISCOUNT"),
+            (VarianceReason::Found, "FOUND"),
+            (VarianceReason::Other, "OTHER"),
+        ] {
+            assert_eq!(reason.as_db_str(), wire);
+            assert_eq!(
+                serde_json::to_string(&reason).unwrap(),
+                format!("\"{wire}\"")
+            );
+            assert_eq!(VarianceReason::parse(wire).unwrap(), reason);
+        }
+        assert!(CycleCountStatus::parse("VOID").is_err());
+        assert!(MovementKind::parse("TRANSFER").is_err());
+        assert!(VarianceReason::parse("THEFT").is_err());
+        assert!(serde_json::from_str::<CycleCountStatus>("\"VOID\"").is_err());
+        assert!(serde_json::from_str::<MovementKind>("\"TRANSFER\"").is_err());
+        assert!(serde_json::from_str::<VarianceReason>("\"THEFT\"").is_err());
     }
 
     #[test]

@@ -3,9 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
+import type { ConsoleAuthz, ScopeOption } from "./authz";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
+import { useAuth } from "../../context/auth";
 import type { AuthSession } from "../../context/auth";
 import type { ConsoleApiClient } from "../../api/client";
 import { ConsoleApp } from "../ConsoleApp";
@@ -35,6 +37,31 @@ vi.mock("../rum/rum", () => ({
     markConsoleRoute(screen);
   },
 }));
+
+// Shell chrome is synchronous presentation over the session's deny-by-omission
+// grants. Keep it independent from the async authz transport, which is covered
+// by authz.ts tests and otherwise leaves a one-render empty shell in jsdom.
+vi.mock("./authz", () => {
+  return {
+    UNION_SCOPE_ID: "__union__",
+    useConsoleScopes: (unionLabel: string) => ({
+      options: [{ id: "__union__", label: unionLabel, memberIds: [], isUnion: true }] satisfies ScopeOption[],
+      loading: false,
+    }),
+    ConsoleAuthzProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+    useConsoleAuthz: () => {
+      const { session } = useAuth();
+      return {
+        grants: {
+          roles: session?.roles ?? [],
+          featureGrants: session?.feature_grants ?? [],
+        },
+        source: "jwt" as const,
+        ready: true,
+      } satisfies ConsoleAuthz;
+    },
+  };
+});
 
 function RouterProbe() {
   const location = useLocation();
@@ -115,6 +142,22 @@ describe("ConsoleShell chrome", () => {
     expect(screen.getByLabelText("화면 본문")).toBeInTheDocument();
   });
 
+  it("logs out through the account menu and preserves the exact console destination for local role switching", async () => {
+    const user = userEvent.setup();
+    renderConsole(ADMIN, ["/console/attendance?tab=team#today"]);
+
+    await user.click(screen.getByRole("button", { name: "사용자 메뉴" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "다른 계정으로 전환" }),
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+        "/login?next=%2Fconsole%2Fattendance%3Ftab%3Dteam%23today",
+      );
+    });
+  });
+
   it("identity chip renders person + team · role from the self-profile (never a raw dev label)", async () => {
     // A dev-auth session with no JWT `name`: the chip must resolve the person
     // and team from GET /api/v1/users/me, not fall back to a debug string.
@@ -192,6 +235,20 @@ describe("ConsoleShell chrome", () => {
     await userEvent.click(screen.getByRole("button", { name: "통합 개요" }));
     const rail = screen.getByRole("complementary", { name: "커뮤니케이션" });
     expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+  });
+
+  it("suppresses the shell comms rail on the object explorer so its governed card is the only right rail", async () => {
+    renderConsole(ADMIN, ["/console/objectExplorer"]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute(
+        "data-cshell-screen",
+        "objectExplorer",
+      );
+    });
+    expect(
+      screen.queryByRole("complementary", { name: "커뮤니케이션" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens a server-linked messenger mention in the canonical registered screen URL", async () => {
@@ -615,5 +672,33 @@ describe("Sidebar badges", () => {
       <Sidebar {...base} collapsed badges={{ overview: { count: 150, tone: "neutral" } }} />,
     );
     expect(screen.queryByText("99+")).not.toBeInTheDocument();
+  });
+
+  it("uses the people screen alias without a missing-i18n warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(
+      <Sidebar
+        {...base}
+        groups={[
+          {
+            labelKey: "console.shell.nav.groups.hr",
+            labelId: "hr",
+            items: [
+              {
+                screen: "people",
+                labelKey: "console.shell.nav.hr",
+                icon: "users",
+              },
+            ],
+          },
+        ]}
+        activeScreen="people"
+        collapsed={false}
+        badges={{}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "인사 관리" })).toBeInTheDocument();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

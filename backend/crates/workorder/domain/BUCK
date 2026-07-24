@@ -31,6 +31,7 @@ rust_test(
     crate_root = "backend/crates/workorder/domain/tests/approval_and_assignment.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workorder/domain"},
+    labels = ["owner.backend.crates.workorder.domain", "domain.workorder", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -48,6 +49,7 @@ rust_test(
     crate_root = "backend/crates/workorder/domain/tests/serde_roundtrips.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workorder/domain"},
+    labels = ["owner.backend.crates.workorder.domain", "domain.workorder", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -65,6 +67,7 @@ rust_test(
     crate_root = "backend/crates/workorder/domain/tests/workorder_fsm.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workorder/domain"},
+    labels = ["owner.backend.crates.workorder.domain", "domain.workorder", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",

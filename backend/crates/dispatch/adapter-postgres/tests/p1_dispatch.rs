@@ -2,8 +2,9 @@
 
 use mnt_dispatch_adapter_postgres::{PgDispatchStore, dispatch_response};
 use mnt_dispatch_application::{
-    ExpireP1DispatchCommand, ForceAssignP1DispatchCommand, IncidentLocationInput,
-    RespondP1DispatchCommand, StartP1DispatchCommand,
+    DispatchQueueStatus, ExpireP1DispatchCommand, ForceAssignP1DispatchCommand,
+    IncidentLocationInput, ListDispatchQueueQuery, RespondP1DispatchCommand,
+    StartP1DispatchCommand,
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchStatus, DispatchTimerConfig};
 use mnt_kernel_core::{BranchId, ErrorKind, OrgId, TraceContext, UserId, WorkOrderId};
@@ -141,6 +142,88 @@ async fn two_accepts_auto_assign_best_gps_candidate_and_audit(pool: PgPool) {
         );
         assert!(actions.contains(&"p1_dispatch.auto_assign".to_owned()));
         assert!(actions.contains(&"work_order.assign".to_owned()));
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn same_response_retry_is_idempotent_without_duplicate_audit(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: None,
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+
+        let first_response_at = now + time::Duration::seconds(30);
+        let first = store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Accept,
+                    trace: TraceContext::generate(),
+                    occurred_at: first_response_at,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        let retried = store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Accept,
+                    trace: TraceContext::generate(),
+                    occurred_at: first_response_at + time::Duration::seconds(10),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(retried, first);
+        let stored = dispatch_response(&pool, started.id, seeded.near_mechanic)
+            .await
+            .unwrap();
+        assert_eq!(stored.responded_at, first_response_at);
+        let actions = audit_actions_for_dispatch(&pool, started.id, seeded.work_order_id).await;
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| action.as_str() == "p1_dispatch.respond")
+                .count(),
+            1,
+            "a transport retry must not fabricate a second response audit event"
+        );
+
+        let changed_response = store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Decline,
+                    trace: TraceContext::generate(),
+                    occurred_at: first_response_at + time::Duration::seconds(20),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(changed_response.kind(), ErrorKind::Conflict);
     })
     .await;
 }
@@ -338,6 +421,366 @@ async fn cross_branch_consented_responder_is_gps_ranked(pool: PgPool) {
             "cross-branch consented responder must be GPS-ranked"
         );
         assert!(response.distance_meters.is_some());
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn start_replay_is_audit_once_and_changed_intent_conflicts(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let command = StartP1DispatchCommand {
+            actor: seeded.receptionist,
+            work_order_id: seeded.work_order_id,
+            incident_location: None,
+            include_region: false,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        };
+        let first = store
+            .start_dispatch(command.clone(), DispatchTimerConfig::default())
+            .await
+            .unwrap();
+        let replay = store
+            .start_dispatch(command, DispatchTimerConfig::default())
+            .await
+            .unwrap();
+        assert_eq!(first.id, replay.id);
+        let starts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action='p1_dispatch.start' AND target_id=$1",
+        )
+        .bind(first.id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(starts, 1, "same input must not append a second audit");
+        let changed = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: Some(IncidentLocationInput {
+                        latitude: 37.5,
+                        longitude: 127.0,
+                    }),
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(changed.kind(), ErrorKind::Conflict);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn declined_target_cannot_be_force_assigned_and_candidate_read_is_side_effect_free(
+    pool: PgPool,
+) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone()); let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store.start_dispatch(StartP1DispatchCommand { actor: seeded.receptionist, work_order_id: seeded.work_order_id, incident_location: Some(IncidentLocationInput { latitude: 37.5651, longitude: 126.9895 }), include_region: false, trace: TraceContext::generate(), occurred_at: now }, DispatchTimerConfig::default()).await.unwrap();
+        let candidates = store.dispatch_candidates(started.id, now, DispatchTimerConfig::default()).await.unwrap();
+        assert!(candidates.items.iter().all(|candidate| candidate.distance_meters.is_none() || candidate.gps_ranked));
+        let no_consent = candidates
+            .items
+            .iter()
+            .find(|candidate| candidate.mechanic_id == seeded.no_consent_mechanic)
+            .expect("raw-ping fixture is a dispatch candidate");
+        assert!(!no_consent.gps_ranked);
+        assert_eq!(no_consent.distance_meters, None);
+        assert_eq!(no_consent.location_recorded_at, None, "non-consenting users never receive location metadata");
+        let score_writes: i64 = sqlx::query_scalar("SELECT count(*) FROM p1_dispatch_responses WHERE dispatch_id=$1 AND score_milli IS NOT NULL").bind(*started.id.as_uuid()).fetch_one(&pool).await.unwrap();
+        assert_eq!(score_writes, 0, "candidate reads must not persist scoring");
+        store.record_response(RespondP1DispatchCommand { actor: seeded.near_mechanic, dispatch_id: started.id, response: DispatchResponseKind::Decline, trace: TraceContext::generate(), occurred_at: now + time::Duration::seconds(1) }, DispatchTimerConfig::default()).await.unwrap();
+        store.expire_accept_window(ExpireP1DispatchCommand { dispatch_id: started.id, trace: TraceContext::generate(), occurred_at: now + time::Duration::minutes(6) }).await.unwrap();
+        let rejected = store.force_assign(ForceAssignP1DispatchCommand { actor: seeded.manager, dispatch_id: started.id, mechanic_id: seeded.near_mechanic, trace: TraceContext::generate(), occurred_at: now + time::Duration::minutes(7) }).await.unwrap_err();
+        assert_eq!(rejected.kind(), ErrorKind::Conflict);
+    }).await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn responses_are_ordered_and_force_replay_audits_once(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: None,
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Decline,
+                    trace: TraceContext::generate(),
+                    occurred_at: now + time::Duration::seconds(20),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.no_consent_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Decline,
+                    trace: TraceContext::generate(),
+                    occurred_at: now + time::Duration::seconds(10),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        let responses = store.dispatch_responses(started.id).await.unwrap();
+        assert_eq!(responses.items.len(), 2);
+        assert!(responses.items[0].responded_at <= responses.items[1].responded_at);
+        assert_eq!(responses.items[0].user_id, seeded.no_consent_mechanic);
+
+        store
+            .expire_accept_window(ExpireP1DispatchCommand {
+                dispatch_id: started.id,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::minutes(6),
+            })
+            .await
+            .unwrap();
+        let first = store
+            .force_assign(ForceAssignP1DispatchCommand {
+                actor: seeded.manager,
+                dispatch_id: started.id,
+                mechanic_id: seeded.far_mechanic,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::minutes(7),
+            })
+            .await
+            .unwrap();
+        let replay = store
+            .force_assign(ForceAssignP1DispatchCommand {
+                actor: seeded.manager,
+                dispatch_id: started.id,
+                mechanic_id: seeded.far_mechanic,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::minutes(8),
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.id, replay.id);
+        let force_audits: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action = 'p1_dispatch.force_assign' AND target_id = $1",
+        )
+        .bind(first.id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(force_audits, 1, "same force intent must not duplicate audit");
+        assert_eq!(
+            store
+                .force_assign(ForceAssignP1DispatchCommand {
+                    actor: seeded.manager,
+                    dispatch_id: started.id,
+                    mechanic_id: seeded.off_duty_mechanic,
+                    trace: TraceContext::generate(),
+                    occurred_at: now + time::Duration::minutes(9),
+                })
+                .await
+                .unwrap_err()
+                .kind(),
+            ErrorKind::Conflict
+        );
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_same_start_replays_one_dispatch_and_one_audit(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let command = StartP1DispatchCommand {
+            actor: seeded.receptionist,
+            work_order_id: seeded.work_order_id,
+            incident_location: None,
+            include_region: false,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        };
+        let (left, right) = tokio::join!(
+            store.start_dispatch(command.clone(), DispatchTimerConfig::default()),
+            store.start_dispatch(command, DispatchTimerConfig::default())
+        );
+        let left = left.expect("first concurrent request resolves");
+        let right = right.expect("replayed concurrent request resolves");
+        assert_eq!(left.id, right.id);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action = 'p1_dispatch.start' AND target_id = $1",
+        )
+        .bind(left.id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "unique race must roll back losing audit");
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn escalation_replays_are_audit_once_and_do_not_mutate_timestamps(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: None,
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        let alimtalk = ExpireP1DispatchCommand {
+            dispatch_id: started.id,
+            trace: TraceContext::generate(),
+            occurred_at: now + time::Duration::minutes(1),
+        };
+        store.mark_alimtalk_no_ack(alimtalk.clone()).await.unwrap();
+        store.mark_alimtalk_no_ack(alimtalk).await.unwrap();
+        let expire = ExpireP1DispatchCommand {
+            dispatch_id: started.id,
+            trace: TraceContext::generate(),
+            occurred_at: now + time::Duration::minutes(5),
+        };
+        store.expire_accept_window(expire.clone()).await.unwrap();
+        let after_expire: (Option<time::OffsetDateTime>, time::OffsetDateTime) = sqlx::query_as(
+            "SELECT manager_force_pending_at, updated_at FROM p1_dispatches WHERE id = $1",
+        )
+        .bind(*started.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        store.expire_accept_window(expire).await.unwrap();
+        let replay_expire: (Option<time::OffsetDateTime>, time::OffsetDateTime) = sqlx::query_as(
+            "SELECT manager_force_pending_at, updated_at FROM p1_dispatches WHERE id = $1",
+        )
+        .bind(*started.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(replay_expire, after_expire);
+
+        let manual = ExpireP1DispatchCommand {
+            dispatch_id: started.id,
+            trace: TraceContext::generate(),
+            occurred_at: now + time::Duration::minutes(6),
+        };
+        let (left, right) = tokio::join!(
+            store.mark_manual_call_required(manual.clone()),
+            store.mark_manual_call_required(manual)
+        );
+        assert!(left.is_ok());
+        assert!(right.is_ok());
+        let counts: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT action, count(*) FROM audit_events WHERE target_id = $1 AND action IN ('p1_dispatch.alimtalk_no_ack', 'p1_dispatch.force_pending', 'dispatch.escalation.manual_call_required') GROUP BY action",
+        )
+        .bind(started.id.to_string())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts.len(), 3);
+        assert!(counts.iter().all(|(_, count)| *count == 1), "each transition emits one audit under replay/concurrency");
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_identical_force_assignment_replays_once(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store.start_dispatch(StartP1DispatchCommand { actor: seeded.receptionist, work_order_id: seeded.work_order_id, incident_location: None, include_region: false, trace: TraceContext::generate(), occurred_at: now }, DispatchTimerConfig::default()).await.unwrap();
+        store.expire_accept_window(ExpireP1DispatchCommand { dispatch_id: started.id, trace: TraceContext::generate(), occurred_at: now + time::Duration::minutes(6) }).await.unwrap();
+        let command = ForceAssignP1DispatchCommand { actor: seeded.manager, dispatch_id: started.id, mechanic_id: seeded.far_mechanic, trace: TraceContext::generate(), occurred_at: now + time::Duration::minutes(7) };
+        let (left, right) = tokio::join!(store.force_assign(command.clone()), store.force_assign(command));
+        assert_eq!(left.unwrap().id, right.unwrap().id);
+        let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE action = 'p1_dispatch.force_assign' AND target_id = $1").bind(started.id.to_string()).fetch_one(&pool).await.unwrap();
+        assert_eq!(audits, 1);
+    }).await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn queue_is_branch_scoped_and_cursor_pages_are_disjoint(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let second = seed_work_order(&pool, seeded.branch_id, seeded.receptionist, 2).await;
+        let store = PgDispatchStore::new(pool);
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let page1 = store
+            .list_dispatch_queue(ListDispatchQueueQuery {
+                branch_scope: mnt_kernel_core::BranchScope::Branches(
+                    [seeded.branch_id].into_iter().collect(),
+                ),
+                statuses: DispatchQueueStatus::parse_csv(None).unwrap(),
+                limit: 1,
+                after: None,
+                now,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page1.items.len(), 1);
+        let cursor = page1
+            .next_after
+            .clone()
+            .expect("second item requires a cursor");
+        let page2 = store
+            .list_dispatch_queue(ListDispatchQueueQuery {
+                branch_scope: mnt_kernel_core::BranchScope::Branches(
+                    [seeded.branch_id].into_iter().collect(),
+                ),
+                statuses: DispatchQueueStatus::parse_csv(None).unwrap(),
+                limit: 1,
+                after: Some(
+                    mnt_dispatch_application::DispatchQueueCursor::decode(&cursor, now).unwrap(),
+                ),
+                now,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page2.items.len(), 1);
+        assert_ne!(page1.items[0].work_order_id, page2.items[0].work_order_id);
+        assert!(
+            page1
+                .items
+                .iter()
+                .chain(page2.items.iter())
+                .any(|item| item.work_order_id == second)
+        );
     })
     .await;
 }

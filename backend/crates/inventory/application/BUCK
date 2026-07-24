@@ -22,5 +22,6 @@ rust_library(
         "//third-party/rust:serde",
         "//third-party/rust:serde_json",
         "//third-party/rust:time",
+        "//third-party/rust:uuid",
     ],
 )

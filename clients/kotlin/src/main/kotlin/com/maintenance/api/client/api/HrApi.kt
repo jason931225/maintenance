@@ -38,6 +38,7 @@ import com.maintenance.api.client.model.DraftEmployeeExitApprovalRequest
 import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.GetHrReadinessSummary200Response
 import com.maintenance.api.client.model.HrOrgChartResponse
 import com.maintenance.api.client.model.ImportApplyRequest
 import com.maintenance.api.client.model.LeaveBalancePage
@@ -612,8 +613,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * GET /api/v1/hr/readiness-summary
      * Read HR data readiness counters
-     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows. &#x60;payroll.active_close_runs&#x60; counts only STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
+     * @return GetHrReadinessSummary200Response
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -622,11 +623,11 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getHrReadinessSummary() : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+    suspend fun getHrReadinessSummary() : GetHrReadinessSummary200Response = withContext(Dispatchers.IO) {
         val localVarResponse = getHrReadinessSummaryWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GetHrReadinessSummary200Response
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -643,17 +644,17 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * GET /api/v1/hr/readiness-summary
      * Read HR data readiness counters
-     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows. &#x60;payroll.active_close_runs&#x60; counts only STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, and APPROVED payroll runs; terminal ISSUED and VOID history is excluded.
+     * @return ApiResponse<GetHrReadinessSummary200Response?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<GetHrReadinessSummary200Response?> = withContext(Dispatchers.IO) {
         val localVariableConfig = getHrReadinessSummaryRequestConfig()
 
-        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<Unit, GetHrReadinessSummary200Response>(
             localVariableConfig
         )
     }
@@ -768,6 +769,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * List employee attendance records for HR/payroll review
      * Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
      * @param employeeId  (optional)
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return EmployeeAttendanceRecordPage
@@ -779,8 +781,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEmployeeAttendanceRecords(employeeId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeeAttendanceRecordPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listEmployeeAttendanceRecordsWithHttpInfo(employeeId = employeeId, limit = limit, offset = offset)
+    suspend fun listEmployeeAttendanceRecords(employeeId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeeAttendanceRecordPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeeAttendanceRecordsWithHttpInfo(employeeId = employeeId, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeAttendanceRecordPage
@@ -802,6 +804,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * List employee attendance records for HR/payroll review
      * Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
      * @param employeeId  (optional)
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<EmployeeAttendanceRecordPage?>
@@ -810,8 +813,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listEmployeeAttendanceRecordsWithHttpInfo(employeeId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeeAttendanceRecordPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listEmployeeAttendanceRecordsRequestConfig(employeeId = employeeId, limit = limit, offset = offset)
+    suspend fun listEmployeeAttendanceRecordsWithHttpInfo(employeeId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeeAttendanceRecordPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeeAttendanceRecordsRequestConfig(employeeId = employeeId, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext request<Unit, EmployeeAttendanceRecordPage>(
             localVariableConfig
@@ -822,16 +825,20 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * To obtain the request config of the operation listEmployeeAttendanceRecords
      *
      * @param employeeId  (optional)
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listEmployeeAttendanceRecordsRequestConfig(employeeId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listEmployeeAttendanceRecordsRequestConfig(employeeId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (employeeId != null) {
                     put("employee_id", listOf(employeeId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
                 }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))
@@ -857,6 +864,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * GET /api/v1/hr/attendance-summary
      * List branch-scoped attendance summaries
      * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return AttendanceSummaryPage
@@ -868,8 +876,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listHrAttendanceSummary(limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : AttendanceSummaryPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listHrAttendanceSummaryWithHttpInfo(limit = limit, offset = offset)
+    suspend fun listHrAttendanceSummary(branchId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : AttendanceSummaryPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listHrAttendanceSummaryWithHttpInfo(branchId = branchId, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceSummaryPage
@@ -890,6 +898,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * GET /api/v1/hr/attendance-summary
      * List branch-scoped attendance summaries
      * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<AttendanceSummaryPage?>
@@ -898,8 +907,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listHrAttendanceSummaryWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AttendanceSummaryPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listHrAttendanceSummaryRequestConfig(limit = limit, offset = offset)
+    suspend fun listHrAttendanceSummaryWithHttpInfo(branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AttendanceSummaryPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listHrAttendanceSummaryRequestConfig(branchId = branchId, limit = limit, offset = offset)
 
         return@withContext request<Unit, AttendanceSummaryPage>(
             localVariableConfig
@@ -909,14 +918,18 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * To obtain the request config of the operation listHrAttendanceSummary
      *
+     * @param branchId  (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listHrAttendanceSummaryRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listHrAttendanceSummaryRequestConfig(branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))
                 }

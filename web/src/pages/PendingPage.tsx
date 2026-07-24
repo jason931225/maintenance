@@ -1,9 +1,10 @@
-import { Clock, RefreshCw, UserCircle } from "lucide-react";
+import { CalendarClock, Clock, RefreshCw, UserCircle } from "lucide-react";
 import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router";
 
 import {
   hasGrantedConsoleAccess,
+  isGrantedConsoleNavItem,
   visibleNavItemsForRoles,
 } from "../components/shell/nav";
 import { Button } from "../components/ui/button";
@@ -17,8 +18,8 @@ import { ko } from "../i18n/ko";
  * feature grants). The backend default-denies every Feature but Login for this
  * session, so routing them onto /dispatch only yields a 403 + a generic
  * "account created — awaiting an admin grant" message, the admin-contact
- * guidance, and a link to Profile (the one surface they can use). The redirect to
- * this page is driven by ProtectedRoute.
+ * guidance, and links to Profile and principal-bound My Attendance self-service.
+ * The redirect to this page is driven by ProtectedRoute.
  */
 export function PendingPage() {
   const { refresh, session } = useAuth();
@@ -37,7 +38,7 @@ export function PendingPage() {
         session?.roles,
         session?.group_roles,
         session?.feature_grants,
-      ).find((item) => item.key !== "profile")?.href ?? "/settings/profile";
+      ).find(isGrantedConsoleNavItem)?.href ?? "/settings/profile";
     return <Navigate to={destination} replace />;
   }
 
@@ -81,6 +82,13 @@ export function PendingPage() {
           >
             <UserCircle size={18} aria-hidden="true" />
             {ko.pending.profileLink}
+          </Link>
+          <Link
+            to="/attendance"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          >
+            <CalendarClock size={18} aria-hidden="true" />
+            {ko.nav["my-attendance"]}
           </Link>
           <Button
             type="button"

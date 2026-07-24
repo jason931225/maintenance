@@ -4,6 +4,7 @@ import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
 import { ObjectCardModal, objectCardWindowEntry } from "../objectcard";
+import { AccountLedgerDrill } from "../finance/AccountLedgerDrill";
 import { PolicyGated, usePolicyGate } from "../policy";
 import { objDrag, useOptionalWindowManager } from "../window";
 import "../tokens.css";
@@ -452,13 +453,30 @@ function actionResourceFor(
   return row ? { kind, id: row.id } : { kind };
 }
 
-function LinkChip({ chip }: { chip: ModuleLinkChipValue }) {
+function LinkChip({
+  chip,
+  onActivate,
+}: {
+  chip: ModuleLinkChipValue;
+  /** Module-owned, real read surfaces may turn an otherwise presentational
+   * link chip into a keyboard-operable drill trigger. */
+  onActivate?: () => void;
+}) {
   const label = resolveText(chip.labelKey);
   const ariaLabel = chip.code ? `${label} ${chip.code}` : label;
   const content = <StatusChip tone={chip.tone ?? "info"}>{chip.code ?? label}</StatusChip>;
   return (
     <PolicyGated action={chip.policyAction} resource={{ kind: chip.kind, id: chip.id }}>
-      {chip.href ? (
+      {onActivate ? (
+        <button
+          type="button"
+          onClick={onActivate}
+          aria-label={ariaLabel}
+          style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", font: "inherit" }}
+        >
+          {content}
+        </button>
+      ) : chip.href ? (
         <a href={chip.href} style={{ color: "inherit", textDecoration: "none" }} aria-label={ariaLabel}>
           {content}
         </a>
@@ -945,6 +963,10 @@ function GenericModuleScreenBody({
   const [refreshToken, setRefreshToken] = useState(0);
   const [actionBusyKey, setActionBusyKey] = useState<string | undefined>(undefined);
   const [actionErrorKey, setActionErrorKey] = useState<string | undefined>(undefined);
+  // Finance's GL-account read is a concrete backend operation, unlike generic
+  // object links. Keeping this state in the shared shell lets its authority-key
+  // remount and selected-row lifecycle fence the drill panel.
+  const [ledgerAccountCode, setLedgerAccountCode] = useState<string | undefined>(undefined);
   const loadRows = config.dataAdapter?.loadRows;
   const loadDetail = config.dataAdapter?.loadDetail;
   const usesListLoader = Boolean(loadRows && api);
@@ -986,6 +1008,7 @@ function GenericModuleScreenBody({
 
   const selectRow = useCallback(
     (row: ModuleRow) => {
+      setLedgerAccountCode(undefined);
       dispatch({ type: "select", rowId: row.id });
       // §4.7-3: a row click also opens the object as the right pin when a
       // window shell hosts the screen; without one, the split detail stands.
@@ -1324,9 +1347,25 @@ function GenericModuleScreenBody({
                 {selectedRow.linkChips && selectedRow.linkChips.length > 0 ? (
                   <span style={chipRowStyle}>
                     {selectedRow.linkChips.map((chip) => (
-                      <LinkChip key={chip.key} chip={chip} />
+                      <LinkChip
+                        key={chip.key}
+                        chip={chip}
+                        onActivate={
+                          config.id === "finance" && chip.kind === "gl_account" && api
+                            ? () => { setLedgerAccountCode(chip.id); }
+                            : undefined
+                        }
+                      />
                     ))}
                   </span>
+                ) : null}
+                {config.id === "finance" && api && ledgerAccountCode ? (
+                  <AccountLedgerDrill
+                    key={ledgerAccountCode}
+                    api={api}
+                    accountCode={ledgerAccountCode}
+                    onClose={() => { setLedgerAccountCode(undefined); }}
+                  />
                 ) : null}
                 <span style={chipRowStyle}>
                   {(selectedRow.actions ?? config.detail.actions)

@@ -28,6 +28,7 @@ const validFiles = {
   "ios/UITests/MessengerUITests.swift": readFileSync(new URL("../ios/UITests/MessengerUITests.swift", import.meta.url), "utf8"),
   "ios/UITests/CameraCaptureUITests.swift": readFileSync(new URL("../ios/UITests/CameraCaptureUITests.swift", import.meta.url), "utf8"),
   "ios/UITests/PreflightUITests.swift": readFileSync(new URL("../ios/UITests/PreflightUITests.swift", import.meta.url), "utf8"),
+  "ios/UITests/XCTestPrewarmUITests.swift": readFileSync(new URL("../ios/UITests/XCTestPrewarmUITests.swift", import.meta.url), "utf8"),
   "ios/UITests/LoginValidationUITests.swift": readFileSync(new URL("../ios/UITests/LoginValidationUITests.swift", import.meta.url), "utf8"),
   "e2e/harness/seed-mobile-ci.sql": readFileSync(new URL("../e2e/harness/seed-mobile-ci.sql", import.meta.url), "utf8"),
 };
@@ -60,19 +61,50 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("runs-on: macos-26", "runs-on: ${{ vars.MNT_IOS_CI_RUNNER }}") }), "untrusted PR code");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("runs-on: macos-26", "runs-on: [self-hosted, macos]") }), "untrusted PR code");
   });
-  it("rejects unmeasured shard budgets or a job ceiling that is too short or too long", () => {
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 90", "timeout-minutes: 45") }), "measured per-named-shard budgets");
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 90", "timeout-minutes: 180") }), "exceeding 90 minutes");
+  it("rejects non-exact checkout or cross-batch resource and artifact collisions", () => {
+    const isolationGate = "batch-unique job-root";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("ref: ${{ github.sha }}", "ref: main") }), isolationGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      `critical-path)
-                SHARD_TIMEOUT_SECONDS=360`,
-      `critical-path)
-                SHARD_TIMEOUT_SECONDS=900`,
-    ) }), "measured per-named-shard budgets");
+      'D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MNT_IOS_BATCH_NAME}"',
+      'D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+    ) }), isolationGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      "dynamic-type-ax5); VERIFY_ARGS=(); TEST_STATUS=0",
-      "dynamic-type-ax5 dynamic-type-ax5); VERIFY_ARGS=(); TEST_STATUS=0",
-    ) }), "measured per-named-shard budgets");
+      '"Maintenance CI ${MNT_IOS_BATCH_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+      '"Maintenance CI ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+    ) }), isolationGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('name: "ios-ui-test-results-${{ matrix.batch }}"', "name: ios-ui-test-results") }), isolationGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '${{ github.run_attempt }}-${{ matrix.batch }}/artifacts',
+      '${{ github.run_attempt }}/artifacts',
+    ) }), isolationGate);
+  });
+  it("rejects watchdog inflation, incomplete batches, or unbounded matrix fanout", () => {
+    const matrixGate = "five bounded isolated shard batches";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 45", "timeout-minutes: 44") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 45", "timeout-minutes: 90") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("fail-fast: false", "fail-fast: true") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("max-parallel: 5", "max-parallel: 15") }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      `critical-lifecycle)
+                SHARD_TIMEOUT_SECONDS=210`,
+      `critical-lifecycle)
+                SHARD_TIMEOUT_SECONDS=540`,
+    ) }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      'shards: "critical-today critical-lifecycle camera-capture"',
+      'shards: "critical-today camera-capture"',
+    ) }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      'shards: "critical-today critical-lifecycle camera-capture"',
+      'shards: "critical-today critical-lifecycle camera-capture preflight-session"',
+    ) }), matrixGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("-parallel-testing-enabled NO", "-parallel-testing-enabled YES") }), matrixGate);
+  });
+  it("rejects an uncapped, missing, or functional-result-substituting XCTest prewarm", () => {
+    const prewarmGate = "cap an infrastructure-only XCTest prewarm";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timing_start xctest-prewarm", "timing_start removed-prewarm") }), prewarmGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('"$RAW_RESULTS/xctest-prewarm.xcresult" 45', '"$RAW_RESULTS/xctest-prewarm.xcresult" 180') }), prewarmGate);
+    expectsFailure(evaluate({ "ios/UITests/XCTestPrewarmUITests.swift": validFiles["ios/UITests/XCTestPrewarmUITests.swift"].replace(".runningForeground", ".notRunning") }), prewarmGate);
   });
   it("rejects toolchain and job-root drift", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("Build version 17F113", "Build version drift") }), "pin Xcode 26.6");
@@ -388,7 +420,7 @@ class FieldUITestCase: XCTestCase {
     ) }), "preserve the Xcode-created Simulator Runner");
   });
   it("rejects xctestrun, ATS, and fail-slow xcresult regression", () => {
-    const failSlow = "exactly fifteen independent named shards fail-slow";
+    const failSlow = "each iOS UI matrix worker";
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('chmod 600 "$XCTESTRUN"', "") }), "mode-0600");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('CI_PLIST="$D/Info.ci.plist"', 'CI_PLIST="$RUNNER_TEMP/Info.plist"') }), "CI-only job-root");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('run_xcode_with_timeout "$shard_name" "$result" "$SHARD_TIMEOUT_SECONDS" "${SHARD_SELECTORS[@]}" || { shard_status=$?; TEST_STATUS=1; }', 'run_xcode_with_timeout "$shard_name" "$result" "$SHARD_TIMEOUT_SECONDS" "${SHARD_SELECTORS[@]}"') }), failSlow);
@@ -402,15 +434,47 @@ class FieldUITestCase: XCTestCase {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(`timing_finish setup-failed
               continue`, `timing_finish setup-failed
               :`) }), failSlow);
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('VERIFY_ARGS+=(--summary "$summary" --tests "$tests")', "") }), failSlow);
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('"$MNT_IOS_NODE_BIN" "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests" || { TEST_STATUS=1; verification_status=failed; }', "true") }), failSlow);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('read -r -a SHARD_MANIFEST <<< "$MNT_IOS_SHARD_BATCH"', "SHARD_MANIFEST=(preflight)") }), failSlow);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('printf \'%s\\n\' "$MNT_IOS_BATCH_NAME" > "$ARTIFACTS/batch-name.txt"', "true") }), failSlow);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('if ! clean_runtime; then', 'if clean_runtime; then') }), failSlow);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('exit "$TEST_STATUS"', 'exit 0') }), failSlow);
+  });
+  it("rejects incomplete or fail-open cross-worker result aggregation", () => {
+    const aggregateGate = "exactly one structured summary and tests JSON";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("needs: ios-ui-tests", "needs: []") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      `ios-ui-results:
+    name: iOS — aggregate structured results
+    needs: ios-ui-tests
+    if: always()`,
+      `ios-ui-results:
+    name: iOS — aggregate structured results
+    needs: ios-ui-tests`,
+    ) }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("pattern: ios-ui-test-results-*", "pattern: ios-ui-test-results-core") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('name: "ios-ui-test-results-${{ matrix.batch }}"', "name: ios-ui-test-results") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("if-no-files-found: error", "if-no-files-found: warn") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      "EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard audit-adaptive)",
+      "EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard)",
+    ) }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      "EXPECTED_SHARDS=(preflight-session preflight-fixtures preflight-restore login-validation accessibility-id-parity",
+      "EXPECTED_SHARDS=(login-validation accessibility-id-parity",
+    ) }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("((${#summaries[@]} == 1))", "true") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('node scripts/verify-xcresult-test-results.mjs "${VERIFY_ARGS[@]}" --swift-tests ios/UITests', "true") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('if [[ "$WORKER_RESULT" != success ]]; then', "if false; then") }), aggregateGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflowAll('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "true") }), aggregateGate);
   });
   it("rejects raw artifact session material and cleanup proof regression", () => {
     const artifactGate = "scan-clean derived diagnostics";
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(`id: artifact-scan
         if: always()`, "id: artifact-scan") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('install -d -m 700 "$D" "$D/auth" "$D/raw-xcresults" "$D/artifacts"', 'install -d -m 700 "$D"') }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(': > "$SESSION_MINTED_MARKER"', "true") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('if [[ -e "$SESSION_MINTED_MARKER" ]]; then', "if true; then") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("raw-session scan source exists without its session-minted marker", "unmarked raw-session source accepted") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("[[ -s \"$SECRETS_FILE\" ]] ||", "true ||") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflowAll("test artifact contains raw session material", "ignored") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('result="$RAW_RESULTS/$shard_name.xcresult"', 'result="$ARTIFACTS/$shard_name.xcresult"') }), artifactGate);
@@ -455,42 +519,30 @@ Text("fixed").font(.system(size: 17))` }), presentationGate);
   });
   it("rejects a tab whose NavigationStack is not wrapped by the unobscured content host", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `UnobscuredTabContent {
-                NavigationStack {`, "NavigationStack {") }), "public content-layout-guide sensor/probe");
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "TabBarContentLayoutGuideHost(content: content)", "content") }), "every authenticated iOS tab must use the direct UIKit content-layout-guide host");
   });
   it("rejects tab content without formal UIHostingController containment", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "UIViewControllerRepresentable", "UIViewRepresentable") }), "public content-layout-guide sensor/probe");
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `${fieldViews}
-let forbiddenHost = UIHostingController(rootView: EmptyView())` }), "public content-layout-guide sensor/probe");
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "addChild(hostingController)", "// containment removed") }), "every authenticated iOS tab must use the direct UIKit content-layout-guide host");
   });
-  it("rejects a tab host without guide constraints, fallback, lifecycle rebind, or dismantle", () => {
+  it("rejects a tab host without direct guide constraints or lifecycle teardown", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
-    const guideGate = "public content-layout-guide sensor/probe";
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "equalTo: tabBarController.contentLayoutGuide.bottomAnchor", "equalTo: tabBarController.view.bottomAnchor") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "await Task.yield()", "// yield removed") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "guard pendingMeasurementTask == nil else { return }", "// coalescing removed") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "tabBarController.view.window === window", "true") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "sensorSuperview.convert(sensor.frame, to: view)", "sensor.frame") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "layoutDirection == .rightToLeft ? right : left", "left") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `if parent == nil {
-            invalidate()`, `if parent == nil {
-            requestMeasurement()`) }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `removeContentLayoutSensor()
-        onInsetsChange = nil`, "onInsetsChange = nil") }), guideGate);
+    const guideGate = "every authenticated iOS tab must use the direct UIKit content-layout-guide host";
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "hostingController.view.bottomAnchor.constraint(equalTo: guide.bottomAnchor)", "hostingController.view.bottomAnchor.constraint(equalTo: tabBarController.view.bottomAnchor)") }), guideGate);
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "NSLayoutConstraint.activate(contentLayoutConstraints)", "// activation removed") }), guideGate);
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "hostingController.removeFromParent()", "// teardown removed") }), guideGate);
   });
   it("rejects private tab hierarchy workarounds and fixed bottom clearance", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
     for (const forbidden of [
       "tabBarController.selectedViewController = self",
       "let privateHierarchy = view.subviews",
-      "view.setNeedsLayout()",
       "view.safeAreaInset(edge: .bottom) { EmptyView() }",
       "view.frame = CGRect(x: 0, y: 0, width: 1, height: 84)",
       "view.traitOverrides.horizontalSizeClass = .compact",
     ]) {
       expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `${fieldViews}
-${forbidden}` }), "public content-layout-guide sensor/probe");
+${forbidden}` }), "every authenticated iOS tab must use the direct UIKit content-layout-guide host");
     }
   });
   it("rejects accessibility audit issue handlers", () => {
@@ -503,6 +555,27 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     expectsFailure(evaluate({
       "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, ".accessibilityAddTraits(.isHeader)", ""),
     }), "scalable semantic header");
+  });
+  it("rejects translucent or implicit-foreground status capsules", () => {
+    const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
+    const contrastGate = "contrast-stable adaptive backgrounds";
+    expectsFailure(evaluate({
+      "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(
+        fieldViews,
+        ".background(Color.opaqueFieldCapsuleBackground, in: Capsule())",
+        ".background(.thinMaterial, in: Capsule())",
+      ),
+    }), contrastGate);
+    expectsFailure(evaluate({
+      "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(
+        fieldViews,
+        `.font(.caption)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)`,
+        `.font(.caption)
+                    .padding(.horizontal, 8)`,
+      ),
+    }), contrastGate);
   });
   it("rejects a preflight that proves only an authenticated shell", () => {
     const fieldCase = validFiles["ios/UITests/Support/FieldUITestCase.swift"];
@@ -604,6 +677,8 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     const lazyScroll = "deadline-bounded exact-element scroll";
     const fieldCase = validFiles["ios/UITests/Support/FieldUITestCase.swift"];
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
+    const auditTests = validFiles["ios/UITests/AccessibilityAuditUITests.swift"];
+    const messengerTests = validFiles["ios/UITests/MessengerUITests.swift"];
     expectsFailure(evaluate({
       "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replaceAll("let deadline = Date().addingTimeInterval(timeout)", "let deadline = Date()"),
     }), lazyScroll);
@@ -630,8 +705,28 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     }), lazyScroll);
     expectsFailure(evaluate({
       "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace(
+        "let trailingGutterX = max(container.frame.width * 0.9, 8)",
+        "let trailingGutterX = 8",
+      ),
+    }), lazyScroll);
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace(
+        "let trailingGutterX = max(container.frame.width * 0.9, 8)",
+        "let trailingGutterX = 8",
+      ),
+    }), lazyScroll);
+    expectsFailure(evaluate({
+      "ios/UITests/AccessibilityAuditUITests.swift": mutateFile(
+        auditTests,
         "let trailingGutterX = max(container.frame.width - 8, 8)",
         "let trailingGutterX = 8",
+      ),
+    }), lazyScroll);
+    expectsFailure(evaluate({
+      "ios/UITests/MessengerUITests.swift": mutateFile(
+        messengerTests,
+        "let trailingGutterX = max(list.frame.width * 0.9, 8)",
+        "let trailingGutterX = max(list.frame.width - 8, 8)",
       ),
     }), lazyScroll);
     expectsFailure(evaluate({

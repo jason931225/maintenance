@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.EvidenceCopyEvidentiaryStatus
 import com.maintenance.api.client.model.EvidenceCopyKind
 import com.maintenance.api.client.model.EvidenceStorageRef
 import com.maintenance.api.client.model.WormStorageStatus
@@ -37,6 +38,7 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param evidenceObjectId
  * @param copyKind
+ * @param evidentiaryStatus
  * @param storage
  * @param digestSha256
  * @param contentType
@@ -61,6 +63,9 @@ data class EvidenceCopyView (
 
     @Contextual @SerialName(value = "copy_kind")
     val copyKind: EvidenceCopyKind,
+
+    @Contextual @SerialName(value = "evidentiary_status")
+    val evidentiaryStatus: EvidenceCopyEvidentiaryStatus,
 
     @SerialName(value = "storage")
     val storage: EvidenceStorageRef,

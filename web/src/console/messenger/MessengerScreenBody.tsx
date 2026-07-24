@@ -13,7 +13,7 @@
 // ConsoleModuleRoute (`/modules?screen=msgr`) already uses, so both entry
 // points agree; the backend re-authorizes every call.
 import { useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
 import { PolicyGateProvider, type PolicyGate } from "../policy";

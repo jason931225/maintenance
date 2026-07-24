@@ -18,6 +18,7 @@ MNT_APP_POSTGRES_PASSWORD="${E2E_MNT_APP_POSTGRES_PASSWORD:-mnt-e2e-owner-change
 MNT_RT_POSTGRES_PASSWORD="${E2E_MNT_RT_POSTGRES_PASSWORD:-mnt-e2e-runtime-change-me}"
 MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:-mnt-e2e-leave-command-change-me}"
 MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:-mnt-e2e-ontology-command-change-me}"
+MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="${E2E_MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:-mnt-e2e-platform-force-command-change-me}"
 DATABASE_URL="postgres://mnt_app:${MNT_APP_POSTGRES_PASSWORD}@${PG_HOST}:${PG_PORT}/${DB_NAME}"
 MNT_APP_PSQL_ARGS=(
   --host "${PG_HOST}"
@@ -62,7 +63,7 @@ create_clean_db() {
 echo "db: dropping + recreating ${DB_NAME}" >&2
 create_clean_db
 
-echo "db: reconciling six-role topology from cluster administrator" >&2
+echo "db: reconciling seven-role topology from cluster administrator" >&2
 POSTGRES_HOST="${PG_HOST}" \
 POSTGRES_PORT="${PG_PORT}" \
 POSTGRES_DB="${DB_NAME}" \
@@ -72,6 +73,7 @@ MNT_APP_POSTGRES_PASSWORD="${MNT_APP_POSTGRES_PASSWORD}" \
 MNT_RT_POSTGRES_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
 MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
 MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}" \
   "${REPO_ROOT}/ops/postgres-reconcile-topology.sh"
 
 echo "db: applying migrations directly as mnt_app (MNT_APP_ROLE=migrate)" >&2

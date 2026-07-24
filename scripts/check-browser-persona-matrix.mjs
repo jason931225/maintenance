@@ -47,6 +47,8 @@ function parseJson(path) {
 
 const matrix = parseJson(matrixPath);
 const fixture = read(fixturePath);
+const mechanicNavSpecPath = "e2e/specs/mech-neg-nav.spec.ts";
+const mechanicNavSpec = read(mechanicNavSpecPath);
 const packageJson = parseJson("package.json") ?? {};
 const ci = read(".github/workflows/ci.yml");
 const routeAudit = parseJson("docs/benchmarks/enterprise-ui-route-audit.json");
@@ -56,6 +58,63 @@ assert(ci.includes("npm run check:browser-persona-matrix"), "CI runs browser per
 assert(fixture.includes("browser-persona-e2e-matrix.json"), "persona fixture imports matrix JSON", `${fixturePath} must import browser-persona-e2e-matrix.json`);
 assert(fixture.includes("LIVE_ORG_SLUGS"), "persona fixture exports live org slugs", `${fixturePath} must export LIVE_ORG_SLUGS`);
 assert(fixture.includes("PERSONA_UI_STATES"), "persona fixture exports required UI states", `${fixturePath} must export PERSONA_UI_STATES`);
+
+const admin19SharedScheduleId = "00000000-0000-0000-0000-0000000ab001";
+const mechanicInspectionOwnedDeletes =
+  mechanicNavSpec.match(
+    /DELETE FROM (?:inspection_rounds|regular_inspection_schedules|registry_equipment)[\s\S]*?;/g,
+  ) ?? [];
+assert(
+  !mechanicNavSpec.includes(admin19SharedScheduleId),
+  "mechanic inspection story does not reference ADMIN-19 schedule",
+  `${mechanicNavSpecPath} must not reference shared ADMIN-19 schedule ${admin19SharedScheduleId}`,
+);
+assert(
+  mechanicNavSpec.includes("00000000-0000-4000-8000-0000000e4881"),
+  "mechanic inspection story owns a namespaced schedule",
+  `${mechanicNavSpecPath} must use its dedicated namespaced schedule id`,
+);
+assert(
+  mechanicInspectionOwnedDeletes.length === 6 &&
+    mechanicInspectionOwnedDeletes.every((statement) =>
+      statement.includes("registry_equipment")
+        ? statement.includes("${MECHANIC_INSPECTION_EQUIPMENT_ID}")
+        : statement.includes("${MECHANIC_INSPECTION_SCHEDULE_ID}"),
+    ),
+  "mechanic inspection cleanup is scoped to its owned schedule and equipment",
+  `${mechanicNavSpecPath} may delete inspection fixtures only through its dedicated ids`,
+);
+assert(
+  !/UPDATE\s+regular_inspection_schedules/i.test(mechanicNavSpec),
+  "mechanic inspection story never repurposes an existing schedule",
+  `${mechanicNavSpecPath} must insert its own schedule instead of updating a shared row`,
+);
+assert(
+  mechanicNavSpec.includes("const previousTeam =") &&
+    mechanicNavSpec.includes("team = ${sqlLiteral(previousTeam)}"),
+  "mechanic inspection story restores the captured prior team",
+  `${mechanicNavSpecPath} must restore the mechanic team from captured prior state`,
+);
+assert(
+  mechanicNavSpec.includes('MECHANIC_INSPECTION_MANAGEMENT_NO = "E2E-INS-4881"') &&
+    !mechanicNavSpec.includes('"E2E-001"') &&
+    mechanicNavSpec.includes(
+      ".filter({ hasText: MECHANIC_INSPECTION_MANAGEMENT_NO })",
+    ) &&
+    mechanicNavSpec.includes("await expect(assignedRounds).toHaveCount(1)"),
+  "mechanic inspection story locates exactly one dedicated equipment row",
+  `${mechanicNavSpecPath} must locate exactly one story-owned management number, never shared E2E-001`,
+);
+assert(
+  mechanicNavSpec.includes(
+    "`/api/v1/inspections/schedules/${MECHANIC_INSPECTION_SCHEDULE_ID}/rounds`",
+  ) &&
+    mechanicNavSpec.includes(
+      "expect(completedRound.schedule_id).toBe(MECHANIC_INSPECTION_SCHEDULE_ID)",
+    ),
+  "mechanic inspection completion proves its owned schedule id",
+  `${mechanicNavSpecPath} must verify the completion response path and schedule id`,
+);
 
 const requiredOrgSlugs = [
   "cheongun-hr",

@@ -282,6 +282,35 @@ impl PgPayrollStore {
             offset,
         })
     }
+
+    /// Verify that an approver identity is visible in the current tenant.
+    ///
+    /// This is a read-only prerequisite for the future audited approval command.
+    /// It intentionally performs no status update until the shared step-up,
+    /// audit, immutable release-evidence, and issuance-artifact seams exist.
+    pub async fn assert_approver_belongs_to_current_org(
+        &self,
+        approver: UserId,
+    ) -> Result<(), PgPayrollError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgPayrollError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+                        .bind(*approver.as_uuid())
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                if !exists {
+                    return Err(KernelError::forbidden(
+                        "payroll approver must belong to the current organization",
+                    )
+                    .into());
+                }
+                Ok(())
+            })
+        })
+        .await
+    }
 }
 
 /// Query logic behind [`PgPayrollStore::list_runs`], factored out so a

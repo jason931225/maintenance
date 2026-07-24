@@ -14,7 +14,7 @@ import {
   type ObjectTypeDetailWire,
   type RevisionWire,
 } from "../../api/ontology";
-import { executeOntologyAction } from "../../api/ontologyActions";
+import { ApiCallError, executeOntologyAction } from "../../api/ontologyActions";
 import { parseDashboardDoc } from "./doc";
 import type {
   ConsoleViewRecord,
@@ -28,6 +28,19 @@ import type {
 } from "./types";
 
 export const CONSOLE_VIEW_KEY = "console_view";
+
+// Kept only until the server confirms a receipt. A failed transport attempt can
+// call saveConsoleView again with the same loaded draft and therefore replay the
+// same command rather than append a second revision.
+const pendingSaveCommands = new Map<string, string>();
+
+function commandIdFor(key: string): string {
+  const prior = pendingSaveCommands.get(key);
+  if (prior) return prior;
+  const id = globalThis.crypto.randomUUID();
+  pendingSaveCommands.set(key, id);
+  return id;
+}
 
 /** PropertyDefWire.config is schemaless JSON — pull `{choices:[{id,name,color?}]}` defensively. */
 function choicesOf(config: unknown): OntChoice[] {
@@ -162,12 +175,25 @@ export async function saveConsoleView(
   doc: DashboardDoc,
   scope: ConsoleViewScope,
 ): Promise<ConsoleViewRecord> {
-  const result = await executeOntologyAction(api, "create", {
-    object_type_id: objectTypeId,
-    ...(existing ? { instance_id: existing.instanceId } : {}),
-    params: { screen_key: screenKey, config: JSON.stringify(doc), scope },
-  });
-  return { instanceId: result.instance.instanceId, screenKey, config: doc, scope, version: result.instance.version };
+  const serialized = JSON.stringify(doc);
+  const attemptKey = `${existing?.instanceId ?? "new"}:${scope}:${screenKey}:${serialized}`;
+  const commandId = commandIdFor(attemptKey);
+  try {
+    const result = await executeOntologyAction(api, "create", {
+      object_type_id: objectTypeId,
+      ...(existing ? { instance_id: existing.instanceId } : {}),
+      params: { screen_key: screenKey, config: serialized, scope },
+      command_id: commandId,
+      ...(existing ? { expected_revision: existing.version } : {}),
+    });
+    pendingSaveCommands.delete(attemptKey);
+    return { instanceId: result.instance.instanceId, screenKey, config: doc, scope, version: result.instance.version };
+  } catch (error) {
+    // A received HTTP response (including CAS 412 / digest 409) is terminal for
+    // this attempt. Only an unknown transport failure retains the id for retry.
+    if (error instanceof ApiCallError) pendingSaveCommands.delete(attemptKey);
+    throw error;
+  }
 }
 
 /** 팀 배포 — 결재: opens a pending four-eyes approval for the team console_view. */

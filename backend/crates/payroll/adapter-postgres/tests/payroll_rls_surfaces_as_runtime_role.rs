@@ -12,9 +12,11 @@
 //!    include another employee's rows, even within the same run;
 //!  * an `employee_id` from a DIFFERENT org, looked up under this org's GUC,
 //!    yields zero rows rather than leaking the other org's row (RLS, not
-//!    application-level filtering, is the enforcement boundary).
+//!    application-level filtering, is the enforcement boundary);
+//!  * a proposed payroll approver from a DIFFERENT org is rejected by the
+//!    read-only tenant prerequisite before any future approval write exists.
 
-use mnt_kernel_core::{OrgId, UserId};
+use mnt_kernel_core::{ErrorKind, OrgId, UserId};
 use mnt_payroll_adapter_postgres::PgPayrollStore;
 use mnt_platform_test_support::runtime_role_pool;
 use sqlx::PgPool;
@@ -26,7 +28,18 @@ async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
         "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
     )
     .bind(org)
-    .bind(format!("org-{}", tag.to_lowercase()))
+    .bind(format!(
+        "org-{}",
+        tag.chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() {
+                    character.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+    ))
     .bind(format!("Org {tag}"))
     .execute(owner_pool)
     .await
@@ -245,4 +258,33 @@ async fn my_lines_for_a_foreign_org_employee_id_yields_nothing(pool: PgPool) {
     .unwrap();
     assert_eq!(leaked.total, 0);
     assert!(leaked.items.is_empty());
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn foreign_org_approver_is_rejected_under_runtime_rls(pool: PgPool) {
+    let org_a = Uuid::new_v4();
+    let org_b = Uuid::new_v4();
+    seed_org(&pool, org_a, "Approver A").await;
+    seed_org(&pool, org_b, "Approver B").await;
+
+    let employee_a = seed_employee(&pool, org_a, "Approver A").await;
+    let employee_b = seed_employee(&pool, org_b, "Approver B").await;
+    let user_a = seed_user_linked_to_employee(&pool, org_a, employee_a).await;
+    let user_b = seed_user_linked_to_employee(&pool, org_b, employee_b).await;
+
+    let store = PgPayrollStore::new(runtime_role_pool(&pool).await);
+    let org_a_id = OrgId::from_uuid(org_a);
+
+    mnt_platform_request_context::scope_org(org_a_id, async {
+        store.assert_approver_belongs_to_current_org(user_a).await
+    })
+    .await
+    .unwrap();
+
+    let error = mnt_platform_request_context::scope_org(org_a_id, async {
+        store.assert_approver_belongs_to_current_org(user_b).await
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Forbidden);
 }

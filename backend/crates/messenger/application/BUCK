@@ -33,6 +33,7 @@ rust_test(
     crate_root = "backend/crates/messenger/application/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/messenger/application"},
+    labels = ["owner.backend.crates.messenger.application", "domain.messenger", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/messenger/domain:mnt-messenger-domain",

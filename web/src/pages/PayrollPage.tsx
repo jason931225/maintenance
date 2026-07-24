@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {
@@ -10,14 +10,21 @@ import type {
   EmployeeExitCase,
   HrReadinessSummary,
 } from "../api/types";
+import { PayrollCloseWorkspace } from "../console/payroll/PayrollCloseWorkspace";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import { isNavItemVisible } from "../components/shell/nav";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  isNavItemVisible,
+  ROLES,
+} from "../components/shell/nav";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import type { AuthSession } from "../context/auth";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { exitCaseStatusLabel, exitCaseTone } from "../lib/hrExitWorkflow";
@@ -28,12 +35,18 @@ import { formatListCount } from "../lib/utils";
 type LoadState = "loading" | "idle" | "error";
 
 type PayrollApi = ConsoleApiClient & {
-  GET(path: "/api/v1/hr/readiness-summary"): Promise<{
+  GET(
+    path: "/api/v1/hr/readiness-summary",
+    options?: { signal?: AbortSignal },
+  ): Promise<{
     data?: HrReadinessSummary;
   }>;
   GET(
     path: "/api/v1/hr/attendance-summary",
-    options?: { params?: { query?: { limit?: number; offset?: number } } },
+    options?: {
+      params?: { query?: { limit?: number; offset?: number } };
+      signal?: AbortSignal;
+    },
   ): Promise<{ data?: AttendanceSummaryPage }>;
   GET(
     path: "/api/v1/employees",
@@ -41,19 +54,46 @@ type PayrollApi = ConsoleApiClient & {
       params?: {
         query?: { limit?: number; offset?: number; company?: string };
       };
+      signal?: AbortSignal;
     },
   ): Promise<{ data?: EmployeeDirectoryPage }>;
   GET(
     path: "/api/v1/hr/absence-exit-dashboard",
-    options?: { params?: { query?: { limit?: number; offset?: number } } },
+    options?: {
+      params?: { query?: { limit?: number; offset?: number } };
+      signal?: AbortSignal;
+    },
   ): Promise<{ data?: AbsenceExitDashboardResponse }>;
 };
 
 const copy = ko.payroll;
 
+type SessionAuthorityIdentity = string | AuthSession | undefined;
+
+// Keep aggregate reads partitioned by the same session-incarnation authority
+// used by the other org-wide console pages. The object fallback also prevents
+// a legacy session without an incarnation from sharing retained state.
+function sessionAuthorityIdentity(
+  session: AuthSession | undefined,
+): SessionAuthorityIdentity {
+  return session?.client_session_incarnation?.trim() || session;
+}
+
 export function PayrollPage() {
   const { api, session } = useAuth();
   const payrollApi = api as PayrollApi;
+  const payrollAuthorityIdentity = sessionAuthorityIdentity(session);
+  // `payroll_run_read` is the backend PayrollRunRead feature. Roles and signed
+  // feature grants are client-side prefetch hints only; each read remains
+  // authoritatively re-checked by the API.
+  const canReadOrganizationPayrollRuns =
+    (session?.roles?.some(
+      (role) => role === ROLES.EXECUTIVE || role === ROLES.SUPER_ADMIN,
+    ) ??
+      false) ||
+    hasAnyFeatureGrant(session?.feature_grants, [FEATURES.PAYROLL_RUN_READ]);
+  const payrollAuthorityKey =
+    session?.client_session_incarnation?.trim() || session?.access_token || "";
   const [state, setState] = useState<LoadState>("loading");
   const [readiness, setReadiness] = useState<HrReadinessSummary>();
   const [attendance, setAttendance] = useState<AttendanceSummaryPage>();
@@ -61,59 +101,126 @@ export function PayrollPage() {
   const [employeeTotal, setEmployeeTotal] = useState(0);
   const [absenceExitDashboard, setAbsenceExitDashboard] =
     useState<AbsenceExitDashboardResponse>();
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const aggregateLoadGeneration = useRef(0);
+  const authorityRef = useRef<SessionAuthorityIdentity>(
+    payrollAuthorityIdentity,
+  );
+  const [loadedAuthority, setLoadedAuthority] =
+    useState<SessionAuthorityIdentity>();
+  const [loadedApi, setLoadedApi] = useState<ConsoleApiClient>();
+  const reloadPayroll = useCallback(() => {
+    setReloadNonce((nonce) => nonce + 1);
+  }, []);
 
-  const loadPayroll = useCallback(async () => {
-    setState("loading");
-    const [
-      readinessResponse,
-      attendanceResponse,
-      employeesResponse,
-      absenceExitResponse,
-    ] =
-      await Promise.all([
-        payrollApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
+  useEffect(() => {
+    authorityRef.current = payrollAuthorityIdentity;
+  }, [payrollAuthorityIdentity]);
+
+  useEffect(() => {
+    const generation = ++aggregateLoadGeneration.current;
+    const controller = new AbortController();
+    const authority = payrollAuthorityIdentity;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      aggregateLoadGeneration.current === generation &&
+      authorityRef.current === authority;
+    const clearRetainedAggregate = () => {
+      if (!isCurrent()) return;
+      setState(session ? "loading" : "idle");
+      setLoadedAuthority(undefined);
+      setLoadedApi(undefined);
+      setReadiness(undefined);
+      setAttendance(undefined);
+      setEmployees([]);
+      setEmployeeTotal(0);
+      setAbsenceExitDashboard(undefined);
+    };
+
+    clearRetainedAggregate();
+    if (!session) {
+      return () => {
+        controller.abort();
+      };
+    }
+
+    void (async () => {
+      const [
+        readinessResponse,
+        attendanceResponse,
+        employeesResponse,
+        absenceExitResponse,
+      ] = await Promise.all([
+        payrollApi
+          .GET("/api/v1/hr/readiness-summary", { signal: controller.signal })
+          .catch(() => undefined),
         payrollApi
           .GET("/api/v1/hr/attendance-summary", {
             params: { query: { limit: 1000, offset: 0 } },
+            signal: controller.signal,
           })
           .catch(() => undefined),
         payrollApi
           .GET("/api/v1/employees", {
             params: { query: { limit: 1000, offset: 0 } },
+            signal: controller.signal,
           })
           .catch(() => undefined),
         payrollApi
           .GET("/api/v1/hr/absence-exit-dashboard", {
             params: { query: { limit: 50, offset: 0 } },
+            signal: controller.signal,
           })
           .catch(() => undefined),
       ]);
 
-    if (
-      !readinessResponse?.data ||
-      !attendanceResponse?.data ||
-      !employeesResponse?.data
-    ) {
-      setState("error");
-      return;
-    }
+      if (!isCurrent()) return;
+      if (
+        !readinessResponse?.data ||
+        !attendanceResponse?.data ||
+        !employeesResponse?.data
+      ) {
+        if (isCurrent()) setState("error");
+        return;
+      }
 
-    setReadiness(readinessResponse.data);
-    setAttendance(attendanceResponse.data);
-    setEmployees(employeesResponse.data.items);
-    setEmployeeTotal(employeesResponse.data.total);
-    setAbsenceExitDashboard(absenceExitResponse?.data);
-    setState("idle");
-  }, [payrollApi]);
+      if (isCurrent()) setReadiness(readinessResponse.data);
+      if (isCurrent()) setAttendance(attendanceResponse.data);
+      if (isCurrent()) setEmployees(employeesResponse.data.items);
+      if (isCurrent()) setEmployeeTotal(employeesResponse.data.total);
+      if (isCurrent()) setAbsenceExitDashboard(absenceExitResponse?.data);
+      if (isCurrent()) setLoadedAuthority(authority);
+      if (isCurrent()) setLoadedApi(api);
+      if (isCurrent()) setState("idle");
+    })();
 
-  useEffect(() => {
-    void Promise.resolve().then(loadPayroll);
-  }, [loadPayroll]);
+    return () => {
+      controller.abort();
+    };
+  }, [api, payrollApi, payrollAuthorityIdentity, reloadNonce, session]);
 
+  // An API or authority change renders the retained aggregate ineligible before
+  // cleanup runs, so an A response can never flash under B's session.
+  const aggregateIsCurrent =
+    loadedAuthority === payrollAuthorityIdentity && loadedApi === api;
+  const visibleReadiness = aggregateIsCurrent ? readiness : undefined;
+  const visibleAttendance = aggregateIsCurrent ? attendance : undefined;
+  const visibleAbsenceExitDashboard = aggregateIsCurrent
+    ? absenceExitDashboard
+    : undefined;
   const activeEmployees = useMemo(
-    () => employees.filter((employee) => employee.status === "ACTIVE").length,
-    [employees],
+    () =>
+      (aggregateIsCurrent ? employees : []).filter(
+        (employee) => employee.status === "ACTIVE",
+      ).length,
+    [aggregateIsCurrent, employees],
   );
+  // The readiness aggregate is the authoritative active-close signal. Avoid a
+  // second organization-wide read when it proves there is no active payroll
+  // close to inspect; this keeps a cold tenant self-contained and ensures a
+  // route transition cannot retain a request for an absent close workspace.
+  const hasActivePayrollClose =
+    (visibleReadiness?.payroll.active_close_runs ?? 0) > 0;
 
   return (
     <>
@@ -123,7 +230,7 @@ export function PayrollPage() {
         actions={
           <RefreshButton
             onClick={() => {
-              void loadPayroll();
+              reloadPayroll();
             }}
             isLoading={state === "loading"}
           />
@@ -136,24 +243,31 @@ export function PayrollPage() {
           <PageError
             message={copy.loadFailed}
             onRetry={() => {
-              void loadPayroll();
+              reloadPayroll();
             }}
           />
         ) : null}
-        {state === "idle" && readiness ? (
+        {state === "idle" && visibleReadiness ? (
           <>
+            {canReadOrganizationPayrollRuns && hasActivePayrollClose ? (
+              <PayrollCloseWorkspace
+                key={payrollAuthorityKey}
+                api={api}
+                authorityKey={payrollAuthorityKey}
+              />
+            ) : null}
             <PayrollReadinessPanel
-              readiness={readiness}
-              attendance={attendance}
+              readiness={visibleReadiness}
+              attendance={visibleAttendance}
               activeEmployees={activeEmployees}
               employeeTotal={employeeTotal}
             />
-            {absenceExitDashboard ? (
-              <ExitSettlementPanel dashboard={absenceExitDashboard} />
+            {visibleAbsenceExitDashboard ? (
+              <ExitSettlementPanel dashboard={visibleAbsenceExitDashboard} />
             ) : null}
             <PayrollFlowPanel
-              readiness={readiness}
-              attendance={attendance}
+              readiness={visibleReadiness}
+              attendance={visibleAttendance}
               roles={session?.roles}
               groupRoles={session?.group_roles}
               featureGrants={session?.feature_grants}
@@ -264,16 +378,24 @@ function PayrollReadinessPanel({
 
       <dl className="grid gap-3 rounded-lg border border-line bg-white p-3 text-sm lg:grid-cols-4">
         <div>
-          <dt className="font-semibold text-steel">{copy.fields.latestSource}</dt>
-          <dd className="text-ink">{display(readiness.payroll.latest_source_label)}</dd>
+          <dt className="font-semibold text-steel">
+            {copy.fields.latestSource}
+          </dt>
+          <dd className="text-ink">
+            {display(readiness.payroll.latest_source_label)}
+          </dd>
         </div>
         <div>
           <dt className="font-semibold text-steel">{copy.fields.period}</dt>
           <dd className="text-ink">{latestPeriod}</dd>
         </div>
         <div>
-          <dt className="font-semibold text-steel">{copy.fields.latestImport}</dt>
-          <dd className="text-ink">{display(readiness.imports.latest_import_at)}</dd>
+          <dt className="font-semibold text-steel">
+            {copy.fields.latestImport}
+          </dt>
+          <dd className="text-ink">
+            {display(readiness.imports.latest_import_at)}
+          </dd>
         </div>
         <div>
           <dt className="font-semibold text-steel">
@@ -324,7 +446,9 @@ function ExitSettlementPanel({
           <h2 className="text-lg font-semibold text-ink">
             {copy.exitSettlement.title}
           </h2>
-          <p className="text-sm text-steel">{copy.exitSettlement.description}</p>
+          <p className="text-sm text-steel">
+            {copy.exitSettlement.description}
+          </p>
         </div>
         <Button asChild size="sm" variant="secondary">
           <Link to="/hr/insurance">{copy.exitSettlement.insuranceLink}</Link>
@@ -394,7 +518,9 @@ function ExitSettlementCaseCard({ exitCase }: { exitCase: EmployeeExitCase }) {
           <dt className="font-semibold text-steel">
             {copy.exitSettlement.fields.serviceDays}
           </dt>
-          <dd className="text-ink">{display(settlementPackage?.service_days)}</dd>
+          <dd className="text-ink">
+            {display(settlementPackage?.service_days)}
+          </dd>
         </div>
         <div className="rounded border border-line bg-muted-panel/40 p-3">
           <dt className="font-semibold text-steel">

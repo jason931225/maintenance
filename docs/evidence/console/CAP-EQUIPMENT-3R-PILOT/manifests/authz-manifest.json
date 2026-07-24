@@ -1,0 +1,27 @@
+{
+  "module": "CAP-EQUIPMENT-3R-PILOT",
+  "target_files": [
+    "backend/crates/platform/authz/src/lib.rs",
+    "backend/crates/platform/authz/tests/policy.rs"
+  ],
+  "status": "ALREADY APPLIED by this lane in commit e8a636a7 (feat(authz): equipment 3R capability features). The rest crate and app tests cannot compile or run without the variants, so the lane applied them directly; this manifest is the reconciliation record for the integrator to verify (or to re-apply on conflict).",
+  "feature_variants": {
+    "Equipment3rRegistry": "equipment_3r_registry",
+    "Equipment3rQuote": "equipment_3r_quote",
+    "Equipment3rApprove": "equipment_3r_approve",
+    "Equipment3rDispatch": "equipment_3r_dispatch",
+    "Equipment3rInspect": "equipment_3r_inspect",
+    "Equipment3rAssess": "equipment_3r_assess",
+    "Equipment3rDisposition": "equipment_3r_disposition",
+    "Equipment3rObserve": "equipment_3r_observe"
+  },
+  "wiring": {
+    "enum": "8 variants appended after ProductionSourceIngest with doc comments (custom-grant only)",
+    "ALL": "array length 80 -> 88, variants appended in declaration order",
+    "as_str": "8 arms mapping to the snake_case keys above",
+    "matrix_row": "all 8 map to [D, D, D, D, D, D] — built-in roles never widen access; explicit tenant grants are the only allow path",
+    "from_str": "8 arms for the snake_case keys",
+    "tests/policy.rs": "import list + 8 all-deny matrix rows + Feature::ALL.len() assertions 80 -> 88"
+  },
+  "feature_catalog": "The 8 keys are registered by migration 0182_create_equipment_3r.sql (ON CONFLICT DO NOTHING)."
+}

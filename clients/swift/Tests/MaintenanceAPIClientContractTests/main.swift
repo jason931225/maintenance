@@ -5,6 +5,11 @@ private typealias LegacyLeaveRequestView = Components.Schemas.LeaveRequestView
 private typealias LeaveRequestV2View = Components.Schemas.LeaveRequestV2View
 private typealias LeaveRequestV2Page = Components.Schemas.LeaveRequestV2Page
 private typealias ActionInboxResponse = Components.Schemas.ActionInboxResponse
+private typealias EvidenceObjectPage = Components.Schemas.EvidenceObjectPage
+private typealias FacilitiesCase = Components.Schemas.FacilitiesCase
+private typealias ProductionCredential = Components.Schemas.ProductionSourceSystemCredential
+private typealias ProductionReceipt = Components.Schemas.ProductionSourceSystemReceipt
+private typealias ProductionIngressReceipt = Components.Schemas.ProductionSourceIngressReceipt
 
 @main
 private enum GeneratedClientContractTests {
@@ -22,6 +27,11 @@ private enum GeneratedClientContractTests {
             ("decodes required null action next_cursor", decodesRequiredNullActionNextCursor),
             ("re-encodes null action next_cursor as an explicit field", reencodesNullActionNextCursorAsExplicitField),
             ("rejects an action page without next_cursor", rejectsActionPageWithoutNextCursor),
+            ("decodes required null evidence next_cursor", decodesRequiredNullEvidenceNextCursor),
+            ("re-encodes null evidence next_cursor as an explicit field", reencodesNullEvidenceNextCursorAsExplicitField),
+            ("rejects an evidence page without next_cursor", rejectsEvidencePageWithoutNextCursor),
+            ("keeps facilities transition outputs and request bodies typed", keepsFacilitiesTransitionOutputsTyped),
+            ("keeps production source receipts typed and serializes every ingress kind", keepsProductionSourceContractsTyped),
         ]
         let failures: [String] = tests.compactMap { name, test -> String? in
             if test() {
@@ -110,6 +120,91 @@ private enum GeneratedClientContractTests {
         rejectsPayloadWithoutRequiredKey("next_cursor", payload: validActionPage, as: ActionInboxResponse.self)
     }
 
+    private static func decodesRequiredNullEvidenceNextCursor() -> Bool {
+        guard let decoded = try? decoder.decode(EvidenceObjectPage.self, from: validEvidencePage) else {
+            return false
+        }
+        return decoded.nextCursor == nil
+    }
+
+    private static func reencodesNullEvidenceNextCursorAsExplicitField() -> Bool {
+        explicitNullRoundTrips(validEvidencePage, as: EvidenceObjectPage.self, key: "next_cursor")
+    }
+
+    private static func rejectsEvidencePageWithoutNextCursor() -> Bool {
+        rejectsPayloadWithoutRequiredKey("next_cursor", payload: validEvidencePage, as: EvidenceObjectPage.self)
+    }
+
+    private static func keepsFacilitiesTransitionOutputsTyped() -> Bool {
+        func caseFromTriage(_ body: Operations.TriageFacilitiesCase.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromAssign(_ body: Operations.AssignFacilitiesCase.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromStart(_ body: Operations.StartFacilitiesCase.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromSubmit(_ body: Operations.SubmitFacilitiesExecution.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromAcceptance(_ body: Operations.DecideFacilitiesAcceptance.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func caseFromObservation(_ body: Operations.RecordFacilitiesObservation.Output.Ok.Body) -> FacilitiesCase {
+            switch body { case let .json(caseValue): return caseValue }
+        }
+        func typedTriageRequest(_ body: Operations.TriageFacilitiesCase.Input.Body) {}
+        func typedAssignRequest(_ body: Operations.AssignFacilitiesCase.Input.Body) {}
+        func typedSubmitRequest(_ body: Operations.SubmitFacilitiesExecution.Input.Body) {}
+        func typedAcceptanceRequest(_ body: Operations.DecideFacilitiesAcceptance.Input.Body) {}
+        func typedObservationRequest(_ body: Operations.RecordFacilitiesObservation.Input.Body) {}
+        func caseBranch(_ caseValue: FacilitiesCase) -> Components.Schemas.Uuid { caseValue.branchId }
+        _ = [caseFromTriage, caseFromAssign, caseFromStart, caseFromSubmit, caseFromAcceptance, caseFromObservation]
+        _ = caseBranch
+        _ = [typedTriageRequest, typedAssignRequest, typedSubmitRequest, typedAcceptanceRequest, typedObservationRequest]
+        return true
+    }
+
+    private static func keepsProductionSourceContractsTyped() -> Bool {
+        func credentialFromRegister(_ body: Operations.RegisterProductionSourceSystem.Output.Created.Body) -> ProductionCredential {
+            switch body { case let .json(value): return value }
+        }
+        func credentialFromRotate(_ body: Operations.RotateProductionSourceSystem.Output.Ok.Body) -> ProductionCredential {
+            switch body { case let .json(value): return value }
+        }
+        func receiptFromDisable(_ body: Operations.DisableProductionSourceSystem.Output.Ok.Body) -> ProductionReceipt {
+            switch body { case let .json(value): return value }
+        }
+        func receiptFromIngress(_ body: Operations.IngestProductionSource.Output.Ok.Body) -> ProductionIngressReceipt {
+            switch body { case let .json(value): return value }
+        }
+        func typedRegisterRequest(_ body: Operations.RegisterProductionSourceSystem.Input.Body) {}
+        func typedRotateRequest(_ body: Operations.RotateProductionSourceSystem.Input.Body) {}
+        func typedDisableRequest(_ body: Operations.DisableProductionSourceSystem.Input.Body) {}
+        _ = [credentialFromRegister, credentialFromRotate, receiptFromDisable, receiptFromIngress]
+        _ = [typedRegisterRequest, typedRotateRequest, typedDisableRequest]
+
+        guard let credential = try? decoder.decode(
+            ProductionCredential.self,
+            from: Data(#"{"id":"00000000-0000-0000-0000-000000000001","source_system":"erp","enabled":true,"credential_generation":1,"secret":"one-time-secret"}"#.utf8)
+        ), credential.secret == "one-time-secret" else { return false }
+
+        let id = "00000000-0000-0000-0000-000000000001"
+        let ingress: [(String, Components.Schemas.ProductionSourceIngress)] = [
+            ("demand", .demand(.init(kind: .demand, id: id, inquiryId: id, productCode: "WIDGET", quantity: 1, dueAt: Date(timeIntervalSince1970: 0), sourceId: "erp", sourceVersion: "v1"))),
+            ("capacity", .capacity(.init(kind: .capacity, id: id, siteId: id, capacityDate: "2026-07-23", availableQuantity: 1, sourceId: "mes", sourceVersion: "v1"))),
+            ("material", .material(.init(kind: .material, materialItemId: id, quantityOnHandMilli: 1, safetyStockMilli: 0, sourceId: "wms", sourceVersion: "v1"))),
+        ]
+        return ingress.allSatisfy { expectedKind, value in
+            guard
+                let encoded = try? encoder.encode(value),
+                let object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+            else { return false }
+            return object["kind"] as? String == expectedKind
+        }
+    }
+
     private static func explicitNullRoundTrips<Model: Codable>(
         _ payload: Data,
         as type: Model.Type,
@@ -176,6 +271,10 @@ private enum GeneratedClientContractTests {
 
     private static var validActionPage: Data {
         Data(#"{"items":[],"total":0,"total_is_exact":true,"next_cursor":null}"#.utf8)
+    }
+
+    private static var validEvidencePage: Data {
+        Data(#"{"items":[],"limit":50,"offset":0,"total":0,"as_of":42,"next_cursor":null}"#.utf8)
     }
 }
 

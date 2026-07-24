@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter, useNavigate } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
@@ -300,6 +300,7 @@ function readinessSummaryPayload() {
       draft_runs: 1,
       blocked_runs: 0,
       calculation_enabled_runs: 1,
+      active_close_runs: 1,
       draft_lines: 10,
       payroll_source_rows: 10,
       attendance_source_rows: 8,

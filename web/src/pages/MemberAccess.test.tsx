@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState, type ReactNode } from "react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { AppRouter } from "../AppRouter";
@@ -110,6 +110,58 @@ describe("MEMBER landing → /pending", () => {
       await screen.findByText(
         "권한이 부여되기 전까지 일부 기능은 사용할 수 없습니다. 관리자에게 문의하세요.",
       ),
+    ).toBeVisible();
+  });
+
+  it("lets a bare MEMBER reach My Attendance but keeps /overview pending", async () => {
+    server.use(
+      http.get("*/api/v1/hr/attendance-records/me", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+      http.get("*/api/v1/attendance/me/exceptions", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("*/api/v1/attendance/me/week52", () =>
+        HttpResponse.json({
+          status: "available",
+          projection: {
+            week_start: "2026-07-20",
+            current_hours: 40,
+            projected_hours: 40,
+            tone: "OK",
+            acknowledged_at: null,
+          },
+        }),
+      ),
+    );
+
+    const { unmount } = renderApp("/attendance", {
+      access_token: "a",
+      roles: ["MEMBER"],
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "내 근태 기록", level: 1 }),
+    ).toBeVisible();
+    expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "통합 개요" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "근태 기록" })).toHaveAttribute(
+      "href",
+      "/attendance",
+    );
+    expect(screen.getByRole("link", { name: "내 프로필" })).toHaveAttribute(
+      "href",
+      "/settings/profile",
+    );
+
+    unmount();
+    renderApp("/overview", { access_token: "a", roles: ["MEMBER"] });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "계정이 생성되었습니다",
+        level: 1,
+      }),
     ).toBeVisible();
   });
 

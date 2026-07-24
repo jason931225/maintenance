@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type { ComplianceFramework } from "./types";
-import { EVIDENCE_READ_CONCURRENCY, readFrameworkDetail } from "./complianceApi";
+import { EVIDENCE_READ_CONCURRENCY, readEvidenceBindingWorkspace, readFrameworkDetail } from "./complianceApi";
 
 const framework: ComplianceFramework = {
   kind: "framework", id: "framework-1", code: "FW-0001", title: "ISMS", versionLabel: "2025",
@@ -57,4 +57,17 @@ describe("readFrameworkDetail", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(observedSignal?.aborted).toBe(true);
   });
+  it.each([401, 403])("preserves a generated %i authorization result as ApiCallError", async (status) => {
+    const error = { error: { code: status === 401 ? "unauthenticated" : "forbidden", message: "not authorized" } };
+    const GET = vi.fn(() => Promise.resolve({
+      error,
+      response: new Response(JSON.stringify(error), { status }),
+    }));
+
+    await expect(readEvidenceBindingWorkspace(
+      { GET } as unknown as ConsoleApiClient,
+      new AbortController().signal,
+    )).rejects.toEqual(expect.objectContaining({ status, code: error.error.code }));
+  });
+
 });

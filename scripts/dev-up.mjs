@@ -7,20 +7,20 @@
 // adds only what those two files don't have yet (Mailpit, a published OTEL
 // port, and the dev-only WAL archive retention helper). The one thing this
 // script changes vs. ops/dev-up.sh: mnt-app runs ON
-// THE HOST under bacon/cargo instead of in a container, so every docker-network
+// THE HOST from a Buck2-built executable instead of in a container, so every docker-network
 // hostname (postgres, seaweedfs, otel-collector) has to be rewritten to a
 // published localhost port — that relocation is `buildAppEnv()` below.
 //
 // Subcommands:
 //   doctor     per-OS environment checks with remediation; --cached replays
 //              the last result instead of re-probing (fast path for hooks).
-//   up         deps -> migrate -> bacon (backend) + vite (web), foreground,
-//              live-reloading. Ctrl+C stops bacon/vite; deps stay up for a
+//   up         deps -> migrate -> Buck2-built backend + vite (web), foreground.
+//              Ctrl+C stops backend/vite; deps stay up for a
 //              fast restart. Run `down` separately to stop the deps.
 //   bootstrap  deps -> migrate -> mnt-app in the background -> /readyz probe,
 //              then exits. No watch loop — this is what CI's smoke job runs.
-//   down       stops whatever `up`/`bootstrap` started (host process(es) via
-//              the pid file, then the compose deps).
+//   down       stops the exact Buck2 artifact and Vite process started by `up`/`bootstrap` via
+//              the pid file, then the compose deps.
 //
 // Env flags:
 //   MNT_DEV_OFFICE=1  also start the ONLYOFFICE DocumentServer dep (in-console
@@ -42,12 +42,20 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseSingleBuckOutput, resolveRepoBuckOutput } from "./lib/dev-up-buck-output.mjs";
+import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
+import {
+  parseWindowsProcessIdentity,
+  processIdentityMatches,
+} from "./lib/dev-up-process-identity.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const BACKEND_DIR = path.join(REPO_ROOT, "backend");
+const BUCK2_BIN = path.join(REPO_ROOT, "tools", "buck2");
+const DEFAULT_APP_TARGET = "//backend/app:mnt-app";
+const DEV_AUTH_APP_TARGET = "//backend/app:mnt-app-dev-auth";
 const SECRETS_DIR = path.join(REPO_ROOT, "ops", ".dev-secrets");
 const STATE_DIR = path.join(REPO_ROOT, ".local-dev", "dev-up");
 const PID_FILE = path.join(STATE_DIR, "pids.json");
@@ -109,6 +117,9 @@ const LEAVE_COMMAND_POSTGRES_PASSWORD =
 const ONTOLOGY_COMMAND_POSTGRES_PASSWORD =
   process.env.MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD ??
   "mnt-dev-ontology-command-change-me";
+const PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD =
+  process.env.MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD ??
+  "mnt-dev-platform-force-command-change-me";
 
 function log(msg) {
   console.log(`dev-up: ${msg}`);
@@ -181,10 +192,48 @@ async function assertPortFree(port, label) {
 // `detached: true` makes the child the leader of its own process group,
 // so a plain SIGTERM to its pid can leave grandchildren (mnt-app/vite)
 // orphaned. Signalling the group reaches the whole background stack.
+function readProcessIdentity(pid) {
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$ErrorActionPreference = 'Stop'; $targetPid = ${Number(pid)}; $process = Get-Process -Id $targetPid -ErrorAction Stop; [pscustomobject]@{ StartTime = $process.StartTime.ToString('o'); Path = $process.Path } | ConvertTo-Json -Compress`,
+      ],
+      { encoding: "utf8" },
+    );
+    return result.status === 0 ? parseWindowsProcessIdentity(result.stdout) : null;
+  }
+  const start = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  const command = spawnSync("ps", ["-o", "command=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  const startToken = start.status === 0 ? start.stdout.trim() : "";
+  const commandText = command.status === 0 ? command.stdout.trim() : "";
+  return startToken && commandText ? { startToken, command: commandText } : null;
+}
+
+function managedProcessState(proc) {
+  const identity = readProcessIdentity(proc.pid);
+  if (!identity) {
+    throw new Error(`could not verify process identity for pid ${proc.pid}; refusing to persist an unsafe shutdown target`);
+  }
+  return { ...proc, identity };
+}
+
 function stopBackendProcess(proc) {
-  if (!proc?.pid) return;
+  if (!proc?.pid) return false;
+  const currentIdentity = readProcessIdentity(proc.pid);
+  if (!processIdentityMatches(proc.identity, currentIdentity)) {
+    log(`refusing to signal stale or unverifiable pid ${proc.pid}`);
+    return false;
+  }
   try {
-    if (proc.group || proc.mode === "cargo" || proc.mode === "npm") {
+    if (proc.group || proc.mode === "buck2" || proc.mode === "npm") {
       if (process.platform === "win32") {
         spawnSync("taskkill", ["/T", "/F", "/PID", String(proc.pid)]);
       } else {
@@ -194,8 +243,10 @@ function stopBackendProcess(proc) {
       process.kill(proc.pid, "SIGTERM");
     }
     log(`stopped pid ${proc.pid}`);
+    return true;
   } catch {
     // already gone
+    return false;
   }
 }
 
@@ -327,16 +378,12 @@ function ensureDevKeys() {
   return { privateKeyPem: privateKey, publicKeyPem: publicKey };
 }
 
-function readPinnedRustVersion() {
-  try {
-    const content = readFileSync(
-      path.join(BACKEND_DIR, "rust-toolchain.toml"),
-      "utf8",
-    );
-    return content.match(/channel\s*=\s*"([^"]+)"/)?.[1] ?? null;
-  } catch {
-    return null;
-  }
+function buck2Version() {
+  const check = spawnSync(BUCK2_BIN, ["--version"], { encoding: "utf8" });
+  return {
+    ok: !check.error && check.status === 0,
+    detail: !check.error && check.status === 0 ? check.stdout.trim() : "not executable from tools/buck2",
+  };
 }
 
 async function runDoctorChecks() {
@@ -361,25 +408,13 @@ async function runDoctorChecks() {
     remediation: nodeOk ? null : "Install Node >=22 (nvm install 22, or nodejs.org).",
   });
 
-  const cargoCheck = spawnSync("cargo", ["--version"], { encoding: "utf8" });
-  const cargoOk = !cargoCheck.error && cargoCheck.status === 0;
-  const pinned = readPinnedRustVersion();
+  const buck2 = buck2Version();
   checks.push({
-    name: "cargo",
-    ok: cargoOk,
-    detail: cargoOk ? cargoCheck.stdout.trim() : "not found on PATH",
-    remediation: cargoOk
-      ? null
-      : "Install Rust via rustup.rs (backend/rust-toolchain.toml pins the exact version automatically).",
+    name: "Buck2",
+    ok: buck2.ok,
+    detail: buck2.detail,
+    remediation: buck2.ok ? null : "Restore the repository-pinned tools/buck2 launcher and rerun `npm run dev:doctor`.",
   });
-  if (cargoOk && pinned) {
-    checks.push({
-      name: "cargo toolchain pin",
-      ok: true,
-      detail: `backend/rust-toolchain.toml pins ${pinned}; rustup selects it automatically inside backend/`,
-      remediation: null,
-    });
-  }
 
   const npmInstalled = existsSync(path.join(REPO_ROOT, "node_modules", ".bin", "vite"));
   checks.push({
@@ -387,17 +422,6 @@ async function runDoctorChecks() {
     ok: npmInstalled,
     detail: npmInstalled ? "node_modules/.bin/vite present" : "not installed",
     remediation: npmInstalled ? null : "Run `npm install` at the repo root (fresh clone/worktree).",
-  });
-
-  const baconCheck = spawnSync("bacon", ["--version"], { encoding: "utf8" });
-  const baconOk = !baconCheck.error && baconCheck.status === 0;
-  checks.push({
-    name: "bacon",
-    ok: baconOk,
-    detail: baconOk ? baconCheck.stdout.trim() : "not found on PATH",
-    remediation: baconOk
-      ? null
-      : "cargo install bacon --locked  (macOS: brew install bacon)",
   });
 
   for (const [label, port] of Object.entries(PORTS)) {
@@ -472,6 +496,8 @@ async function bringUpDeps() {
     MNT_RT_POSTGRES_PASSWORD: RT_POSTGRES_PASSWORD,
     MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: LEAVE_COMMAND_POSTGRES_PASSWORD,
     MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+    MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:
+      PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD,
     MNT_S3_PORT: String(PORTS.s3),
     MNT_OTEL_PORT: String(PORTS.otel),
     MNT_MAILPIT_SMTP_PORT: String(PORTS.mailpitSmtp),
@@ -515,36 +541,43 @@ function commandDatabaseUrl(role, password) {
   return `postgres://${role}:${password}@127.0.0.1:${PORTS.postgres}/${POSTGRES_DB}`;
 }
 
-// Each of `runMigrations`, `buildAppEnv`, and backend/bacon.toml's
-// `env.SQLX_OFFLINE` sets SQLX_OFFLINE=true independently — they're three
-// separate `cargo`/`bacon` invocations (migrate role, api role, bacon's own
-// jobs) that don't share a process, so the flag can't be set once and
-// inherited.
-//
-// Feature split (W3, not wired here yet — dev-auth doesn't exist on this
-// branch): once available, `up`'s bacon-managed api role is meant to build
-// with `--features dev-auth` for the interactive role-switcher, while
-// `bootstrap` (and this CI smoke job) stays on the default feature set —
-// the same build the release image ships, so the dev-auth absence gate is
-// exercised by the thing that actually runs in CI, not a special case.
-function runMigrations() {
-  log("running migrations (MNT_APP_ROLE=migrate cargo run -p mnt-app)...");
-  const env = {
-    ...process.env,
-    MNT_APP_ROLE: "migrate",
-    DATABASE_URL: databaseUrl(),
-    SQLX_OFFLINE: "true",
-  };
-  const result = spawnSync("cargo", ["run", "-q", "-p", "mnt-app"], {
-    cwd: BACKEND_DIR,
-    env,
+// Dev-up builds exactly one Buck2 target for each invocation, then executes that
+// resolved artifact for both migration and serving. This prevents a stale
+// non-Buck binary or separately compiled API binary from satisfying
+// readiness. Any ambiguous Buck output is rejected before execution.
+function resolveBuckOutput(target, stdout) {
+  return resolveRepoBuckOutput(REPO_ROOT, parseSingleBuckOutput(target, stdout));
+}
+
+function buildAppBinary(devAuth) {
+  const target = devAuth ? DEV_AUTH_APP_TARGET : DEFAULT_APP_TARGET;
+  log(`building ${target} with Buck2...`);
+  const result = spawnSync(BUCK2_BIN, ["build", target, "--show-output"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    const detail = result.stderr?.trim() || result.error?.message || `exit ${result.status}`;
+    throw new Error(`Buck2 build failed for ${target}: ${detail}`);
+  }
+  const outputPath = resolveBuckOutput(target, result.stdout);
+  log(`Buck2 built ${target} -> ${path.relative(REPO_ROOT, outputPath)}`);
+  return { target, outputPath };
+}
+
+function runMigrations(appBinary) {
+  log(`running migrations with ${appBinary.target}...`);
+  const result = spawnSync(appBinary.outputPath, [], {
+    cwd: REPO_ROOT,
+    env: buildAppEnv("migrate"),
     stdio: "inherit",
   });
-  if (result.status !== 0) throw new Error("migration run failed (MNT_APP_ROLE=migrate)");
+  if (result.error || result.status !== 0) throw new Error("migration run failed (MNT_APP_ROLE=migrate)");
 }
 
 function reconcileDatabaseTopology(compose) {
-  log("reconciling and verifying the six-role database topology...");
+  log("reconciling and verifying the seven-role database topology...");
   const result = runCompose(compose, ["run", "--rm", "postgres-topology"], {
     cwd: REPO_ROOT,
     env: {
@@ -560,6 +593,8 @@ function reconcileDatabaseTopology(compose) {
       MNT_RT_POSTGRES_PASSWORD: RT_POSTGRES_PASSWORD,
       MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: LEAVE_COMMAND_POSTGRES_PASSWORD,
       MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+      MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:
+        PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD,
     },
     stdio: "inherit",
   });
@@ -600,9 +635,10 @@ function runSeed(compose) {
 // SeaweedFS endpoint, and OTEL_EXPORTER_OTLP_ENDPOINT — rewritten to the
 // published localhost ports for a host-launched process.
 function buildAppEnv(role) {
+  const { VITE_CONSOLE_DEV_PREVIEW: _ignoredConsolePreview, ...parentEnv } = process.env;
   const { privateKeyPem, publicKeyPem } = ensureDevKeys();
   return {
-    ...process.env,
+    ...parentEnv,
     MNT_APP_ROLE: role,
     DATABASE_URL: role === "migrate" ? databaseUrl() : runtimeDatabaseUrl(),
     LEAVE_COMMAND_DATABASE_URL: commandDatabaseUrl(
@@ -612,6 +648,12 @@ function buildAppEnv(role) {
     ONTOLOGY_COMMAND_DATABASE_URL: commandDatabaseUrl(
       "mnt_ontology_cmd",
       ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+    ),
+    MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:
+      PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD,
+    PLATFORM_FORCE_COMMAND_DATABASE_URL: commandDatabaseUrl(
+      "mnt_platform_force_cmd",
+      PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD,
     ),
     MNT_HTTP_ADDR: `127.0.0.1:${PORTS.backend}`,
     // Local dev intentionally uses the OTP-logging stub unless a caller supplies
@@ -662,6 +704,19 @@ function buildAppEnv(role) {
   };
 }
 
+// The console preview is an explicit Vite-only local affordance, independent of
+// the backend's dev-auth feature. Strip the flag from buildAppEnv(), then pass it
+// only to the Vite child when the caller requested the exact preview opt-in. The
+// screen itself still requires import.meta.env.DEV, so production builds never
+// mount it.
+function buildViteEnv(appEnv, consolePreview) {
+  return {
+    ...appEnv,
+    VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}`,
+    ...(consolePreview ? { VITE_CONSOLE_DEV_PREVIEW: "1" } : {}),
+  };
+}
+
 function writePidState(state) {
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(state, null, 2));
@@ -694,101 +749,47 @@ async function cmdUp() {
   await assertPortFree(PORTS.backend, "backend");
   const compose = await bringUpDeps();
   reconcileDatabaseTopology(compose);
-  runMigrations();
+  const appBinary = buildAppBinary(false);
+  runMigrations(appBinary);
   runSeed(compose);
-
   const appEnv = buildAppEnv("api");
-  log("launching bacon (backend) + vite (web)...");
-  // bacon's interactive TUI needs a real controlling terminal (crossterm raw
-  // mode); without one (nohup, CI, an agent-driven run) it fails immediately
-  // with "Device not configured". `--headless` just runs the default job on
-  // change with no TUI, which works either way — so use it whenever stdout
-  // isn't a TTY, and keep the normal interactive UI for a real terminal.
-  const baconArgs = process.stdout.isTTY ? ["run"] : ["run", "--headless"];
-  const backend = spawn("bacon", baconArgs, {
-    cwd: BACKEND_DIR,
-    env: appEnv,
-    stdio: "inherit",
-  });
+  log(`launching ${appBinary.target} + vite (web)...`);
+  const backend = spawn(appBinary.outputPath, [], { cwd: REPO_ROOT, env: appEnv, stdio: "inherit", detached: process.platform !== "win32" });
   const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
-  const web = spawn(npmBin, ["run", "web:dev"], {
-    cwd: REPO_ROOT,
-    env: { ...appEnv, VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}` },
-    stdio: "inherit",
-  });
-
-  writePidState({
-    startedBy: "up",
-    backend: { pid: backend.pid, mode: "bacon" },
-    web: { pid: web.pid, mode: "npm" },
-  });
-
+  const web = spawn(npmBin, ["run", "web:dev"], { cwd: REPO_ROOT, env: buildViteEnv(appEnv, process.env.VITE_CONSOLE_DEV_PREVIEW === "1"), stdio: "inherit", detached: process.platform !== "win32" });
+  const backendState = managedProcessState({ pid: backend.pid, mode: "buck2", target: appBinary.target, outputPath: appBinary.outputPath, group: process.platform !== "win32" });
+  const webState = managedProcessState({ pid: web.pid, mode: "npm", group: process.platform !== "win32" });
+  writePidState({ startedBy: "up", backend: backendState, web: webState });
   let shuttingDown = false;
   const shutdown = (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log("stopping bacon + vite (docker deps stay up — run `dev-up.mjs down` to stop them)...");
-    for (const child of [backend, web]) {
-      if (child.pid) {
-        try {
-          process.kill(child.pid, "SIGTERM");
-        } catch {
-          // already gone
-        }
-      }
-    }
-    process.exit(exitCode);
+    log("stopping Buck2-built backend + vite (docker deps stay up — run `dev-up.mjs down` to stop them)...");
+    stopBackendProcess(backendState); stopBackendProcess(webState); process.exit(exitCode);
   };
-  process.once("SIGINT", () => shutdown(0));
-  process.once("SIGTERM", () => shutdown(0));
-  backend.on("error", (err) => {
-    log(`ERROR: could not start bacon: ${err.message} (run \`dev-up.mjs doctor\`)`);
-    shutdown(1);
-  });
-  web.on("error", (err) => {
-    log(`ERROR: could not start npm/vite: ${err.message} (run \`dev-up.mjs doctor\`)`);
-    shutdown(1);
-  });
-  backend.on("exit", (code) => {
-    if (code !== 0 && code !== null) {
-      log(`bacon exited with code ${code}`);
-      shutdown(1);
-    }
-  });
-  web.on("exit", (code) => {
-    if (code !== 0 && code !== null) {
-      log(`vite exited with code ${code}`);
-      shutdown(1);
-    }
-  });
-
-  // If the readyz wait itself fails (e.g. times out), bacon/vite are already
-  // running — without this, main().catch() would just log and exit while
-  // those two `stdio: "inherit"` children keep the event loop (and the
-  // terminal) alive forever with no dev-up process left to manage them.
-  try {
-    log(`waiting for /readyz on http://127.0.0.1:${PORTS.backend}/readyz ...`);
-    await waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000);
-  } catch (err) {
-    log(`ERROR: ${err.message}`);
-    shutdown(1);
-    return;
-  }
-  printUrls();
-
-  await new Promise(() => {}); // stay foreground while bacon/vite run
+  process.once("SIGINT", () => shutdown(0)); process.once("SIGTERM", () => shutdown(0));
+  backend.on("error", (err) => { log(`ERROR: could not start ${appBinary.target}: ${err.message}`); shutdown(1); });
+  web.on("error", (err) => { log(`ERROR: could not start npm/vite: ${err.message} (run \`dev-up.mjs doctor\`)`); shutdown(1); });
+  backend.on("exit", (code) => { if (code !== 0 && code !== null) { log(`${appBinary.target} exited with code ${code}`); shutdown(1); } });
+  web.on("exit", (code) => { if (code !== 0 && code !== null) { log(`vite exited with code ${code}`); shutdown(1); } });
+  try { log(`waiting for /readyz on http://127.0.0.1:${PORTS.backend}/readyz ...`); await waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000); }
+  catch (err) { log(`ERROR: ${err.message}`); shutdown(1); return; }
+  printUrls(); await new Promise(() => {});
 }
 
-// MNT_DEV_AUTH_E2E=1 additionally builds the backend with --features dev-auth
-// and starts the Vite dev server in the background too, so the dev-mode e2e
-// project (playwright.config.ts, "dev-auth") has a real stack to run against.
+// MNT_DEV_AUTH_E2E=1 selects the dedicated Buck2 dev-auth target,
+// seeds its personas, and starts Vite for the dev-auth Playwright project.
+// VITE_CONSOLE_DEV_PREVIEW=1 independently starts Vite with the preview flag
+// while retaining the default backend build and unseeded release-parity data.
 // Plain `bootstrap` (the existing CI "dev-up-smoke" job) is unaffected.
 async function cmdBootstrap() {
   await assertPortFree(PORTS.backend, "backend");
-  const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
+  const { devAuth, consolePreview, startVite } =
+    resolveBootstrapModes(process.env);
   const compose = await bringUpDeps();
   reconcileDatabaseTopology(compose);
-  runMigrations();
+  const appBinary = buildAppBinary(devAuth);
+  runMigrations(appBinary);
   // Seed ONLY the dev-auth stack. dev-seed.sql pre-seeds a `dev-auth:*` persona
   // (so `POST /dev-auth/session` upserts the SAME row), which a DEFAULT-feature
   // build refuses to boot against — `assert_no_dev_auth_personas` treats such a
@@ -799,24 +800,21 @@ async function cmdBootstrap() {
   mkdirSync(STATE_DIR, { recursive: true });
   const logFile = path.join(STATE_DIR, "backend.log");
   const out = openSync(logFile, "a");
-  const cargoArgs = devAuth
-    ? ["run", "-q", "-p", "mnt-app", "--features", "dev-auth"]
-    : ["run", "-q", "-p", "mnt-app"];
-  log(
-    `starting mnt-app (api${devAuth ? ", --features dev-auth" : ""}) in the background, logging to ${path.relative(REPO_ROOT, logFile)}...`,
-  );
-  const backend = spawn("cargo", cargoArgs, {
-    cwd: BACKEND_DIR,
+  log(`starting ${appBinary.target} in the background, logging to ${path.relative(REPO_ROOT, logFile)}...`);
+  const backend = spawn(appBinary.outputPath, [], {
+    cwd: REPO_ROOT,
     env: appEnv,
     stdio: ["ignore", out, out],
     detached: process.platform !== "win32",
   });
-  const backendState = {
+  const backendState = managedProcessState({
     pid: backend.pid,
-    mode: "cargo",
+    mode: "buck2",
+    target: appBinary.target,
+    outputPath: appBinary.outputPath,
     logFile,
     group: process.platform !== "win32",
-  };
+  });
   let ready = false;
   const backendStart = new Promise((_, reject) => {
     let settled = false;
@@ -830,16 +828,16 @@ async function cmdBootstrap() {
       const detail =
         code === null ? `${event} by signal ${signal}` : `${event} with code ${code}`;
       if (ready) {
-        log(`cargo ${detail} after readiness`);
+        log(`${appBinary.target} ${detail} after readiness`);
       } else {
-        failBeforeReady(`cargo ${detail} before /readyz`);
+        failBeforeReady(`${appBinary.target} ${detail} before /readyz`);
       }
     };
     backend.once("error", (err) => {
       if (ready) {
-        log(`cargo process error after readiness: ${err.message}`);
+        log(`${appBinary.target} process error after readiness: ${err.message}`);
       } else {
-        failBeforeReady(`could not start cargo: ${err.message}`);
+        failBeforeReady(`could not start ${appBinary.target}: ${err.message}`);
       }
     });
     backend.once("exit", (code, signal) => handleEnd("exited", code, signal));
@@ -861,23 +859,23 @@ async function cmdBootstrap() {
   log(`/readyz green at http://127.0.0.1:${PORTS.backend}/readyz`);
 
   let webState = null;
-  if (devAuth) {
+  if (startVite) {
     const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
     const webLogFile = path.join(STATE_DIR, "web.log");
     const webOut = openSync(webLogFile, "a");
     log(`starting vite dev server in the background, logging to ${path.relative(REPO_ROOT, webLogFile)}...`);
     const web = spawn(npmBin, ["run", "web:dev"], {
       cwd: REPO_ROOT,
-      env: { ...appEnv, VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}` },
+      env: buildViteEnv(appEnv, consolePreview),
       stdio: ["ignore", webOut, webOut],
       detached: process.platform !== "win32",
     });
-    webState = {
+    webState = managedProcessState({
       pid: web.pid,
       mode: "npm",
       logFile: webLogFile,
       group: process.platform !== "win32",
-    };
+    });
     writePidState({
       startedBy: "bootstrap",
       backend: backendState,
@@ -938,6 +936,8 @@ async function cmdDown() {
         MNT_RT_POSTGRES_PASSWORD: RT_POSTGRES_PASSWORD,
         MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: LEAVE_COMMAND_POSTGRES_PASSWORD,
         MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+        MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:
+          PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD,
       },
       stdio: "inherit",
     });

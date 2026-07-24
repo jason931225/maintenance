@@ -19,6 +19,7 @@ use uuid::Uuid;
 const TEST_ISSUER: &str = "mnt-platform-auth";
 const TEST_AUDIENCE: &str = "mnt-api";
 const EMPLOYEES_PATH: &str = "/api/v1/employees";
+const HR_READINESS_SUMMARY_PATH: &str = "/api/v1/hr/readiness-summary";
 
 struct Keys {
     private_pem: String,
@@ -30,15 +31,95 @@ struct JsonResponse {
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn readiness_counts_only_inspectable_active_payroll_close_statuses(pool: PgPool) {
+    let keys = keys();
+    let org = OrgId::knl();
+    let user = UserId::new();
+    seed_user(&pool, org, user).await;
+
+    for (source_label, status, calculation_enabled) in [
+        ("terminal-issued", "ISSUED", true),
+        ("terminal-void", "VOID", false),
+    ] {
+        sqlx::query(
+            "INSERT INTO payroll_draft_runs \
+             (id, org_id, period_start, period_end, source_label, status, calculation_enabled, created_by) \
+             VALUES ($1, $2, '2026-07-01', '2026-07-31', $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(*org.as_uuid())
+        .bind(source_label)
+        .bind(status)
+        .bind(calculation_enabled)
+        .bind(*user.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let service = build_router(
+        app_state(
+            runtime_role_pool(&pool).await,
+            leave_command_role_pool(&pool).await,
+            keys.public_pem.clone(),
+        )
+        .unwrap(),
+    );
+    let token = bearer(&keys, org, user, &["SUPER_ADMIN"]);
+
+    let terminal_only = get(service.clone(), HR_READINESS_SUMMARY_PATH, &token).await;
+    assert_eq!(
+        terminal_only.status,
+        StatusCode::OK,
+        "{:?}",
+        terminal_only.json
+    );
+    assert_eq!(terminal_only.json["payroll"]["draft_runs"], 2);
+    assert_eq!(terminal_only.json["payroll"]["active_close_runs"], 0);
+
+    for (source_label, status, calculation_enabled) in [
+        ("active-staged", "STAGED", false),
+        ("active-blocked", "BLOCKED_LEGAL_GATE", false),
+        ("active-ready", "READY_FOR_REVIEW", true),
+        ("active-approved", "APPROVED", true),
+    ] {
+        sqlx::query(
+            "INSERT INTO payroll_draft_runs \
+             (id, org_id, period_start, period_end, source_label, status, calculation_enabled, created_by) \
+             VALUES ($1, $2, '2026-08-01', '2026-08-31', $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(*org.as_uuid())
+        .bind(source_label)
+        .bind(status)
+        .bind(calculation_enabled)
+        .bind(*user.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let active = get(service, HR_READINESS_SUMMARY_PATH, &token).await;
+    assert_eq!(active.status, StatusCode::OK, "{:?}", active.json);
+    assert_eq!(active.json["payroll"]["active_close_runs"], 4);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     let keys = keys();
     let org = OrgId::knl();
     let user = UserId::new();
     seed_user(&pool, org, user).await;
     let branch = seed_branch(&pool, org, "People test branch").await;
-    let service =
-        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
-    let token = bearer(&keys, org, user);
+    let service = build_router(
+        app_state(
+            runtime_role_pool(&pool).await,
+            leave_command_role_pool(&pool).await,
+            keys.public_pem.clone(),
+        )
+        .unwrap(),
+    );
+    let token = bearer(&keys, org, user, &["SUPER_ADMIN"]);
     let body = create_body(branch, "PEOPLE-001", "same-key", "010-1234-5678", "Kim");
 
     let (first, second) = tokio::join!(
@@ -72,20 +153,21 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         json!({}),
         "employee creation must not fabricate acknowledgements"
     );
-    for table in [
-        "employees",
-        "employee_employment_profiles",
-        "employee_lifecycle_events",
-        "employee_create_idempotency",
-    ] {
-        let count: i64 =
-            sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE org_id = $1"))
-                .bind(*org.as_uuid())
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(count, 1, "same-key race must write exactly one {table} row");
-    }
+    let row_counts: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM employees WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_employment_profiles WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_lifecycle_events WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_create_idempotency WHERE org_id = $1)",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row_counts,
+        (1, 1, 1, 1),
+        "same-key race must write exactly one row in each employee creation table"
+    );
 
     let changed = post(
         service.clone(),
@@ -148,6 +230,182 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         );
     }
 
+    let executive = UserId::new();
+    seed_user_with_roles(&pool, org, executive, &["EXECUTIVE"]).await;
+    let before_executive_denial = people_write_counts(&pool, org).await;
+    let executive_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, executive, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-EXEC",
+            "executive-key",
+            "010-1234-5678",
+            "Executive",
+        ),
+    )
+    .await;
+    assert_eq!(
+        executive_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        executive_denied.json
+    );
+    assert_eq!(
+        people_write_counts(&pool, org).await,
+        before_executive_denial
+    );
+
+    let custom_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, custom_grantee, &["EXECUTIVE"]).await;
+    seed_manage_grant(&pool, org, custom_grantee, None, None).await;
+    let custom_created = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, custom_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-CUSTOM",
+            "custom-key",
+            "010-1234-5678",
+            "Custom",
+        ),
+    )
+    .await;
+    assert_eq!(
+        custom_created.status,
+        StatusCode::CREATED,
+        "{:?}",
+        custom_created.json
+    );
+    let matching_team_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, matching_team_grantee, &["EXECUTIVE"]).await;
+    set_user_team(&pool, org, matching_team_grantee, "정비").await;
+    seed_manage_grant(&pool, org, matching_team_grantee, None, Some("MAINTENANCE")).await;
+    let matching_team_created = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, matching_team_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-TEAM-MATCH",
+            "team-match-key",
+            "010-1234-5678",
+            "Matching team",
+        ),
+    )
+    .await;
+    assert_eq!(
+        matching_team_created.status,
+        StatusCode::CREATED,
+        "{:?}",
+        matching_team_created.json
+    );
+    let before_team_denial = people_write_counts(&pool, org).await;
+
+    let mismatched_team_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, mismatched_team_grantee, &["EXECUTIVE"]).await;
+    set_user_team(&pool, org, mismatched_team_grantee, "정비").await;
+    seed_manage_grant(
+        &pool,
+        org,
+        mismatched_team_grantee,
+        None,
+        Some("PREVENTION"),
+    )
+    .await;
+    let mismatched_team_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, mismatched_team_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-TEAM-MISMATCH",
+            "team-mismatch-key",
+            "010-1234-5678",
+            "Mismatched team",
+        ),
+    )
+    .await;
+    assert_eq!(
+        mismatched_team_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        mismatched_team_denied.json
+    );
+    assert_eq!(people_write_counts(&pool, org).await, before_team_denial);
+    let before_denials = people_write_counts(&pool, org).await;
+
+    let denied_user = UserId::new();
+    seed_user_with_roles(&pool, org, denied_user, &["MEMBER"]).await;
+    let denied_create = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, denied_user, &["MEMBER"]),
+        create_body(
+            branch,
+            "PEOPLE-DENIED",
+            "denied-key",
+            "010-1234-5678",
+            "Denied",
+        ),
+    )
+    .await;
+    assert_eq!(
+        denied_create.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        denied_create.json
+    );
+
+    let branch_grantee = UserId::new();
+    seed_user_with_roles(&pool, org, branch_grantee, &["EXECUTIVE"]).await;
+    seed_manage_grant(&pool, org, branch_grantee, Some(branch), None).await;
+    let branch_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, branch_grantee, &["EXECUTIVE"]),
+        create_body(
+            branch,
+            "PEOPLE-BRANCH",
+            "branch-key",
+            "010-1234-5678",
+            "Branch",
+        ),
+    )
+    .await;
+    assert_eq!(
+        branch_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        branch_denied.json
+    );
+    assert_eq!(people_write_counts(&pool, org).await, before_denials);
+
+    let admin = UserId::new();
+    seed_user_with_roles(&pool, org, admin, &["ADMIN"]).await;
+    let admin_denied = post(
+        service.clone(),
+        EMPLOYEES_PATH,
+        &bearer(&keys, org, admin, &["ADMIN"]),
+        create_body(
+            branch,
+            "PEOPLE-ADMIN",
+            "admin-key",
+            "010-1234-5678",
+            "Admin",
+        ),
+    )
+    .await;
+    assert_eq!(
+        admin_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        admin_denied.json
+    );
+    assert_eq!(people_write_counts(&pool, org).await, before_denials);
+
     let other_org = OrgId::from_uuid(Uuid::new_v4());
     seed_org(&pool, other_org).await;
     let other_user = UserId::new();
@@ -155,7 +413,7 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     let denied = get(
         service,
         &format!("{EMPLOYEES_PATH}/{employee_id}"),
-        &bearer(&keys, other_org, other_user),
+        &bearer(&keys, other_org, other_user, &["SUPER_ADMIN"]),
     )
     .await;
     assert_eq!(
@@ -185,7 +443,10 @@ fn create_body(branch: Uuid, employee_number: &str, key: &str, phone: &str, name
 async fn seed_org(pool: &PgPool, org: OrgId) {
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
         .bind(*org.as_uuid())
-        .bind(format!("people-{}", org.as_uuid()))
+        .bind(format!(
+            "people-{}",
+            &org.as_uuid().simple().to_string()[..12]
+        ))
         .bind("People test org")
         .execute(pool)
         .await
@@ -193,14 +454,103 @@ async fn seed_org(pool: &PgPool, org: OrgId) {
 }
 
 async fn seed_user(pool: &PgPool, org: OrgId, user: UserId) {
+    seed_user_with_roles(pool, org, user, &["SUPER_ADMIN"]).await;
+}
+
+async fn seed_user_with_roles(pool: &PgPool, org: OrgId, user: UserId, roles: &[&str]) {
     sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user.as_uuid())
-        .bind("People administrator")
-        .bind(vec!["ADMIN"])
+        .bind("People super administrator")
+        .bind(roles)
         .bind(*org.as_uuid())
         .execute(pool)
         .await
         .unwrap();
+}
+
+async fn set_user_team(pool: &PgPool, org: OrgId, user: UserId, team: &str) {
+    sqlx::query("UPDATE users SET team = $1 WHERE id = $2 AND org_id = $3")
+        .bind(team)
+        .bind(*user.as_uuid())
+        .bind(*org.as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn seed_manage_grant(
+    pool: &PgPool,
+    org: OrgId,
+    user: UserId,
+    branch: Option<Uuid>,
+    team: Option<&str>,
+) {
+    let role_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO policy_roles (org_id, role_key, display_name, status) \
+         VALUES ($1, $2, $3, 'ACTIVE') RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(format!("people_manage_{}", Uuid::new_v4().simple()))
+    .bind("People manager")
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO policy_role_permissions (org_id, role_id, feature_key, permission_level) \
+         VALUES ($1, $2, 'employee_directory_manage', 'allow')",
+    )
+    .bind(*org.as_uuid())
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    if let Some(branch) = branch {
+        sqlx::query(
+            "INSERT INTO policy_role_conditions \
+             (org_id, role_id, condition_key, attribute, operator, condition_values) \
+             VALUES ($1, $2, 'branch_scope', 'branch', 'equals', ARRAY[$3::text])",
+        )
+        .bind(*org.as_uuid())
+        .bind(role_id)
+        .bind(branch)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    if let Some(team) = team {
+        sqlx::query(
+            "INSERT INTO policy_role_conditions \
+             (org_id, role_id, condition_key, attribute, operator, condition_values) \
+             VALUES ($1, $2, 'team_scope', 'team', 'equals', ARRAY[$3::text])",
+        )
+        .bind(*org.as_uuid())
+        .bind(role_id)
+        .bind(team)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO user_role_assignments (org_id, user_id, role_id) VALUES ($1, $2, $3)")
+        .bind(*org.as_uuid())
+        .bind(*user.as_uuid())
+        .bind(role_id)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn people_write_counts(pool: &PgPool, org: OrgId) -> (i64, i64, i64, i64, i64) {
+    sqlx::query_as(
+        "SELECT (SELECT count(*) FROM employees WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_employment_profiles WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_lifecycle_events WHERE org_id = $1), \
+         (SELECT count(*) FROM employee_create_idempotency WHERE org_id = $1), \
+         (SELECT count(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.create')",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn seed_branch(pool: &PgPool, org: OrgId, name: &str) -> Uuid {
@@ -269,7 +619,7 @@ fn keys() -> Keys {
     }
 }
 
-fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
+fn bearer(keys: &Keys, org: OrgId, user: UserId, roles: &[&str]) -> String {
     let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
             issuer: TEST_ISSUER.to_owned(),
@@ -284,7 +634,7 @@ fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
         .issue_access_token(AccessTokenInput {
             subject: user,
             org_id: org,
-            roles: vec!["ADMIN".to_owned()],
+            roles: roles.iter().map(|role| (*role).to_owned()).collect(),
             branches: Vec::new(),
             platform: false,
             view_as: false,
@@ -300,12 +650,24 @@ fn bearer(keys: &Keys, org: OrgId, user: UserId) -> String {
 }
 
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    scoped_role_pool(owner_pool, "mnt_rt").await
+}
+
+async fn leave_command_role_pool(owner_pool: &PgPool) -> PgPool {
+    scoped_role_pool(owner_pool, "mnt_leave_cmd").await
+}
+
+async fn scoped_role_pool(owner_pool: &PgPool, role: &'static str) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
         .max_connections(4)
-        .after_connect(|conn, _| {
+        .after_connect(move |conn, _| {
             Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                match role {
+                    "mnt_rt" => sqlx::query("SET ROLE mnt_rt").execute(conn).await?,
+                    "mnt_leave_cmd" => sqlx::query("SET ROLE mnt_leave_cmd").execute(conn).await?,
+                    _ => unreachable!("test role is fixed by its helper"),
+                };
                 Ok(())
             })
         })
@@ -314,7 +676,11 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
-fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::AppError> {
+fn app_state(
+    runtime_pool: PgPool,
+    leave_command_pool: PgPool,
+    public_key_pem: String,
+) -> Result<AppState, mnt_app::AppError> {
     let config = AppConfig::from_pairs([
         ("MNT_APP_ROLE", AppRole::Api.to_string()),
         ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
@@ -322,5 +688,6 @@ fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::
         ("MNT_JWT_AUDIENCE", TEST_AUDIENCE.to_owned()),
         ("MNT_JWT_PUBLIC_KEY_PEM", public_key_pem),
     ])?;
-    AppState::new(config, DatabaseDependency::Postgres(pool))
+    AppState::new(config, DatabaseDependency::Postgres(runtime_pool))
+        .map(|state| state.with_leave_command_database(leave_command_pool))
 }

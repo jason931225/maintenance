@@ -9,6 +9,10 @@
 > [`console-enterprise-roadmap.md`](console-enterprise-roadmap.md), its
 > machine-readable capability and jurisdiction registers, current repository
 > contracts, and exact-candidate evidence.
+> The current Buck2 execution policy is
+> [`console-buck2-scale-playbook.md`](console-buck2-scale-playbook.md). The
+> older Buck2-CI charter below is historical context and cannot authorize Cargo
+> product-test completion evidence.
 
 Authority model (2026-07-09 directive):
 - **Frontend design authority** = Claude Design project `9c7c313a` (dc.html prototype + design-system grammar) + `docs/design/oyatie-console/*`.

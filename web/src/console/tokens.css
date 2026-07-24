@@ -74,6 +74,7 @@
   --sp-4: 10px;
   --sp-5: 12px;
   --sp-6: 15px;
+  --sp-page: 24px;
   --sp-card-y: 12px;
   --radius-chip: 5px;
   --radius-sm: 7px;
@@ -85,6 +86,14 @@
   --shadow-pop: 0 12px 32px rgba(20, 26, 33, 0.16);
   --border-hairline: 1px solid var(--border);
   color-scheme: light;
+}
+
+/* Finance purchase requests mount inside the console token scope rather than
+   inheriting utility classes from the legacy app shell. The legacy px-6/pb-6
+   geometry is 24px; retain it through the named page-spacing token. */
+.console .purchase-requests-workspace {
+  padding-inline: var(--sp-page);
+  padding-block-end: var(--sp-page);
 }
 
 /* Shared keyboard focus ring for window-model controls (§WCAG AA 2.4.11).

@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppRouter } from "./AppRouter";
@@ -62,6 +63,29 @@ const emptyOpsSummary = {
   open_support_tickets: 0,
 };
 
+// The operational Dispatch console owns a separate bounded queue from the
+// legacy work-order list. Keep its cold-start response explicit so this suite
+// proves that both real read paths are empty rather than silently letting an
+// unhandled request bleed into another test.
+const emptyDispatchQueue = {
+  items: [],
+  stats: { unassigned_count: 0, sla_due_count: 0 },
+};
+
+const emptyConsoleRollout = {
+  flag_key: "console_carbon_copy",
+  org_enabled: false,
+  org_rollout_enabled: false,
+  user_opted_in: false,
+  legacy_kill_switch_enabled: false,
+  kill_switch_active: false,
+  effective_new_console: false,
+  effective_route: "legacy",
+  effective_route_for_opted_in_user: "legacy",
+  effective_route_for_opted_out_user: "legacy",
+  overrides_individual_toggles: false,
+};
+
 const emptyConsentStatus = {
   consent_id: "00000000-0000-4000-8000-000000000011",
   user_id: USER_ID,
@@ -89,6 +113,7 @@ const emptyHrReadinessSummary = {
     draft_runs: 0,
     blocked_runs: 0,
     calculation_enabled_runs: 0,
+    active_close_runs: 0,
     draft_lines: 0,
     payroll_source_rows: 0,
     attendance_source_rows: 0,
@@ -171,6 +196,16 @@ const server = setupServer(
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(emptyOpsSummary)),
+  http.get("*/api/v1/console/dispatch/queue", () => {
+    dispatchQueueReads += 1;
+    return HttpResponse.json(emptyDispatchQueue);
+  }),
+  // Profile settings mounts these self-service reads after its identity fetch.
+  // Fixture them explicitly so handler reset cannot hide a late unhandled call.
+  http.get("*/api/v1/auth/passkeys", () => HttpResponse.json([])),
+  http.get("*/api/v1/console/rollout", () =>
+    HttpResponse.json(emptyConsoleRollout),
+  ),
   // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
   // /overview and /attendance. Empty backend => empty layout object.
   http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
@@ -207,9 +242,25 @@ const server = setupServer(
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
   ),
-  // AttendancePage is mounted by ConsoleShell for persistence, but inactive
-  // screens must not fetch. The counter below locks the /overview no-hidden-fetch
-  // regression (its Today panel makes exactly ONE punch-status read) while
+  http.get("*/api/v1/attendance/me/exceptions", () => {
+    ownAttendanceReads += 1;
+    return HttpResponse.json({ items: [], limit: 50, offset: 0, total: 0 });
+  }),
+  http.get("*/api/v1/attendance/me/week52", () => {
+    ownAttendanceReads += 1;
+    return HttpResponse.json({ status: "not_available" });
+  }),
+  http.get("*/api/v1/me/authz", () => {
+    attendanceAuthzReads += 1;
+    return HttpResponse.json({ roles: ["SUPER_ADMIN"], capabilities: [] });
+  }),
+  http.get("*/api/v1/attendance/:resource*", () => {
+    managerAttendanceReads += 1;
+    return HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 });
+  }),
+  // AttendancePunchPanel mounts only in the active console attendance route.
+  // The counter below locks the /overview no-hidden-fetch regression (its Today
+  // panel makes exactly ONE punch-status read) while
   // still serving /attendance when it becomes active.
   http.get("*/api/v1/hr/attendance-records/me", () => {
     attendanceRecordReads += 1;
@@ -265,6 +316,11 @@ const server = setupServer(
 );
 
 let attendanceRecordReads = 0;
+let ownAttendanceReads = 0;
+let managerAttendanceReads = 0;
+let attendanceAuthzReads = 0;
+let payrollRunReads = 0;
+let dispatchQueueReads = 0;
 
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
@@ -274,6 +330,9 @@ const inFlightHttpRequests = new Map<string, string>();
 server.events.on("request:start", ({ request, requestId }) => {
   if (request.url.startsWith("http://") || request.url.startsWith("https://")) {
     inFlightHttpRequests.set(requestId, request.url);
+    if (new URL(request.url).pathname === "/api/v1/payroll/runs") {
+      payrollRunReads += 1;
+    }
   }
 });
 server.events.on("request:end", ({ requestId }) => {
@@ -296,11 +355,23 @@ async function waitForLateMountEffects() {
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
-afterEach(() => {
+afterEach(async () => {
+  // Do not clear the request ledger: handler isolation must not erase evidence
+  // of a late route fetch. Require the app to become quiescent before swapping
+  // handlers so delayed effects fail this test instead of leaking into the
+  // next one.
+  cleanup();
+  await waitForNetworkIdle();
   attendanceRecordReads = 0;
+  ownAttendanceReads = 0;
+  managerAttendanceReads = 0;
+  attendanceAuthzReads = 0;
+  payrollRunReads = 0;
+  dispatchQueueReads = 0;
   server.resetHandlers();
 });
 afterAll(() => {
+  expect(Array.from(inFlightHttpRequests.values())).toEqual([]);
   server.close();
 });
 
@@ -374,6 +445,7 @@ describe("every page renders cleanly against an empty backend", () => {
       expect(
         (await screen.findAllByText(page.empty, undefined, ROUTE_LOAD_OPTIONS))[0],
       ).toBeVisible();
+      await waitForNetworkIdle();
 
       // The per-route error boundary fallback must never appear.
       expect(
@@ -385,10 +457,42 @@ describe("every page renders cleanly against an empty backend", () => {
         expect.anything(),
         expect.anything(),
       );
+      if (page.path === "/dispatch") {
+        expect(dispatchQueueReads).toBe(1);
+      }
     });
   }
 
-  it("reads punch status exactly once while Overview is active (no hidden attendance-screen fetch)", async () => {
+  it("keeps a delayed Dispatch queue response visible until it settles", async () => {
+    let releaseResponse: (() => void) | undefined;
+    const responseReleased = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/console/dispatch/queue", async () => {
+        dispatchQueueReads += 1;
+        await responseReleased;
+        return HttpResponse.json(emptyDispatchQueue);
+      }),
+    );
+
+    renderAt("/dispatch");
+    try {
+      await waitFor(() => {
+        expect(dispatchQueueReads).toBe(1);
+      });
+      expect(Array.from(inFlightHttpRequests.values())).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/\/api\/v1\/console\/dispatch\/queue/),
+        ]),
+      );
+    } finally {
+      releaseResponse?.();
+    }
+    await waitForNetworkIdle();
+  });
+
+  it("keeps hidden attendance composition completely inert while Overview is active", async () => {
     renderAt("/overview");
     expect(await waitForRouteReady("통합 개요")).toBeVisible();
     await waitForNetworkIdle();
@@ -397,14 +501,49 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(attendanceRecordReads).toBe(1);
     await waitForLateMountEffects();
     expect(attendanceRecordReads).toBe(1);
+    expect(ownAttendanceReads).toBe(0);
+    expect(managerAttendanceReads).toBe(0);
+    expect(attendanceAuthzReads).toBe(0);
   });
 
-  it("fetches attendance records once the attendance screen is active", async () => {
-    renderAt("/attendance");
+  it("mounts punch and own-attendance surfaces at /attendance", async () => {
+    const { container } = renderAt("/attendance");
     expect(await waitForRouteReady("내 근태 기록")).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1, name: "내 근태 기록" })).toHaveLength(1);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(await screen.findByRole("region", { name: "개인 근태" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
     await waitFor(() => {
       expect(attendanceRecordReads).toBe(1);
     });
+    expect(ownAttendanceReads).toBe(2);
+    expect(attendanceAuthzReads).toBe(1);
+  });
+
+  it("removes loaded attendance data and fences late reads after navigating to Overview", async () => {
+    const user = userEvent.setup();
+    renderAt("/attendance");
+    expect(await screen.findByRole("button", { name: "출근 기록" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
+
+    await user.click(screen.getByRole("link", { name: "통합 개요" }));
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "출근 기록" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "개인 근태" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "내 근태" })).toBeNull();
+    const readsAfterNavigation = [
+      attendanceRecordReads,
+      ownAttendanceReads,
+      managerAttendanceReads,
+      attendanceAuthzReads,
+    ];
+    await waitForLateMountEffects();
+    expect([
+      attendanceRecordReads,
+      ownAttendanceReads,
+      managerAttendanceReads,
+      attendanceAuthzReads,
+    ]).toEqual(readsAfterNavigation);
   });
 
   it("renders /payroll with zero readiness counts and no crash", async () => {
@@ -413,6 +552,7 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(await screen.findByText("급여 산출 준비도")).toBeVisible();
     expect(await screen.findByText("법적 검토 게이트 차단")).toBeVisible();
     await waitForNetworkIdle();
+    expect(payrollRunReads).toBe(0);
   });
 
   it("renders /equipment (no data assumed) without crashing", async () => {

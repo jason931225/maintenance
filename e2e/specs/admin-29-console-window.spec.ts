@@ -26,13 +26,15 @@ const HEADER = `${CARD} [data-card-header]`;
 
 async function loginWithDevRole(page: Page): Promise<string> {
   await page.goto("/login");
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
+  const roleSwitcher = page.getByRole("region", { name: "로컬 역할 전환" });
   const sessionResponse = page.waitForResponse(
     (response) =>
       response.url().includes("/api/v1/dev-auth/session") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  await roleSwitcher
+    .getByRole("button", { name: /관리자 로그인$/ })
+    .click();
   const session = (await (await sessionResponse).json()) as {
     access_token?: string;
   };

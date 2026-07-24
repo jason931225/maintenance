@@ -118,17 +118,7 @@ final class AccessibilityAuditUITests: FieldUITestCase {
             identifier: AID.messengerMessageRow(messageID)
         ).firstMatch
         XCTAssertTrue(
-            message.waitForExistence(timeout: 15),
-            "Dynamic Type audit must load the exact seeded message row."
-        )
-        XCTAssertNotNil(
-            scrollToElement(
-                message,
-                in: messenger,
-                topSentinel: thread,
-                timeout: 30,
-                maxSwipes: 24
-            ),
+            materializeMessengerMessage(message, in: messenger),
             "Dynamic Type audit must materialize the exact seeded message row."
         )
 
@@ -136,6 +126,25 @@ final class AccessibilityAuditUITests: FieldUITestCase {
             positionElementInStableViewport(message, in: messenger),
             "Accessibility audit must keep the exact seeded message outside system chrome."
         )
+    }
+
+    private func materializeMessengerMessage(
+        _ message: XCUIElement,
+        in container: XCUIElement,
+        timeout: TimeInterval = 30,
+        maxSwipes: Int = 24
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        guard container.waitForExistence(timeout: min(timeout, 2)) else { return false }
+
+        for _ in 0..<maxSwipes {
+            if message.exists, message.isHittable {
+                return true
+            }
+            guard Date() < deadline else { return false }
+            container.swipeUp()
+        }
+        return message.exists && message.isHittable
     }
 
     /// Settles one exact audit element completely inside the live List viewport

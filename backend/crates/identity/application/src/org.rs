@@ -246,6 +246,33 @@ pub struct UserListQuery {
     pub offset: Option<i64>,
 }
 
+/// Maximum directory page size accepted at the public REST boundary.
+///
+/// Persistence retains a defensive clamp for non-REST callers, but external
+/// requests above this limit are rejected rather than silently rewritten.
+pub const MAX_DIRECTORY_PAGE_LIMIT: i64 = 200;
+
+/// Validated filters for a tenant people-directory query.
+///
+/// The persistence adapter must apply every filter to both its count and page
+/// queries, and order by `(display_name, id)` before applying pagination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectoryListQuery {
+    /// Lowercase, trimmed search term; `None` means no name search filter.
+    pub search: Option<String>,
+    /// Optional exact team affiliation.
+    pub team: Option<Team>,
+    /// Optional branch filter, intersected with the caller's effective scope.
+    pub branch_id: Option<BranchId>,
+    pub include_inactive: bool,
+    /// Page size; REST accepts `1..=MAX_DIRECTORY_PAGE_LIMIT` and defaults a
+    /// missing value. The adapter retains a defensive bound for non-REST calls.
+    pub limit: Option<i64>,
+    /// Zero-based row offset into the fully filtered, `(display_name, id)`
+    /// ordered roster. `None` starts at the first page.
+    pub offset: Option<i64>,
+}
+
 /// One page of users plus the unpaged `total` for the caller's branch scope, so
 /// the console can show an honest count and page beyond the per-request cap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

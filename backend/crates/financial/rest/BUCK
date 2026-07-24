@@ -44,6 +44,7 @@ rust_test(
     crate_root = "backend/crates/financial/rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/rest"},
+    labels = ["owner.backend.crates.financial.rest", "domain.financial", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/financial/adapter-postgres:mnt-financial-adapter-postgres",
         "//backend/crates/financial/application:mnt-financial-application",
@@ -77,7 +78,7 @@ rust_test(
     crate_root = "backend/crates/financial/rest/tests/purchase_request_list.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.financial.rest", "domain.financial", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/financial/adapter-postgres:mnt-financial-adapter-postgres",
         "//backend/crates/financial/application:mnt-financial-application",

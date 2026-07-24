@@ -18,18 +18,17 @@ import { defineConfig, devices } from "@playwright/test";
  * switcher, and weakening its DEV-only predicate to make it render there is
  * exactly the wrong fix (mnt-gate-dev-auth-absence + dev_auth_absence.rs
  * already prove the feature is compiled OUT of a default/release build; this
- * spec proves the opposite build actually works). Set MNT_DEV_AUTH_E2E=1 and
- * bring up the real stack first — `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs
- * bootstrap` starts the backend WITH dev-auth and the Vite dev server in the
- * background; `node scripts/dev-up.mjs down` tears both down — then run this
- * config; a "dev-auth" project appears and the default "chromium" project
- * skips the spec. Unset (the default everywhere else, including the existing
- * "Browser E2E" CI job), this file behaves exactly as before.
+ * spec proves the opposite build actually works). Attendance coverage runs in
+ * that same production-faithful Vite development build; it exercises the active
+ * `/attendance` route, not the independently gated `/console/*` preview.
+ * `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap` starts the backend
+ * WITH dev-auth, `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`
+ * runs the suite, and `node scripts/dev-up.mjs down` tears the stack down.
  */
 const PORT = Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 const DEV_AUTH_SPEC =
-  /(?:admin-29-console-window|auth-09-dev-role-switcher|chrome-0[123]-(?:mobile-drawer|axe|workspace)|console-01-shell|hr-30-absence-exit-settlement)\.spec\.ts$/;
+  /(?:admin-29-console-window|auth-09-dev-role-switcher|chrome-0[123]-(?:mobile-drawer|axe|workspace)|console-01-shell|hr-30-absence-exit-settlement|attendance-31-console-live)\.spec\.ts$/;
 const DEV_AUTH_E2E = process.env.MNT_DEV_AUTH_E2E === "1";
 const STATIC_PREVIEW_FALLBACK = process.env.E2E_STATIC_PREVIEW_FALLBACK === "1";
 

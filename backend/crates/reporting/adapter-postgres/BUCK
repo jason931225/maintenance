@@ -46,7 +46,7 @@ rust_test(
     crate_root = "backend/crates/reporting/adapter-postgres/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/reporting/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.reporting.adapter-postgres", "domain.reporting", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -75,7 +75,7 @@ rust_test(
     crate_root = "backend/crates/reporting/adapter-postgres/tests/excel_exports.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/reporting/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.reporting.adapter-postgres", "domain.reporting", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -105,7 +105,7 @@ rust_test(
     crate_root = "backend/crates/reporting/adapter-postgres/tests/kpi_golden_dataset.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/reporting/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.reporting.adapter-postgres", "domain.reporting", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -135,7 +135,7 @@ rust_test(
     crate_root = "backend/crates/reporting/adapter-postgres/tests/ops_summary.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/reporting/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.reporting.adapter-postgres", "domain.reporting", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -165,7 +165,7 @@ rust_test(
     crate_root = "backend/crates/reporting/adapter-postgres/tests/work_diary_rls_surfaces_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/reporting/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.reporting.adapter-postgres", "domain.reporting", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",

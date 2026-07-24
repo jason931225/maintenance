@@ -40,7 +40,7 @@ rust_test(
     crate_root = "backend/crates/inbox/adapter-postgres/tests/inbox_docs_rls_surfaces_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/inbox/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.inbox.adapter-postgres", "domain.inbox", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/inbox/application:mnt-inbox-application",
         "//backend/crates/inbox/domain:mnt-inbox-domain",

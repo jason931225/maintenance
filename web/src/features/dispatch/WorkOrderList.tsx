@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";

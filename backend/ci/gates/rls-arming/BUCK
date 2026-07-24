@@ -43,5 +43,5 @@ rust_test(
     crate_root = "backend/ci/gates/rls-arming/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/rls-arming", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.ci.gates.rls-arming", "domain.ci", "test.unit", "resource.postgres", "needs-postgres"],
 )

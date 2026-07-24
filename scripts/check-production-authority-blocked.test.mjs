@@ -7,7 +7,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -143,15 +145,42 @@ function run(root, ...args) {
   );
 }
 function runWithEnvironment(root, environment, ...args) {
+  return runAtPath(root, root, environment, ...args);
+}
+function runAtPath(root, executableRoot, environment, ...args) {
   return spawnSync(
     process.execPath,
-    [join(root, "scripts/check-production-authority-blocked.mjs"), ...args],
+    [
+      join(executableRoot, "scripts/check-production-authority-blocked.mjs"),
+      ...args,
+    ],
     {
       cwd: tmpdir(),
       encoding: "buffer",
       env: { ...process.env, ...environment },
     },
   );
+}
+function gitTrace(root) {
+  const log = join(root, "git-trace.json");
+  return { environment: { GIT_TRACE2_EVENT: log }, log };
+}
+function readGitTraceCalls(log) {
+  const events = readFileSync(log, "utf8")
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line));
+  const repositories = new Map(
+    events
+      .filter((event) => event.event === "def_repo")
+      .map((event) => [event.sid, realpathSync(event.worktree)]),
+  );
+  return events
+    .filter((event) => event.event === "start")
+    .map((event) => ({
+      cwd: repositories.get(event.sid),
+      args: event.argv.slice(1).join(" "),
+    }));
 }
 function assertFailure(result, code) {
   assert.notEqual(result.status, 0);
@@ -262,6 +291,26 @@ describe("production authority blocked observation CLI", () => {
     assertFailure(run(root, sha, "extra"), "ARGUMENT_COUNT");
     assertFailure(run(root, "HEAD"), "COMMIT_SHA_FORMAT");
     assertFailure(run(root, zero), "COMMIT_SHA_ZERO");
+  });
+  it("evaluates from the canonical repository root when the executable path uses a filesystem alias", () => {
+    const { root, sha } = fixture();
+    const alias = `${root}-alias`;
+    symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
+    cleanup.push(alias);
+    const { environment, log } = gitTrace(root);
+
+    const result = runAtPath(root, alias, environment, sha);
+
+    assert.equal(result.status, 0, result.stderr.toString());
+    assert.equal(JSON.parse(result.stdout).evaluated_commit_sha, sha);
+    const evaluatorRoot = realpathSync(root);
+    assert.deepEqual(readGitTraceCalls(log), [
+      { cwd: evaluatorRoot, args: `cat-file -t ${sha}` },
+      ...paths.map((path) => ({
+        cwd: evaluatorRoot,
+        args: `show ${sha}:${path}`,
+      })),
+    ]);
   });
   it("rejects every non-exact SHA form before touching Git", () => {
     const { root } = fixture();
@@ -448,27 +497,16 @@ describe("production authority blocked observation CLI", () => {
   });
   it("uses exactly one object query and five fixed-order blob reads from the evaluator repository root", () => {
     const { root, sha } = fixture();
-    const bin = join(root, "shim-bin"),
-      log = join(root, "git.log");
-    mkdirSync(bin);
-    const realGit = spawnSync("which", ["git"], {
-      encoding: "utf8",
-    }).stdout.trim();
-    const shim = join(bin, "git");
-    writeFileSync(
-      shim,
-      `#!/bin/sh\nprintf '%s|%s\\n' "$PWD" "$*" >> "$GIT_LOG"\nexec "${realGit}" "$@"\n`,
-    );
-    chmodSync(shim, 0o755);
-    const result = runWithEnvironment(
-      root,
-      { PATH: `${bin}:${process.env.PATH}`, GIT_LOG: log },
-      sha,
-    );
+    const { environment, log } = gitTrace(root);
+    const result = runWithEnvironment(root, environment, sha);
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
-      `${root}|cat-file -t ${sha}`,
-      ...paths.map((path) => `${root}|show ${sha}:${path}`),
+    const evaluatorRoot = realpathSync(root);
+    assert.deepEqual(readGitTraceCalls(log), [
+      { cwd: evaluatorRoot, args: `cat-file -t ${sha}` },
+      ...paths.map((path) => ({
+        cwd: evaluatorRoot,
+        args: `show ${sha}:${path}`,
+      })),
     ]);
   });
   it("attempts every fixed blob read before reporting a missing input", () => {

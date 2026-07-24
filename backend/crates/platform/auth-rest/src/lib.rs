@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
@@ -34,6 +34,7 @@ use mnt_platform_db::{
 use mnt_platform_email::{DisabledEmailSender, EmailSender};
 use mnt_platform_group::GroupMemberOrg;
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
+use mnt_platform_request_context::TrustedClientIp;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -169,11 +170,6 @@ pub struct AuthRestConfig {
     /// revoked, forcing a fresh primary authentication (NIST 800-63B AAL2).
     /// Sourced from `MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS` (default 24h).
     pub refresh_family_absolute_ttl: Duration,
-    /// Number of trusted reverse proxies in front of this service. The client IP
-    /// used for rate limiting is the Nth-from-the-right `X-Forwarded-For` entry
-    /// (the rightmost entry is appended by the closest proxy). Assumes the ingress
-    /// proxy sets/strips XFF so the left-most entries cannot be spoofed past it.
-    pub trusted_proxy_count: usize,
     /// Whether the web refresh cookie carries the `Secure` attribute (`true` in
     /// production over HTTPS). Disabled (`MNT_COOKIE_SECURE=false`) only for local
     /// http dev where the browser would otherwise drop a `Secure` cookie on
@@ -185,7 +181,6 @@ pub struct AuthRestConfig {
 pub struct AuthRestState {
     pool: PgPool,
     services: Option<AuthServices>,
-    trusted_proxy_count: usize,
 }
 
 impl std::fmt::Debug for AuthRestState {
@@ -224,9 +219,6 @@ impl AuthRestState {
         Self {
             pool,
             services: None,
-            // Conservative default; never reached for rate limiting (no routes
-            // are served when auth is disabled), but keeps the field well-defined.
-            trusted_proxy_count: 1,
         }
     }
 
@@ -271,7 +263,6 @@ impl AuthRestState {
                 // or an explicit non-prod logging stub via `with_email_sender`.
                 email_sender: Arc::new(DisabledEmailSender),
             }),
-            trusted_proxy_count: config.trusted_proxy_count.max(1),
         })
     }
 
@@ -956,12 +947,13 @@ async fn finish_registration(
 async fn start_login(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
 ) -> Result<Json<LoginStartResponse>, RestError> {
     let services = state.services()?;
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::LoginStart,
         OffsetDateTime::now_utc(),
     )
@@ -1061,6 +1053,7 @@ async fn finish_login(
 async fn signup(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<SignupRequest>,
 ) -> Result<Response, RestError> {
     let services = state.services()?;
@@ -1068,7 +1061,7 @@ async fn signup(
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::Signup,
         now,
     )
@@ -1136,6 +1129,7 @@ fn duration_to_std(ttl: Duration) -> std::time::Duration {
 async fn redeem_otp(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<OtpRedeemRequest>,
 ) -> Result<Response, RestError> {
     let services = state.services()?;
@@ -1143,7 +1137,7 @@ async fn redeem_otp(
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::OtpRedeem,
         now,
     )
@@ -1662,13 +1656,14 @@ async fn enroll_handoff(
 async fn start_device_login(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
 ) -> Result<Json<DeviceLoginStartResponse>, RestError> {
     let services = state.services()?;
     let now = OffsetDateTime::now_utc();
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::DeviceLoginStart,
         now,
     )
@@ -1716,6 +1711,7 @@ async fn start_device_login(
 async fn poll_device_login(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<DeviceLoginPollRequest>,
 ) -> Result<Response, RestError> {
     let services = state.services()?;
@@ -1723,7 +1719,7 @@ async fn poll_device_login(
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::DeviceLoginPoll,
         now,
     )
@@ -1824,6 +1820,7 @@ async fn poll_device_login(
 async fn approve_device_login(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<DeviceLoginApproveRequest>,
 ) -> Result<StatusCode, RestError> {
     let services = state.services()?;
@@ -1831,7 +1828,7 @@ async fn approve_device_login(
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::DeviceLoginApprove,
         now,
     )
@@ -1914,6 +1911,7 @@ async fn approve_device_login(
 async fn approve_device_login_session(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<DeviceLoginApproveSessionRequest>,
 ) -> Result<StatusCode, RestError> {
     let services = state.services()?;
@@ -1921,7 +1919,7 @@ async fn approve_device_login_session(
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::DeviceLoginApprove,
         now,
     )
@@ -2119,6 +2117,7 @@ fn parse_roles(roles: &[String]) -> Result<Vec<Role>, RestError> {
 async fn refresh_token(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
+    trusted_client_ip: Option<Extension<TrustedClientIp>>,
     Json(body): Json<RefreshTokenRequest>,
 ) -> Result<Response, RestError> {
     let services = state.services()?;
@@ -2126,7 +2125,7 @@ async fn refresh_token(
     rate_limit(
         &state.pool,
         &headers,
-        state.trusted_proxy_count,
+        trusted_client_ip.map(|Extension(ip)| ip),
         RateLimitEndpoint::Refresh,
         now,
     )
@@ -2249,7 +2248,7 @@ async fn list_group_admin_groups(
 ) -> Result<Json<GroupAdminGroupsResponse>, RestError> {
     let services = state.services()?;
     let actor = authenticated_group_actor(services, &headers)?;
-    let groups = load_group_admin_groups(&state.pool, actor).await?;
+    let groups = load_group_admin_groups(&state.pool, actor.id).await?;
     Ok(Json(GroupAdminGroupsResponse { groups }))
 }
 
@@ -2266,7 +2265,8 @@ async fn start_group_admin_tenant_context(
     let services = state.services()?;
     let actor = authenticated_group_actor(services, &headers)?;
     let (group_id, target) =
-        resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
+        resolve_group_admin_target_org(&state.pool, actor.id, OrgId::from_uuid(body.org_id))
+            .await?;
 
     // Source REAL subject freshness for the token's OWN (target subsidiary org,
     // actor) so a promoted Cedar guard — which re-reads exactly that (org, user)
@@ -2274,7 +2274,7 @@ async fn start_group_admin_tenant_context(
     // The read arms the target org's RLS GUC internally; the actor typically has
     // no `users` row in the subsidiary, so subject/session read as the absent 0
     // baseline while the subsidiary's `policy_version` is real.
-    let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor)
+    let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor.id)
         .await
         .map_err(|err| {
             tracing::error!(error = %err, "failed to read subject freshness for group-admin tenant-context");
@@ -2287,7 +2287,7 @@ async fn start_group_admin_tenant_context(
         .jwt_issuer
         .issue_group_admin_tenant_context_access_token(
             AccessTokenInput {
-                subject: actor,
+                subject: actor.id,
                 org_id: target.org_id,
                 roles: vec!["ADMIN".to_owned()],
                 branches: Vec::new(),
@@ -2305,13 +2305,14 @@ async fn start_group_admin_tenant_context(
                 issued_at: now,
             },
             group_id,
+            actor.home_org,
             GROUP_ADMIN_TENANT_CONTEXT_TTL,
         )
         .map_err(|err| RestError::internal(err.to_string()))?;
 
     record_group_tenant_context_audit(
         &state.pool,
-        actor,
+        actor.id,
         target.org_id,
         group_id,
         "group.tenant_context.start",
@@ -2341,11 +2342,12 @@ async fn exit_group_admin_tenant_context(
     let services = state.services()?;
     let actor = authenticated_group_actor(services, &headers)?;
     let (group_id, target) =
-        resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
+        resolve_group_admin_target_org(&state.pool, actor.id, OrgId::from_uuid(body.org_id))
+            .await?;
 
     record_group_tenant_context_audit(
         &state.pool,
-        actor,
+        actor.id,
         target.org_id,
         group_id,
         "group.tenant_context.stop",
@@ -3138,10 +3140,19 @@ fn rest_error_from_request_context(
     }
 }
 
+#[derive(Clone, Copy)]
+struct AuthenticatedGroupAdminActor {
+    id: UserId,
+    /// The source tenant of the non-delegated session. It is carried separately
+    /// from the delegated token's target `org` claim for audit and UI context;
+    /// authorization continues to resolve live group grants.
+    home_org: OrgId,
+}
+
 fn authenticated_group_actor(
     services: &AuthServices,
     headers: &HeaderMap,
-) -> Result<UserId, RestError> {
+) -> Result<AuthenticatedGroupAdminActor, RestError> {
     let token = bearer_token(headers)?;
     let claims = services
         .jwt_verifier
@@ -3165,7 +3176,13 @@ fn authenticated_group_actor(
     if !has_group_admin_role_hint(&claims.group_roles) {
         return Err(RestError::forbidden("group admin role required"));
     }
-    Ok(UserId::from_uuid(user_id_from_claims(claims)?))
+    let home_org = Uuid::parse_str(&claims.org)
+        .map(OrgId::from_uuid)
+        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
+    Ok(AuthenticatedGroupAdminActor {
+        id: UserId::from_uuid(user_id_from_claims(claims)?),
+        home_org,
+    })
 }
 
 fn has_group_admin_role_hint(group_roles: &[String]) -> bool {
@@ -3385,7 +3402,7 @@ impl RateLimitEndpoint {
 async fn rate_limit(
     pool: &PgPool,
     headers: &HeaderMap,
-    trusted_proxy_count: usize,
+    trusted_client_ip: Option<TrustedClientIp>,
     endpoint: RateLimitEndpoint,
     now: OffsetDateTime,
 ) -> Result<(), RestError> {
@@ -3394,8 +3411,8 @@ async fn rate_limit(
 
     let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
     let (per_ip_cap, per_device_cap, global_cap) = endpoint.limits();
-    if let Some(ip) = client_ip(headers, trusted_proxy_count) {
-        buckets.push((format!("ip:{ip}"), per_ip_cap));
+    if let Some(ip) = trusted_client_ip {
+        buckets.push((format!("ip:{}", ip.get()), per_ip_cap));
     }
     if let Some(device) = client_device_id(headers) {
         buckets.push((format!("dev:{device}"), per_device_cap));
@@ -3447,33 +3464,8 @@ fn floor_to_window(now: OffsetDateTime) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(floored).unwrap_or(now)
 }
 
-/// Derive the rate-limit client IP from `X-Forwarded-For`.
-///
-/// XFF is appended left-to-right, so the RIGHTMOST entry is the address the
-/// closest trusted proxy observed and the leftmost entries are attacker-spoofable
-/// (a client can prepend arbitrary values). With `trusted_proxy_count` proxies in
-/// front of this service, the real client is the Nth-from-the-right entry: index
-/// `len - trusted_proxy_count`. Anything left of that is untrusted and ignored.
-///
-/// This assumes the ingress proxy sets/strips XFF so the chain to the right of
-/// the client entry is genuine. The value is used only as an opaque rate-limit
-/// key and is never logged.
-fn client_ip(headers: &HeaderMap, trusted_proxy_count: usize) -> Option<String> {
-    let forwarded = headers.get("x-forwarded-for")?.to_str().ok()?;
-    let entries: Vec<&str> = forwarded
-        .split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .collect();
-    if entries.is_empty() {
-        return None;
-    }
-    // Nth-from-the-right; clamp so a shorter-than-expected chain still yields the
-    // left-most (oldest) entry we have rather than underflowing.
-    let hops = trusted_proxy_count.max(1);
-    let index = entries.len().saturating_sub(hops);
-    entries.get(index).map(|ip| (*ip).to_owned())
-}
+/// The process ingress resolves the peer and forwarding chain once, then this
+/// rate limiter consumes only its [`TrustedClientIp`] extension.
 
 /// Read the optional, client-controlled `X-Device-Id` header. Bounded length and
 /// a restricted charset reject malformed/oversized values; on rejection the
@@ -3664,12 +3656,13 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 mod tests {
     use super::{
         RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW, RateLimitEndpoint, authorizable_target_branches,
-        build_enroll_url, client_ip, has_group_admin_role_hint, load_group_admin_groups,
-        rate_limit, resolve_group_admin_target_org,
+        build_enroll_url, has_group_admin_role_hint, load_group_admin_groups, rate_limit,
+        resolve_group_admin_target_org,
     };
     use axum::http::HeaderMap;
     use axum::http::StatusCode;
     use mnt_kernel_core::{BranchId, BranchScope, OrgId, UserId};
+    use mnt_platform_request_context::TrustedClientIp;
     use sqlx::PgPool;
     use sqlx::postgres::PgPoolOptions;
     use std::collections::BTreeSet;
@@ -3734,54 +3727,6 @@ mod tests {
         assert!(!has_group_admin_role_hint(&["GROUP_VIEWER".to_owned()]));
     }
 
-    fn headers_with_xff(value: &str) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", value.parse().unwrap());
-        headers
-    }
-
-    #[test]
-    fn client_ip_uses_nth_from_right_with_one_trusted_proxy() {
-        // With one trusted proxy, the rightmost entry is the proxy's view of the
-        // client, and any prepended (spoofed) entries to the left are ignored.
-        let headers = headers_with_xff("9.9.9.9, 8.8.8.8, 203.0.113.7");
-        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_honors_higher_trusted_proxy_count() {
-        // Spec: the client IP is the Nth-from-the-right entry (rightmost is the
-        // closest proxy). Chain [client, edge-proxy, app-proxy]: with 2 trusted
-        // proxies the 2nd-from-right (the edge proxy's observed source) is taken,
-        // and the spoofable left-most entry is ignored.
-        let headers = headers_with_xff("1.2.3.4, 203.0.113.7, 10.0.0.2");
-        assert_eq!(client_ip(&headers, 2).as_deref(), Some("203.0.113.7"));
-        assert_ne!(client_ip(&headers, 2).as_deref(), Some("1.2.3.4"));
-    }
-
-    #[test]
-    fn client_ip_ignores_left_most_spoofed_entry() {
-        // A single-hop deployment must NOT trust the attacker-controlled left-most
-        // entry; it takes the rightmost real entry instead.
-        let headers = headers_with_xff("1.2.3.4, 203.0.113.7");
-        assert_ne!(client_ip(&headers, 1).as_deref(), Some("1.2.3.4"));
-        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_clamps_when_chain_shorter_than_expected() {
-        // A misconfigured/short chain yields the left-most available entry rather
-        // than underflowing or panicking.
-        let headers = headers_with_xff("203.0.113.7");
-        assert_eq!(client_ip(&headers, 3).as_deref(), Some("203.0.113.7"));
-    }
-
-    #[test]
-    fn client_ip_none_without_header() {
-        assert_eq!(client_ip(&HeaderMap::new(), 1), None);
-        assert_eq!(client_ip(&headers_with_xff("  ,  "), 1), None);
-    }
-
     /// `rate_limit` takes `now` as an explicit parameter (matching the
     /// audit-chain `seal_org_once` precedent), so its window/cap/reset
     /// behavior can be driven with a synthetic clock instead of racing real
@@ -3789,25 +3734,44 @@ mod tests {
     /// root cause of the flaky HTTP-level `otp_redeem_rate_limit_*` test.
     #[sqlx::test(migrations = "../db/migrations")]
     async fn rate_limit_trips_at_cap_and_resets_after_window(pool: PgPool) {
-        let headers = headers_with_xff("203.0.113.50");
+        let headers = HeaderMap::new();
+        let client_ip = Some(TrustedClientIp::new("203.0.113.50".parse().unwrap()));
         let window1 = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
 
         for attempt in 0..RATE_LIMIT_PER_IP {
-            rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window1)
-                .await
-                .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
+            rate_limit(
+                &pool,
+                &headers,
+                client_ip,
+                RateLimitEndpoint::OtpRedeem,
+                window1,
+            )
+            .await
+            .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
         }
 
-        let tripped = rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window1)
-            .await
-            .expect_err("the request past the cap in the same window must trip 429");
+        let tripped = rate_limit(
+            &pool,
+            &headers,
+            client_ip,
+            RateLimitEndpoint::OtpRedeem,
+            window1,
+        )
+        .await
+        .expect_err("the request past the cap in the same window must trip 429");
         assert_eq!(tripped.status, StatusCode::TOO_MANY_REQUESTS);
 
         // Advancing past the fixed window resets the bucket.
         let window2 = window1 + RATE_LIMIT_WINDOW;
-        rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window2)
-            .await
-            .expect("a new window must reset the per-IP bucket");
+        rate_limit(
+            &pool,
+            &headers,
+            client_ip,
+            RateLimitEndpoint::OtpRedeem,
+            window2,
+        )
+        .await
+        .expect("a new window must reset the per-IP bucket");
     }
 
     const ORG_A: Uuid = Uuid::from_u128(0xA013_A013_A013_A013_A013_A013_A013_A013);

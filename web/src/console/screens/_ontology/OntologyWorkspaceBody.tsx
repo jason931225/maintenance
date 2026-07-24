@@ -376,6 +376,7 @@ export function OntologyWorkspaceBody({
                   </section>
                 ) : null}
                 <GraphExplorer
+                  api={api}
                   model={ws.explorerModel}
                   onFocusChange={(instanceId) => {
                     setFocusRequest(undefined);

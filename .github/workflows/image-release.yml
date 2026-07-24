@@ -20,24 +20,16 @@ name: Image Release
 # ClusterImagePolicy lives under deploy/apps/maintenance/components/admission-audit.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    tags: ["v*"]
-    # Build images only when source/build inputs change. Tag pushes still run
-    # regardless of path filters; deploy-only pushes should not wait for a CI
-    # run that intentionally never starts. Keep docs/reference and docs/specs
-    # because backend crates embed those files into the image at compile time.
-    paths:
-      - "backend/**"
-      - "clients/**"
-      - "web/**"
-      - "docs/reference/**"
-      - "docs/specs/**"
-      - "package.json"
-      - "package-lock.json"
-      - "openapitools.json"
   workflow_dispatch:
     inputs:
+      candidate_sha:
+        description: Exact current-main SHA whose successful push CI authorizes recovery
+        required: true
+        type: string
       promote_production:
         description: Promote the signed digests to the production overlay
         required: true
@@ -48,27 +40,60 @@ on:
 permissions: {}
 
 concurrency:
-  group: image-release-${{ github.ref }}
+  # One release train per immutable candidate, never a mutable branch name.
+  group: image-release-${{ github.event.workflow_run.head_sha || inputs.candidate_sha }}
   cancel-in-progress: false
 
 jobs:
-  ci-gate:
-    name: Require CI success for this SHA
+  # `workflow_run` starts only after CI completes. The admission job still proves
+  # its exact successful main-push candidate is current main before allocating any
+  # native build runner. Manual recovery has no polling: it makes one exact-SHA
+  # CI lookup and rejects stale/non-successful candidates.
+  ci-admission:
+    name: Admit exact successful CI candidate
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read # read the same SHA's protected-main CI result
+      actions: read
+    outputs:
+      release_sha: ${{ steps.admit.outputs.release_sha }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-      - name: Wait for CI success
+      - name: Fail closed unless CI and immutable main authorize one exact SHA
+        id: admit
         env:
-          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: bash scripts/wait-for-protected-main-ci.sh
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
+          WORKFLOW_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          DISPATCH_REF: ${{ github.ref }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            workflow_run)
+              [[ "$WORKFLOW_NAME" == "CI" ]] || { echo "::error::unexpected completed workflow"; exit 1; }
+              [[ "$WORKFLOW_CONCLUSION" == "success" ]] || { echo "::error::CI conclusion is not success"; exit 1; }
+              [[ "$WORKFLOW_EVENT" == "push" && "$WORKFLOW_HEAD_BRANCH" == "main" ]] || { echo "::error::only main push CI may release"; exit 1; }
+              candidate_sha="$WORKFLOW_HEAD_SHA"
+              ;;
+            workflow_dispatch)
+              [[ "$DISPATCH_REF" == "refs/heads/main" && "$RUN_ATTEMPT" == "1" ]] || { echo "::error::manual recovery requires first-attempt main dispatch"; exit 1; }
+              candidate_sha="$DISPATCH_CANDIDATE_SHA"
+              [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_sha must be a full lowercase SHA"; exit 1; }
+              runs="$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${candidate_sha}&status=completed")"
+              jq -e '[.workflow_runs[] | select(.head_sha == $sha and .event == "push" and .head_branch == "main" and .conclusion == "success")] | length > 0' --arg sha "$candidate_sha" <<<"$runs" >/dev/null || { echo "::error::manual recovery candidate lacks successful exact-SHA main CI"; exit 1; }
+              ;;
+            *) echo "::error::unsupported release trigger"; exit 1 ;;
+          esac
+          [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::missing exact candidate SHA"; exit 1; }
+          current_main_sha="$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current_main_sha" == "$candidate_sha" ]] || { echo "::error::candidate is no longer immutable current main"; exit 1; }
+          echo "release_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
 
   # One native build per (image, arch). Each leg builds its arch on the matching
   # native runner (amd64 → ubuntu-24.04, arm64 → ubuntu-24.04-arm) and pushes the
@@ -78,7 +103,7 @@ jobs:
   # artifact for the merge job to fan in.
   build:
     name: ${{ matrix.image.name }} (${{ matrix.platform.arch }}) — build / push by digest
-    needs: ci-gate
+    needs: ci-admission
     runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read
@@ -99,6 +124,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ needs.ci-admission.outputs.release_sha }}
           persist-credentials: false
 
       # Deterministic build timestamps — rewrite layer/image mtimes to the
@@ -165,7 +191,7 @@ jobs:
   # Everything downstream (release-probe, bump-digests) consumes this list digest.
   merge:
     name: ${{ matrix.image.name }} — merge manifest / scan / sign / push
-    needs: build
+    needs: [ci-admission, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -187,6 +213,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ needs.ci-admission.outputs.release_sha }}
           persist-credentials: false
 
       - name: Set up Buildx
@@ -328,7 +355,7 @@ jobs:
   # 400 that would mean the route exists but rejected the request).
   release-probe:
     name: mnt-app image — dev-auth route absence probe
-    needs: merge
+    needs: [ci-admission, merge]
     permissions:
       contents: read
       packages: read
@@ -356,6 +383,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ needs.ci-admission.outputs.release_sha }}
           persist-credentials: false
 
       - name: Download mnt-app digest
@@ -399,6 +427,8 @@ jobs:
           RT_PASSWORD="$(openssl rand -hex 32)"
           LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
           ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          PLATFORM_FORCE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$PLATFORM_FORCE_COMMAND_PASSWORD"
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_release_probe \
@@ -407,6 +437,7 @@ jobs:
             -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
             -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$PLATFORM_FORCE_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
           {
@@ -414,6 +445,7 @@ jobs:
             echo "PROBE_RUNTIME_DATABASE_URL=postgres://mnt_rt:${RT_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
             echo "PROBE_LEAVE_COMMAND_DATABASE_URL=postgres://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
             echo "PROBE_ONTOLOGY_COMMAND_DATABASE_URL=postgres://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
+            echo "PROBE_PLATFORM_FORCE_COMMAND_DATABASE_URL=postgres://mnt_platform_force_cmd:${PLATFORM_FORCE_COMMAND_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
           } >> "$GITHUB_ENV"
 
       - name: Run migrations against the probe database as mnt_app
@@ -430,6 +462,7 @@ jobs:
             -e DATABASE_URL="$PROBE_RUNTIME_DATABASE_URL" \
             -e LEAVE_COMMAND_DATABASE_URL="$PROBE_LEAVE_COMMAND_DATABASE_URL" \
             -e ONTOLOGY_COMMAND_DATABASE_URL="$PROBE_ONTOLOGY_COMMAND_DATABASE_URL" \
+            -e PLATFORM_FORCE_COMMAND_DATABASE_URL="$PROBE_PLATFORM_FORCE_COMMAND_DATABASE_URL" \
             -e MNT_HTTP_ADDR=127.0.0.1:8091 \
             -e MNT_JWT_ISSUER=release-probe \
             -e MNT_JWT_AUDIENCE=release-probe \
@@ -469,7 +502,7 @@ jobs:
   production-promotion-preflight:
     name: Verify immutable production authorization
     runs-on: ubuntu-latest
-    needs: [merge, release-probe]
+    needs: [ci-admission, merge, release-probe]
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
@@ -481,12 +514,12 @@ jobs:
       - name: Checkout exact authorized commit without credentials
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.ci-admission.outputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Verify immutable main and production authorization
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ needs.ci-admission.outputs.release_sha }}
           EXPECTED_REF: ${{ github.ref }}
         run: >-
           python3 scripts/check-production-promotion-authority.py initial
@@ -501,7 +534,7 @@ jobs:
   bump-digests:
     name: Promote signed digests to production overlay
     runs-on: ubuntu-latest
-    needs: [merge, release-probe, production-promotion-preflight]
+    needs: [ci-admission, merge, release-probe, production-promotion-preflight]
     environment: production
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -517,12 +550,12 @@ jobs:
       - name: Checkout exact authorized commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.ci-admission.outputs.release_sha }}
           fetch-depth: 0
 
       - name: Re-verify immutable main and production authority inside protected job
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ needs.ci-admission.outputs.release_sha }}
           EXPECTED_REF: ${{ github.ref }}
         run: >-
           python3 scripts/check-production-promotion-authority.py initial
@@ -533,7 +566,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ needs.ci-admission.outputs.release_sha }}
           DISPATCHER: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -585,22 +618,24 @@ jobs:
           path: digests
 
       - name: Bump prod overlay digests
+        env:
+          AUTHORIZED_SHA: ${{ needs.ci-admission.outputs.release_sha }}
         run: |
           APP_DIGEST="$(cat digests/digest-mnt-app.txt)"
           WEB_DIGEST="$(cat digests/digest-mnt-web.txt)"
           bash scripts/bump-prod-digests.sh "${APP_DIGEST}" "${WEB_DIGEST}"
           python3 scripts/check-production-promotion-authority.py reset \
-            --expected-sha "${GITHUB_SHA}"
+            --expected-sha "$AUTHORIZED_SHA"
 
       - name: Commit authorization consumption and optional digest bump once
         env:
           OVERLAY: deploy/apps/maintenance/overlays/prod/kustomization.yaml
-          AUTHORIZED_SHA: ${{ github.sha }}
+          AUTHORIZED_SHA: ${{ needs.ci-admission.outputs.release_sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$OVERLAY" docs/release/PR-473-PRODUCTION-PROMOTION.authorization.json
-          git commit -m "deploy(prod): promote mnt-app/mnt-web @${GITHUB_SHA:0:7}"
+          git commit -m "deploy(prod): promote mnt-app/mnt-web @${AUTHORIZED_SHA:0:7}"
           python3 scripts/check-production-promotion-authority.py pre-push \
             --expected-sha "$AUTHORIZED_SHA"
           git push origin "HEAD:main"

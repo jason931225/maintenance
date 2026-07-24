@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ShieldCheck, Siren, ClipboardCheck, ArrowRight } from "lucide-react";
 
 import { ko } from "../i18n/ko";

@@ -2,11 +2,14 @@ import { chmodSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runDockerWithCopiedWorkspace } from "./lib/docker-copy-workspace.mjs";
 import { hasJava, hasRunningDocker } from "./lib/toolchain-checks.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const projectDir = resolve(root, "clients/kotlin");
 const gradlew = resolve(projectDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
+const gradleImage =
+  "gradle:8.14.3-jdk21@sha256:21bd311ed01360c189b8870c6b6e988199ff10f72d445d02fb39d3cff9da91d7";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -42,15 +45,11 @@ if (hasJava()) {
         "  - start Docker/Colima so `docker info` succeeds, then re-run `npm run check:kotlin`.",
     );
   }
-  run("docker", [
-    "run",
-    "--rm",
-    "-v",
-    `${root}:/workspace`,
-    "-w",
-    "/workspace/clients/kotlin",
-    "gradle:8.14.3-jdk21",
-    "gradle",
-    "build",
-  ]);
+  runDockerWithCopiedWorkspace({
+    image: gradleImage,
+    workingDirectory: "/workspace/clients/kotlin",
+    args: ["gradle", "build"],
+    inputs: [{ source: projectDir, destination: "clients/kotlin" }],
+    stagingRoot: resolve(root, ".cache/kotlin-build"),
+  });
 }

@@ -12,6 +12,7 @@ export MNT_APP_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export MNT_RT_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 docker compose -f ops/compose.yml config --quiet
 docker compose -f ops/compose.yml up -d
 ```
@@ -38,8 +39,19 @@ npm run dev:up
 
 `scripts/dev-up.mjs` layers `ops/compose.dev-deps.yml` on top of
 `ops/compose.yml` and `ops/compose.dev.yml`, using the `mnt-dev` Compose project
-by default. That dev-only overlay adds Mailpit, a published OTEL port, and the
-Postgres WAL archive retention helper described below.
+by default. It builds exactly one repository-pinned Buck2 app target per run,
+then executes that exact `buck-out` artifact for both migrations and the API:
+`//backend/app:mnt-app` normally, or `//backend/app:mnt-app-dev-auth` only when
+`MNT_DEV_AUTH_E2E=1`. It never falls back to a locally compiled backend binary.
+The launcher rejects absolute, missing, non-executable, and non-`buck-out`
+outputs. Its local PID state also records the child command and OS start token;
+`dev:down` signals a process group only if that identity still matches, then
+removes stale state rather than risking a reused PID.
+The host process derives its platform-force command database URL from the same
+local topology password as Compose, replacing any inherited URL rather than
+accepting a mismatched capability; neither credential nor URL is persisted.
+That dev-only overlay adds Mailpit, a published OTEL port, and the Postgres WAL
+archive retention helper described below.
 
 Shut the stack down:
 
@@ -133,12 +145,13 @@ export MNT_APP_POSTGRES_PASSWORD='<migration owner password>'
 export MNT_RT_POSTGRES_PASSWORD='<runtime password>'
 export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD='<distinct value from the production secret manager>'
 export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD='<another distinct value from the production secret manager>'
+export MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD='<a third distinct command-only value from the production secret manager>'
 ```
 
-All five passwords are mandatory and pairwise distinct. `postgres` starts with
+All six passwords are mandatory and pairwise distinct. `postgres` starts with
 the cluster administrator, then the one-shot `postgres-topology` service runs
 `postgres-reconcile-topology.sh` on both fresh and existing volumes. It creates
-or pins the exact six application roles, makes `mnt_app` the database/schema
+or pins the exact seven application roles, makes `mnt_app` the database/schema
 owner, gives that migration-only identity explicit `BYPASSRLS` for populated
 tenant-wide backfills, makes it a non-admin member of both NOLOGIN definers,
 and verifies readback. The `migrate` service then connects directly as

@@ -17,7 +17,7 @@
 // every automate capability, feature grants unlock individual actions for other
 // roles, and everyone else is denied by omission (no tabs).
 import { useCallback, useEffect, useMemo } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../../../context/auth";
 import {

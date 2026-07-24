@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Maintenance generated-face authority registry",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "faces"],
+  "properties": {"schema_version": {"const": 2}, "faces": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "source_roots", "output_patterns", "writer", "drift_gate"], "properties": {"id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}, "source_roots": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "output_patterns": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "writer": {"type": "object", "additionalProperties": false, "required": ["kind", "executable", "target"], "properties": {"kind": {"const": "repo-exec"}, "executable": {"type": "string"}, "target": {"type": "string", "pattern": "^//"}}}, "drift_gate": {"type": "object", "additionalProperties": false, "required": ["tier", "kind"], "properties": {"tier": {"enum": ["cheap", "expensive"]}, "kind": {"const": "writer-snapshot"}}}}}}}
+}

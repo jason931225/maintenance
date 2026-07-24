@@ -86,7 +86,8 @@ for s in \
 done
 npm run web:lint
 npm run web:test
-npm run web:build
+npm run test:production-dev-auth-guards --workspace @console/web
+npm run check:production-dev-auth-absence --workspace @console/web
 
 # Deployment and mobile parity gates
 npm run check:k8s                         # render manifests; CI warns if no live cluster
@@ -111,8 +112,14 @@ swift run --package-path ios MaintenanceFieldCoreBehaviorTests
 CI also runs heavier or runner-contextual gates. Reproduce them locally only when
 their prerequisites are available:
 
-- `npm run dev:bootstrap`, `/readyz`, `MNT_DEV_AUTH_E2E=1 npm run dev:bootstrap`,
-  and `npx playwright test --project=dev-auth` for the dev-up/dev-auth smoke.
+- `npm run dev:bootstrap`, `/readyz`,
+  `MNT_DEV_AUTH_E2E=1 npm run dev:bootstrap`, and
+  `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`
+  for the dev-up/dev-auth smoke.
+- `VITE_CONSOLE_DEV_PREVIEW=1 npm run dev:bootstrap` for the independent,
+  Vite-development-only full console preview. Do not add this flag to the
+  fail-closed dev-auth gate, which must retain production-faithful rollout
+  behavior.
 - `bash e2e/run.sh` for the full browser user-story suite after Postgres, Python
   helpers, Rust backend, Node dependencies, and Playwright Chromium are ready.
 - `./gradlew fieldApi34DebugAndroidTest` for Android instrumented E2E after
@@ -210,9 +217,10 @@ names only, not incidental workflow prose or runner setup text.
 
 ### Web console package scripts run by CI
 
-- `web:build`
+- `web:check:production-dev-auth-absence`
 - `web:lint`
 - `web:test`
+- `web:test:production-dev-auth-guards`
 
 - **Backend — fmt / clippy / test / gates**: `cargo fmt --all -- --check`,
   `SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings`,
@@ -223,13 +231,14 @@ names only, not incidental workflow prose or runner setup text.
   `mnt-platform-provisioning`.
 - **dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e**:
   `node scripts/dev-up.mjs bootstrap`, `/readyz` curl, `node scripts/dev-up.mjs
-  down`, dev-auth bootstrap with `MNT_DEV_AUTH_E2E=1`, and `npx playwright test
-  --project=dev-auth`.
+  down`, dev-auth bootstrap with
+  `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap`, and
+  `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`.
 - **API clients — TypeScript / Kotlin generation and compile**:
   `npm run gen:api:portable`, `git diff --exit-code -- clients/ts
   clients/kotlin`, `npm run check:ts`, and `npm run check:kotlin`. The local
   wrapper for the generation+diff check is `npm run check:api-drift:portable`.
-- **Web console — lint / test / build**: ADR governance scripts `test:adrs`
+- **Web console — lint / test / production artifact isolation**: ADR governance scripts `test:adrs`
   and `check:adrs`, followed by root product-maturity scripts
   `check:foundation-gates`, `check:enterprise-ux-parity`,
   `check:browser-persona-matrix`, `check:ios-ui-test-fail-closed`,
@@ -242,9 +251,11 @@ names only, not incidental workflow prose or runner setup text.
   `check:payroll-release-gate`, `check:financial-maturity`,
   `check:cx-reporting-maturity`, and `check:operations-intelligence-maturity`,
   followed by `npm run lint --workspace @console/web`,
-  `npm run test --workspace @console/web`, and
-  `npm run build --workspace @console/web`. Root shortcuts are
-  `web:lint`, `web:test`, and `web:build`.
+  `npm run test --workspace @console/web`,
+  `npm run test:production-dev-auth-guards --workspace @console/web`, and
+  `npm run check:production-dev-auth-absence --workspace @console/web`.
+  The last command builds the production bundle before asserting that dev-auth
+  entrypoints are absent. Root shortcuts are `web:lint` and `web:test`.
 - **API contract — app OpenAPI and generated TS round-trip**:
   `npm run check:openapi-app` and `npm run test:contract` with
   `CONTRACT_DATABASE_URL`.
@@ -510,9 +521,9 @@ to confirm request/response shapes round-trip against the real handlers (needs
 
 ## Web console and product-maturity gates
 
-The web job runs root-level product maturity scripts before the normal web
-workspace lint/test/build trio. These scripts are local Node gates, not Playwright
-runtime tests:
+The web job runs root-level product maturity scripts before its exact web
+verification sequence. These scripts are local Node gates, not Playwright runtime
+tests:
 
 - `npm run check:foundation-gates`
 - `npm run check:enterprise-ux-parity`
@@ -534,14 +545,21 @@ runtime tests:
 - `npm run check:cx-reporting-maturity`
 - `npm run check:operations-intelligence-maturity`
 
-The workspace checks map to `web/package.json`:
+### Exact web CI verification sequence
 
-- `npm run lint --workspace @console/web` (`npm run web:lint`) runs
-  ESLint and `web/scripts/check-ui-strings.mjs`.
-- `npm run test --workspace @console/web` (`npm run web:test`) runs
-  Vitest.
-- `npm run build --workspace @console/web` (`npm run web:build`) runs
-  `tsc -b` and `vite build`.
+The workflow runs these commands in order against `web/package.json`:
+
+1. `npm run lint --workspace @console/web` runs ESLint and
+   `web/scripts/check-ui-strings.mjs`.
+2. `npm run test --workspace @console/web` runs Vitest.
+3. `npm run test:production-dev-auth-guards --workspace @console/web` verifies
+   production dev-auth entrypoint guards.
+4. `npm run check:production-dev-auth-absence --workspace @console/web` owns the
+   production build (`tsc -b` plus `vite build`) and proves dev-auth entrypoints
+   are absent from the emitted artifact.
+
+Root shortcuts `web:lint` and `web:test` reproduce only the first two commands;
+the production artifact proof is intentionally the explicit workspace sequence.
 
 ---
 
@@ -855,8 +873,9 @@ The dev-up smoke and browser E2E jobs are local only when their service/runtime
 dependencies are available:
 
 - **dev-up smoke:** `node scripts/dev-up.mjs bootstrap`, `/readyz`, cleanup with
-  `node scripts/dev-up.mjs down`, dev-auth bootstrap with `MNT_DEV_AUTH_E2E=1`,
-  and `npx playwright test --project=dev-auth`.
+  `node scripts/dev-up.mjs down`, dev-auth bootstrap with
+  `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap`, and
+  `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`.
 - **Browser E2E:** `bash e2e/run.sh` after CI-equivalent setup for Postgres,
   `psql`, Python E2E helpers, Rust `mnt-app`, Node dependencies, and Playwright
   Chromium. This is the all-user-stories browser gate and should be used for UI

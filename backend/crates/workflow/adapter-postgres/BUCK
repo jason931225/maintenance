@@ -39,7 +39,7 @@ rust_test(
     crate_root = "backend/crates/workflow/adapter-postgres/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workflow/adapter-postgres"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.workflow.adapter-postgres", "domain.workflow", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/notifications/adapter-postgres:mnt-notifications-adapter-postgres",
@@ -68,7 +68,7 @@ rust_test(
     crate_root = "backend/crates/workflow/adapter-postgres/tests/notification_bridge.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workflow/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.workflow.adapter-postgres", "domain.workflow", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/notifications/adapter-postgres:mnt-notifications-adapter-postgres",
@@ -98,7 +98,7 @@ rust_test(
     crate_root = "backend/crates/workflow/adapter-postgres/tests/payroll_drain_period_lock.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workflow/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.workflow.adapter-postgres", "domain.workflow", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/notifications/adapter-postgres:mnt-notifications-adapter-postgres",

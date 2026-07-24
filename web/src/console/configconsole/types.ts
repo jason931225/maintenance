@@ -150,6 +150,12 @@ export interface ConsoleViewRecord {
   version: number;
 }
 
+/** A loaded view's version is the mandatory compare-and-swap witness on edits. */
+export interface ConsoleViewCommand {
+  commandId: string;
+  expectedRevision?: number;
+}
+
 /** A 팀 배포 request opened as a governance approval — pending until decided elsewhere. */
 export interface DeployApprovalPending {
   approvalId: string;

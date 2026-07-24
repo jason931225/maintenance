@@ -52,7 +52,7 @@ rust_test(
     crate_root = "backend/crates/comms/rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/rest"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.comms.rest", "domain.comms", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/comms/adapter-imap:mnt-comms-adapter-imap",
         "//backend/crates/comms/adapter-mox:mnt-comms-adapter-mox",
@@ -94,7 +94,7 @@ rust_test(
     crate_root = "backend/crates/comms/rest/tests/mox_webhook.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.comms.rest", "domain.comms", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/comms/adapter-imap:mnt-comms-adapter-imap",
         "//backend/crates/comms/adapter-mox:mnt-comms-adapter-mox",
@@ -137,7 +137,7 @@ rust_test(
     crate_root = "backend/crates/comms/rest/tests/readiness.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.comms.rest", "domain.comms", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/comms/adapter-imap:mnt-comms-adapter-imap",
         "//backend/crates/comms/adapter-mox:mnt-comms-adapter-mox",

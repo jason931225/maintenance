@@ -38,7 +38,7 @@ rust_test(
     crate_root = "backend/crates/support/adapter-postgres/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/support/adapter-postgres"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.support.adapter-postgres", "domain.support", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -64,7 +64,7 @@ rust_test(
     crate_root = "backend/crates/support/adapter-postgres/tests/assignee_name_join_rls_surfaces_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/support/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.support.adapter-postgres", "domain.support", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -91,7 +91,7 @@ rust_test(
     crate_root = "backend/crates/support/adapter-postgres/tests/create_internal_ticket_rls_surfaces_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/support/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.support.adapter-postgres", "domain.support", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",
@@ -118,7 +118,7 @@ rust_test(
     crate_root = "backend/crates/support/adapter-postgres/tests/support_tickets.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/support/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.support.adapter-postgres", "domain.support", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/db:mnt-platform-db",

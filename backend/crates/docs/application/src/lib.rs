@@ -5,8 +5,9 @@
 
 use mnt_docs_domain::{
     AdmissibilityReason, AdmissibilityStatus, CustodyStage, DerivativeKind, EvidenceClassification,
-    EvidenceCode, EvidenceCopyKind, EvidenceSourceRef, EvidenceStorageRef, LegalHoldState,
-    LegalHoldStatus, Sha256Digest, TsaProofStatus, WormStorageStatus,
+    EvidenceCode, EvidenceCopyEvidentiaryStatus, EvidenceCopyKind, EvidenceSourceRef,
+    EvidenceStorageRef, LegalHoldState, LegalHoldStatus, Sha256Digest, TsaProofStatus,
+    WormStorageStatus,
 };
 use mnt_kernel_core::{
     AuditAction, AuditEvent, EvidenceCopyId, EvidenceCustodyEventId, EvidenceExportId, EvidenceId,
@@ -39,12 +40,30 @@ pub struct EvidenceObjectView {
     pub disposed_at: Option<Timestamp>,
 }
 
+/// Opaque ordering position for a complete EV-register scan.
+///
+/// The database assigns `register_sequence` on insert; unlike business-event
+/// timestamps it cannot be backdated by a command, so it bounds a complete scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceObjectCursor {
+    pub snapshot_sequence: i64,
+    pub register_sequence: i64,
+    pub id: EvidenceObjectId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceObjectPage {
     pub items: Vec<EvidenceObjectView>,
     pub limit: i64,
+    /// Compatibility metadata for callers still on offset paging. Cursor scans
+    /// always return zero here and must use `next_cursor` instead.
     pub offset: i64,
+    /// Count of records in the stable register snapshot, before cursor position
+    /// is applied.
     pub total: i64,
+    /// Immutable database-assigned registration boundary for this scan.
+    pub as_of: i64,
+    pub next_cursor: Option<EvidenceObjectCursor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +71,9 @@ pub struct EvidenceCopyView {
     pub id: EvidenceCopyId,
     pub evidence_object_id: EvidenceObjectId,
     pub copy_kind: EvidenceCopyKind,
+    /// Database-derived immutable meaning. A derivative is never evidence-equivalent
+    /// to the verified original, even when its own storage replica is sealed.
+    pub evidentiary_status: EvidenceCopyEvidentiaryStatus,
     pub derivative_kind: Option<DerivativeKind>,
     pub parent_copy_id: Option<EvidenceCopyId>,
     pub storage: EvidenceStorageRef,
@@ -164,6 +186,10 @@ pub struct ListEvidenceObjectsQuery {
     pub classification: Option<EvidenceClassification>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// Immutable database registration boundary. Omitted on the first page;
+    /// the store captures one and returns it in the response/cursor.
+    pub as_of: Option<i64>,
+    pub cursor: Option<EvidenceObjectCursor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

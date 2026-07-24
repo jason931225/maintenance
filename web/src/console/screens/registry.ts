@@ -4,6 +4,7 @@
 import type { ComponentType } from "react";
 import type { MountedScreenKey } from "../shell/nav";
 
+import { AttendanceScreenBody } from "../../features/attendance";
 import { ApprovalScreenBody } from "../appr/ApprovalScreenBody";
 import { AuditScreenBody } from "../audit/AuditScreenBody";
 import { MailScreenBody } from "../mail";
@@ -25,15 +26,21 @@ import { SupportBody } from "./support/SupportBody";
 import { BenefitBody } from "./benefit/BenefitBody";
 import { PeopleWorkforceBody } from "../people";
 import { SalesCrmScreenBody } from "../sales";
+import { ConsultingEngagementBody } from "../consulting/ConsultingEngagementBody";
+import { LogisticsScreenBody } from "../logistics";
+import { EquipmentScreenBody } from "../equipment";
+import { InventoryScreenBody } from "../inventory/InventoryScreenBody";
 
 export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> = {
   overview: OverviewScreen,
+  attendance: AttendanceScreenBody,
   mywork: MyWorkScreen,
   inbox: InboxScreen,
   dashboard: DashboardBody,
   laborcost: LaborCostBody,
   forecast: ForecastBody,
   finance: ModuleFinanceScreenBody,
+  inventory: InventoryScreenBody,
   asset: AssetModuleScreen,
   appr: ApprovalScreenBody,
   audit: AuditScreenBody,
@@ -41,6 +48,9 @@ export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> 
   benefit: BenefitBody,
   people: PeopleWorkforceBody,
   sales: SalesCrmScreenBody,
+  consulting: ConsultingEngagementBody,
+  logistics: LogisticsScreenBody,
+  equipment: EquipmentScreenBody,
   policy: PolicyBody,
   // nav label "객체 탐색" — the read-only graph explorer (no type authoring).
   objectExplorer: ExploreScreen,

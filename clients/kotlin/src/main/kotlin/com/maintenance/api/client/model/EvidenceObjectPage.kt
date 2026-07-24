@@ -36,6 +36,8 @@ import kotlinx.serialization.Contextual
  * @param limit
  * @param offset
  * @param total
+ * @param asOf Immutable evidence-register sequence that fences every row in this response.
+ * @param nextCursor Opaque unpadded-base64url continuation token, or null at the end of the snapshot.
  */
 @Serializable
 
@@ -51,7 +53,15 @@ data class EvidenceObjectPage (
     val offset: kotlin.Long,
 
     @SerialName(value = "total")
-    val total: kotlin.Long
+    val total: kotlin.Long,
+
+    /* Immutable evidence-register sequence that fences every row in this response. */
+    @SerialName(value = "as_of")
+    val asOf: kotlin.Long,
+
+    /* Opaque unpadded-base64url continuation token, or null at the end of the snapshot. */
+    @SerialName(value = "next_cursor")
+    val nextCursor: kotlin.String?
 
 ) {
 

@@ -12,9 +12,10 @@ use mnt_identity_application::{
     ActivateUserCommand, BranchSummary, CreateBranchCommand,
     CreatePolicyAssignmentPreviewReceiptCommand, CreatePolicyRoleCommand, CreateRegionCommand,
     CreateUserCommand, DeactivateBranchCommand, DeactivateRegionCommand, DeactivateUserCommand,
-    EmployeeLinkStatus, PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary,
-    PolicyRoleAssignmentSummary, PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary,
-    PolicyVersionSummary, RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
+    DirectoryListQuery, EmployeeLinkStatus, MAX_DIRECTORY_PAGE_LIMIT,
+    PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
+    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
+    RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
     UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
     UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserPage, UserSummary,
     account_status_for, branch_audit_event, policy_account_audit_event,
@@ -783,6 +784,111 @@ impl PgOrgStore {
         let mut items = Vec::with_capacity(ids.len());
         for id in ids {
             items.push(fetch_user(&self.pool, UserId::from_uuid(id)).await?);
+        }
+        Ok(UserPage {
+            items,
+            limit,
+            offset,
+            total,
+        })
+    }
+
+    /// List people visible to a directory reader. Every filter is applied to
+    /// both the count and page query, so `total` is the exact size of the
+    /// filtered effective branch scope.
+    pub async fn list_directory_people(
+        &self,
+        scope: &BranchScope,
+        query: DirectoryListQuery,
+    ) -> Result<UserPage, PgOrgError> {
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_USER_LIMIT)
+            .clamp(1, MAX_DIRECTORY_PAGE_LIMIT);
+        let offset = query.offset.unwrap_or(0).max(0);
+        // A requested branch is not an additional SQL predicate: it narrows
+        // the effective authorization scope itself. Keeping the two EXISTS
+        // predicates independent would admit a user that belongs to both an
+        // allowed branch and the requested-but-forbidden branch, leaking the
+        // identity and count through the latter filter.
+        let scope = query.branch_id.map_or_else(
+            || scope.clone(),
+            |branch_id| scope.intersect(&BranchScope::single(branch_id)),
+        );
+        let result_scope = scope.clone();
+        let search = query.search;
+        let team = query.team;
+        let include_inactive = query.include_inactive;
+
+        let push_filter = move |builder: &mut QueryBuilder<Postgres>| {
+            match &scope {
+                BranchScope::All => {
+                    builder.push("TRUE");
+                }
+                BranchScope::Branches(branches) if branches.is_empty() => {
+                    builder.push("FALSE");
+                }
+                BranchScope::Branches(branches) => {
+                    let branch_ids: Vec<uuid::Uuid> =
+                        branches.iter().map(|branch| *branch.as_uuid()).collect();
+                    builder
+                        .push(
+                            "EXISTS (SELECT 1 FROM user_branches ub \
+                             WHERE ub.user_id = u.id AND ub.branch_id = ANY(",
+                        )
+                        .push_bind(branch_ids)
+                        .push("))");
+                }
+            }
+            if let Some(search) = &search {
+                builder
+                    .push(" AND LOWER(u.display_name) LIKE '%' || ")
+                    .push_bind(search.clone())
+                    .push(" || '%'");
+            }
+            if let Some(team) = team {
+                builder.push(" AND u.team = ").push_bind(team.as_db_str());
+            }
+            if !include_inactive {
+                builder.push(" AND u.is_active = true");
+            }
+        };
+
+        let mut count_builder =
+            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM users u WHERE ");
+        push_filter(&mut count_builder);
+
+        let mut page_builder = QueryBuilder::<Postgres>::new("SELECT id FROM users u WHERE ");
+        push_filter(&mut page_builder);
+        page_builder
+            .push(" ORDER BY u.display_name ASC, u.id ASC LIMIT ")
+            .push_bind(limit)
+            .push(" OFFSET ")
+            .push_bind(offset);
+
+        let org = current_org().map_err(KernelError::from)?;
+        let (total, ids) =
+            with_org_conn::<_, (i64, Vec<uuid::Uuid>), PgOrgError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let total = count_builder
+                        .build_query_scalar::<i64>()
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                    let ids = page_builder
+                        .build_query_scalar::<uuid::Uuid>()
+                        .fetch_all(tx.as_mut())
+                        .await?;
+                    Ok((total, ids))
+                })
+            })
+            .await?;
+
+        let mut items = Vec::with_capacity(ids.len());
+        for id in ids {
+            let mut user = fetch_user(&self.pool, UserId::from_uuid(id)).await?;
+            user.branch_ids
+                .retain(|branch| result_scope.allows(*branch));
+            items.push(user);
         }
         Ok(UserPage {
             items,

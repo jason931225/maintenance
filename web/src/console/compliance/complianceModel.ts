@@ -22,6 +22,7 @@ export const COMPLIANCE_ACTIONS = {
   regulationRead: "compliance_regulation_read",
   frameworkRead: "compliance_framework_read",
   frameworkManage: "compliance_framework_manage",
+  evidenceLink: "compliance_evidence_link",
   audit: "audit_log_read",
 } as const;
 

@@ -40,7 +40,7 @@ rust_test(
     crate_root = "backend/crates/financial/adapter-postgres/tests/lifecycle_rls_surfaces_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.financial.adapter-postgres", "domain.financial", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/financial/application:mnt-financial-application",
         "//backend/crates/financial/domain:mnt-financial-domain",
@@ -67,7 +67,7 @@ rust_test(
     crate_root = "backend/crates/financial/adapter-postgres/tests/period_lock_blocks_ledger_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.financial.adapter-postgres", "domain.financial", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/financial/application:mnt-financial-application",
         "//backend/crates/financial/domain:mnt-financial-domain",
@@ -94,7 +94,7 @@ rust_test(
     crate_root = "backend/crates/financial/adapter-postgres/tests/use_cases.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/financial/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.financial.adapter-postgres", "domain.financial", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/financial/application:mnt-financial-application",
         "//backend/crates/financial/domain:mnt-financial-domain",

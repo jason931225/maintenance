@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import {
   afterAll,
   afterEach,

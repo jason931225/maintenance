@@ -60,6 +60,12 @@ spec:
             - name: MNT_ONTOLOGY_COMMAND_PASSWORD
               valueFrom:
                 secretKeyRef: { name: mnt-db-ontology-command, key: password }
+            - name: MNT_PLATFORM_FORCE_COMMAND_USERNAME
+              valueFrom:
+                secretKeyRef: { name: mnt-db-platform-force-command, key: username }
+            - name: MNT_PLATFORM_FORCE_COMMAND_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mnt-db-platform-force-command, key: password }
           command: [bash, -ceu]
           args:
             - |
@@ -71,11 +77,13 @@ spec:
               test "${MNT_RT_USERNAME}" = mnt_rt
               test "${MNT_LEAVE_COMMAND_USERNAME}" = mnt_leave_cmd
               test "${MNT_ONTOLOGY_COMMAND_USERNAME}" = mnt_ontology_cmd
+              test "${MNT_PLATFORM_FORCE_COMMAND_USERNAME}" = mnt_platform_force_cmd
               passwords=(
                 "${PGPASSWORD}"
                 "${MNT_RT_PASSWORD}"
                 "${MNT_LEAVE_COMMAND_PASSWORD}"
                 "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+                "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"
               )
               for ((i = 0; i < ${#passwords[@]}; i++)); do
                 test -n "${passwords[i]}"
@@ -111,6 +119,7 @@ spec:
               preflight_serving_login mnt_rt "${MNT_RT_PASSWORD}"
               preflight_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}"
               preflight_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+              preflight_serving_login mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"
 
               serving_defaults_need_repair() {
                 local role="$1"
@@ -140,9 +149,11 @@ spec:
               repair_mnt_rt="$(serving_defaults_need_repair mnt_rt "${MNT_RT_PASSWORD}")"
               repair_mnt_leave_cmd="$(serving_defaults_need_repair mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}")"
               repair_mnt_ontology_cmd="$(serving_defaults_need_repair mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}")"
+              repair_mnt_platform_force_cmd="$(serving_defaults_need_repair mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}")"
               test "${repair_mnt_rt}" = true || test "${repair_mnt_rt}" = false
               test "${repair_mnt_leave_cmd}" = true || test "${repair_mnt_leave_cmd}" = false
               test "${repair_mnt_ontology_cmd}" = true || test "${repair_mnt_ontology_cmd}" = false
+              test "${repair_mnt_platform_force_cmd}" = true || test "${repair_mnt_platform_force_cmd}" = false
 
               # CNPG managed roles do not expose role-default GUC fields. Each
               # serving identity therefore reconciles its own USERSET defaults;
@@ -220,6 +231,9 @@ spec:
               if [[ "${repair_mnt_ontology_cmd}" == true ]]; then
                 reconcile_serving_defaults mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
               fi
+              if [[ "${repair_mnt_platform_force_cmd}" == true ]]; then
+                reconcile_serving_defaults mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"
+              fi
 
               drain_serving_backends() {
                 local role="$1"
@@ -254,11 +268,15 @@ spec:
               if [[ "${repair_mnt_ontology_cmd}" == true ]]; then
                 drain_serving_backends mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
               fi
+              if [[ "${repair_mnt_platform_force_cmd}" == true ]]; then
+                drain_serving_backends mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"
+              fi
 
               expected_roles='mnt_app|t|f|t|t|f|f|f
               mnt_leave_cmd|t|f|f|f|f|f|f
               mnt_leave_definer|f|f|f|f|f|f|f
               mnt_ontology_cmd|t|f|f|f|f|f|f
+              mnt_platform_force_cmd|t|f|f|f|f|f|f
               mnt_ontology_writer|f|f|f|f|f|f|f
               mnt_rt|t|f|f|f|f|f|f'
               actual_roles="$(psql -v ON_ERROR_STOP=1 -At -F '|' <<'SQL'
@@ -266,7 +284,7 @@ spec:
                      rolcreatedb, rolcreaterole, rolreplication
               FROM pg_roles
               WHERE rolname IN (
-                'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+                'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
                 'mnt_leave_definer', 'mnt_ontology_writer'
               )
               ORDER BY rolname;
@@ -283,11 +301,11 @@ spec:
               JOIN pg_roles member ON member.oid = membership.member
               JOIN pg_roles granted ON granted.oid = membership.roleid
               WHERE member.rolname IN (
-                      'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+                      'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
                       'mnt_leave_definer', 'mnt_ontology_writer'
                     )
                  OR granted.rolname IN (
-                      'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd',
+                      'mnt_app', 'mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd',
                       'mnt_leave_definer', 'mnt_ontology_writer'
                     )
               ORDER BY member.rolname, granted.rolname;
@@ -296,7 +314,7 @@ spec:
               test "${actual_memberships}" = "${expected_memberships}"
               test "$(psql -v ON_ERROR_STOP=1 -Atqc "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = mnt_app
 
-              # Prove the three serving credentials are real direct logins,
+              # Prove the four serving credentials are real direct logins,
               # not admin/owner sessions that arrive through SET ROLE. No
               # serving identity may be on either side of a membership edge.
               assert_direct_serving_login() {
@@ -333,6 +351,7 @@ spec:
               assert_direct_serving_login mnt_rt "${MNT_RT_PASSWORD}" '30s|30s|45s'
               assert_direct_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}" '30s|30s|45s'
               assert_direct_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}" '30s|30s|45s'
+              assert_direct_serving_login mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}" '30s|30s|45s'
               echo 'database topology readback passed'
           resources:
             requests: { cpu: 25m, memory: 32Mi }

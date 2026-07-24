@@ -33,6 +33,7 @@ import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.LifecycleOutcome
 import com.maintenance.api.client.model.LifecycleRequest
 import com.maintenance.api.client.model.ObjectTypeSummary
+import com.maintenance.api.client.model.OntologyActionExecuteOutcome
 import com.maintenance.api.client.model.OntologyActionRequest
 import com.maintenance.api.client.model.ResolvedInstance
 
@@ -221,7 +222,7 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * Re-evaluates the §16 gate chain inside the writeback transaction (TOCTOU-safe), then dispatches an instance-revision (append fixity-chained revision) or a projected use-case. Humans and automation use this same path.
      * @param actionKey
      * @param ontologyActionRequest
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @return OntologyActionExecuteOutcome
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -230,11 +231,11 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun executeOntologyAction(actionKey: kotlin.String, ontologyActionRequest: OntologyActionRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+    suspend fun executeOntologyAction(actionKey: kotlin.String, ontologyActionRequest: OntologyActionRequest) : OntologyActionExecuteOutcome = withContext(Dispatchers.IO) {
         val localVarResponse = executeOntologyActionWithHttpInfo(actionKey = actionKey, ontologyActionRequest = ontologyActionRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OntologyActionExecuteOutcome
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -254,16 +255,16 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * Re-evaluates the §16 gate chain inside the writeback transaction (TOCTOU-safe), then dispatches an instance-revision (append fixity-chained revision) or a projected use-case. Humans and automation use this same path.
      * @param actionKey
      * @param ontologyActionRequest
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @return ApiResponse<OntologyActionExecuteOutcome?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun executeOntologyActionWithHttpInfo(actionKey: kotlin.String, ontologyActionRequest: OntologyActionRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+    suspend fun executeOntologyActionWithHttpInfo(actionKey: kotlin.String, ontologyActionRequest: OntologyActionRequest) : ApiResponse<OntologyActionExecuteOutcome?> = withContext(Dispatchers.IO) {
         val localVariableConfig = executeOntologyActionRequestConfig(actionKey = actionKey, ontologyActionRequest = ontologyActionRequest)
 
-        return@withContext request<OntologyActionRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<OntologyActionRequest, OntologyActionExecuteOutcome>(
             localVariableConfig
         )
     }

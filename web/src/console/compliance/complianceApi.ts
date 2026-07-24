@@ -1,6 +1,7 @@
 import type { components } from "@maintenance/api-client-ts";
 
 import type { ConsoleApiClient } from "../../api/client";
+import { ApiCallError } from "../../api/ontologyActions";
 
 import type {
   ComplianceCatalogItem,
@@ -17,6 +18,23 @@ type RawRegulation = components["schemas"]["RegulationImpact"];
 type RawFramework = components["schemas"]["ComplianceFramework"];
 type RawControl = components["schemas"]["ComplianceControl"];
 type RawEvidence = components["schemas"]["EvidenceBinding"];
+type GeneratedReadResult<T> = {
+  data?: T;
+  error?: components["schemas"]["ErrorBody"];
+  response: Response;
+};
+
+/** Preserve the generated response error so authorization denials remain truthful in the UI. */
+function requireGeneratedRead<T>(
+  { data, error, response }: GeneratedReadResult<T>,
+  emptyResponseMessage: string,
+): T {
+  if (data) return data;
+  if (error || response.status === 401 || response.status === 403) {
+    throw new ApiCallError(response.status, error);
+  }
+  throw new Error(emptyResponseMessage);
+}
 
 const PAGE_SIZE = 100;
 /** Keeps evidence hydration responsive and bounded even for large frameworks. */
@@ -66,12 +84,11 @@ async function obligationPage(
   offset: number,
   query: string,
 ): Promise<ApiPage<RawObligation>> {
-  const { data } = await api.GET("/api/v1/compliance/obligations", {
+  const result = await api.GET("/api/v1/compliance/obligations", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
     signal,
   });
-  if (!data) throw new Error("compliance obligations read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance obligations read returned no data");
 }
 
 async function regulationPage(
@@ -80,12 +97,11 @@ async function regulationPage(
   offset: number,
   query: string,
 ): Promise<ApiPage<RawRegulation>> {
-  const { data } = await api.GET("/api/v1/compliance/regulations", {
+  const result = await api.GET("/api/v1/compliance/regulations", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
     signal,
   });
-  if (!data) throw new Error("compliance regulations read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance regulations read returned no data");
 }
 
 async function frameworkPage(
@@ -94,12 +110,11 @@ async function frameworkPage(
   offset: number,
   query: string,
 ): Promise<ApiPage<RawFramework>> {
-  const { data } = await api.GET("/api/v1/compliance/frameworks", {
+  const result = await api.GET("/api/v1/compliance/frameworks", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
     signal,
   });
-  if (!data) throw new Error("compliance frameworks read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance frameworks read returned no data");
 }
 
 async function controlPage(
@@ -108,12 +123,11 @@ async function controlPage(
   frameworkId: string,
   offset: number,
 ): Promise<ApiPage<RawControl>> {
-  const { data } = await api.GET("/api/v1/compliance/framework-controls", {
+  const result = await api.GET("/api/v1/compliance/framework-controls", {
     params: { query: { framework_id: frameworkId, limit: PAGE_SIZE, offset } },
     signal,
   });
-  if (!data) throw new Error("compliance framework controls read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance framework controls read returned no data");
 }
 
 async function evidencePage(
@@ -122,12 +136,11 @@ async function evidencePage(
   controlId: string,
   offset: number,
 ): Promise<ApiPage<RawEvidence>> {
-  const { data } = await api.GET("/api/v1/compliance/evidence-bindings", {
+  const result = await api.GET("/api/v1/compliance/evidence-bindings", {
     params: { query: { control_id: controlId, limit: PAGE_SIZE, offset } },
     signal,
   });
-  if (!data) throw new Error("compliance evidence bindings read returned no data");
-  return data;
+  return requireGeneratedRead(result, "compliance evidence bindings read returned no data");
 }
 
 function normalizedQuery(query: string): string {
@@ -251,4 +264,99 @@ export async function readFrameworkDetail(
 
 export function kindForRowId(items: ComplianceCatalogItem[], id: string): ComplianceCatalogItem | undefined {
   return items.find((item) => item.id === id);
+}
+
+export interface EvidenceWorkbenchControl {
+  id: string;
+  frameworkId: string;
+  frameworkCode: string;
+  frameworkTitle: string;
+  controlKey: string;
+  title: string;
+  objective: string;
+  status: ComplianceControl["status"];
+}
+
+export interface EvidenceWorkbenchObligation {
+  id: string;
+  code: string;
+  title: string;
+}
+
+export interface EvidenceBindingWorkspace {
+  controls: EvidenceWorkbenchControl[];
+  obligations: EvidenceWorkbenchObligation[];
+  bindings: EvidenceBinding[];
+}
+
+async function allEvidencePage(
+  api: ConsoleApiClient,
+  signal: AbortSignal,
+  offset: number,
+): Promise<ApiPage<RawEvidence>> {
+  const result = await api.GET("/api/v1/compliance/evidence-bindings", {
+    params: { query: { limit: PAGE_SIZE, offset } },
+    signal,
+  });
+  return requireGeneratedRead(result, "compliance evidence bindings read returned no data");
+}
+
+/**
+ * Read the evidence workbench from the same authenticated catalog APIs that
+ * enforce tenant scope server-side. Controls are resolved from their owning
+ * frameworks; evidence history is fetched independently so the workbench does
+ * not hide bindings simply because a framework has no currently selected row.
+ */
+export async function readEvidenceBindingWorkspace(
+  api: ConsoleApiClient,
+  signal: AbortSignal,
+): Promise<EvidenceBindingWorkspace> {
+  const [frameworks, rawObligations, rawBindings] = await Promise.all([
+    readAllPages(signal, (offset) => frameworkPage(api, signal, offset, "")),
+    readAllPages(signal, (offset) => obligationPage(api, signal, offset, "")),
+    readAllPages(signal, (offset) => allEvidencePage(api, signal, offset)),
+  ]);
+  const controlPages = await mapWithConcurrency(
+    frameworks,
+    signal,
+    EVIDENCE_READ_CONCURRENCY,
+    async (rawFramework) => {
+      const rawControls = await readAllPages(
+        signal,
+        (offset) => controlPage(api, signal, rawFramework.id, offset),
+      );
+      return rawControls.map<EvidenceWorkbenchControl>((rawControl) => ({
+        id: rawControl.id,
+        frameworkId: rawFramework.id,
+        frameworkCode: rawFramework.code,
+        frameworkTitle: rawFramework.name,
+        controlKey: rawControl.control_key,
+        title: rawControl.title,
+        objective: rawControl.objective,
+        status: rawControl.status,
+      }));
+    },
+  );
+  return {
+    controls: controlPages.flat(),
+    obligations: rawObligations.map((raw) => ({ id: raw.id, code: raw.code, title: raw.title })),
+    bindings: rawBindings.map(evidence),
+  };
+}
+
+export type CreateEvidenceBindingRequest = components["schemas"]["CreateEvidenceBindingRequest"];
+
+/** Create a PROPOSED evidence binding through the generated contract. The
+ * backend owns the initial status, audit event, authorization, and tenant RLS. */
+export async function createEvidenceBinding(
+  api: ConsoleApiClient,
+  request: CreateEvidenceBindingRequest,
+  signal?: AbortSignal,
+): Promise<EvidenceBinding> {
+  const { data, error, response } = await api.POST(
+    "/api/v1/compliance/evidence-bindings",
+    { body: request, signal },
+  );
+  if (!data) throw new ApiCallError(response.status, error);
+  return evidence(data);
 }

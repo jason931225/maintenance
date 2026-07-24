@@ -1,7 +1,8 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router";
 
 import { useAuth } from "../context/auth";
 import {
+  isGrantedConsoleNavItem,
   isNavItemVisible,
   visibleNavItemsForRoles,
   type NavItemKey,
@@ -39,7 +40,7 @@ export function RequireNavItemRoute({
         session?.roles,
         session?.group_roles,
         session?.feature_grants,
-      ).find((item) => item.key !== "profile")?.href ??
+      ).find(isGrantedConsoleNavItem)?.href ??
       "/settings/profile";
     return <Navigate to={fallback} replace />;
   }

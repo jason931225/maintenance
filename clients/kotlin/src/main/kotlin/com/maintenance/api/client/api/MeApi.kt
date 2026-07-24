@@ -36,6 +36,7 @@ import com.maintenance.api.client.model.InboxDocPage
 import com.maintenance.api.client.model.InboxDocSummary
 import com.maintenance.api.client.model.MeAuthzResponse
 import com.maintenance.api.client.model.MyDispatchOfferPage
+import com.maintenance.api.client.model.MyWorkbenchResponse
 import com.maintenance.api.client.model.NotificationCountsSummary
 import com.maintenance.api.client.model.NotificationPage
 import com.maintenance.api.client.model.NotificationReadAllResponse
@@ -573,6 +574,114 @@ open class MeApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/me/notifications/unread-count",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/me/workbench
+     * Read the authenticated principal&#39;s bounded operations workbench
+     * Composes the native action-inbox, owner-scoped todo, and collaboration calendar reads under one captured request instant. Each source remains independently authorized and may return a redacted denied or unavailable envelope; the aggregate never owns mutations or duplicates source data.
+     * @param from  (optional)
+     * @param to  (optional)
+     * @param branchId  (optional)
+     * @param actionLimit  (optional, default to 50)
+     * @param todoLimit  (optional, default to 50)
+     * @param calendarLimit  (optional, default to 50)
+     * @return MyWorkbenchResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMyWorkbench(from: java.time.OffsetDateTime? = null, to: java.time.OffsetDateTime? = null, branchId: java.util.UUID? = null, actionLimit: kotlin.Int? = 50, todoLimit: kotlin.Int? = 50, calendarLimit: kotlin.Int? = 50) : MyWorkbenchResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getMyWorkbenchWithHttpInfo(from = from, to = to, branchId = branchId, actionLimit = actionLimit, todoLimit = todoLimit, calendarLimit = calendarLimit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MyWorkbenchResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/workbench
+     * Read the authenticated principal&#39;s bounded operations workbench
+     * Composes the native action-inbox, owner-scoped todo, and collaboration calendar reads under one captured request instant. Each source remains independently authorized and may return a redacted denied or unavailable envelope; the aggregate never owns mutations or duplicates source data.
+     * @param from  (optional)
+     * @param to  (optional)
+     * @param branchId  (optional)
+     * @param actionLimit  (optional, default to 50)
+     * @param todoLimit  (optional, default to 50)
+     * @param calendarLimit  (optional, default to 50)
+     * @return ApiResponse<MyWorkbenchResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMyWorkbenchWithHttpInfo(from: java.time.OffsetDateTime?, to: java.time.OffsetDateTime?, branchId: java.util.UUID?, actionLimit: kotlin.Int?, todoLimit: kotlin.Int?, calendarLimit: kotlin.Int?) : ApiResponse<MyWorkbenchResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMyWorkbenchRequestConfig(from = from, to = to, branchId = branchId, actionLimit = actionLimit, todoLimit = todoLimit, calendarLimit = calendarLimit)
+
+        return@withContext request<Unit, MyWorkbenchResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMyWorkbench
+     *
+     * @param from  (optional)
+     * @param to  (optional)
+     * @param branchId  (optional)
+     * @param actionLimit  (optional, default to 50)
+     * @param todoLimit  (optional, default to 50)
+     * @param calendarLimit  (optional, default to 50)
+     * @return RequestConfig
+     */
+    fun getMyWorkbenchRequestConfig(from: java.time.OffsetDateTime?, to: java.time.OffsetDateTime?, branchId: java.util.UUID?, actionLimit: kotlin.Int?, todoLimit: kotlin.Int?, calendarLimit: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (from != null) {
+                    put("from", listOf(parseDateToQueryString<java.time.OffsetDateTime>(from)))
+                }
+                if (to != null) {
+                    put("to", listOf(parseDateToQueryString<java.time.OffsetDateTime>(to)))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+                if (actionLimit != null) {
+                    put("action_limit", listOf(actionLimit.toString()))
+                }
+                if (todoLimit != null) {
+                    put("todo_limit", listOf(todoLimit.toString()))
+                }
+                if (calendarLimit != null) {
+                    put("calendar_limit", listOf(calendarLimit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/workbench",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

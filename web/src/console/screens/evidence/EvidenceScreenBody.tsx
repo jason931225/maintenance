@@ -2,24 +2,22 @@
 //
 // The only backend-real document domain today is 증거 (console/evidence/*,
 // GET /api/v1/evidence/objects — real-wired, custody fabrication already
-// removed upstream). 결재/공지/업무일지/계약/접수 have no list API anywhere in
-// the generated client yet: rather than fabricate rows for them (§4-25-⑥),
-// their tabs render the real 유형 filter chip plus a blocked-until-backend
-// chip and an empty table — an honest, extensible shell a future backend lane
-// wires real data into without any UI rework.
+// removed upstream). Other document domains have no list API in the generated
+// client, so this surface exposes only the backed evidence workflow (§4-25-⑥).
 //
 // 보존 (retention) is real: GET /api/v1/lifecycles/evidence_object/{id}
 // (console/lifecycle's useLifecycle hook, called here per-row since a table
 // needs N rows, not the single-object shape the hook offers) → retentionUntil.
-// A 404 (no lifecycle row yet) or a denied/failed call renders "—", never a
-// fabricated duration.
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+// A missing lifecycle row renders "—". A denied or failed lifecycle read is
+// explicit and retryable; it is never mislabeled as an absent retention rule.
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
+import type { ConsoleApiClient } from "../../../api/client";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import {
-  listEvidenceObjects,
+  listEvidenceObjectPage,
   type EvidenceObjectDetail,
   type EvidenceSourceKind,
 } from "../../evidence";
@@ -39,23 +37,7 @@ const SOURCE_TONE: Record<EvidenceSourceKind, ChipTone> = {
 };
 import { documentsKoManifest as T } from "./koManifest";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
-
-// ko.console.documents.actions.{export, register, registerUnavailable} are
-// now real (wired in ko.ts, serial wire round 4). English fallbacks below
-// only guard a future ko.ts regression.
-function actionStrings(): { export: string; register: string; registerUnavailable: string } {
-  const documents = ko.console.documents as unknown as { actions?: Record<string, unknown> };
-  const actions = documents.actions;
-  const pick = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
-  return {
-    export: pick(actions?.export, "Export"),
-    register: pick(actions?.register, "Register a record"),
-    registerUnavailable: pick(
-      actions?.registerUnavailable,
-      "Record registration has no create endpoint yet.",
-    ),
-  };
-}
+import { readEvidenceRetentions, type RetentionEntry } from "./evidenceRetention";
 
 // Real, honest export — a client-side CSV of the rows actually on screen
 // (never a fabricated bulk export the backend doesn't offer). Native
@@ -71,18 +53,10 @@ function toCsv(rows: EvidenceObjectDetail[], resolveOwner: (id: string) => strin
   return [header.map(escape).join(","), ...lines].join("\r\n");
 }
 
-type TypeTab = "ALL" | "APPROVAL" | "NOTICE" | "WORKLOG" | "CONTRACT" | "INTAKE" | "EVIDENCE";
-
-// Only EVIDENCE has a real backing list today (see file header).
-const BACKED_TABS = new Set<TypeTab>(["ALL", "EVIDENCE"]);
-const TAB_ORDER: TypeTab[] = ["ALL", "APPROVAL", "NOTICE", "WORKLOG", "CONTRACT", "INTAKE", "EVIDENCE"];
-
 type StatFilter = "ALL" | "THIS_MONTH" | "EXPIRING";
 const EXPIRING_WINDOW_DAYS = 90;
 
 type ListState = "loading" | "ready" | "error";
-type RetentionEntry = { retentionUntil: string | null };
-
 const rootStyle: CSSProperties = { display: "grid", gap: "var(--sp-4)", color: "var(--ink)", fontFamily: "var(--font-sans)" };
 const headerStyle = screenHeaderStyle;
 const titleStyle = screenTitleStyle;
@@ -97,11 +71,6 @@ const actionButtonStyle: CSSProperties = {
   fontSize: "var(--text-sm)",
   fontWeight: "var(--fw-strong)",
   cursor: "pointer",
-};
-const primaryActionButtonStyle: CSSProperties = {
-  ...actionButtonStyle,
-  border: "1px solid var(--signal)",
-  background: "var(--signal)",
 };
 const barStyle: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-2)" };
 const statButtonStyle: CSSProperties = {
@@ -119,18 +88,6 @@ const statButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 const statButtonActiveStyle: CSSProperties = { ...statButtonStyle, border: "1px solid var(--accent-bd)", background: "var(--accent-bg)" };
-const tabButtonStyle: CSSProperties = {
-  minHeight: 44,
-  borderRadius: "var(--radius-pill)",
-  border: "1px solid var(--border)",
-  background: "var(--surface)",
-  color: "var(--ink)",
-  padding: "0 var(--sp-4)",
-  fontSize: "var(--text-sm)",
-  fontWeight: "var(--fw-strong)",
-  cursor: "pointer",
-};
-const tabButtonActiveStyle: CSSProperties = { ...tabButtonStyle, border: "1px solid var(--signal)", background: "var(--signal)" };
 const searchInputStyle: CSSProperties = {
   minHeight: 44,
   minWidth: 0,
@@ -208,75 +165,98 @@ function isExpiringSoon(retentionUntil: string): boolean {
 }
 
 export function EvidenceScreenBody() {
-  const { api } = useAuth();
-  const A = actionStrings();
+  const { api, session } = useAuth();
+  return (
+    <EvidenceScreenContent
+      key={session?.client_session_incarnation ?? "evidence-anonymous"}
+      api={api}
+    />
+  );
+}
+
+interface EvidenceScreenContentProps {
+  api: ConsoleApiClient;
+}
+
+function EvidenceScreenContent({ api }: EvidenceScreenContentProps) {
   const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [users, setUsers] = useState<Map<string, string>>(new Map());
   const [retention, setRetention] = useState<Map<string, RetentionEntry>>(new Map());
-  const [tab, setTab] = useState<TypeTab>("ALL");
   const [statFilter, setStatFilter] = useState<StatFilter>("ALL");
   const [search, setSearch] = useState("");
-  const [registerNotice, setRegisterNotice] = useState(false);
+  const [pageRequest, setPageRequest] = useState({ offset: 0, append: false, attempt: 0 });
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [retentionAttempt, setRetentionAttempt] = useState(0);
+  const loadedIds = useRef(new Set<string>());
 
   useEffect(() => {
-    let active = true;
-    async function load() {
-      setListState("loading");
-      try {
-        const items = await listEvidenceObjects(api);
-        if (!active) return;
-        setRows(items);
+    const controller = new AbortController();
+    let current = true;
+    const { append, offset } = pageRequest;
+
+    void listEvidenceObjectPage(api, 200, offset, controller.signal)
+      .then((page) => {
+        if (!current || controller.signal.aborted) return;
+        const pageIds = new Set(page.items.map((item) => item.id));
+        if (pageIds.size !== page.items.length || (append && page.items.some((item) => loadedIds.current.has(item.id)))) {
+          throw new Error("Evidence records pagination overlapped a previously loaded page.");
+        }
+        if (append) page.items.forEach((item) => loadedIds.current.add(item.id));
+        else loadedIds.current = pageIds;
+        setRetention(new Map());
+        setRows((previous) => (append ? [...previous, ...page.items] : page.items));
+        setNextOffset(page.mayHaveMore ? page.nextOffset : null);
         setListState("ready");
-      } catch {
-        if (active) setListState("error");
-      }
-    }
-    void load();
+      })
+      .catch(() => {
+        if (!current || controller.signal.aborted) return;
+        setListState("error");
+        setNextOffset(null);
+      })
+      .finally(() => {
+        if (current && !controller.signal.aborted) setLoadingMore(false);
+      });
     return () => {
-      active = false;
+      current = false;
+      controller.abort();
     };
-  }, [api]);
+  }, [api, pageRequest]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let current = true;
     void api
-      .GET("/api/v1/users")
+      .GET("/api/v1/users", { signal: controller.signal })
       .then((res) => {
-        if (!res.data) return;
+        if (!current || controller.signal.aborted || !res.data) return;
         setUsers(new Map(res.data.items.map((u) => [u.id, u.display_name])));
       })
       .catch(() => undefined);
+    return () => {
+      current = false;
+      controller.abort();
+    };
   }, [api]);
 
-  // Best-effort, per-row retention lookup — a missing/denied/errored lifecycle
-  // read degrades to "no retention on record" (§ file header), never fabricated.
   useEffect(() => {
-    let active = true;
-    void Promise.all(
-      rows.map(async (row) => {
-        try {
-          const { data, response } = await api.GET("/api/v1/lifecycles/{objectType}/{objectId}", {
-            params: { path: { objectType: "evidence_object", objectId: row.id } },
-          });
-          if (data) return [row.id, { retentionUntil: data.retentionUntil ?? null }] as const;
-          if (response.status === 404) return [row.id, { retentionUntil: null }] as const;
-          return undefined;
-        } catch {
-          return undefined;
-        }
-      }),
-    ).then((entries) => {
-      if (!active) return;
-      const next = new Map<string, RetentionEntry>();
-      for (const entry of entries) {
-        if (entry) next.set(entry[0], entry[1]);
-      }
-      setRetention(next);
-    });
+    const controller = new AbortController();
+    let current = true;
+    void readEvidenceRetentions(api, rows, controller.signal)
+      .then((entries) => {
+        if (!current || controller.signal.aborted) return;
+        setRetention(entries);
+      })
+      .catch(() => {
+        if (!current || controller.signal.aborted) return;
+        setRetention(new Map(rows.map((row) => [row.id, { state: "unavailable", retentionUntil: null }])));
+      });
     return () => {
-      active = false;
+      current = false;
+      controller.abort();
     };
-  }, [api, rows]);
+  }, [api, retentionAttempt, rows]);
 
   const resolveOwner = (id: string): string => users.get(id) ?? id;
 
@@ -290,11 +270,10 @@ export function EvidenceScreenBody() {
       const entry = retention.get(row.id);
       return entry?.retentionUntil != null && isExpiringSoon(entry.retentionUntil);
     }).length;
-    return { total: rows.length, registeredThisMonth, expiring };
+    return { registeredThisMonth, expiring };
   }, [rows, retention]);
 
   const visibleRows = useMemo(() => {
-    if (!BACKED_TABS.has(tab)) return [];
     let visible = rows;
     if (statFilter === "THIS_MONTH") visible = visible.filter((row) => inCurrentMonth(row.registeredAt));
     if (statFilter === "EXPIRING") {
@@ -313,7 +292,7 @@ export function EvidenceScreenBody() {
       );
     }
     return visible;
-  }, [rows, tab, statFilter, retention, search, users]);
+  }, [rows, statFilter, retention, search, users]);
 
   function toggleStat(next: StatFilter) {
     setStatFilter((current) => (current === next ? "ALL" : next));
@@ -337,37 +316,12 @@ export function EvidenceScreenBody() {
         <h1 style={titleStyle}>{T.title}</h1>
         <div style={headerActionsStyle}>
           <button type="button" style={actionButtonStyle} onClick={exportVisibleRows}>
-            {A.export}
-          </button>
-          <button
-            type="button"
-            style={primaryActionButtonStyle}
-            onClick={() => {
-              setRegisterNotice(true);
-            }}
-          >
-            {A.register}
+            {ko.console.documents.actions.export}
           </button>
         </div>
       </header>
-      {registerNotice ? (
-        <StatusChip role="status" tone="warn">
-          {A.registerUnavailable}
-        </StatusChip>
-      ) : null}
 
       <div role="group" aria-label={T.title} style={barStyle}>
-        <button
-          type="button"
-          aria-pressed={statFilter === "ALL"}
-          style={statFilter === "ALL" ? statButtonActiveStyle : statButtonStyle}
-          onClick={() => {
-            setStatFilter("ALL");
-          }}
-        >
-          <span>{T.stats.total}</span>
-          <StatusChip tone="neutral">{stats.total}</StatusChip>
-        </button>
         <button
           type="button"
           aria-pressed={statFilter === "THIS_MONTH"}
@@ -392,23 +346,7 @@ export function EvidenceScreenBody() {
         </button>
       </div>
 
-      <div style={{ ...barStyle, justifyContent: "space-between" }}>
-        <div role="tablist" aria-label={T.columns.type} style={barStyle}>
-          {TAB_ORDER.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              style={tab === key ? tabButtonActiveStyle : tabButtonStyle}
-              onClick={() => {
-                setTab(key);
-              }}
-            >
-              {T.types[key]}
-            </button>
-          ))}
-        </div>
+      <div style={{ ...barStyle, justifyContent: "flex-end" }}>
         <input
           type="search"
           value={search}
@@ -431,21 +369,13 @@ export function EvidenceScreenBody() {
             style={retryButtonStyle}
             onClick={() => {
               setListState("loading");
-              void listEvidenceObjects(api)
-                .then((items) => {
-                  setRows(items);
-                  setListState("ready");
-                })
-                .catch(() => {
-                  setListState("error");
-                });
+              setNextOffset(null);
+              setPageRequest((request) => ({ offset: 0, append: false, attempt: request.attempt + 1 }));
             }}
           >
             {T.retry}
           </button>
         </div>
-      ) : !BACKED_TABS.has(tab) ? (
-        <StatusChip tone="warn">{T.blockedType}</StatusChip>
       ) : visibleRows.length === 0 ? (
         <StatusChip tone="neutral">{T.empty}</StatusChip>
       ) : (
@@ -464,11 +394,24 @@ export function EvidenceScreenBody() {
             <tbody>
               {visibleRows.map((row) => {
                 const entry = retention.get(row.id);
-                const retentionText = !entry
+                const retentionContent = !entry
                   ? T.retention.pending
-                  : entry.retentionUntil
-                    ? formatDate(entry.retentionUntil)
-                    : T.retention.unset;
+                  : entry.state === "unavailable"
+                    ? <span style={barStyle}>
+                        <StatusChip tone="danger">{T.loadFailed}</StatusChip>
+                        <button
+                          type="button"
+                          style={retryButtonStyle}
+                          onClick={() => {
+                            setRetentionAttempt((attempt) => attempt + 1);
+                          }}
+                        >
+                          {T.retry}
+                        </button>
+                      </span>
+                    : entry.retentionUntil
+                      ? formatDate(entry.retentionUntil)
+                      : T.retention.unset;
                 return (
                   <tr key={row.id} data-row-id={row.id}>
                     <td style={{ ...tdStyle, fontFamily: "var(--font-mono)" }}>{row.code}</td>
@@ -486,7 +429,7 @@ export function EvidenceScreenBody() {
                     </td>
                     <td style={tdStyle}>{resolveOwner(row.custodian)}</td>
                     <td style={tdStyle}>{formatDate(row.registeredAt)}</td>
-                    <td style={tdStyle}>{retentionText}</td>
+                    <td style={tdStyle}>{retentionContent}</td>
                   </tr>
                 );
               })}
@@ -494,14 +437,34 @@ export function EvidenceScreenBody() {
             <tfoot>
               <tr>
                 <td colSpan={6} style={tfootRowStyle}>
-                  {T.stats.total} {stats.total} · {T.stats.registeredThisMonth} {stats.registeredThisMonth} ·{" "}
-                  {T.stats.retentionExpiring} {stats.expiring}
+                  {T.stats.registeredThisMonth} {stats.registeredThisMonth} · {T.stats.retentionExpiring} {stats.expiring}
                 </td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
+      {nextOffset !== null ? (
+        <div style={barStyle}>
+          <StatusChip tone="info">
+            {ko.common.countWithMore
+              .replace("{loaded}", String(rows.length))
+              .replace("{unit}", ko.common.countUnit)}
+          </StatusChip>
+          <button
+            type="button"
+            style={actionButtonStyle}
+            disabled={loadingMore}
+            onClick={() => {
+              if (loadingMore) return;
+              setLoadingMore(true);
+              setPageRequest((request) => ({ offset: nextOffset, append: true, attempt: request.attempt + 1 }));
+            }}
+          >
+            {loadingMore ? ko.common.loadingMore : ko.common.loadMore}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

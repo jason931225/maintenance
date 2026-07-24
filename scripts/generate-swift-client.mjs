@@ -194,6 +194,20 @@ function patchKnownGeneratorGaps(stagingDir) {
                 totalIsExact: Swift.Bool,
                 nextCursor: Swift.String?`,
     ],
+    [
+      `            /// - Remark: Generated from \`#/components/schemas/EvidenceObjectPage/next_cursor\`.
+            public var nextCursor: Swift.String?`,
+      `            /// - Remark: Generated from \`#/components/schemas/EvidenceObjectPage/next_cursor\`.
+            @RequiredNullable public var nextCursor: Swift.String?`,
+    ],
+    [
+      `                total: Swift.Int64,
+                asOf: Swift.Int64,
+                nextCursor: Swift.String? = nil`,
+      `                total: Swift.Int64,
+                asOf: Swift.Int64,
+                nextCursor: Swift.String?`,
+    ],
   ];
   for (const [generated, patched] of requiredNullablePagePatchPairs) {
     if (text.includes(generated)) {

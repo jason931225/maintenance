@@ -31,9 +31,9 @@ import {
  *   - 임원 (EXECUTIVE)          → HQ-confirms as a SEPARATE user
  *     (holds ExitCaseHqConfirm; user id differs from the HR confirmer).
  *
- * Runs ONLY under the dev-auth Playwright project (MNT_DEV_AUTH_E2E=1). Bring up
- * the real stack first — `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap`
- * (backend `--features dev-auth` + Vite dev server) — then run this config; see
+ * Runs ONLY under the dev-auth Playwright project. Bring up the paired real
+ * stack first — `MNT_DEV_AUTH_E2E=1 node scripts/dev-up.mjs bootstrap` — then
+ * run `MNT_DEV_AUTH_E2E=1 npx playwright test --project=dev-auth`; see
  * playwright.config.ts.
  */
 
@@ -102,13 +102,13 @@ async function loginAs(page: Page, roleLabel: string): Promise<void> {
   });
   await page.goto("/login");
 
-  await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
-  // The role picker is the only <select> (combobox) in the switcher; the org and
-  // branch fields are text inputs. getByLabel("역할") is ambiguous — the wrapping
-  // label's accessible name folds in the option text, and the branch label also
-  // contains "역할".
-  await page.getByRole("combobox").selectOption({ label: roleLabel });
-  await page.getByRole("button", { name: "역할로 로그인" }).click();
+  const roleSwitcher = page.getByRole("region", { name: "로컬 역할 전환" });
+  await roleSwitcher
+    .getByRole("combobox", { name: "역할" })
+    .selectOption({ label: roleLabel });
+  await roleSwitcher
+    .getByRole("button", { name: new RegExp(`${roleLabel} 로그인$`) })
+    .click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
 

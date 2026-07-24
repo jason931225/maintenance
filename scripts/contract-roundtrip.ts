@@ -11,13 +11,18 @@ import { spawn } from "node:child_process";
 import pg from "pg";
 
 import { createMaintenanceApiClient } from "../clients/ts/src/index.js";
+import {
+  observeChild,
+  stopChild,
+  waitForChildReady,
+} from "./lib/app-process.mjs";
 
 const { Client: PgClient } = pg;
 const root = resolve(new URL("..", import.meta.url).pathname);
 const databaseUrl = process.env.CONTRACT_DATABASE_URL;
 const appBinary = process.env.MNT_APP_BIN
   ? resolve(process.env.MNT_APP_BIN)
-  : resolve(root, "backend/target/debug/mnt-app");
+  : resolve(root, ".tmp/buck2/api-contract/mnt-app");
 const port = process.env.CONTRACT_APP_PORT
   ? Number(process.env.CONTRACT_APP_PORT)
   : await findOpenPort();
@@ -66,37 +71,44 @@ try {
 
   const token = issueAccessToken(userId, branchId);
   const appEnv = {
-    ...process.env,
     DATABASE_URL: topology.runtimeDatabaseUrl,
     LEAVE_COMMAND_DATABASE_URL: topology.leaveCommandDatabaseUrl,
     ONTOLOGY_COMMAND_DATABASE_URL: topology.ontologyCommandDatabaseUrl,
+    PLATFORM_FORCE_COMMAND_DATABASE_URL: topology.platformForceCommandDatabaseUrl,
     MNT_APP_ROLE: "api",
     MNT_HTTP_ADDR: `127.0.0.1:${port}`,
     MNT_JWT_ISSUER: issuer,
     MNT_JWT_AUDIENCE: audience,
     MNT_JWT_PUBLIC_KEY_PEM: publicKeyPem,
   };
-  const app = spawn(appBinary, [], {
+  const observed = observeChild(spawn(appBinary, [], {
     cwd: root,
     env: appEnv,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+  }));
+  const { child: app } = observed;
 
-  // Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
-  // boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
-  // app's write() before it ever serves /healthz — indistinguishable from a
-  // readiness timeout. Echo live so CI logs show exactly what the app did.
+  // Drain both streams so a chatty boot cannot fill an OS pipe buffer before
+  // the app serves /healthz. Echo live so CI logs show exactly what it did.
   let appOutput = "";
   const capture = (chunk: Buffer) => {
     const text = chunk.toString();
     appOutput += text;
     process.stderr.write(text);
   };
+  if (!app.stdout || !app.stderr) {
+    throw new Error("mnt-app must expose stdout and stderr pipes");
+  }
   app.stdout.on("data", capture);
   app.stderr.on("data", capture);
 
   try {
-    await waitForApp(app, () => appOutput);
+    await waitForChildReady({
+      observed,
+      checkReady: async ({ signal }) =>
+        (await fetch(`${baseUrl}/healthz`, { signal })).ok,
+      getOutput: () => appOutput,
+    });
     const health = await fetch(`${baseUrl}/healthz`);
     if (!health.ok) {
       throw new Error(`healthz returned ${health.status}`);
@@ -123,7 +135,7 @@ try {
       throw new Error(`Unexpected request_no: ${data.request_no}`);
     }
   } finally {
-    app.kill("SIGTERM");
+    await stopChild(app);
   }
 } finally {
   await db.end();
@@ -166,6 +178,7 @@ async function provisionDatabaseTopology(
     mnt_rt: distinctPassword(),
     mnt_leave_cmd: distinctPassword(),
     mnt_ontology_cmd: distinctPassword(),
+    mnt_platform_force_cmd: distinctPassword(),
   } as const;
 
   // ALTER ROLE has no parameterized password protocol. Suppress statement and
@@ -208,7 +221,7 @@ async function provisionDatabaseTopology(
       );
     }
 
-    for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+    for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd", "mnt_platform_force_cmd"]) {
       const defaults = await client.query<{
         statement_ddl: string;
         idle_ddl: string;
@@ -256,11 +269,11 @@ async function provisionDatabaseTopology(
         JOIN pg_roles member ON member.oid=membership.member
         JOIN pg_roles granted ON granted.oid=membership.roleid
         WHERE member.rolname IN (
-                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                 'mnt_leave_definer','mnt_ontology_writer'
               )
            OR granted.rolname IN (
-                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                 'mnt_leave_definer','mnt_ontology_writer'
               )
       LOOP
@@ -288,7 +301,7 @@ async function provisionDatabaseTopology(
          ',' ORDER BY rolname)
        FROM pg_roles
        WHERE rolname IN (
-         'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+         'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
          'mnt_leave_definer','mnt_ontology_writer'
        )) AS roles,
       (SELECT string_agg(
@@ -299,11 +312,11 @@ async function provisionDatabaseTopology(
        JOIN pg_roles member ON member.oid=membership.member
        JOIN pg_roles granted ON granted.oid=membership.roleid
        WHERE member.rolname IN (
-               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                'mnt_leave_definer','mnt_ontology_writer'
              )
           OR granted.rolname IN (
-               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd',
                'mnt_leave_definer','mnt_ontology_writer'
              )) AS memberships,
       current_setting('server_version_num')::integer >= 170000
@@ -311,7 +324,7 @@ async function provisionDatabaseTopology(
         AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts)
         AND NOT EXISTS (
           SELECT 1
-          FROM (VALUES ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd')) expected(role_name)
+          FROM (VALUES ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd'), ('mnt_platform_force_cmd')) expected(role_name)
           WHERE NOT EXISTS (
             SELECT 1
             FROM pg_db_role_setting settings
@@ -330,7 +343,7 @@ async function provisionDatabaseTopology(
           FROM pg_db_role_setting settings
           JOIN pg_roles role ON role.oid = settings.setrole
           CROSS JOIN LATERAL unnest(settings.setconfig) setting
-          WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+          WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
             AND settings.setdatabase <> 0
             AND split_part(setting, '=', 1) IN (
               'statement_timeout', 'idle_in_transaction_session_timeout', 'transaction_timeout'
@@ -339,7 +352,7 @@ async function provisionDatabaseTopology(
   `);
     if (
       topology.rows[0].roles !==
-        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_rt:true:false:false:false" ||
+        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_platform_force_cmd:true:false:false:false,mnt_rt:true:false:false:false" ||
       topology.rows[0].memberships !==
         "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true" ||
       !topology.rows[0].runtime_defaults_ok
@@ -357,7 +370,7 @@ async function provisionDatabaseTopology(
   const capturedBackends = await client.query<{ pid: number }>(
     `SELECT pid
        FROM pg_stat_activity
-      WHERE usename IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+      WHERE usename IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd', 'mnt_platform_force_cmd')
         AND pid <> pg_backend_pid()
       ORDER BY pid`,
   );
@@ -391,6 +404,7 @@ async function provisionDatabaseTopology(
     runtimeDatabaseUrl: roleUrl("mnt_rt"),
     leaveCommandDatabaseUrl: roleUrl("mnt_leave_cmd"),
     ontologyCommandDatabaseUrl: roleUrl("mnt_ontology_cmd"),
+    platformForceCommandDatabaseUrl: roleUrl("mnt_platform_force_cmd"),
   };
   await assertDirectDatabaseLogin(topology.ownerDatabaseUrl, "mnt_app", true);
   await assertDirectDatabaseLogin(topology.runtimeDatabaseUrl, "mnt_rt", false);
@@ -402,6 +416,11 @@ async function provisionDatabaseTopology(
   await assertDirectDatabaseLogin(
     topology.ontologyCommandDatabaseUrl,
     "mnt_ontology_cmd",
+    false,
+  );
+  await assertDirectDatabaseLogin(
+    topology.platformForceCommandDatabaseUrl,
+    "mnt_platform_force_cmd",
     false,
   );
   return topology;
@@ -519,7 +538,6 @@ async function runAppMigration(binary: string, ownerDatabaseUrl: string) {
   const migration = spawn(binary, [], {
     cwd: root,
     env: {
-      ...process.env,
       DATABASE_URL: ownerDatabaseUrl,
       MNT_APP_ROLE: "migrate",
     },
@@ -645,32 +663,6 @@ function base64url(input: string | Buffer) {
     .replaceAll("=", "")
     .replaceAll("+", "-")
     .replaceAll("/", "_");
-}
-
-async function waitForApp(
-  app: ReturnType<typeof spawn>,
-  getStderr: () => string,
-) {
-  // Generous: absorbs a cold `cargo run` compile on a cache-miss runner plus
-  // boot. The early-exit check below fails fast if the app actually crashes.
-  const deadline = Date.now() + 300_000;
-  while (Date.now() < deadline) {
-    if (app.exitCode !== null) {
-      throw new Error(
-        `mnt-app exited early with ${app.exitCode}\n${getStderr()}`,
-      );
-    }
-    try {
-      const response = await fetch(`${baseUrl}/healthz`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // App is still starting.
-    }
-    await new Promise((resolveTimer) => setTimeout(resolveTimer, 500));
-  }
-  throw new Error(`Timed out waiting for mnt-app\n${getStderr()}`);
 }
 
 async function findOpenPort(): Promise<number> {

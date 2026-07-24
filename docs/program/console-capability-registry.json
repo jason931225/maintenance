@@ -1,876 +1,2490 @@
 {
-  "schema_version": "console-capability-registry-v1",
-  "last_refreshed": "2026-07-23",
-  "authority": "docs/program/console-enterprise-roadmap.md",
-  "source_revision": "origin/main@8e42b9a2ea42c4d79ed498044a9f50f623299f7f",
-  "dispatch_rule": "A row may enter in_progress only with one writer, an exact isolated worktree, disjoint ownership roots, a signature story, evidence paths, and executable leaf gates.",
-  "hold_rule": "Unassigned worktrees, overlapping ownership, missing backend contracts, empty Buck2 target sets, stale reference digests, or missing jurisdiction and independent-review receipts fail closed.",
-  "priority_formula": {
-    "user_workflow_value": 0.25,
-    "dependency_unlock": 0.2,
-    "correctness_and_risk_reduction": 0.2,
-    "visual_or_functional_parity_gap": 0.15,
-    "business_coverage_gain": 0.1,
-    "verification_readiness": 0.1,
-    "collision_probability": -0.15,
-    "unpriced_dependency_cost": -0.1
+ "schema_version": "console-capability-registry-v1",
+ "last_refreshed": "2026-07-23",
+ "authority": "docs/program/console-enterprise-roadmap.md",
+ "source_revision": "origin/main@8e42b9a2ea42c4d79ed498044a9f50f623299f7f",
+ "dispatch_rule": "A row may enter in_progress only with one writer, an exact isolated worktree, disjoint ownership roots, a signature story, evidence paths, and executable leaf gates.",
+ "hold_rule": "Unassigned worktrees, overlapping ownership, missing backend contracts, empty Buck2 target sets, stale reference digests, or missing jurisdiction and independent-review receipts fail closed.",
+ "review_authority": {
+  "reviewers": [
+   {
+    "id": "jasonlee-ssh-reviewer",
+    "author_name": "Jason Lee",
+    "author_email": "jason19931225@gmail.com",
+    "committer_name": "Jason Lee",
+    "committer_email": "jason19931225@gmail.com",
+    "signing": {
+     "format": "ssh",
+     "principal": "jason19931225@gmail.com",
+     "fingerprint": "SHA256:5grGNUtX9Zgmy1SWne6wF9DR8W1ElUQaF/Z8SYRz8E8"
+    }
+   }
+  ]
+ },
+ "fanout_epoch": {
+  "current_epoch": 1,
+  "normalized_lane_ids": [],
+  "status": "No currently declared lane has a fresh, clean, exact worktree, root, resource, and leaf-gate normalization; legacy lanes remain explicitly held."
+ },
+ "priority_formula": {
+  "user_workflow_value": 0.25,
+  "dependency_unlock": 0.2,
+  "correctness_and_risk_reduction": 0.2,
+  "visual_or_functional_parity_gap": 0.15,
+  "business_coverage_gain": 0.1,
+  "verification_readiness": 0.1,
+  "collision_probability": -0.15,
+  "unpriced_dependency_cost": -0.1
+ },
+ "shared_collision_roots": {
+  "owner": "console-consolidation",
+  "generated_face_registry": "tools/buck/generated_face_registry.json",
+  "paths": [
+   "web/src/i18n/ko.ts",
+   "web/src/console/shell/nav.ts",
+   "web/src/console/screens/registry.ts",
+   "backend/openapi/openapi.yaml",
+   "backend/crates/platform/db/migrations/**",
+   "docs/program/console-enterprise-roadmap.md",
+   "docs/program/console-capability-registry.json"
+  ]
+ },
+ "capabilities": [
+  {
+   "id": "CAP-CONSOLE-SHELL",
+   "label": "Responsive left-main-right console shell",
+   "evidence_basis": [
+    "design_reference",
+    "repository_contract",
+    "dated_audit"
+   ],
+   "frontier": 0,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 1,
+     "correctness_and_risk_reduction": 0.85,
+     "visual_or_functional_parity_gap": 1,
+     "business_coverage_gain": 0.3,
+     "verification_readiness": 0.8,
+     "collision_probability": 0.7,
+     "unpriced_dependency_cost": 0.2
+    },
+    "score": 0.73
+   },
+   "dependencies": [],
+   "owner": "console-shell",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-shell-parity-20260723",
+   "branch": "codex/console-shell-parity-20260723",
+   "commits": [
+    "38a53bdd"
+   ],
+   "integration_commits": [
+    "397e1e59"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/shell/ConsoleShell.tsx",
+     "web/src/console/shell/Sidebar.tsx",
+     "web/src/console/shell/Topbar.tsx",
+     "web/src/console/tokens.css",
+     "web/src/console/shell/ConsoleShell.test.tsx"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": "not_applicable",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/*"
+   ],
+   "signature_story": {
+    "id": "STORY-SHELL-001",
+    "outcome": "An authenticated operator preserves route, selected work, and communication context while moving between persistent, compact, and mutually exclusive drawer layouts using keyboard or touch."
+   },
+   "evidence_path": "docs/evidence/console/CAP-CONSOLE-SHELL",
+   "tests": {
+    "files": [
+     "web/src/console/shell/ConsoleShell.test.tsx"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/shell/ConsoleShell.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "pinned",
+    "backend": "not_applicable",
+    "frontend": "integrated_on_local_train",
+    "e2e": "component_matrix_passed",
+    "runtime": "dev_auth_live_at_localhost_5173",
+    "independent_review": "i1_non_independent_approved",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
   },
-  "shared_collision_roots": {
-    "owner": "console-consolidation",
-    "paths": [
+  {
+   "id": "CAP-OVERVIEW-WORKSPACE",
+   "label": "Overview action queue, agenda, and keyboard workflow",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference",
+    "dated_audit"
+   ],
+   "frontier": 0,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.85,
+     "dependency_unlock": 0.65,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 0.45,
+     "verification_readiness": 0.85,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.2
+    },
+    "score": 0.65
+   },
+   "dependencies": [
+    "CAP-CONSOLE-SHELL"
+   ],
+   "owner": "console-overview",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-overview-polish-20260723",
+   "branch": "codex/console-overview-polish-20260723",
+   "commits": [
+    "3a04a2b4"
+   ],
+   "integration_commits": [
+    "6381a1d2"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/screens/overview/OverviewBody.tsx",
+     "web/src/console/screens/overview/OverviewBody.test.tsx"
+    ],
+    "backend_roots": [
+     "backend/crates/action-inbox/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "not_applicable",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/overview",
+    "/api/v1/me/action-inbox"
+   ],
+   "signature_story": {
+    "id": "STORY-OVERVIEW-001",
+    "outcome": "An authenticated operator scans the real action queue and agenda, moves through authorized work with J/K or arrows, opens the selected item with Enter, and retains usable layout at narrow widths."
+   },
+   "evidence_path": "docs/evidence/console/CAP-OVERVIEW-WORKSPACE",
+   "tests": {
+    "files": [
+     "web/src/console/screens/overview/OverviewBody.test.tsx"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/screens/overview/OverviewBody.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "bounded_improvement_not_full_parity",
+    "backend": "existing_real_action_inbox",
+    "frontend": "integrated_on_local_train",
+    "e2e": "component_passed",
+    "runtime": "live_preview_hmr_available",
+    "independent_review": "i1_non_independent_approved",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-BENEFITS-CATALOG",
+   "label": "Benefits catalog and lifecycle",
+   "evidence_basis": [
+    "repository_contract",
+    "dated_audit"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.8,
+     "visual_or_functional_parity_gap": 0.55,
+     "business_coverage_gain": 0.4,
+     "verification_readiness": 0.8,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.25
+    },
+    "score": 0.57
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "console-benefits",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-benefit-20260723",
+   "branch": "codex/console-benefit-20260723",
+   "commits": [
+    "af1b1c85",
+    "adfd064f",
+    "aeda54e8",
+    "3e3af675"
+   ],
+   "integration_commits": [
+    "e77ff843",
+    "ee9c9457",
+    "90990a52",
+    "9f1c12ef"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/screens/benefit/**"
+    ],
+    "backend_roots": [
+     "backend/crates/benefit/**",
+     "backend/app/tests/benefit_catalog_api.rs"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "console-benefits",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/benefit",
+    "/api/v1/benefits/catalog/**"
+   ],
+   "signature_story": {
+    "id": "STORY-BENEFITS-001",
+    "outcome": "An authorized benefits administrator creates and updates a catalog item and its children, transitions lifecycle, observes audit evidence, and a MEMBER receives a non-leaking denial."
+   },
+   "evidence_path": "docs/evidence/console/CAP-BENEFITS-CATALOG",
+   "tests": {
+    "files": [
+     "web/src/console/screens/benefit/BenefitBody.test.tsx",
+     "backend/app/tests/benefit_catalog_api.rs"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/screens/benefit/BenefitBody.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "implemented_contract",
+    "backend": "implemented_but_buck2_unregistered",
+    "frontend": "integrated_on_local_train",
+    "e2e": "component_and_app_router_passed",
+    "runtime": "dev_auth_empty_state_verified_on_restarted_backend",
+    "independent_review": "i1_non_independent_approved",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-COMPLIANCE-CATALOG",
+   "label": "Compliance obligation, regulation, framework, control, and evidence catalog",
+   "evidence_basis": [
+    "repository_contract",
+    "dated_audit"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.85,
+     "dependency_unlock": 0.8,
+     "correctness_and_risk_reduction": 0.9,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.55,
+     "unpriced_dependency_cost": 0.45
+    },
+    "score": 0.67
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "console-compliance",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "integration_commits": [],
+   "lane_assignments": {
+    "backend": {
+     "owner": "compliance-backend",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-backend-20260723",
+     "branch": "codex/console-compliance-backend-20260723",
+     "roots": [
+      "backend/crates/compliance/rest/src/lib.rs",
+      "backend/app/tests/compliance_catalog_api.rs",
+      "backend/crates/platform/authz/src/lib.rs"
+     ],
+     "must_not_touch": [
+      "backend/openapi/openapi.yaml",
+      "clients/ts/src/schema.d.ts",
+      "clients/kotlin/**",
+      "clients/swift/Sources/MaintenanceAPIClient/Generated/**",
+      "web/**"
+     ]
+    },
+    "frontend": {
+     "owner": "compliance-frontend",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-frontend-20260723",
+     "branch": "codex/console-compliance-frontend-20260723",
+     "roots": [
+      "web/src/console/compliance/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
       "web/src/i18n/ko.ts",
       "web/src/console/shell/nav.ts",
       "web/src/console/screens/registry.ts",
-      "backend/openapi.yaml",
-      "clients/generated/**",
-      "backend/migrations/**",
-      "docs/program/console-enterprise-roadmap.md",
-      "docs/program/console-capability-registry.json"
-    ]
-  },
-  "capabilities": [
-    {
-      "id": "CAP-CONSOLE-SHELL",
-      "label": "Responsive left-main-right console shell",
-      "evidence_basis": [
-        "design_reference",
-        "repository_contract",
-        "dated_audit"
-      ],
-      "frontier": 0,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.9,
-          "dependency_unlock": 1,
-          "correctness_and_risk_reduction": 0.85,
-          "visual_or_functional_parity_gap": 1,
-          "business_coverage_gain": 0.3,
-          "verification_readiness": 0.8,
-          "collision_probability": 0.7,
-          "unpriced_dependency_cost": 0.2
-        },
-        "score": 0.73
-      },
-      "dependencies": [],
-      "owner": "console-shell",
-      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-shell-parity-20260723",
-      "branch": "codex/console-shell-parity-20260723",
-      "commits": [
-        "38a53bdd"
-      ],
-      "integration_commits": [
-        "397e1e59"
-      ],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/shell/ConsoleShell.tsx",
-          "web/src/console/shell/Sidebar.tsx",
-          "web/src/console/shell/Topbar.tsx",
-          "web/src/console/tokens.css",
-          "web/src/console/shell/ConsoleShell.test.tsx"
-        ],
-        "backend_roots": [],
-        "api_schema_roots": [],
-        "migration_owner": "not_applicable",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/*"
-      ],
-      "signature_story": {
-        "id": "STORY-SHELL-001",
-        "outcome": "An authenticated operator preserves route, selected work, and communication context while moving between persistent, compact, and mutually exclusive drawer layouts using keyboard or touch."
-      },
-      "evidence_path": "docs/evidence/console/CAP-CONSOLE-SHELL/",
-      "tests": {
-        "files": [
-          "web/src/console/shell/ConsoleShell.test.tsx"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/shell/ConsoleShell.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "pinned",
-        "backend": "not_applicable",
-        "frontend": "integrated_on_local_train",
-        "e2e": "component_matrix_passed",
-        "runtime": "dev_auth_live_at_localhost_5173",
-        "independent_review": "i1_non_independent_approved",
-        "production_exposure": "dark"
-      }
+      "clients/ts/src/schema.d.ts",
+      "clients/kotlin/**",
+      "clients/swift/Sources/MaintenanceAPIClient/Generated/**"
+     ]
     },
-    {
-      "id": "CAP-OVERVIEW-WORKSPACE",
-      "label": "Overview action queue, agenda, and keyboard workflow",
-      "evidence_basis": [
-        "repository_contract",
-        "design_reference",
-        "dated_audit"
-      ],
-      "frontier": 0,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.85,
-          "dependency_unlock": 0.65,
-          "correctness_and_risk_reduction": 0.7,
-          "visual_or_functional_parity_gap": 0.7,
-          "business_coverage_gain": 0.45,
-          "verification_readiness": 0.85,
-          "collision_probability": 0.3,
-          "unpriced_dependency_cost": 0.2
-        },
-        "score": 0.65
-      },
-      "dependencies": [
-        "CAP-CONSOLE-SHELL"
-      ],
-      "owner": "console-overview",
-      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-overview-polish-20260723",
-      "branch": "codex/console-overview-polish-20260723",
-      "commits": [
-        "3a04a2b4"
-      ],
-      "integration_commits": [
-        "6381a1d2"
-      ],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/screens/overview/OverviewBody.tsx",
-          "web/src/console/screens/overview/OverviewBody.test.tsx"
-        ],
-        "backend_roots": [
-          "backend action-inbox read surfaces"
-        ],
-        "api_schema_roots": [],
-        "migration_owner": "not_applicable",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/overview",
-        "/api/v1/me/action-inbox"
-      ],
-      "signature_story": {
-        "id": "STORY-OVERVIEW-001",
-        "outcome": "An authenticated operator scans the real action queue and agenda, moves through authorized work with J/K or arrows, opens the selected item with Enter, and retains usable layout at narrow widths."
-      },
-      "evidence_path": "docs/evidence/console/CAP-OVERVIEW-WORKSPACE/",
-      "tests": {
-        "files": [
-          "web/src/console/screens/overview/OverviewBody.test.tsx"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/screens/overview/OverviewBody.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "bounded_improvement_not_full_parity",
-        "backend": "existing_real_action_inbox",
-        "frontend": "integrated_on_local_train",
-        "e2e": "component_passed",
-        "runtime": "live_preview_hmr_available",
-        "independent_review": "i1_non_independent_approved",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-BENEFITS-CATALOG",
-      "label": "Benefits catalog and lifecycle",
-      "evidence_basis": [
-        "repository_contract",
-        "dated_audit"
-      ],
-      "frontier": 1,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.7,
-          "dependency_unlock": 0.55,
-          "correctness_and_risk_reduction": 0.8,
-          "visual_or_functional_parity_gap": 0.55,
-          "business_coverage_gain": 0.4,
-          "verification_readiness": 0.8,
-          "collision_probability": 0.35,
-          "unpriced_dependency_cost": 0.25
-        },
-        "score": 0.57
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "console-benefits",
-      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-benefit-20260723",
-      "branch": "codex/console-benefit-20260723",
-      "commits": [
-        "af1b1c85",
-        "adfd064f",
-        "aeda54e8",
-        "3e3af675"
-      ],
-      "integration_commits": [
-        "e77ff843",
-        "ee9c9457",
-        "90990a52",
-        "9f1c12ef"
-      ],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/screens/benefit/**"
-        ],
-        "backend_roots": [
-          "backend/crates/benefit/**",
-          "backend/app/tests/benefit_catalog_api.rs"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "console-benefits",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/benefit",
-        "/api/v1/benefits/catalog/**"
-      ],
-      "signature_story": {
-        "id": "STORY-BENEFITS-001",
-        "outcome": "An authorized benefits administrator creates and updates a catalog item and its children, transitions lifecycle, observes audit evidence, and a MEMBER receives a non-leaking denial."
-      },
-      "evidence_path": "docs/evidence/console/CAP-BENEFITS-CATALOG/",
-      "tests": {
-        "files": [
-          "web/src/console/screens/benefit/BenefitBody.test.tsx",
-          "backend/app/tests/benefit_catalog_api.rs"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/screens/benefit/BenefitBody.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "implemented_contract",
-        "backend": "implemented_but_buck2_unregistered",
-        "frontend": "integrated_on_local_train",
-        "e2e": "component_and_app_router_passed",
-        "runtime": "dev_auth_empty_state_verified_on_restarted_backend",
-        "independent_review": "i1_non_independent_approved",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-COMPLIANCE-CATALOG",
-      "label": "Compliance obligation, regulation, framework, control, and evidence catalog",
-      "evidence_basis": [
-        "repository_contract",
-        "dated_audit"
-      ],
-      "frontier": 1,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.85,
-          "dependency_unlock": 0.8,
-          "correctness_and_risk_reduction": 0.9,
-          "visual_or_functional_parity_gap": 0.8,
-          "business_coverage_gain": 0.7,
-          "verification_readiness": 0.55,
-          "collision_probability": 0.55,
-          "unpriced_dependency_cost": 0.45
-        },
-        "score": 0.67
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "console-compliance",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "integration_commits": [],
-      "lane_assignments": {
-        "backend": {
-          "owner": "compliance-backend",
-          "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-backend-20260723",
-          "branch": "codex/console-compliance-backend-20260723",
-          "roots": [
-            "backend/crates/compliance/rest/src/lib.rs",
-            "backend/app/tests/compliance_catalog_api.rs",
-            "backend/crates/platform/authz/src/lib.rs"
-          ],
-          "must_not_touch": [
-            "backend/openapi.yaml",
-            "clients/generated/**",
-            "web/**"
-          ]
-        },
-        "frontend": {
-          "owner": "compliance-frontend",
-          "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-compliance-frontend-20260723",
-          "branch": "codex/console-compliance-frontend-20260723",
-          "roots": [
-            "web/src/console/compliance/**"
-          ],
-          "must_not_touch": [
-            "backend/**",
-            "web/src/i18n/ko.ts",
-            "web/src/console/shell/nav.ts",
-            "web/src/console/screens/registry.ts",
-            "clients/generated/**"
-          ]
-        },
-        "consolidation": {
-          "owner": "console-consolidation",
-          "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-integration-20260723",
-          "branch": "codex/console-integration-20260723",
-          "roots": [
-            "backend/openapi.yaml",
-            "clients/generated/**",
-            "web/src/i18n/ko.ts",
-            "web/src/console/shell/nav.ts",
-            "web/src/console/screens/registry.ts",
-            "docs/program/**"
-          ]
-        }
-      },
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/compliance/**"
-        ],
-        "backend_roots": [
-          "backend/crates/compliance/domain/**",
-          "backend/crates/compliance/application/**",
-          "backend/crates/compliance/adapter-postgres/**",
-          "backend/crates/compliance/rest/**",
-          "backend/app/tests/compliance_catalog_api.rs"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "compliance-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/compliance",
-        "/api/v1/compliance/obligations",
-        "/api/v1/compliance/regulations",
-        "/api/v1/compliance/frameworks",
-        "/api/v1/compliance/controls",
-        "/api/v1/compliance/evidence-bindings"
-      ],
-      "signature_story": {
-        "id": "STORY-COMPLIANCE-001",
-        "outcome": "A qualified compliance owner traces a regulation to obligations, controls, and accepted evidence, transitions governed lifecycle with audit, while unauthorized and cross-tenant reads reveal neither rows nor counts."
-      },
-      "evidence_path": "docs/evidence/console/CAP-COMPLIANCE-CATALOG/",
-      "tests": {
-        "files": [
-          "web/src/console/compliance/ComplianceModuleScreenBody.test.tsx",
-          "backend/app/tests/compliance_catalog_api.rs"
-        ],
-        "leaf_commands": [
-          "npm --prefix web run test -- src/console/compliance/ComplianceModuleScreenBody.test.tsx",
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_mapped",
-        "backend": "writer_assigned_store_exists_rest_missing",
-        "frontend": "writer_assigned_production_stubs_present",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-SHARED-ONTOLOGY-WORKFLOW",
-      "label": "Shared governed ontology, action, workflow, history, and audit substrate",
-      "evidence_basis": [
-        "repository_contract",
-        "design_reference",
-        "dated_audit"
-      ],
-      "frontier": 1,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.95,
-          "dependency_unlock": 1,
-          "correctness_and_risk_reduction": 0.95,
-          "visual_or_functional_parity_gap": 0.8,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.4,
-          "collision_probability": 0.8,
-          "unpriced_dependency_cost": 0.7
-        },
-        "score": 0.7
-      },
-      "dependencies": [],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/ontology/**",
-          "web/src/console/modules/**",
-          "web/src/console/workflows/**"
-        ],
-        "backend_roots": [
-          "backend/crates/ontology/**",
-          "backend/app/src/lifecycle.rs",
-          "backend/app/src/workflow_studio.rs",
-          "backend/crates/governance/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "ontology-platform",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/objectExplorer",
-        "/console/ontologyManager",
-        "/console/workflow",
-        "/api/v1/ontology/**"
-      ],
-      "signature_story": {
-        "id": "STORY-ONTOLOGY-001",
-        "outcome": "An authorized user defines or consumes a typed object, traverses governed links, preflights and executes an action, and reads lifecycle, history, lineage, and audit consistently in every consuming module."
-      },
-      "evidence_path": "docs/evidence/console/CAP-SHARED-ONTOLOGY-WORKFLOW/",
-      "tests": {
-        "files": [
-          "web/src/console/ontology/**",
-          "backend/app/tests/object_resolve_api.rs",
-          "backend/app/tests/workflow_runtime_instance_api.rs"
-        ],
-        "leaf_commands": [
-          "node web/scripts/check-ui-strings.mjs",
-          "npm run web:lint",
-          "npm run web:build",
-          "git diff --check"
-        ],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "partial",
-        "backend": "substantial_partial",
-        "frontend": "substantial_partial",
-        "e2e": "fragmented",
-        "runtime": "partial",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-PRODUCTION-PILOT",
-      "label": "Production subcontracting signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.9,
-          "dependency_unlock": 0.65,
-          "correctness_and_risk_reduction": 0.75,
-          "visual_or_functional_parity_gap": 0.75,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.3,
-          "collision_probability": 0.45,
-          "unpriced_dependency_cost": 0.7
-        },
-        "score": 0.61
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/production/**"
-        ],
-        "backend_roots": [
-          "backend/crates/production/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "production-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/production"
-      ],
-      "signature_story": {
-        "id": "STORY-PRODUCTION-001",
-        "outcome": "Customer demand becomes a capacity- and material-checked staffed plan, executed operations and quality evidence, finished delivery, settlement, and margin."
-      },
-      "evidence_path": "docs/evidence/console/CAP-PRODUCTION-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-LOGISTICS-PILOT",
-      "label": "Logistics subcontracting signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.85,
-          "dependency_unlock": 0.55,
-          "correctness_and_risk_reduction": 0.7,
-          "visual_or_functional_parity_gap": 0.65,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.3,
-          "collision_probability": 0.4,
-          "unpriced_dependency_cost": 0.65
-        },
-        "score": 0.57
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/logistics/**"
-        ],
-        "backend_roots": [
-          "backend/crates/logistics/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "logistics-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/logistics"
-      ],
-      "signature_story": {
-        "id": "STORY-LOGISTICS-001",
-        "outcome": "An inbound notice proceeds through receiving, putaway, replenishment, pick and pack, dispatch, delivery evidence, SLA evaluation, and cost settlement."
-      },
-      "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-IFM-PILOT",
-      "label": "Integrated facility management signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.9,
-          "dependency_unlock": 0.6,
-          "correctness_and_risk_reduction": 0.75,
-          "visual_or_functional_parity_gap": 0.7,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.3,
-          "collision_probability": 0.4,
-          "unpriced_dependency_cost": 0.65
-        },
-        "score": 0.61
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/facilities/**"
-        ],
-        "backend_roots": [
-          "backend/crates/facilities/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "facilities-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/facilities"
-      ],
-      "signature_story": {
-        "id": "STORY-IFM-001",
-        "outcome": "A service obligation or request is triaged, safely scheduled and assigned, executed with evidence, accepted by the customer, and reflected in SLA, energy, and cost reporting."
-      },
-      "evidence_path": "docs/evidence/console/CAP-IFM-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-EQUIPMENT-3R-PILOT",
-      "label": "Equipment rental, repair, refurbishment, and resale signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.8,
-          "dependency_unlock": 0.5,
-          "correctness_and_risk_reduction": 0.65,
-          "visual_or_functional_parity_gap": 0.7,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.25,
-          "collision_probability": 0.35,
-          "unpriced_dependency_cost": 0.65
-        },
-        "score": 0.54
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/equipment/**"
-        ],
-        "backend_roots": [
-          "backend/crates/equipment/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "equipment-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/equipment"
-      ],
-      "signature_story": {
-        "id": "STORY-EQUIPMENT-3R-001",
-        "outcome": "Availability and suitability lead to quote and approval, dispatch and handover, inspection and maintenance, return assessment, then repair, refurbishment, resale, or redeployment."
-      },
-      "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-CONSULTING-PILOT",
-      "label": "Consulting engagement and realized-benefit signature workflow",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.7,
-          "dependency_unlock": 0.45,
-          "correctness_and_risk_reduction": 0.6,
-          "visual_or_functional_parity_gap": 0.65,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.25,
-          "collision_probability": 0.3,
-          "unpriced_dependency_cost": 0.6
-        },
-        "score": 0.5
-      },
-      "dependencies": [
-        "CAP-SHARED-ONTOLOGY-WORKFLOW"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/consulting/**"
-        ],
-        "backend_roots": [
-          "backend/crates/consulting/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "consulting-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/consulting"
-      ],
-      "signature_story": {
-        "id": "STORY-CONSULTING-001",
-        "outcome": "A diagnostic produces evidence-backed findings and initiatives, approval and implementation, measured benefit, and a sustain-or-correct decision."
-      },
-      "evidence_path": "docs/evidence/console/CAP-CONSULTING-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "gap_analysis_required",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
-    },
-    {
-      "id": "CAP-OWNED-PLANTS-PILOT",
-      "label": "Owned-plant production configuration",
-      "evidence_basis": [
-        "official",
-        "inference"
-      ],
-      "frontier": 2,
-      "priority": {
-        "as_of": "2026-07-23",
-        "inputs": {
-          "user_workflow_value": 0.75,
-          "dependency_unlock": 0.4,
-          "correctness_and_risk_reduction": 0.65,
-          "visual_or_functional_parity_gap": 0.65,
-          "business_coverage_gain": 1,
-          "verification_readiness": 0.25,
-          "collision_probability": 0.3,
-          "unpriced_dependency_cost": 0.6
-        },
-        "score": 0.52
-      },
-      "dependencies": [
-        "CAP-PRODUCTION-PILOT"
-      ],
-      "owner": "unassigned",
-      "worktree": null,
-      "branch": null,
-      "commits": [],
-      "ownership": {
-        "frontend_roots": [
-          "web/src/console/production/plants/**"
-        ],
-        "backend_roots": [
-          "backend/crates/production/**"
-        ],
-        "api_schema_roots": [
-          "backend/openapi.yaml"
-        ],
-        "migration_owner": "production-backend",
-        "integration_owner": "console-consolidation"
-      },
-      "routes": [
-        "/console/production/plants"
-      ],
-      "signature_story": {
-        "id": "STORY-OWNED-PLANTS-001",
-        "outcome": "Miryang, Changwon, and Ulsan configure plant-specific routing, quality, equipment, workforce, and cost without forking the shared production ontology or application."
-      },
-      "evidence_path": "docs/evidence/console/CAP-OWNED-PLANTS-PILOT/",
-      "tests": {
-        "files": [],
-        "leaf_commands": [],
-        "buck2_targets": []
-      },
-      "state": {
-        "design_contract": "research_required",
-        "backend": "blocked_by_production_pilot",
-        "frontend": "missing",
-        "e2e": "missing",
-        "runtime": "blocked",
-        "independent_review": "missing",
-        "production_exposure": "dark"
-      }
+    "consolidation": {
+     "owner": "console-consolidation",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-integration-20260723",
+     "branch": "codex/console-integration-20260723",
+     "roots": [
+      "backend/openapi/openapi.yaml",
+      "clients/ts/src/schema.d.ts",
+      "clients/kotlin/**",
+      "clients/swift/Sources/MaintenanceAPIClient/Generated/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "docs/program/**"
+     ]
     }
-  ]
+   },
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/compliance/**"
+    ],
+    "backend_roots": [
+     "backend/crates/compliance/domain/**",
+     "backend/crates/compliance/application/**",
+     "backend/crates/compliance/adapter-postgres/**",
+     "backend/crates/compliance/rest/**",
+     "backend/app/tests/compliance_catalog_api.rs"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "compliance-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/compliance",
+    "/api/v1/compliance/obligations",
+    "/api/v1/compliance/regulations",
+    "/api/v1/compliance/frameworks",
+    "/api/v1/compliance/controls",
+    "/api/v1/compliance/evidence-bindings"
+   ],
+   "signature_story": {
+    "id": "STORY-COMPLIANCE-001",
+    "outcome": "A qualified compliance owner traces a regulation to obligations, controls, and accepted evidence, transitions governed lifecycle with audit, while unauthorized and cross-tenant reads reveal neither rows nor counts."
+   },
+   "evidence_path": "docs/evidence/console/CAP-COMPLIANCE-CATALOG",
+   "tests": {
+    "files": [
+     "web/src/console/compliance/ComplianceModuleScreenBody.test.tsx",
+     "backend/app/tests/compliance_catalog_api.rs"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/compliance/ComplianceModuleScreenBody.test.tsx",
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_mapped",
+    "backend": "writer_assigned_store_exists_rest_missing",
+    "frontend": "writer_assigned_production_stubs_present",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-SHARED-ONTOLOGY-WORKFLOW",
+   "label": "Shared governed ontology, action, workflow, history, and audit substrate",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference",
+    "dated_audit"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.95,
+     "dependency_unlock": 1,
+     "correctness_and_risk_reduction": 0.95,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.4,
+     "collision_probability": 0.8,
+     "unpriced_dependency_cost": 0.7
+    },
+    "score": 0.7
+   },
+   "dependencies": [],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/ontology/**",
+     "web/src/console/modules/**",
+     "web/src/console/workflows/**"
+    ],
+    "backend_roots": [
+     "backend/crates/ontology/**",
+     "backend/app/src/lifecycle.rs",
+     "backend/app/src/workflow_studio.rs",
+     "backend/crates/governance/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "ontology-platform",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/objectExplorer",
+    "/console/ontologyManager",
+    "/console/workflow",
+    "/api/v1/ontology/**"
+   ],
+   "signature_story": {
+    "id": "STORY-ONTOLOGY-001",
+    "outcome": "An authorized user defines or consumes a typed object, traverses governed links, preflights and executes an action, and reads lifecycle, history, lineage, and audit consistently in every consuming module."
+   },
+   "evidence_path": "docs/evidence/console/CAP-SHARED-ONTOLOGY-WORKFLOW",
+   "tests": {
+    "files": [
+     "web/src/console/ontology/**",
+     "backend/app/tests/object_resolve_api.rs",
+     "backend/app/tests/workflow_runtime_instance_api.rs"
+    ],
+    "leaf_commands": [
+     "node web/scripts/check-ui-strings.mjs",
+     "npm run web:lint",
+     "npm run web:build",
+     "git diff --check"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "partial",
+    "backend": "substantial_partial",
+    "frontend": "substantial_partial",
+    "e2e": "fragmented",
+    "runtime": "partial",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-PRODUCTION-PILOT",
+   "label": "Production subcontracting signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.65,
+     "correctness_and_risk_reduction": 0.75,
+     "visual_or_functional_parity_gap": 0.75,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.45,
+     "unpriced_dependency_cost": 0.7
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/production/**"
+    ],
+    "backend_roots": [
+     "backend/crates/production/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "production-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/production"
+   ],
+   "signature_story": {
+    "id": "STORY-PRODUCTION-001",
+    "outcome": "Customer demand becomes a capacity- and material-checked staffed plan, executed operations and quality evidence, finished delivery, settlement, and margin."
+   },
+   "evidence_path": "docs/evidence/console/CAP-PRODUCTION-PILOT",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-LOGISTICS-PILOT",
+   "label": "Logistics subcontracting signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.85,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.65,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.4,
+     "unpriced_dependency_cost": 0.65
+    },
+    "score": 0.57
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/logistics/**"
+    ],
+    "backend_roots": [
+     "backend/crates/logistics/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "logistics-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/logistics"
+   ],
+   "signature_story": {
+    "id": "STORY-LOGISTICS-001",
+    "outcome": "An inbound notice proceeds through receiving, putaway, replenishment, pick and pack, dispatch, delivery evidence, SLA evaluation, and cost settlement."
+   },
+   "evidence_path": "docs/evidence/console/CAP-LOGISTICS-PILOT",
+   "tests": {
+    "files": [
+     "web/src/console/logistics/*.test.*"
+    ],
+    "leaf_commands": [
+     "cd web && npx vitest run src/console/logistics (27 passed)"
+    ],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "integrated_dark_on_pr488",
+    "e2e": "component_matrix_passed_no_browser_replay",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-logistics-frontend-20260724",
+     "branch": "claude/console-logistics-frontend-20260724",
+     "roots": [
+      "web/src/console/logistics/**",
+      "docs/evidence/console/CAP-LOGISTICS-PILOT/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "integration_notes": "Merged + mounted DARK 2026-07-24. CEILING: logistics REST is write-only (zero GET routes) — queues are session working set; refresh truthfully empties; history readback + rehydration need a read-endpoint charter (gap manifest in docs/evidence/console/CAP-LOGISTICS-PILOT/). openapi drift fixed via LogisticsTimeTuple (backend not RFC3339 yet — flip-back notes in openapi-applied-notes.md). logistics ConfiguredRouteSurface/RouteSource registration still missing (pre-existing)."
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-IFM-PILOT",
+   "label": "Integrated facility management signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.6,
+     "correctness_and_risk_reduction": 0.75,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.4,
+     "unpriced_dependency_cost": 0.65
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/facilities/**"
+    ],
+    "backend_roots": [
+     "backend/crates/facilities/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "facilities-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/facilities"
+   ],
+   "signature_story": {
+    "id": "STORY-IFM-001",
+    "outcome": "A service obligation or request is triaged, safely scheduled and assigned, executed with evidence, accepted by the customer, and reflected in SLA, energy, and cost reporting."
+   },
+   "evidence_path": "docs/evidence/console/CAP-IFM-PILOT",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-EQUIPMENT-3R-PILOT",
+   "label": "Equipment rental, repair, refurbishment, and resale signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.65,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.25,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.65
+    },
+    "score": 0.54
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "equipment-3r-consolidation",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-equipment-vertical-20260724",
+   "branch": "claude/console-equipment-vertical-20260724",
+   "commits": [
+    "47869a9d",
+    "d6fc5a76"
+   ],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/equipment/**"
+    ],
+    "backend_roots": [
+     "backend/crates/equipment/**",
+     "backend/app/tests/equipment_3r_api.rs",
+     "backend/crates/platform/db/migrations/0182_create_equipment_3r.sql"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "equipment-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/equipment"
+   ],
+   "signature_story": {
+    "id": "STORY-EQUIPMENT-3R-001",
+    "outcome": "Availability and suitability lead to quote and approval, dispatch and handover, inspection and maintenance, return assessment, then repair, refurbishment, resale, or redeployment."
+   },
+   "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT",
+   "tests": {
+    "files": [
+     "backend/crates/equipment/rest/tests/equipment_3r_http.rs",
+     "backend/app/tests/equipment_3r_api.rs",
+     "web/src/console/equipment/EquipmentScreen.test.tsx",
+     "web/src/console/equipment/equipmentApi.test.ts",
+     "web/src/console/equipment/equipmentCapabilities.test.ts",
+     "web/src/console/equipment/quoteDraft.test.ts"
+    ],
+    "leaf_commands": [
+     "npm --prefix web run test -- src/console/equipment/EquipmentScreen.test.tsx src/console/equipment/equipmentApi.test.ts src/console/equipment/equipmentCapabilities.test.ts src/console/equipment/quoteDraft.test.ts",
+     "npm --prefix web run lint",
+     "npm --prefix web run build",
+     "tools/buck2 test --local-only //backend/crates/equipment/domain:mnt-equipment-domain-unit",
+     "tools/buck/test_needs_postgres.sh //backend/crates/equipment/rest:mnt-equipment-rest-itest-equipment_3r_http //backend/app:mnt-app-itest-equipment_3r_api",
+     "git diff --check"
+    ],
+    "buck2_targets": [
+     "//backend/crates/equipment/domain:mnt-equipment-domain-unit",
+     "//backend/crates/equipment/rest:mnt-equipment-rest-itest-equipment_3r_http",
+     "//backend/app:mnt-app-itest-equipment_3r_api"
+    ]
+   },
+   "state": {
+    "design_contract": "committed_contract",
+    "backend": "integrated_dark_review_remediation_pending",
+    "frontend": "integrated_dark_review_remediation_pending",
+    "e2e": "mnt_rt_story_and_focused_tests_passed_browser_replay_pending",
+    "runtime": "blocked",
+    "independent_review": "request_changes_2026_07_23",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-CONSULTING-PILOT",
+   "label": "Consulting engagement and realized-benefit signature workflow",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.45,
+     "correctness_and_risk_reduction": 0.6,
+     "visual_or_functional_parity_gap": 0.65,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.25,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.5
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/consulting/**"
+    ],
+    "backend_roots": [
+     "backend/crates/consulting/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "consulting-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/consulting"
+   ],
+   "signature_story": {
+    "id": "STORY-CONSULTING-001",
+    "outcome": "A diagnostic produces evidence-backed findings and initiatives, approval and implementation, measured benefit, and a sustain-or-correct decision."
+   },
+   "evidence_path": "docs/evidence/console/CAP-CONSULTING-PILOT",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "gap_analysis_required",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-OWNED-PLANTS-PILOT",
+   "label": "Owned-plant production configuration",
+   "evidence_basis": [
+    "official",
+    "inference"
+   ],
+   "frontier": 2,
+   "priority": {
+    "as_of": "2026-07-23",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.4,
+     "correctness_and_risk_reduction": 0.65,
+     "visual_or_functional_parity_gap": 0.65,
+     "business_coverage_gain": 1,
+     "verification_readiness": 0.25,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.52
+   },
+   "dependencies": [
+    "CAP-PRODUCTION-PILOT"
+   ],
+   "owner": "unassigned",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/production/plants/**"
+    ],
+    "backend_roots": [
+     "backend/crates/production/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "production-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/production/plants"
+   ],
+   "signature_story": {
+    "id": "STORY-OWNED-PLANTS-001",
+    "outcome": "Miryang, Changwon, and Ulsan configure plant-specific routing, quality, equipment, workforce, and cost without forking the shared production ontology or application."
+   },
+   "evidence_path": "docs/evidence/console/CAP-OWNED-PLANTS-PILOT",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "state": {
+    "design_contract": "research_required",
+    "backend": "blocked_by_production_pilot",
+    "frontend": "missing",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-PAYROLL-CONSOLE",
+   "label": "Payroll run pipeline: close, calculate, exceptions, approval, disbursement, payslip receipt",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.6,
+     "correctness_and_risk_reduction": 0.85,
+     "visual_or_functional_parity_gap": 0.85,
+     "business_coverage_gain": 0.8,
+     "verification_readiness": 0.5,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.5
+    },
+    "score": 0.67
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/payroll/**"
+    ],
+    "backend_roots": [
+     "backend/crates/payroll/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "payroll-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/payroll"
+   ],
+   "signature_story": {
+    "id": "STORY-PAYROLL-001",
+    "outcome": "A pay period closes attendance-complete, calculates, surfaces exceptions for resolution, routes for approval, schedules disbursement, and delivers payslips with acknowledged receipt."
+   },
+   "evidence_path": "docs/evidence/console/CAP-PAYROLL-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-payroll-backend-20260724",
+     "branch": "claude/console-payroll-backend-20260724",
+     "roots": [
+      "backend/crates/payroll/**",
+      "backend/app/tests/payroll_run_api.rs",
+      "docs/evidence/console/CAP-PAYROLL-CONSOLE/**",
+      "backend/crates/platform/db/migrations/0186_payroll_run_pipeline.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0186"
+     ]
+    },
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-payroll-frontend-20260724",
+     "branch": "claude/console-payroll-frontend-20260724",
+     "roots": [
+      "web/src/console/payroll/**",
+      "docs/evidence/console/CAP-PAYROLL-CONSOLE/frontend/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-ATTENDANCE-CONSOLE",
+   "label": "Attendance plan-vs-actual, exceptions, substitute coverage, 52h monitor, gated close",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.9,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.8,
+     "visual_or_functional_parity_gap": 0.85,
+     "business_coverage_gain": 0.75,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.67
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/attendance/**"
+    ],
+    "backend_roots": [
+     "backend/crates/attendance/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "attendance-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/attendance"
+   ],
+   "signature_story": {
+    "id": "STORY-ATTENDANCE-001",
+    "outcome": "A day's plan versus actual reconciles: check-ins, exceptions with mandatory reasons, substitute coverage, weekly-52h monitoring, and a gated monthly close."
+   },
+   "evidence_path": "docs/evidence/console/CAP-ATTENDANCE-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-attendance-frontend-20260724",
+     "branch": "claude/console-attendance-frontend-20260724",
+     "roots": [
+      "web/src/console/attendance/**",
+      "docs/evidence/console/CAP-ATTENDANCE-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-attendance-backend-20260724",
+     "branch": "claude/console-attendance-backend-20260724",
+     "roots": [
+      "backend/crates/attendance/**",
+      "backend/app/tests/attendance_close_api.rs",
+      "backend/crates/platform/db/migrations/0188_create_attendance_close.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0188"
+     ],
+     "mode": "new_crate_for_close_gaps; gaps belonging in existing shared crates go to manifest"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-RECRUITING",
+   "label": "Recruiting: posting publish preflight, applicant pipeline, offer, hire creates employee object",
+   "evidence_basis": [
+    "design_reference",
+    "inference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.9,
+     "business_coverage_gain": 0.75,
+     "verification_readiness": 0.35,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.58
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/recruiting/**"
+    ],
+    "backend_roots": [
+     "backend/crates/recruiting/**"
+    ],
+    "api_schema_roots": [
+     "backend/openapi/openapi.yaml"
+    ],
+    "migration_owner": "recruiting-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/recruiting"
+   ],
+   "signature_story": {
+    "id": "STORY-RECRUITING-001",
+    "outcome": "A job posting publishes through preflight, applicants advance through evaluation to offer, and acceptance creates the employee object with full audit lineage."
+   },
+   "evidence_path": "docs/evidence/console/CAP-RECRUITING",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-recruiting-backend-20260724",
+     "branch": "claude/console-recruiting-backend-20260724",
+     "roots": [
+      "backend/crates/recruiting/**",
+      "backend/app/tests/recruiting_pipeline_api.rs",
+      "docs/evidence/console/CAP-RECRUITING/**",
+      "backend/crates/platform/db/migrations/0187_create_recruiting.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0187"
+     ]
+    },
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-recruiting-frontend-20260724",
+     "branch": "claude/console-recruiting-frontend-20260724",
+     "roots": [
+      "web/src/console/recruiting/**",
+      "docs/evidence/console/CAP-RECRUITING/frontend/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_new_crate",
+    "frontend": "writer_assigned",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-ORG-CONSOLE",
+   "label": "Organization chart: entities, sites, teams, positions, governed org-change lifecycle",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.6,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/org/**"
+    ],
+    "backend_roots": [
+     "backend/crates/orgchange/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "org-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/org"
+   ],
+   "signature_story": {
+    "id": "STORY-ORG-001",
+    "outcome": "An organization change drafts a new entity, site, or team structure, passes impact preflight and SoD approval, takes effect on its effective date, and reflects across scope segments and the graph."
+   },
+   "evidence_path": "docs/evidence/console/CAP-ORG-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-org-frontend-20260724",
+     "branch": "claude/console-org-frontend-20260724",
+     "roots": [
+      "web/src/console/org/**",
+      "docs/evidence/console/CAP-ORG-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-org-backend-20260724",
+     "branch": "claude/console-org-backend-20260724",
+     "roots": [
+      "backend/crates/orgchange/**",
+      "backend/app/tests/org_change_api.rs",
+      "backend/crates/platform/db/migrations/0189_create_org_change.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0189"
+     ],
+     "mode": "new_crate_for_change_lifecycle; identity/registry edits forbidden (hot) -> manifest"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-EVALUATION-CONSOLE",
+   "label": "Performance review cycles: goals, self/manager evaluation, calibration, person-ledger finalization",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.4,
+     "correctness_and_risk_reduction": 0.6,
+     "visual_or_functional_parity_gap": 0.85,
+     "business_coverage_gain": 0.6,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.25,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.5
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/evaluation/**"
+    ],
+    "backend_roots": [
+     "backend/crates/evaluation/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "evaluation-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/evaluation"
+   ],
+   "signature_story": {
+    "id": "STORY-EVALUATION-001",
+    "outcome": "A review cycle opens with goals, gathers self and manager evaluations with evidence links, calibrates, and finalizes into the person ledger with audit."
+   },
+   "evidence_path": "docs/evidence/console/CAP-EVALUATION-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-evaluation-frontend-20260724",
+     "branch": "claude/console-evaluation-frontend-20260724",
+     "roots": [
+      "web/src/console/evaluation/**",
+      "docs/evidence/console/CAP-EVALUATION-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-evaluation-backend-20260724",
+     "branch": "claude/console-evaluation-backend-20260724",
+     "roots": [
+      "backend/crates/evaluation/**",
+      "backend/app/tests/evaluation_cycle_api.rs",
+      "backend/crates/platform/db/migrations/0190_create_evaluation.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0190"
+     ],
+     "mode": "new_crate"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-INVENTORY-CONSOLE",
+   "label": "Movement-derived stock, cycle counts, variance reconciliation",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.75,
+     "verification_readiness": 0.3,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.6
+    },
+    "score": 0.53
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/inventory/**"
+    ],
+    "backend_roots": [
+     "backend/crates/inventory/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "inventory-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/inventory"
+   ],
+   "signature_story": {
+    "id": "STORY-INVENTORY-001",
+    "outcome": "Stock levels derive from movement documents; a cycle count reconciles variances through approval into adjusted stock with audit lineage."
+   },
+   "evidence_path": "docs/evidence/console/CAP-INVENTORY-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-inventory-frontend-20260724",
+     "branch": "claude/console-inventory-frontend-20260724",
+     "roots": [
+      "web/src/console/inventory/**",
+      "docs/evidence/console/CAP-INVENTORY-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-inventory-backend-20260724",
+     "branch": "claude/console-inventory-backend-20260724",
+     "roots": [
+      "backend/crates/inventory/**",
+      "backend/app/tests/inventory_count_api.rs",
+      "backend/crates/platform/db/migrations/0191_inventory_rest.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0191"
+     ],
+     "mode": "extend_existing_cold_crate_add_rest"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-DISPATCH-CONSOLE",
+   "label": "Dispatch queue, crew/vehicle assignment, tracking to completion",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.6
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/dispatch/**"
+    ],
+    "backend_roots": [
+     "backend/crates/dispatch/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "dispatch-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/dispatch"
+   ],
+   "signature_story": {
+    "id": "STORY-DISPATCH-001",
+    "outcome": "A dispatch request is scheduled to a crew and vehicle, tracked to completion, and its outcome feeds work-order and cost records."
+   },
+   "evidence_path": "docs/evidence/console/CAP-DISPATCH-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-dispatch-frontend-20260724",
+     "branch": "claude/console-dispatch-frontend-20260724",
+     "roots": [
+      "web/src/console/dispatch/**",
+      "docs/evidence/console/CAP-DISPATCH-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-dispatch-backend-20260724",
+     "branch": "claude/console-dispatch-backend-20260724",
+     "roots": [
+      "backend/crates/dispatch/**",
+      "backend/app/tests/dispatch_pipeline_api.rs",
+      "backend/crates/platform/db/migrations/0192_dispatch_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0192"
+     ],
+     "mode": "extend_existing_cold_crate"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-MAINTENANCE-CONSOLE",
+   "label": "Maintenance request to scheduled work order, execution evidence, asset-history close",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.8,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.7,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.55,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.4
+    },
+    "score": 0.6
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/maintenance/**"
+    ],
+    "backend_roots": [
+     "backend/crates/workorder/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "maintenance-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/maintenance"
+   ],
+   "signature_story": {
+    "id": "STORY-MAINTENANCE-001",
+    "outcome": "A maintenance request becomes a scheduled work order, executes with evidence, and closes into asset history and cost."
+   },
+   "evidence_path": "docs/evidence/console/CAP-MAINTENANCE-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-maintenance-frontend-20260724",
+     "branch": "claude/console-maintenance-frontend-20260724",
+     "roots": [
+      "web/src/console/maintenance/**",
+      "docs/evidence/console/CAP-MAINTENANCE-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-maintenance-backend-20260724",
+     "branch": "claude/console-maintenance-backend-20260724",
+     "roots": [
+      "backend/crates/workorder/**",
+      "backend/app/tests/maintenance_chain_api.rs",
+      "backend/crates/platform/db/migrations/0193_maintenance_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0193"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-FIELD-CONSOLE",
+   "label": "Customer-site intake to field visit, check-in, work log, acceptance",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.45,
+     "correctness_and_risk_reduction": 0.65,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.7,
+     "verification_readiness": 0.5,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.45
+    },
+    "score": 0.56
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/field/**"
+    ],
+    "backend_roots": [
+     "backend/crates/support/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "field-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/field"
+   ],
+   "signature_story": {
+    "id": "STORY-FIELD-001",
+    "outcome": "A customer site intake becomes a field visit with check-in, work log, and customer acceptance reflected in SLA and billing."
+   },
+   "evidence_path": "docs/evidence/console/CAP-FIELD-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-field-frontend-20260724",
+     "branch": "claude/console-field-frontend-20260724",
+     "roots": [
+      "web/src/console/field/**",
+      "docs/evidence/console/CAP-FIELD-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-field-backend-20260724",
+     "branch": "claude/console-field-backend-20260724",
+     "roots": [
+      "backend/crates/support/**",
+      "backend/app/tests/field_visit_api.rs",
+      "backend/crates/platform/db/migrations/0194_field_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0194"
+     ],
+     "mode": "extend_support_crate; workorder needs -> manifest (owned by maintenance lane)"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-DOCS-EVIDENCE-CONSOLE",
+   "label": "Records registration, classification/retention, WORM evidence chain, verified retrieval",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.75,
+     "dependency_unlock": 0.55,
+     "correctness_and_risk_reduction": 0.85,
+     "visual_or_functional_parity_gap": 0.8,
+     "business_coverage_gain": 0.65,
+     "verification_readiness": 0.5,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.45
+    },
+    "score": 0.61
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/docs/**"
+    ],
+    "backend_roots": [
+     "backend/crates/docs/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "docs-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/docs"
+   ],
+   "signature_story": {
+    "id": "STORY-DOCS-001",
+    "outcome": "A record registers with classification and retention, seals into the WORM evidence chain, and is retrievable with verified integrity."
+   },
+   "evidence_path": "docs/evidence/console/CAP-DOCS-EVIDENCE-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-docs-frontend-20260724",
+     "branch": "claude/console-docs-frontend-20260724",
+     "roots": [
+      "web/src/console/docs/**",
+      "web/src/console/evidence/**",
+      "docs/evidence/console/CAP-DOCS-EVIDENCE-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-docs-backend-20260724",
+     "branch": "claude/console-docs-backend-20260724",
+     "roots": [
+      "backend/crates/docs/**",
+      "backend/app/tests/docs_evidence_api.rs",
+      "backend/crates/platform/db/migrations/0195_docs_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0195"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-NOTIF-CONSOLE",
+   "label": "Notification full view: aggregate by object/channel, resolve to source, ack/mute/route",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.7,
+     "dependency_unlock": 0.45,
+     "correctness_and_risk_reduction": 0.6,
+     "visual_or_functional_parity_gap": 0.75,
+     "business_coverage_gain": 0.55,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.35,
+     "unpriced_dependency_cost": 0.35
+    },
+    "score": 0.53
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/notif/**"
+    ],
+    "backend_roots": [
+     "backend/crates/notifications/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "notif-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/notif"
+   ],
+   "signature_story": {
+    "id": "STORY-NOTIF-001",
+    "outcome": "Notifications aggregate by object and channel, resolve to their source objects, and are acknowledged, muted, or routed per user policy."
+   },
+   "evidence_path": "docs/evidence/console/CAP-NOTIF-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-notif-frontend-20260724",
+     "branch": "claude/console-notif-frontend-20260724",
+     "roots": [
+      "web/src/console/notif/**",
+      "docs/evidence/console/CAP-NOTIF-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**",
+      "web/src/console/comms-rail/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-notif-backend-20260724",
+     "branch": "claude/console-notif-backend-20260724",
+     "roots": [
+      "backend/crates/notifications/**",
+      "backend/app/tests/notif_routing_api.rs",
+      "backend/crates/platform/db/migrations/0196_notif_routing.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0196"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-BOARD-CONSOLE",
+   "label": "Scoped notice publishing with acknowledgment tracking",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.6,
+     "dependency_unlock": 0.35,
+     "correctness_and_risk_reduction": 0.55,
+     "visual_or_functional_parity_gap": 0.7,
+     "business_coverage_gain": 0.55,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.25,
+     "unpriced_dependency_cost": 0.35
+    },
+    "score": 0.48
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/board/**"
+    ],
+    "backend_roots": [
+     "backend/crates/notices/**"
+    ],
+    "api_schema_roots": [],
+    "migration_owner": "board-backend",
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/board"
+   ],
+   "signature_story": {
+    "id": "STORY-BOARD-001",
+    "outcome": "A notice publishes to scoped audiences with acknowledgment tracking to completion."
+   },
+   "evidence_path": "docs/evidence/console/CAP-BOARD-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-board-frontend-20260724",
+     "branch": "claude/console-board-frontend-20260724",
+     "roots": [
+      "web/src/console/board/**",
+      "docs/evidence/console/CAP-BOARD-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-board-backend-20260724",
+     "branch": "claude/console-board-backend-20260724",
+     "roots": [
+      "backend/crates/notices/**",
+      "backend/app/tests/board_ack_api.rs",
+      "backend/crates/platform/db/migrations/0197_board_ack.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0197"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "writer_assigned_gap_closure_in_progress",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  },
+  {
+   "id": "CAP-DIRECTORY-CONSOLE",
+   "label": "People/team directory: live org placement, contact channels, object links, PBAC-scoped search",
+   "evidence_basis": [
+    "repository_contract",
+    "design_reference"
+   ],
+   "frontier": 1,
+   "priority": {
+    "as_of": "2026-07-24",
+    "inputs": {
+     "user_workflow_value": 0.65,
+     "dependency_unlock": 0.5,
+     "correctness_and_risk_reduction": 0.55,
+     "visual_or_functional_parity_gap": 0.75,
+     "business_coverage_gain": 0.55,
+     "verification_readiness": 0.6,
+     "collision_probability": 0.3,
+     "unpriced_dependency_cost": 0.35
+    },
+    "score": 0.52
+   },
+   "dependencies": [
+    "CAP-SHARED-ONTOLOGY-WORKFLOW"
+   ],
+   "owner": "claude-fanout-20260724",
+   "worktree": null,
+   "branch": null,
+   "commits": [],
+   "ownership": {
+    "frontend_roots": [
+     "web/src/console/directory/**"
+    ],
+    "backend_roots": [],
+    "api_schema_roots": [],
+    "migration_owner": null,
+    "integration_owner": "console-consolidation"
+   },
+   "routes": [
+    "/console/directory"
+   ],
+   "signature_story": {
+    "id": "STORY-DIRECTORY-001",
+    "outcome": "Every person and team resolves to a card with live org placement, contact channels, and object links, searchable and PBAC-scoped."
+   },
+   "evidence_path": "docs/evidence/console/CAP-DIRECTORY-CONSOLE",
+   "tests": {
+    "files": [],
+    "leaf_commands": [],
+    "buck2_targets": []
+   },
+   "lane_assignments": {
+    "frontend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-directory-frontend-20260724",
+     "branch": "claude/console-directory-frontend-20260724",
+     "roots": [
+      "web/src/console/directory/**",
+      "docs/evidence/console/CAP-DIRECTORY-CONSOLE/**"
+     ],
+     "must_not_touch": [
+      "backend/**",
+      "web/src/i18n/ko.ts",
+      "web/src/console/shell/nav.ts",
+      "web/src/console/screens/registry.ts",
+      "clients/**",
+      "backend/openapi/**"
+     ]
+    },
+    "consolidation": {
+     "owner": "console-consolidation"
+    }
+   },
+   "state": {
+    "design_contract": "research_in_progress",
+    "backend": "existing_rest_reused_identity_crate_hot_manifest_only",
+    "frontend": "writer_assigned_in_progress",
+    "e2e": "missing",
+    "runtime": "blocked",
+    "independent_review": "missing",
+    "production_exposure": "dark"
+   },
+   "resource_requirements": {
+    "writer": 1,
+    "postgres": 0,
+    "browser": 0,
+    "ios": 0,
+    "graph": 1,
+    "cas": 1
+   }
+  }
+ ],
+ "resource_budgets": {
+  "writer": 6,
+  "postgres": 2,
+  "browser": 2,
+  "ios": 1,
+  "graph": 4,
+  "cas": 4
+ }
 }

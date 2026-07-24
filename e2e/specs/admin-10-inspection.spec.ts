@@ -3,9 +3,9 @@ import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
 /**
  * ADMIN-10 — admin creates a recurring inspection schedule on /inspection.
  *
- * The create form takes the branch/equipment/mechanic ids as text inputs plus a
- * cycle, interval, and due date. We use the seeded E2E branch, equipment, and
- * mechanic ids. The created schedule is cleaned up before each run.
+ * The create form uses native branch/mechanic selects plus an async equipment
+ * combobox. We select the seeded E2E identities and clean up the created
+ * schedule before each run.
  */
 
 const ORG_ID = TENANT_ORG_ID;
@@ -39,13 +39,11 @@ test("ADMIN-10 admin creates a recurring inspection schedule", async ({
     page.getByRole("heading", { name: /정기 예방정비/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  // Fill the create form through the current human-label comboboxes.
-  await page.getByLabel("지점").fill("E2E Branch");
-  await page.getByRole("option", { name: "E2E Branch" }).click();
+  // Native selects retain stable ids while showing human labels to operators.
+  await page.getByLabel("지점").selectOption(BRANCH_ID);
   await page.getByLabel("장비 (호기 번호)").fill("E2E-001");
   await page.getByRole("option", { name: /E2E-001/ }).click();
-  await page.getByLabel("정비사").fill("E2E Prevention");
-  await page.getByRole("option", { name: /E2E Prevention/ }).click();
+  await page.getByLabel("정비사").selectOption(MECH_ID);
   await page.locator("#ins-cycle").selectOption("MONTHLY");
 
   // A due date 14 days out.

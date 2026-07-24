@@ -65,9 +65,13 @@ function seedRegistry(): void {
   mocked.getObjectType.mockResolvedValue(detailFixture);
   mocked.listInstances.mockResolvedValue([instanceFixture]);
   mocked.traverseInstance.mockResolvedValue(graphFixture);
+  mocked.getInstance.mockResolvedValue(instanceFixture);
+  mocked.getInstanceHistory.mockResolvedValue([]);
   // The 자동화 subtab read is supplementary (reload .catch-degrades it to []),
   // but the auto-mock returns undefined, which would throw on .catch — seed it.
   mocked.getObjectTypeActing.mockResolvedValue([]);
+  // The graph tab mounts a governed instance card, which reads this separately.
+  mocked.getInstanceActing.mockResolvedValue([]);
 }
 
 afterEach(() => {

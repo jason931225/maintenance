@@ -18,7 +18,10 @@
 # in the test-only constant_time_test.c and x86-only files. asm is the pregenerated
 # *-ios64.S variant (perlasm_format="ios64" for apple aarch64). Pinned to 0.17.14
 # (the symbol prefix embeds the version); other ring versions need matching srcs.
-# CI on Linux will need additional per-cfg sections (-elf.S / -linux64.S asm).
+# Linux targets use different official pregenerated perlasm output: x86_64 uses
+# `elf` (and its two direct Fiat .S files), while aarch64 uses `linux64`.
+# Keep these lists aligned with ring 0.17.14 build.rs's RING_SRCS and
+# ASM_TARGETS instead of relying on a broad source glob.
 buildscript.run = false
 
 [['cfg(all(target_arch = "aarch64", target_os = "macos"))'.cxx_library]]
@@ -38,6 +41,86 @@ srcs = [
     "crypto/poly1305/poly1305.c",
     "pregenerated/*armv8*-ios64.S",
     "pregenerated/*armx*-ios64.S",
+]
+headers = [
+    "include/**/*.h",
+    "crypto/**/*.h",
+    "crypto/**/*.inl",
+    "third_party/**/*.h",
+    "pregenerated/**/*.h",
+]
+include_paths = ["include", "pregenerated"]
+compiler_flags = ["-std=c1x", "-fvisibility=hidden", "-DNDEBUG"]
+
+[['cfg(all(target_arch = "x86_64", target_os = "linux"))'.cxx_library]]
+name = "ring-c-asm-linux-x86_64"
+srcs = [
+    "crypto/crypto.c",
+    "crypto/cpu_intel.c",
+    "crypto/curve25519/curve25519.c",
+    "crypto/curve25519/curve25519_64_adx.c",
+    "crypto/fipsmodule/aes/aes_nohw.c",
+    "crypto/fipsmodule/bn/montgomery.c",
+    "crypto/fipsmodule/bn/montgomery_inv.c",
+    "crypto/fipsmodule/ec/ecp_nistz.c",
+    "crypto/fipsmodule/ec/gfp_p256.c",
+    "crypto/fipsmodule/ec/gfp_p384.c",
+    "crypto/fipsmodule/ec/p256.c",
+    "crypto/fipsmodule/ec/p256-nistz.c",
+    "crypto/limbs/limbs.c",
+    "crypto/mem.c",
+    "crypto/poly1305/poly1305.c",
+    "pregenerated/aes-gcm-avx2-x86_64-elf.S",
+    "pregenerated/aesni-gcm-x86_64-elf.S",
+    "pregenerated/aesni-x86_64-elf.S",
+    "pregenerated/chacha-x86_64-elf.S",
+    "pregenerated/chacha20_poly1305_x86_64-elf.S",
+    "pregenerated/ghash-x86_64-elf.S",
+    "pregenerated/p256-x86_64-asm-elf.S",
+    "pregenerated/sha256-x86_64-elf.S",
+    "pregenerated/sha512-x86_64-elf.S",
+    "pregenerated/vpaes-x86_64-elf.S",
+    "pregenerated/x86_64-mont-elf.S",
+    "pregenerated/x86_64-mont5-elf.S",
+    "third_party/fiat/asm/fiat_curve25519_adx_mul.S",
+    "third_party/fiat/asm/fiat_curve25519_adx_square.S",
+]
+headers = [
+    "include/**/*.h",
+    "crypto/**/*.h",
+    "crypto/**/*.inl",
+    "third_party/**/*.h",
+    "pregenerated/**/*.h",
+]
+include_paths = ["include", "pregenerated"]
+compiler_flags = ["-std=c1x", "-fvisibility=hidden", "-DNDEBUG"]
+
+[['cfg(all(target_arch = "aarch64", target_os = "linux"))'.cxx_library]]
+name = "ring-c-asm-linux-arm64"
+srcs = [
+    "crypto/curve25519/curve25519.c",
+    "crypto/fipsmodule/aes/aes_nohw.c",
+    "crypto/fipsmodule/bn/montgomery.c",
+    "crypto/fipsmodule/bn/montgomery_inv.c",
+    "crypto/fipsmodule/ec/ecp_nistz.c",
+    "crypto/fipsmodule/ec/gfp_p256.c",
+    "crypto/fipsmodule/ec/gfp_p384.c",
+    "crypto/fipsmodule/ec/p256.c",
+    "crypto/fipsmodule/ec/p256-nistz.c",
+    "crypto/limbs/limbs.c",
+    "crypto/mem.c",
+    "crypto/poly1305/poly1305.c",
+    "pregenerated/aesv8-armx-linux64.S",
+    "pregenerated/aesv8-gcm-armv8-linux64.S",
+    "pregenerated/armv8-mont-linux64.S",
+    "pregenerated/chacha-armv8-linux64.S",
+    "pregenerated/chacha20_poly1305_armv8-linux64.S",
+    "pregenerated/ghash-neon-armv8-linux64.S",
+    "pregenerated/ghashv8-armx-linux64.S",
+    "pregenerated/p256-armv8-asm-linux64.S",
+    "pregenerated/sha256-armv8-linux64.S",
+    "pregenerated/sha512-armv8-linux64.S",
+    "pregenerated/vpaes-armv8-linux64.S",
 ]
 headers = [
     "include/**/*.h",

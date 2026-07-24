@@ -17,6 +17,8 @@ import { useMemo } from "react";
 
 import { useAuth } from "../../../context/auth";
 import { FINANCE_MODULE_ACTIONS } from "../../finance/financeModel";
+import { PeriodLockPanel } from "../../finance/PeriodLockPanel";
+import { PurchaseRequestsWorkspace } from "../../finance/purchaseRequests/PurchaseRequestsWorkspace";
 import { GenericModuleScreen } from "../../modules/GenericModuleScreen";
 import { financeModuleScreen } from "../../modules/moduleScreens";
 import { PolicyGateProvider, type PolicyGate } from "../../policy";
@@ -55,10 +57,18 @@ export function ModuleFinanceScreenBody() {
     }),
     [featureGrants, roles],
   );
+  // Keep every finance child surface behind the exact effective read decision
+  // used by the module shell. A denied session must not mount a child that can
+  // begin an authenticated request before the shell hides it.
+  const canReadFinance = gate.can(financeModuleScreen.policy.read);
+  const canManagePeriodLocks = roles?.some((role) => MODULE_WRITE_ROLES.has(role)) ?? false;
+  const periodLockAuthorityKey = [session?.access_token, session?.user_id, session?.org_id, ...(roles ?? []), ...(featureGrants ?? [])].join("|");
 
   return (
     <PolicyGateProvider gate={gate}>
       <GenericModuleScreen config={financeModuleScreen} api={api} />
+      {canReadFinance ? <PurchaseRequestsWorkspace api={api} roles={roles} /> : null}
+      {canReadFinance && canManagePeriodLocks ? <PeriodLockPanel api={api} authorityKey={periodLockAuthorityKey} /> : null}
     </PolicyGateProvider>
   );
 }

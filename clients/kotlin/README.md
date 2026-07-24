@@ -45,6 +45,11 @@ This runs all tests and packages the library.
 
 
 Authentication schemes defined for the API:
+<a id="basicAuth"></a>
+### basicAuth
+
+- **Type**: HTTP basic authentication
+
 <a id="bearerAuth"></a>
 ### bearerAuth
 

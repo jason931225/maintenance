@@ -708,7 +708,9 @@ impl PgWorkOrderStore {
                     .await?;
                 }
 
-                update_status(
+                let completed_work_order = (to == WorkOrderStatus::FinalCompleted)
+                    .then_some((WorkOrderId::from_uuid(row.id), row.equipment_id));
+                let summary = update_status(
                     tx,
                     row,
                     actor,
@@ -717,7 +719,18 @@ impl PgWorkOrderStore {
                     occurred_at,
                     org_uuid,
                 )
-                .await
+                .await?;
+                if let Some((completed_work_order_id, equipment_id)) = completed_work_order {
+                    append_equipment_maintenance_history(
+                        tx,
+                        completed_work_order_id,
+                        equipment_id,
+                        occurred_at,
+                        org_uuid,
+                    )
+                    .await?;
+                }
+                Ok(summary)
             })
         })
         .await
@@ -1951,6 +1964,30 @@ async fn insert_status_history(
     .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
+    Ok(())
+}
+
+/// Append the terminal maintenance snapshot after the current work-order FSM
+/// has reached FINAL_COMPLETED. The DB migration repeats all terminal/evidence
+/// and tenant checks; this adapter only projects already-existing evidence and
+/// cost-ledger identities, never inventing a cost.
+async fn append_equipment_maintenance_history(
+    tx: &mut Transaction<'_, Postgres>,
+    work_order_id: WorkOrderId,
+    equipment_id: EquipmentId,
+    completed_at: mnt_kernel_core::Timestamp,
+    org_uuid: uuid::Uuid,
+) -> Result<(), PgWorkOrderError> {
+    sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT append_equipment_maintenance_history($1, $2, $3, $4)",
+    )
+    .bind(org_uuid)
+    .bind(*equipment_id.as_uuid())
+    .bind(*work_order_id.as_uuid())
+    .bind(completed_at)
+    .fetch_one(tx.as_mut())
+    .await?;
+
     Ok(())
 }
 

@@ -207,6 +207,234 @@ pub struct PayrollReleaseGateInput {
     pub professional_validation: Option<ProfessionalValidation>,
 }
 
+/// The persisted lifecycle states already admitted by
+/// `payroll_draft_runs.status` (migration 0074).
+///
+/// This is deliberately separate from tax calculation: a lifecycle decision
+/// records whether a run may advance toward review, approval, and issuance;
+/// it never manufactures a payable amount or an external bank transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PayrollRunStatus {
+    Staged,
+    BlockedLegalGate,
+    ReadyForReview,
+    Approved,
+    Issued,
+    Void,
+}
+
+impl PayrollRunStatus {
+    /// Parse only the storage values defined by migration 0074.
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value {
+            "STAGED" => Ok(Self::Staged),
+            "BLOCKED_LEGAL_GATE" => Ok(Self::BlockedLegalGate),
+            "READY_FOR_REVIEW" => Ok(Self::ReadyForReview),
+            "APPROVED" => Ok(Self::Approved),
+            "ISSUED" => Ok(Self::Issued),
+            "VOID" => Ok(Self::Void),
+            _ => Err(KernelError::validation("unknown payroll run status")),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Staged => "STAGED",
+            Self::BlockedLegalGate => "BLOCKED_LEGAL_GATE",
+            Self::ReadyForReview => "READY_FOR_REVIEW",
+            Self::Approved => "APPROVED",
+            Self::Issued => "ISSUED",
+            Self::Void => "VOID",
+        }
+    }
+}
+
+/// A close-to-payslip command.
+///
+/// Approval is a pure transition after close prerequisites have been proven.
+/// Calculation and issuance remain fail-closed until their regulated evidence
+/// contracts are available to the persistence and transport layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PayrollRunCommand {
+    Calculate,
+    Approve { approver_is_creator: bool },
+    MarkIssued,
+}
+
+/// Facts which must all hold before a payroll run can advance.
+///
+/// `attendance_month_closes` is intentionally an org-level close. A branch
+/// close cannot attest a whole payroll population, and a payroll lock must be
+/// active for the *same* organization and exact calendar month.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PayrollClosePrerequisites {
+    pub period_start: Date,
+    pub period_end: Date,
+    pub org_month_close_present: bool,
+    pub active_exact_payroll_lock_present: bool,
+    pub unresolved_attendance_exception_count: u64,
+}
+
+/// The deterministic outcome of one lifecycle command. `idempotent` means a
+/// retry observed the terminal state that the command itself requests and made
+/// no new transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PayrollRunTransition {
+    pub status: PayrollRunStatus,
+    pub idempotent: bool,
+}
+
+/// Fail closed unless an existing run has an exact org/month attendance close,
+/// its active payroll period lock, and no unresolved attendance exceptions.
+///
+/// This pure guard is intentionally reusable by every persistence/transport
+/// adapter. It permits only the approval transition. Calculation remains
+/// blocked until immutable, validated release-gate evidence can be persisted;
+/// issuance remains blocked until a step-up-authorized actor, audit evidence,
+/// and immutable issuance artifact can be persisted together.
+pub fn transition_payroll_run(
+    current: PayrollRunStatus,
+    command: PayrollRunCommand,
+    prerequisites: PayrollClosePrerequisites,
+) -> Result<PayrollRunTransition, KernelError> {
+    // A confirmed prior transition is a retry-safe no-op. In particular, a
+    // later attendance correction or lock amendment must not turn a network
+    // retry into a second mutation or a contradictory failure.
+    match (current, command) {
+        (PayrollRunStatus::Approved, PayrollRunCommand::Approve { .. }) => {
+            return Ok(PayrollRunTransition {
+                status: current,
+                idempotent: true,
+            });
+        }
+        _ => {}
+    }
+    validate_close_prerequisites(prerequisites)?;
+
+    let (status, idempotent) = match command {
+        PayrollRunCommand::Calculate => {
+            return Err(KernelError::conflict(
+                "payroll calculation is blocked until immutable validated release-gate evidence is persisted",
+            ));
+        }
+        PayrollRunCommand::Approve {
+            approver_is_creator,
+        } => match current {
+            PayrollRunStatus::ReadyForReview => {
+                if approver_is_creator {
+                    return Err(KernelError::forbidden(
+                        "payroll run creator cannot approve the same run",
+                    ));
+                }
+                (PayrollRunStatus::Approved, false)
+            }
+            PayrollRunStatus::Approved => unreachable!("handled as retry above"),
+            PayrollRunStatus::Staged
+            | PayrollRunStatus::BlockedLegalGate
+            | PayrollRunStatus::Issued
+            | PayrollRunStatus::Void => {
+                return Err(KernelError::invalid_transition(
+                    "payroll approval requires a run ready for review",
+                ));
+            }
+        },
+        PayrollRunCommand::MarkIssued => {
+            return Err(KernelError::conflict(
+                "payroll issuance is blocked until step-up authorization, audit evidence, and an immutable issuance artifact are persisted",
+            ));
+        }
+    };
+    Ok(PayrollRunTransition { status, idempotent })
+}
+
+fn validate_close_prerequisites(
+    prerequisites: PayrollClosePrerequisites,
+) -> Result<(), KernelError> {
+    if !is_exact_calendar_month(prerequisites.period_start, prerequisites.period_end) {
+        return Err(KernelError::validation(
+            "payroll run period must be one exact calendar month",
+        ));
+    }
+    if !prerequisites.org_month_close_present {
+        return Err(KernelError::conflict(
+            "payroll run requires an org-level attendance close for its exact month",
+        ));
+    }
+    if !prerequisites.active_exact_payroll_lock_present {
+        return Err(KernelError::conflict(
+            "payroll run requires an active payroll period lock for its exact month",
+        ));
+    }
+    if prerequisites.unresolved_attendance_exception_count != 0 {
+        return Err(KernelError::conflict(
+            "payroll run is blocked by unresolved attendance exceptions",
+        ));
+    }
+    Ok(())
+}
+
+fn is_exact_calendar_month(period_start: Date, period_end: Date) -> bool {
+    if period_start.day() != 1 {
+        return false;
+    }
+    let Some(day_after_end) = period_end.next_day() else {
+        return false;
+    };
+    if day_after_end.day() != 1 {
+        return false;
+    }
+    match period_start.month() {
+        time::Month::January => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::February
+        }
+        time::Month::February => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::March
+        }
+        time::Month::March => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::April
+        }
+        time::Month::April => {
+            day_after_end.year() == period_start.year() && day_after_end.month() == time::Month::May
+        }
+        time::Month::May => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::June
+        }
+        time::Month::June => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::July
+        }
+        time::Month::July => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::August
+        }
+        time::Month::August => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::September
+        }
+        time::Month::September => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::October
+        }
+        time::Month::October => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::November
+        }
+        time::Month::November => {
+            day_after_end.year() == period_start.year()
+                && day_after_end.month() == time::Month::December
+        }
+        time::Month::December => {
+            day_after_end.year() == period_start.year() + 1
+                && day_after_end.month() == time::Month::January
+        }
+    }
+}
+
 #[must_use]
 pub const fn payroll_sources_verified_on() -> Date {
     date!(2026 - 06 - 27)
@@ -711,6 +939,123 @@ fn deduction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn closed_june_prerequisites() -> PayrollClosePrerequisites {
+        PayrollClosePrerequisites {
+            period_start: date!(2026 - 06 - 01),
+            period_end: date!(2026 - 06 - 30),
+            org_month_close_present: true,
+            active_exact_payroll_lock_present: true,
+            unresolved_attendance_exception_count: 0,
+        }
+    }
+
+    #[test]
+    fn calculation_is_blocked_without_persisted_validated_release_evidence() {
+        let error = transition_payroll_run(
+            PayrollRunStatus::Staged,
+            PayrollRunCommand::Calculate,
+            closed_june_prerequisites(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind, mnt_kernel_core::ErrorKind::Conflict);
+        assert!(
+            error
+                .message
+                .contains("immutable validated release-gate evidence")
+        );
+    }
+
+    #[test]
+    fn issuance_is_blocked_without_step_up_audit_and_immutable_artifact() {
+        let error = transition_payroll_run(
+            PayrollRunStatus::Approved,
+            PayrollRunCommand::MarkIssued,
+            closed_june_prerequisites(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind, mnt_kernel_core::ErrorKind::Conflict);
+        assert!(error.message.contains("step-up authorization"));
+        assert!(error.message.contains("audit evidence"));
+        assert!(error.message.contains("immutable issuance artifact"));
+    }
+
+    #[test]
+    fn approval_requires_exact_closed_month_and_is_idempotent_after_persistence() {
+        let prerequisites = closed_june_prerequisites();
+        let approved = transition_payroll_run(
+            PayrollRunStatus::ReadyForReview,
+            PayrollRunCommand::Approve {
+                approver_is_creator: false,
+            },
+            prerequisites,
+        )
+        .unwrap();
+        assert_eq!(approved.status, PayrollRunStatus::Approved);
+        assert!(!approved.idempotent);
+
+        let retry = transition_payroll_run(
+            PayrollRunStatus::Approved,
+            PayrollRunCommand::Approve {
+                approver_is_creator: false,
+            },
+            PayrollClosePrerequisites {
+                org_month_close_present: false,
+                ..prerequisites
+            },
+        )
+        .unwrap();
+        assert!(retry.idempotent);
+    }
+
+    #[test]
+    fn approval_fails_closed_on_missing_close_lock_or_exception() {
+        let prerequisites = closed_june_prerequisites();
+        for missing in [
+            PayrollClosePrerequisites {
+                org_month_close_present: false,
+                ..prerequisites
+            },
+            PayrollClosePrerequisites {
+                active_exact_payroll_lock_present: false,
+                ..prerequisites
+            },
+            PayrollClosePrerequisites {
+                unresolved_attendance_exception_count: 1,
+                ..prerequisites
+            },
+            PayrollClosePrerequisites {
+                period_start: date!(2026 - 06 - 02),
+                ..prerequisites
+            },
+        ] {
+            assert!(
+                transition_payroll_run(
+                    PayrollRunStatus::ReadyForReview,
+                    PayrollRunCommand::Approve {
+                        approver_is_creator: false,
+                    },
+                    missing,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn approval_rejects_creator_self_approval() {
+        let error = transition_payroll_run(
+            PayrollRunStatus::ReadyForReview,
+            PayrollRunCommand::Approve {
+                approver_is_creator: true,
+            },
+            closed_june_prerequisites(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, mnt_kernel_core::ErrorKind::Forbidden);
+    }
 
     fn fixture_tax_row() -> NtsWithholdingTaxRow {
         NtsWithholdingTaxRow {

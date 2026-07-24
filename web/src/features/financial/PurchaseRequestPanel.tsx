@@ -1,6 +1,6 @@
 import { Plus, Trash2, UploadCloud } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -30,6 +30,7 @@ import {
 } from "./config";
 import { EquipmentSelector } from "./EquipmentSelector";
 import type { SelectedEquipment } from "./EquipmentSelector";
+import { listPurchaseRequestQueue } from "./purchaseRequestQueue";
 
 interface PurchaseRequestPanelProps {
   api: ConsoleApiClient;
@@ -37,11 +38,31 @@ interface PurchaseRequestPanelProps {
 }
 
 type WriteState = "idle" | "saving" | "error";
+type QueueState = "loading" | "ready" | "error";
+type QueueMoreState = "idle" | "loading" | "error";
+type OperationKind = "queue" | "create" | "lookup" | "action";
+interface OperationToken {
+  kind: OperationKind;
+  id: number;
+  context: number;
+  controller: AbortController;
+}
 type Dialog = "expenditure" | "reject" | "restart" | "execute" | undefined;
 type PurchaseTypeValue = CreatePurchaseRequest["purchase_type"];
 type Density = "compact" | "comfortable";
 type ActionResponse = { data?: PurchaseRequestSummary; error?: unknown };
 type FinancialStepUpProof = Awaited<ReturnType<typeof assertPasskeyStepUp>>;
+
+const PURCHASE_QUEUE_LIMIT = 50;
+const PURCHASE_QUEUE_STATUSES: PurchaseStatus[] = [
+  "STATEMENT_ATTACHED",
+  "REQUEST_SUBMITTED",
+  "ADMIN_APPROVED",
+  "EXECUTIVE_PENDING",
+  "READY_TO_EXECUTE",
+  "EXECUTED",
+  "REJECTED",
+];
 
 interface PurchaseLineForm {
   id: string;
@@ -215,6 +236,22 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [requests, setRequests] = useState<PurchaseRequestSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const selected = requests.find((item) => item.id === selectedId);
+  const [queueState, setQueueState] = useState<QueueState>("loading");
+  const [queueMoreState, setQueueMoreState] = useState<QueueMoreState>("idle");
+  const [queueStatus, setQueueStatus] = useState<PurchaseStatus>();
+  const [queueErrorStatus, setQueueErrorStatus] = useState<number>();
+  const [queuePage, setQueuePage] = useState({ limit: PURCHASE_QUEUE_LIMIT, offset: 0, total: 0 });
+  const queueRequestRef = useRef(0);
+  const mountedRef = useRef(true);
+  const contextRef = useRef(0);
+  const operationRef = useRef<Record<OperationKind, number>>({
+    queue: 0,
+    create: 0,
+    lookup: 0,
+    action: 0,
+  });
+  const operationControllersRef = useRef(new Set<AbortController>());
+  const operationControllerByKindRef = useRef<Partial<Record<OperationKind, AbortController>>>({});
 
   const [creating, setCreating] = useState(false);
   const [equipment, setEquipment] = useState<SelectedEquipment>();
@@ -240,6 +277,130 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [dialogValue, setDialogValue] = useState("");
   const [actionState, setActionState] = useState<WriteState>("idle");
   const [actionError, setActionError] = useState<string>();
+
+  function beginOperation(kind: OperationKind) {
+    operationControllerByKindRef.current[kind]?.abort();
+    const controller = new AbortController();
+    operationControllersRef.current.add(controller);
+    operationControllerByKindRef.current[kind] = controller;
+    const token = {
+      kind,
+      id: operationRef.current[kind] + 1,
+      context: contextRef.current,
+      controller,
+    };
+    operationRef.current[kind] = token.id;
+    return token;
+  }
+
+  function ownsOperation(token: OperationToken) {
+    return (
+      mountedRef.current &&
+      contextRef.current === token.context &&
+      operationRef.current[token.kind] === token.id &&
+      !token.controller.signal.aborted
+    );
+  }
+
+  function endOperation(token: OperationToken) {
+    operationControllersRef.current.delete(token.controller);
+    if (operationControllerByKindRef.current[token.kind] === token.controller) {
+      operationControllerByKindRef.current[token.kind] = undefined;
+    }
+  }
+
+  const loadQueue = useCallback(
+    async (preferredId?: string, offset = 0) => {
+      if (!activeBranchId) {
+        setRequests([]);
+        setSelectedId(undefined);
+        setQueueErrorStatus(undefined);
+        setQueueState("error");
+        return;
+      }
+      const operation = beginOperation("queue");
+      const requestId = queueRequestRef.current + 1;
+      queueRequestRef.current = requestId;
+      if (offset === 0) {
+        setQueueState("loading");
+        setQueueErrorStatus(undefined);
+      } else {
+        setQueueMoreState("loading");
+      }
+      try {
+        const response = await listPurchaseRequestQueue(api, {
+          branchId: activeBranchId,
+          statuses: queueStatus ? [queueStatus] : undefined,
+          limit: PURCHASE_QUEUE_LIMIT,
+          offset,
+        }, operation.controller.signal);
+        if (queueRequestRef.current !== requestId || !ownsOperation(operation)) return;
+        if (response.error) {
+          if (offset === 0) {
+            setQueueErrorStatus(response.response.status);
+            setQueueState("error");
+          } else {
+            setQueueMoreState("error");
+          }
+          return;
+        }
+        const items = response.data.items;
+        setRequests((current) =>
+          offset === 0
+            ? items
+            : [...current, ...items.filter((item) => !current.some((known) => known.id === item.id))],
+        );
+        setQueuePage({
+          limit: response.data.limit,
+          offset: response.data.offset,
+          total: response.data.total,
+        });
+        setSelectedId((current) => {
+          if (preferredId && items.some((item) => item.id === preferredId)) {
+            return preferredId;
+          }
+          if (current && items.some((item) => item.id === current)) return current;
+          // A replacement page defines the visible selection. Appended pages
+          // preserve a selection from an earlier page, but an active filter
+          // must never leave detail UI pointing at a request no longer shown.
+          return offset === 0 ? items[0]?.id : current ?? items[0]?.id;
+        });
+        if (offset === 0) setQueueState("ready");
+        setQueueMoreState("idle");
+      } catch {
+        if (queueRequestRef.current !== requestId || !ownsOperation(operation)) return;
+        if (offset === 0) {
+          setQueueErrorStatus(undefined);
+          setQueueState("error");
+        } else {
+          setQueueMoreState("error");
+        }
+      } finally {
+        endOperation(operation);
+      }
+    },
+    [activeBranchId, api, queueStatus],
+  );
+
+  useEffect(() => {
+    contextRef.current += 1;
+    mountedRef.current = true;
+    const operationControllers = operationControllersRef.current;
+    // The queue is the external system this effect synchronizes with. Keep the
+    // initial fetch immediate so a context replacement cannot briefly display
+    // an empty operational queue.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadQueue();
+    return () => {
+      // Invalidate an in-flight response when the filter/api context changes
+      // or the panel unmounts; only the latest queue may update UI state.
+      queueRequestRef.current += 1;
+      for (const controller of operationControllers) controller.abort();
+      operationControllers.clear();
+      operationControllerByKindRef.current = {};
+      mountedRef.current = false;
+    };
+  }, [loadQueue]);
 
   useEffect(() => {
     let ignore = false;
@@ -275,15 +436,6 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     () => Array.from(new Set(requests.map((request) => request.vendor_name))).slice(0, 8),
     [requests],
   );
-  const trimmedVendor = form.vendorName.trim();
-  const vendorMatchesKnown =
-    trimmedVendor.length > 0 &&
-    vendorSuggestions.some((vendor) => vendor.toLowerCase() === trimmedVendor.toLowerCase());
-  const vendorStatus = trimmedVendor
-    ? vendorMatchesKnown
-      ? PURCHASE_TEXT.vendorExisting
-      : PURCHASE_TEXT.vendorNew
-    : PURCHASE_TEXT.vendorManualHint;
   const equipmentRequiredHint = PURCHASE_TEXT.equipmentRequiredHint;
   const policyMessages = [
     equipmentScoped ? PURCHASE_TEXT.policyEquipment : PURCHASE_TEXT.policyExpense,
@@ -403,6 +555,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
 
   async function handleCreate() {
     if (!branchId) return;
+    const operation = beginOperation("create");
     setWriteState("saving");
     setCreateError(undefined);
     try {
@@ -428,37 +581,53 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       };
       const response = await api.POST("/api/v1/financial/purchase-requests", {
         body,
+        signal: operation.controller.signal,
       });
+      if (!ownsOperation(operation)) return;
       if (response.error) {
         setCreateError(errorMessage(response.error));
         setWriteState("error");
         return;
       }
+      // Keep the just-created row visible while the canonical branch queue
+      // reconciles, rather than treating this response as the whole list.
       setRequests((prev) => upsert(prev, response.data));
       setSelectedId(response.data.id);
       setNotice(ko.financial.purchase.createSuccess);
       resetCreate();
+      await loadQueue(response.data.id);
     } catch {
+      if (!ownsOperation(operation)) return;
       setCreateError(undefined);
       setWriteState("error");
+    } finally {
+      endOperation(operation);
     }
   }
 
   async function handleLookup() {
     const id = lookupId.trim();
     if (!id) return;
+    const operation = beginOperation("lookup");
     setLookupError(false);
     try {
       const response = await api.GET(
         "/api/v1/financial/purchase-requests/{purchaseRequestId}",
-        { params: { path: { purchaseRequestId: id } } },
+        {
+          params: { path: { purchaseRequestId: id } },
+          signal: operation.controller.signal,
+        },
       );
       if (!response.data) throw new Error("purchase request not found");
+      if (!ownsOperation(operation)) return;
       setRequests((prev) => upsert(prev, response.data));
       setSelectedId(response.data.id);
       setLookupId("");
     } catch {
+      if (!ownsOperation(operation)) return;
       setLookupError(true);
+    } finally {
+      endOperation(operation);
     }
   }
 
@@ -466,6 +635,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     setRequests((prev) => upsert(prev, next));
     setSelectedId(next.id);
     if (message) setNotice(message);
+    void loadQueue(next.id);
   }
 
   function applyActionResponse(response: ActionResponse, failureMessage: string) {
@@ -482,39 +652,56 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   }
 
   async function runAction(
-    fn: () => Promise<ActionResponse>,
+    fn: (signal: AbortSignal) => Promise<ActionResponse>,
     failureMessage: string,
   ) {
+    const operation = beginOperation("action");
     setActionState("saving");
     setActionError(undefined);
     try {
-      applyActionResponse(await fn(), failureMessage);
+      // Abort cancels the client-side request and stale UI application on a
+      // branch/session replacement. It cannot revoke a mutation already
+      // accepted by the server, so backend authorization/state transitions
+      // remain authoritative and the subsequent queue reconciliation is kept.
+      const response = await fn(operation.controller.signal);
+      if (!ownsOperation(operation)) return;
+      applyActionResponse(response, failureMessage);
     } catch {
+      if (!ownsOperation(operation)) return;
       setActionState("error");
       setActionError(failureMessage);
+    } finally {
+      endOperation(operation);
     }
   }
 
   async function runStepUpAction(
-    fn: (stepUp: FinancialStepUpProof) => Promise<ActionResponse>,
+    fn: (stepUp: FinancialStepUpProof, signal: AbortSignal) => Promise<ActionResponse>,
     failureMessage: string,
   ) {
+    const operation = beginOperation("action");
     setActionState("saving");
     setActionError(undefined);
-    let stepUp: FinancialStepUpProof;
     try {
-      stepUp = await assertPasskeyStepUp(api);
-    } catch (error) {
-      setActionState("error");
-      setActionError(stepUpFailureMessage(error));
-      return;
-    }
-
-    try {
-      applyActionResponse(await fn(stepUp), failureMessage);
+      let stepUp: FinancialStepUpProof;
+      try {
+        stepUp = await assertPasskeyStepUp(api);
+      } catch (error) {
+        if (!ownsOperation(operation)) return;
+        setActionState("error");
+        setActionError(stepUpFailureMessage(error));
+        return;
+      }
+      if (!ownsOperation(operation)) return;
+      const response = await fn(stepUp, operation.controller.signal);
+      if (!ownsOperation(operation)) return;
+      applyActionResponse(response, failureMessage);
     } catch {
+      if (!ownsOperation(operation)) return;
       setActionState("error");
       setActionError(failureMessage);
+    } finally {
+      endOperation(operation);
     }
   }
 
@@ -534,6 +721,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     (equipmentScoped && (!equipment || !form.statementEvidenceId.trim()));
 
   const densityClass = density === "compact" ? "gap-3 p-3" : "gap-4 p-4";
+  const canLoadMore = requests.length < queuePage.total;
 
   return (
     <Card className="grid gap-4">
@@ -606,7 +794,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                   listId="purchase-vendor-options"
                   datalistOptions={vendorSuggestions}
                 />
-                <p className="text-xs text-steel">{vendorStatus}</p>
+                <p className="text-xs text-steel">{PURCHASE_TEXT.visibleHistoryHint}</p>
               </div>
               <SelectField
                 id="pr-purchase-type"
@@ -816,6 +1004,28 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         </form>
       ) : null}
 
+      <section aria-label={ko.common.status} className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-muted-panel p-3">
+        <div className="grid gap-1.5">
+          <label className="text-sm font-medium text-steel" htmlFor="purchase-status-filter">{ko.common.status}</label>
+          <select
+            id="purchase-status-filter"
+            className="min-h-10 rounded-md border border-line bg-white px-3 text-sm text-ink"
+            value={queueStatus ?? ""}
+            onChange={(event) => {
+              const next = event.currentTarget.value as PurchaseStatus | "";
+              setQueueStatus(next || undefined);
+            }}
+          >
+            <option value="">{ko.integrity.filter.all}</option>
+            {PURCHASE_QUEUE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {ko.financial.statuses[status]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
       <section aria-label={PURCHASE_TEXT.lookupAria} className="grid gap-2 rounded-md border border-line p-3">
         <label className="text-sm font-medium text-steel" htmlFor="pr-lookup">
           {ko.financial.purchase.lookupLabel}
@@ -845,9 +1055,32 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       </section>
 
       <section aria-label={PURCHASE_TEXT.recentAria} className="grid gap-2">
-        {requests.length === 0 ? (
+        {queueState === "loading" ? (
+          <p role="status" className="rounded-md border border-line p-4 text-sm text-steel">{ko.page.loading}</p>
+        ) : queueState === "error" ? (
+          <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <p className="font-semibold">
+              {!activeBranchId
+                ? ko.common.noBranch
+                : queueErrorStatus === 403
+                  ? ko.page.permissionDenied
+                  : ko.page.loadFailed}
+            </p>
+            {queueErrorStatus === 403 || !activeBranchId ? null : (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="mt-2"
+                onClick={() => { void loadQueue(); }}
+              >
+                {ko.page.retry}
+              </Button>
+            )}
+          </div>
+        ) : requests.length === 0 ? (
           <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
-            {ko.financial.purchase.empty}
+            {ko.page.empty}
           </p>
         ) : (
           requests.map((request) => (
@@ -878,6 +1111,34 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
             </button>
           ))
         )}
+        {queueState === "ready" && canLoadMore ? (
+          <div className="flex justify-center pt-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={queueMoreState === "loading"}
+              onClick={() => {
+                void loadQueue(undefined, queuePage.offset + queuePage.limit);
+              }}
+            >
+              {queueMoreState === "loading" ? ko.common.loadingMore : ko.common.loadMore}
+            </Button>
+          </div>
+        ) : null}
+        {queueMoreState === "error" ? (
+          <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <span>{ko.page.loadFailed}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => { void loadQueue(undefined, queuePage.offset + queuePage.limit); }}
+            >
+              {ko.page.retry}
+            </Button>
+          </div>
+        ) : null}
       </section>
 
       {selected ? (
@@ -898,22 +1159,26 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           }}
           onSubmit={() => {
             void runAction(
-              () =>
+              (signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/submit",
-                  { params: { path: { purchaseRequestId: selected.id } } },
+                  {
+                    params: { path: { purchaseRequestId: selected.id } },
+                    signal,
+                  },
                 ),
               ko.financial.purchase.submitFailed,
             );
           }}
           onApproveAdmin={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.approveAdminFailed,
@@ -921,12 +1186,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           }}
           onApproveExecutive={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.approveExecutiveFailed,
@@ -949,7 +1215,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure",
                   {
@@ -958,6 +1224,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                       expenditure_no: dialogValue.trim(),
                       step_up: stepUp,
                     },
+                    signal,
                   },
                 ),
               ko.financial.purchase.expenditure.failed,
@@ -981,12 +1248,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/reject",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { memo: dialogValue.trim(), step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.rejectFailed,
@@ -1003,7 +1271,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={(statementEvidenceId, memo) => {
             void runAction(
-              () =>
+              (signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart",
                   {
@@ -1020,6 +1288,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                       quote_attachment_ids: selected.quote_attachments.map((attachment) => attachment.id),
                       memo,
                     },
+                    signal,
                   },
                 ),
               ko.financial.purchase.restartFailed,
@@ -1042,12 +1311,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           onCancel={closeDialog}
           onConfirm={() => {
             void runStepUpAction(
-              (stepUp) =>
+              (stepUp, signal) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/execute",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
                     body: { step_up: stepUp },
+                    signal,
                   },
                 ),
               ko.financial.purchase.executeFailed,

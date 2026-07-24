@@ -40,7 +40,7 @@ rust_test(
     crate_root = "backend/crates/compliance/adapter-postgres/tests/location_consent_status_rls_as_runtime_role.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/compliance/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.compliance.adapter-postgres", "domain.compliance", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/compliance/application:mnt-compliance-application",
         "//backend/crates/compliance/domain:mnt-compliance-domain",
@@ -67,7 +67,7 @@ rust_test(
     crate_root = "backend/crates/compliance/adapter-postgres/tests/location_store.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/compliance/adapter-postgres", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.compliance.adapter-postgres", "domain.compliance", "test.integration", "resource.postgres", "needs-postgres"],
     deps = [
         "//backend/crates/compliance/application:mnt-compliance-application",
         "//backend/crates/compliance/domain:mnt-compliance-domain",

@@ -1,17 +1,15 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router";
 
 import { PageSpinner } from "./states/PageSpinner";
 import { hasGrantedConsoleAccess } from "./shell/nav";
 import { useAuth } from "../context/auth";
 
 /**
- * Paths a no-grant MEMBER may still reach: the pending landing itself and their
- * own profile (the one surface the backend allows), plus the new console route
- * whose own live `/me/authz` projection determines its sole exposed module.
- * Any other tenant path is redirected to /pending so they never land on a 403
- * screen.
+ * Paths a no-grant MEMBER may still reach: the pending landing, their own
+ * profile, and principal-bound My Attendance self-service. Any other tenant
+ * path is redirected to /pending so they never land on a 403 screen.
  */
-const MEMBER_ALLOWED_PATHS = ["/pending", "/settings/profile"];
+const MEMBER_ALLOWED_PATHS = ["/pending", "/settings/profile", "/attendance"];
 
 /**
  * Used as a layout route element: renders <Outlet /> when authenticated,
@@ -62,7 +60,8 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
   // A just-signed-up tenant user with no role, group-admin, or runtime feature
   // grant yet (empty roles or `["MEMBER"]`) is default-denied every Feature but
   // Login by the backend, so every gated destination 403s. Route them to /pending
-  // instead of onto a generic error screen; allow only /pending and their profile.
+  // instead of onto a generic error screen; allow only their pending/profile/
+  // attendance self-service floor. The /console exception remains unchanged.
   if (
     !hasGrantedConsoleAccess(
       session.roles,

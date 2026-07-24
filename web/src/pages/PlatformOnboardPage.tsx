@@ -1,6 +1,6 @@
 import { AlertTriangle, Building2, Check, Copy } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { onboardPlatformOrg, PlatformApiError } from "../api/platform";
 import type { OnboardOrgResponse } from "../api/platform";

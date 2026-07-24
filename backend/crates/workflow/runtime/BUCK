@@ -35,7 +35,7 @@ rust_test(
     crate_root = "backend/crates/workflow/runtime/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/workflow/runtime"},
-    labels = ["needs-postgres"],
+    labels = ["owner.backend.crates.workflow.runtime", "domain.workflow", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/authz:mnt-platform-authz",

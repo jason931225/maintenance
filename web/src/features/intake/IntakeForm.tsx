@@ -1,7 +1,7 @@
 import { Save } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import type {
   CreateWorkOrderRequest,

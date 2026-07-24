@@ -39,6 +39,7 @@ rust_test(
     crate_root = "backend/ci/gates/pii-no-logs/tests/gate_detects_violation.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/ci/gates/pii-no-logs"},
+    labels = ["owner.backend.ci.gates.pii-no-logs", "domain.ci", "test.integration", "resource.none"],
     deps = [
         ":mnt-gate-pii-no-logs-lib",
     ],

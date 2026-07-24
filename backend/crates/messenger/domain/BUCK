@@ -30,6 +30,7 @@ rust_test(
     crate_root = "backend/crates/messenger/domain/tests/mentions.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/messenger/domain"},
+    labels = ["owner.backend.crates.messenger.domain", "domain.messenger", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -45,6 +46,7 @@ rust_test(
     crate_root = "backend/crates/messenger/domain/tests/object_code_refs.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/messenger/domain"},
+    labels = ["owner.backend.crates.messenger.domain", "domain.messenger", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -60,6 +62,7 @@ rust_test(
     crate_root = "backend/crates/messenger/domain/tests/parity.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/messenger/domain"},
+    labels = ["owner.backend.crates.messenger.domain", "domain.messenger", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",
@@ -75,6 +78,7 @@ rust_test(
     crate_root = "backend/crates/messenger/domain/tests/thread_kind.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/messenger/domain"},
+    labels = ["owner.backend.crates.messenger.domain", "domain.messenger", "test.integration", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//third-party/rust:serde",

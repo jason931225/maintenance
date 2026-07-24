@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router";
 
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
+import { isLocalDevBuild } from "../../features/auth/localDev";
 import { useConsoleAuthz, useConsoleScopes, UNION_SCOPE_ID } from "./authz";
 import { CommsRailPanel, CommsRailFallback } from "./CommsRailPanel";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
@@ -26,6 +27,13 @@ import { SCREEN_REGISTRY } from "../screens/registry";
 import type { ThemeMode } from "./theme";
 
 const S = ko.console.shell;
+
+const loadLocalDevRoleSwitchLabel = import.meta.env.DEV
+  ? () =>
+      import("../../i18n/koDevAuth").then(
+        ({ koDevAuth }) => koDevAuth.localRoleSwitch,
+      )
+  : undefined;
 
 const ROLE_PRIORITY = [
   "SUPER_ADMIN",
@@ -56,7 +64,7 @@ export function ConsoleShell({
   onCycleTheme: () => void;
   screenKeys?: readonly MountedScreenKey[];
 }) {
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { grants, source: authzSource, ready: authzReady } = useConsoleAuthz();
@@ -64,6 +72,17 @@ export function ConsoleShell({
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
 
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const [localRoleSwitchLabel, setLocalRoleSwitchLabel] = useState<string>();
+  useEffect(() => {
+    if (!loadLocalDevRoleSwitchLabel || !isLocalDevBuild()) return;
+    let active = true;
+    void loadLocalDevRoleSwitchLabel().then((label) => {
+      if (active) setLocalRoleSwitchLabel(label);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1280 : window.innerWidth,
   );
@@ -193,6 +212,9 @@ export function ConsoleShell({
       : defaultScreen(grants, screenKeys);
   const ScreenBody = activeScreen ? SCREEN_REGISTRY[activeScreen] : undefined;
   const communicationScreen = activeScreen ? isCommunicationScreen(activeScreen) : false;
+  // The object explorer owns its contextual governed-object rail. Keeping the
+  // shell comms rail there creates two competing right rails.
+  const suppressCommsRail = communicationScreen || activeScreen === "objectExplorer";
 
   useEffect(() => {
     if (!focusMainAfterDrawerCloseRef.current || activeDrawer) return;
@@ -369,6 +391,22 @@ export function ConsoleShell({
           userInitial={userInitial}
           userRoleLabel={userRoleLabelText}
           userTeamLabel={userTeamLabel}
+          onLogout={() => {
+            void logout().finally(() => {
+              void navigate("/login", { replace: true });
+            });
+          }}
+          localRoleSwitchLabel={localRoleSwitchLabel}
+          onLocalRoleSwitch={
+            localRoleSwitchLabel
+              ? () => {
+                  const next = `${location.pathname}${location.search}${location.hash}`;
+                  void logout().finally(() => {
+                    void navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
+                  });
+                }
+              : undefined
+          }
           onOpenNavigation={
             mobile
               ? () => {
@@ -376,13 +414,15 @@ export function ConsoleShell({
                 }
               : undefined
           }
+          navigationDrawerOpen={activeDrawer === "left"}
           onOpenComms={
-            mobile && !communicationScreen
+            mobile && !suppressCommsRail
               ? () => {
                   openDrawer("right");
                 }
               : undefined
           }
+          commsDrawerOpen={activeDrawer === "right"}
         />
 
         {/* URL-driven body, constrained to evidence-exposed + authorized nav. */}
@@ -398,9 +438,10 @@ export function ConsoleShell({
       {/* Comms rail — shell-level, default-expanded on every screen (round 5).
           The single "커뮤니케이션" complementary landmark stays exactly as
           deduped in #459: this is still the only element carrying that name. */}
-      {!communicationScreen && <aside
+      {!suppressCommsRail && <aside
         aria-label={S.rail.label}
         data-cshell-rail
+        id={mobile ? "console-comms-drawer" : undefined}
         data-cshell-rail-open={(mobile || railOpen) || undefined}
         data-cshell-drawer={mobile ? "right" : undefined}
         data-cshell-drawer-open={mobile && activeDrawer === "right" ? "true" : undefined}

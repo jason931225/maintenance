@@ -79,6 +79,8 @@ export interface PolicyQuery {
   branch?: string;
   /** Minimum permission the affordance requires. Default `allow`. */
   minPermission?: Permission;
+  /** Require an organization-wide capability instead of any branch-scoped grant. */
+  requireOrgWide?: boolean;
 }
 
 /** Fail-closed empty projection (no provider / pre-boot). Denies everything. */
@@ -128,6 +130,7 @@ export function gateAllows(
   const cap = projection.capabilities.find((c) => c.feature === query.feature);
   if (!cap) return false; // deny-by-omission
   if (PERMISSION_RANK[cap.permission] < min) return false;
+  if (query.requireOrgWide && cap.branchScope.kind !== "all") return false;
   // No target branch: the affordance is offered where the caller's best scope
   // holds; per-row branch intersection is the caller's job. With a target
   // branch, the capability's own scope must allow it (fail closed otherwise).

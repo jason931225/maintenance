@@ -1,7 +1,7 @@
 import { KeyRound, Mail, QrCode, Smartphone, Ticket } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";

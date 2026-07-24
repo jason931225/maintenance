@@ -24,6 +24,9 @@ name = "mnt_app"
 path = "src/lib.rs"
 
 [features]
+# Enables the inline PostgreSQL integration suite. This is intentionally inert
+# by default so normal unit tests need no database topology.
+test-postgres = []
 # Local role-switch dev-auth endpoint. NOT in `default` (there is no `default`
 # key here, so cargo's implicit default feature set is empty) and MUST NEVER be
 # added to one — `mnt-gate-dev-auth-absence` asserts this via `cargo metadata`
@@ -32,6 +35,7 @@ dev-auth = ["mnt-platform-auth-rest/dev-auth"]
 
 [dependencies]
 axum = { workspace = true }
+base64 = { workspace = true }
 calamine = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
@@ -39,6 +43,7 @@ croner = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 hex = { workspace = true }
+ipnet = { workspace = true }
 jsonwebtoken = { workspace = true }
 reqwest = { workspace = true }
 mnt-comms-adapter-imap = { workspace = true }
@@ -49,16 +54,20 @@ mnt-comms-rest = { workspace = true }
 mnt-action-inbox-application = { workspace = true }
 mnt-benefit-adapter-postgres = { workspace = true }
 mnt-benefit-rest = { workspace = true }
+mnt-consulting-rest = { workspace = true }
 mnt-compliance-adapter-postgres = { workspace = true }
 mnt-compliance-rest = { workspace = true }
 mnt-erp-domain = { workspace = true }
 mnt-integrity = { workspace = true }
 mnt-financial-adapter-postgres = { workspace = true }
 mnt-financial-rest = { workspace = true }
+mnt-facilities-rest = { path = "../crates/facilities/rest" }
 mnt-identity-adapter-postgres = { workspace = true }
 mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
+mnt-inventory-adapter-postgres = { workspace = true }
+mnt-inventory-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }
 mnt-support-application = { workspace = true }
 mnt-support-domain = { workspace = true }
@@ -74,6 +83,10 @@ mnt-inbox-adapter-postgres = { workspace = true }
 mnt-inbox-rest = { workspace = true }
 mnt-leave-adapter-postgres = { workspace = true }
 mnt-leave-domain = { workspace = true }
+mnt-equipment-adapter-postgres = { workspace = true }
+mnt-equipment-rest = { workspace = true }
+mnt-logistics-adapter-postgres = { workspace = true }
+mnt-logistics-rest = { workspace = true }
 mnt-leave-rest = { workspace = true }
 mnt-todos-adapter-postgres = { workspace = true }
 mnt-todos-rest = { workspace = true }
@@ -85,6 +98,8 @@ mnt-notices-rest = { workspace = true }
 mnt-finance-gl-adapter-postgres = { workspace = true }
 mnt-finance-gl-rest = { workspace = true }
 mnt-analytics-quant-rest = { workspace = true }
+mnt-attendance-adapter-postgres = { workspace = true }
+mnt-attendance-rest = { workspace = true }
 mnt-platform-audit-chain = { path = "../crates/platform/audit-chain" }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
@@ -122,6 +137,7 @@ mnt-workflow-runtime-adapter-postgres = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-application = { workspace = true }
 mnt-workorder-rest = { workspace = true }
+mnt-production-rest = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }

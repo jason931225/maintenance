@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router";
 
 import { isConsoleHost } from "./lib/consoleUrl";
 import { ConsoleRolloutBoundary } from "./console/rollout/ConsoleRolloutBoundary";
@@ -131,6 +131,9 @@ const MailPage = lazy(() =>
 );
 const SupportPage = lazy(() =>
   import("./pages/SupportPage").then((m) => ({ default: m.SupportPage })),
+);
+const FacilitiesPage = lazy(() =>
+  import("./pages/FacilitiesPage").then((m) => ({ default: m.FacilitiesPage })),
 );
 const EquipmentPage = lazy(() =>
   import("./pages/EquipmentPage").then((m) => ({ default: m.EquipmentPage })),
@@ -574,6 +577,9 @@ export function AppRouter() {
             <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
             {/* Legacy equipment page: kept at /equipment/legacy during transition */}
             <Route path="/equipment/legacy" element={<EquipmentPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="facilities" />}>
+            <Route path="/facilities" element={<FacilitiesPage />} />
           </Route>
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<FinancialPage />} />

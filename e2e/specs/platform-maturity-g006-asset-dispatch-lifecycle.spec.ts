@@ -25,7 +25,11 @@ test.describe("G006 asset/equipment/dispatch lifecycle contract", () => {
       expect(auditRow?.ownerLane, `${route.path} must be G006-owned`).toContain("G006");
       expect(auditRow?.e2eSpec, `${route.path} must require browser story`).toContain("Required browser");
       expect(auditRow?.sourceObject, `${route.path} must include asset/equipment source object`).toContain("equipment");
-      expect(auditRow?.lifecycleStates, `${route.path} must include transfer lifecycle`).toContain("transfer pending");
+      if (route.routeGroup === "facilities-lifecycle") {
+        expect(auditRow?.lifecycleStates, `${route.path} must include facilities acceptance lifecycle`).toContain("awaiting acceptance");
+      } else {
+        expect(auditRow?.lifecycleStates, `${route.path} must include transfer lifecycle`).toContain("transfer pending");
+      }
       expect(auditRow?.denialScopeTest, `${route.path} must deny wrong-org mutation`).toContain("Wrong org");
       expect(auditRow?.groupScopeStory, `${route.path} must preserve KNL operator story`).toContain("KNL operator");
       expect(auditRow?.screenshotTraceEvidence, `${route.path} must not falsely claim live screenshot/trace closure`).toContain("Pending");

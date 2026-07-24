@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { ko } from "../i18n/ko";
 

@@ -10,7 +10,7 @@ export {
   applyLegalHold,
   decideHoldReleaseApproval,
   getEvidenceObjectDetail,
-  listEvidenceObjects,
+  listEvidenceObjectPage,
   mapEvidenceObjectDetail,
   releaseLegalHold,
   requestHoldReleaseApproval,

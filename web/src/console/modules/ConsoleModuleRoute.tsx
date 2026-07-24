@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { useAuth } from "../../context/auth";
 import { ApprovalCompose } from "../appr/ApprovalCompose";

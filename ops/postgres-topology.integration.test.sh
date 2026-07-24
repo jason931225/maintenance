@@ -31,6 +31,7 @@ export MNT_APP_POSTGRES_PASSWORD=app-log-secret-78d24b
 export MNT_RT_POSTGRES_PASSWORD=runtime-log-secret-65c13e
 export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD=leave-log-secret-42b07d
 export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD=ontology-log-secret-19a84c
+export MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD=platform-force-log-secret-28b95d
 
 compose() {
   "${compose_command[@]}" -p "${legacy_project}" -f "${REPO_ROOT}/ops/compose.yml" "$@"
@@ -75,6 +76,7 @@ run_fresh_reconcile() {
     -e MNT_RT_POSTGRES_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
     -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
     -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+    -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}" \
     "$@" "${fresh_container}" bash /topology.sh
 }
 
@@ -109,12 +111,13 @@ assert_prerequisite_refusal_before_mutation() {
     -e MNT_RT_POSTGRES_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
     -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
     -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+    -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}" \
     "${container}" bash /topology.sh >/dev/null 2>&1; then
     echo "topology-test: prerequisite refusal unexpectedly succeeded for ${image}" >&2
     exit 1
   fi
   test "$(docker exec "${container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
-    "SELECT count(*) FROM pg_roles WHERE rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer')")" = 0
+    "SELECT count(*) FROM pg_roles WHERE rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd','mnt_leave_definer','mnt_ontology_writer')")" = 0
   docker rm -f "${container}" >/dev/null
 }
 
@@ -172,6 +175,7 @@ assert_legacy_prerequisite_refusal_before_mutation() {
     -e MNT_RT_POSTGRES_PASSWORD=legacy-new-runtime-password-c894 \
     -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD=legacy-new-leave-password-d905 \
     -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD=legacy-new-ontology-password-e016 \
+    -e MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD=legacy-new-platform-force-password-f127 \
     -e MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION=1 \
     "${container}" bash /topology.sh 2>&1)"; then
     echo "topology-test: legacy prerequisite refusal unexpectedly succeeded for ${image}" >&2
@@ -210,7 +214,8 @@ for secret in \
   "${MNT_APP_POSTGRES_PASSWORD}" \
   "${MNT_RT_POSTGRES_PASSWORD}" \
   "${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
-  "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"; do
   if grep -Fq "${secret}" <<<"${fresh_logs}"; then
     echo "topology-test: PostgreSQL log leaked a database password" >&2
     exit 1
@@ -222,7 +227,8 @@ run_fresh_reconcile
 for direct_login in \
   "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
   "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
-  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_platform_force_cmd|${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"; do
   IFS='|' read -r role password <<<"${direct_login}"
   fresh_runtime_gucs="$(query_as_direct_login "${role}" "${password}" \
     "SELECT current_setting('statement_timeout'),current_setting('idle_in_transaction_session_timeout'),current_setting('transaction_timeout')")"
@@ -231,7 +237,7 @@ done
 
 docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
   "CREATE DATABASE topology_other"
-for role in mnt_rt mnt_leave_cmd mnt_ontology_cmd; do
+for role in mnt_rt mnt_leave_cmd mnt_ontology_cmd mnt_platform_force_cmd; do
   docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
     "ALTER ROLE ${role} SET statement_timeout='1s';
      ALTER ROLE ${role} SET idle_in_transaction_session_timeout='2s';
@@ -253,7 +259,8 @@ declare -a stale_backend_pids=()
 for direct_login in \
   "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
   "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
-  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_platform_force_cmd|${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"; do
   IFS='|' read -r role password <<<"${direct_login}"
   application_name="topology_stale_${role}_$$"
   docker exec -e PGPASSWORD="${password}" \
@@ -290,6 +297,9 @@ mnt_leave_cmd|global|transaction_timeout=45s
 mnt_ontology_cmd|global|idle_in_transaction_session_timeout=30s
 mnt_ontology_cmd|global|statement_timeout=30s
 mnt_ontology_cmd|global|transaction_timeout=45s
+mnt_platform_force_cmd|global|idle_in_transaction_session_timeout=30s
+mnt_platform_force_cmd|global|statement_timeout=30s
+mnt_platform_force_cmd|global|transaction_timeout=45s
 mnt_rt|global|default_transaction_isolation=repeatable read
 mnt_rt|global|idle_in_transaction_session_timeout=30s
 mnt_rt|global|statement_timeout=30s
@@ -297,12 +307,13 @@ mnt_rt|global|transaction_timeout=45s
 mnt_rt|mnt_topology_test|work_mem=8MB
 mnt_rt|topology_other|application_name=preserve_database_runtime_guc'
 actual_runtime_settings="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -At -F '|' -c \
-  "SELECT role.rolname, CASE settings.setdatabase WHEN 0 THEN 'global' ELSE database.datname END, setting FROM pg_db_role_setting settings JOIN pg_roles role ON role.oid=settings.setrole LEFT JOIN pg_database database ON database.oid=settings.setdatabase CROSS JOIN LATERAL unnest(settings.setconfig) setting WHERE role.rolname IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd') ORDER BY 1,2,3")"
+  "SELECT role.rolname, CASE settings.setdatabase WHEN 0 THEN 'global' ELSE database.datname END, setting FROM pg_db_role_setting settings JOIN pg_roles role ON role.oid=settings.setrole LEFT JOIN pg_database database ON database.oid=settings.setdatabase CROSS JOIN LATERAL unnest(settings.setconfig) setting WHERE role.rolname IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd') ORDER BY 1,2,3")"
 test "${actual_runtime_settings}" = "${expected_runtime_settings}"
 for direct_login in \
   "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
   "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
-  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_platform_force_cmd|${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"; do
   IFS='|' read -r role password <<<"${direct_login}"
   restored_runtime_gucs="$(query_as_direct_login "${role}" "${password}" \
     "SELECT current_setting('statement_timeout'),current_setting('idle_in_transaction_session_timeout'),current_setting('transaction_timeout')")"
@@ -379,6 +390,7 @@ if docker run --rm --network bridge \
   -e MNT_RT_USERNAME=mnt_rt -e MNT_RT_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
   -e MNT_LEAVE_COMMAND_USERNAME=mnt_leave_cmd -e MNT_LEAVE_COMMAND_PASSWORD=invalid-late-credential \
   -e MNT_ONTOLOGY_COMMAND_USERNAME=mnt_ontology_cmd -e MNT_ONTOLOGY_COMMAND_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  -e MNT_PLATFORM_FORCE_COMMAND_USERNAME=mnt_platform_force_cmd -e MNT_PLATFORM_FORCE_COMMAND_PASSWORD="${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}" \
   "${POSTGRES_IMAGE}" bash -ceu 'source /cnpg-topology.sh' >/dev/null 2>&1; then
   echo "topology-test: rendered CNPG script accepted an invalid second credential" >&2
   exit 1
@@ -394,6 +406,7 @@ docker run --rm --network bridge \
   -e MNT_RT_USERNAME=mnt_rt -e MNT_RT_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
   -e MNT_LEAVE_COMMAND_USERNAME=mnt_leave_cmd -e MNT_LEAVE_COMMAND_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
   -e MNT_ONTOLOGY_COMMAND_USERNAME=mnt_ontology_cmd -e MNT_ONTOLOGY_COMMAND_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  -e MNT_PLATFORM_FORCE_COMMAND_USERNAME=mnt_platform_force_cmd -e MNT_PLATFORM_FORCE_COMMAND_PASSWORD="${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}" \
   "${POSTGRES_IMAGE}" bash -ceu 'source /cnpg-topology.sh' >/dev/null
 test "$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
   "SELECT count(*) FROM pg_stat_activity WHERE pid=${cnpg_stale_pid}")" = 1
@@ -408,6 +421,7 @@ docker run --rm --network bridge \
   -e MNT_RT_USERNAME=mnt_rt -e MNT_RT_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
   -e MNT_LEAVE_COMMAND_USERNAME=mnt_leave_cmd -e MNT_LEAVE_COMMAND_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
   -e MNT_ONTOLOGY_COMMAND_USERNAME=mnt_ontology_cmd -e MNT_ONTOLOGY_COMMAND_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  -e MNT_PLATFORM_FORCE_COMMAND_USERNAME=mnt_platform_force_cmd -e MNT_PLATFORM_FORCE_COMMAND_PASSWORD="${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}" \
   "${POSTGRES_IMAGE}" bash -ceu 'source /cnpg-topology.sh' >/dev/null
 if wait "${cnpg_stale_client}"; then
   echo "topology-test: rendered CNPG script did not drain tagged mnt_rt session" >&2
@@ -436,16 +450,17 @@ expected_roles='mnt_app|t|f|t|t
 mnt_leave_cmd|t|f|f|f
 mnt_leave_definer|f|f|f|f
 mnt_ontology_cmd|t|f|f|f
+mnt_platform_force_cmd|t|f|f|f
 mnt_ontology_writer|f|f|f|f
 mnt_rt|t|f|f|f'
 actual_roles="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -At -F '|' -c \
-  "SELECT rolname,rolcanlogin,rolsuper,rolbypassrls,rolinherit FROM pg_roles WHERE rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer') ORDER BY rolname")"
+  "SELECT rolname,rolcanlogin,rolsuper,rolbypassrls,rolinherit FROM pg_roles WHERE rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd','mnt_leave_definer','mnt_ontology_writer') ORDER BY rolname")"
 test "${actual_roles}" = "${expected_roles}"
 
 expected_memberships='mnt_app|mnt_leave_definer|f|t|t
 mnt_app|mnt_ontology_writer|f|t|t'
 actual_memberships="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -At -F '|' -c \
-  "SELECT member.rolname,granted.rolname,m.admin_option,m.inherit_option,m.set_option FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid WHERE member.rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer') OR granted.rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer') ORDER BY member.rolname,granted.rolname")"
+  "SELECT member.rolname,granted.rolname,m.admin_option,m.inherit_option,m.set_option FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid WHERE member.rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd','mnt_leave_definer','mnt_ontology_writer') OR granted.rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd','mnt_leave_definer','mnt_ontology_writer') ORDER BY member.rolname,granted.rolname")"
 test "${actual_memberships}" = "${expected_memberships}"
 
 migration_identity="$(query_as_direct_login mnt_app "${MNT_APP_POSTGRES_PASSWORD}" \
@@ -455,7 +470,8 @@ test "${migration_identity}" = 'mnt_app|mnt_app|t|f|t|t|f|f|f|t|2|0'
 for direct_login in \
   "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
   "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
-  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_platform_force_cmd|${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"; do
   IFS='|' read -r role password <<<"${direct_login}"
   serving_identity="$(query_as_direct_login "${role}" "${password}" \
     "SELECT session_user,current_user,authenticated.rolcanlogin,authenticated.rolsuper,authenticated.rolbypassrls,authenticated.rolinherit,authenticated.rolcreatedb,authenticated.rolcreaterole,authenticated.rolreplication,EXISTS(SELECT 1 FROM pg_auth_members membership WHERE membership.member=authenticated.oid OR membership.roleid=authenticated.oid) FROM pg_roles authenticated WHERE authenticated.rolname=session_user")"
@@ -640,7 +656,8 @@ for secret in \
   "${MNT_APP_POSTGRES_PASSWORD}" \
   "${MNT_RT_POSTGRES_PASSWORD}" \
   "${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
-  "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  "${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "${MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD}"; do
   if grep -Fq "${secret}" <<<"${legacy_logs}"; then
     echo "topology-test: legacy PostgreSQL log leaked a database password" >&2
     exit 1

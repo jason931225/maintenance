@@ -67,6 +67,17 @@ patches:
             replication: false
             passwordSecret:
               name: mnt-db-ontology-command
+          - name: mnt_platform_force_cmd
+            ensure: present
+            login: true
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: false
+            inherit: false
+            replication: false
+            passwordSecret:
+              name: mnt-db-platform-force-command
           - name: mnt_leave_definer
             ensure: present
             login: false
@@ -109,6 +120,12 @@ patches:
           name: ONTOLOGY_COMMAND_DATABASE_URL
           valueFrom:
             secretKeyRef: { name: mnt-db-ontology-command, key: uri }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: PLATFORM_FORCE_COMMAND_DATABASE_URL
+          valueFrom:
+            secretKeyRef: { name: mnt-db-platform-force-command, key: uri }
   - target: { group: apps, version: v1, kind: Deployment, name: mnt-worker }
     patch: |-
       - op: add

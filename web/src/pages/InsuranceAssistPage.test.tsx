@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
@@ -88,6 +88,7 @@ const readinessSummary = {
     draft_runs: 1,
     blocked_runs: 0,
     calculation_enabled_runs: 1,
+    active_close_runs: 1,
     draft_lines: 3,
     payroll_source_rows: 3,
     attendance_source_rows: 2,

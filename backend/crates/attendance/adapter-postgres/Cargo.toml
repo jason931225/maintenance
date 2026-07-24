@@ -1,0 +1,29 @@
+[package]
+name = "mnt-attendance-adapter-postgres"
+version = "0.1.0"
+description = "Tenant-scoped Postgres adapter for attendance operations."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-attendance-application = { path = "../application" }
+mnt-attendance-domain = { path = "../domain" }
+mnt-kernel-core = { workspace = true }
+mnt-platform-db = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+mnt-platform-request-context = { workspace = true }
+mnt-platform-test-support = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

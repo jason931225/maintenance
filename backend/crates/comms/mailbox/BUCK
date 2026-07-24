@@ -30,6 +30,7 @@ rust_test(
     crate_root = "backend/crates/comms/mailbox/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/mailbox"},
+    labels = ["owner.backend.crates.comms.mailbox", "domain.comms", "test.unit", "resource.none"],
     deps = [
         "//third-party/rust:serde",
         "//third-party/rust:thiserror",

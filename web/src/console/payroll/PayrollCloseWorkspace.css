@@ -1,0 +1,165 @@
+.payroll-close {
+  display: grid;
+  min-width: 0;
+  gap: var(--sp-4);
+  color: var(--ink);
+}
+.payroll-close__card {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-card-y);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.payroll-close__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.payroll-close__eyebrow {
+  margin: 0;
+  color: var(--steel);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-strong);
+}
+.payroll-close__title {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--text-h1);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--tracking-tight);
+}
+.payroll-close__description,
+.payroll-close__meta {
+  margin: var(--sp-1) 0 0;
+  color: var(--steel);
+  font-size: var(--text-body);
+}
+.payroll-close__meta {
+  font-size: var(--text-sm);
+}
+.payroll-close__button {
+  min-height: 34px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.payroll-close__button:hover {
+  background: var(--muted);
+}
+.payroll-close__button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+.payroll-close__button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.payroll-close__table-wrap {
+  overflow-x: auto;
+  border: var(--border-hairline);
+  border-radius: var(--radius);
+}
+.payroll-close__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body);
+}
+.payroll-close__table th {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: var(--border-hairline);
+  background: var(--muted);
+  color: var(--steel);
+  text-align: start;
+  font-weight: var(--fw-medium);
+}
+.payroll-close__table td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: var(--border-hairline);
+  vertical-align: top;
+}
+.payroll-close__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.payroll-close__row:hover {
+  background: var(--muted);
+}
+.payroll-close__row-action {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+.payroll-close__row-label,
+.payroll-close__row-action .payroll-close__meta {
+  display: block;
+}
+.payroll-close__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 var(--sp-2);
+  border: 1px solid;
+  border-radius: var(--radius-chip);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+}
+.payroll-close__status--danger {
+  border-color: var(--danger-bd);
+  background: var(--danger-bg);
+  color: var(--danger-tx);
+}
+.payroll-close__status--warn {
+  border-color: var(--warn-bd);
+  background: var(--warn-bg);
+  color: var(--warn-tx);
+}
+.payroll-close__status--ok {
+  border-color: var(--ok-bd);
+  background: var(--ok-bg);
+  color: var(--ok-tx);
+}
+.payroll-close__empty {
+  margin: 0;
+  padding: var(--sp-5);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--steel);
+  text-align: center;
+}
+.payroll-close__error {
+  padding: var(--sp-4);
+  border: 1px solid var(--danger-bd);
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+  color: var(--danger-tx);
+}
+.payroll-close__error p {
+  margin: 0;
+  font-weight: var(--fw-medium);
+}
+.payroll-close__error .payroll-close__button {
+  margin-top: var(--sp-2);
+  border-color: var(--danger-bd);
+  background: transparent;
+  color: inherit;
+}
+.payroll-close__skeleton {
+  min-height: 126px;
+  border: var(--border-hairline);
+  border-radius: var(--radius);
+  background: var(--muted);
+}

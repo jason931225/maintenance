@@ -1,0 +1,58 @@
+{
+  "module": "CAP-EQUIPMENT-3R-PILOT",
+  "purpose": "Integrator instructions: everything the shared collision roots need for /console/equipment. This lane never edited nav.ts, registry.ts, or ko.ts.",
+  "route": "/console/equipment",
+  "screenKey": "equipment",
+  "component": {
+    "export": "EquipmentScreenBody",
+    "import_from": "../equipment",
+    "note": "Prop-free ComponentType adapter (resolves branch via useActiveBranchId; renders a truthful no-branch status when the session has no branches claim). EquipmentConsoleRoute({branchId}) also exists for a parameterized mount."
+  },
+  "edits": {
+    "web/src/console/shell/nav.ts": [
+      {
+        "where": "MOUNTED_SCREEN_KEYS",
+        "add": "\"equipment\"",
+        "note": "Mount as development inventory. Do NOT add to EXPOSED_SCREEN_KEYS: exposure requires the ADR-0025 evidence approval and the merged equipment-3r backend."
+      },
+      {
+        "where": "NAV_GROUPS > labelId \"fieldOps\" > items",
+        "add": "{ screen: \"equipment\", labelKey: \"console.shell.nav.equipment\", icon: \"box\", gate: g(OPERATIONAL_ROLES, [\"equipment_3r_observe\"]) }",
+        "note": "Deny-by-omission: visible only to sessions whose roles or feature grants intersect. equipment_3r_observe is the backend feature-catalog key for the module's read tier."
+      }
+    ],
+    "web/src/console/screens/registry.ts": [
+      {
+        "where": "SCREEN_REGISTRY",
+        "add": "equipment: EquipmentScreenBody",
+        "import": "import { EquipmentScreenBody } from \"../equipment\";"
+      }
+    ],
+    "web/src/i18n/ko.ts": [
+      {
+        "where": "console.shell.nav",
+        "add": { "equipment": "장비 운용" },
+        "note": "Nav label only. All module strings live module-owned in web/src/i18n/equipment.ts (see i18n.json)."
+      }
+    ]
+  },
+  "authz": {
+    "model": "deny-by-default PBAC; server is sole enforcer",
+    "projection": "console/policy/authz fetchAuthzProjection + jwtFloorProjection (fail closed)",
+    "features": [
+      "equipment_3r_registry",
+      "equipment_3r_quote",
+      "equipment_3r_approve",
+      "equipment_3r_dispatch",
+      "equipment_3r_inspect",
+      "equipment_3r_assess",
+      "equipment_3r_disposition",
+      "equipment_3r_observe"
+    ]
+  },
+  "transport": {
+    "api_prefix": "/api/v1/equipment-3r",
+    "module": "web/src/console/equipment/equipmentApi.ts",
+    "followup": "Raw fetch against the design contract. Once openapi.yaml lands the 14 equipment-3r operations and clients/ts regenerates, swap to the generated ConsoleApiClient paths (noted in the module file header)."
+  }
+}

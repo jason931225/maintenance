@@ -137,8 +137,12 @@ export type VerifyOutcome =
   | { state: "verified"; processedAt: string | null; copyVerdicts: CopyVerdictMap }
   | { state: "processing" }
   | { state: "failed"; reason: string | null; copyVerdicts: CopyVerdictMap }
-  /** Object storage not configured (503) or the request failed outright. */
-  | { state: "unavailable" };
+  /** The current principal is not allowed to run this integrity action (401/403). */
+  | { state: "denied" }
+  /** The request failed before the backend returned an integrity verdict; retry is allowed. */
+  | { state: "error" }
+  /** The storage check could not establish fixity, with any known copy evidence retained. */
+  | { state: "unavailable"; copyVerdicts: CopyVerdictMap };
 
 export type VerifyEvidence = (
   detail: EvidenceObjectDetail,

@@ -69,6 +69,8 @@ Oyatie re-expression: a distinct **operator persona/surface**, not the tenant co
 ### 6. ◐ Dispatch depth (`DispatchPage`)
 P1 auto-dispatch broadcast + mechanic offer accept/decline; force-assign escalated P1 (policy-gated override + reason); multi-mechanic roles; target-due change (review-gated); outsource-work record. → Extend design `dispatch` screen; offers ride the notification center (M2b) as actionable rows; force-assign = §3.10 override (사유+승인+감사). Owner: **dispatch-depth slice after UI-M3** (also consumes BE-AUTO triggers).
 
+**2026-07-24 implementation evidence:** the operational `/dispatch` page now loads the generated, authenticated person-scoped `GET /api/v1/me/dispatch-offers` queue instead of requiring a pasted notification code. A mechanic can accept or decline each returned offer through the generated response operation; the UI aborts superseded reads and remounts on the effective session fence (`web/src/features/dispatch/MechanicDispatchOffers.tsx`, `web/src/pages/DispatchPage.tsx`, `web/src/pages/DispatchPage.test.tsx`). This proves the legacy operational vertical, not the separate Oyatie-console deletion/cutover claim above.
+
 ### 7. ◐/⛔ Location tracking & consent (`DispatchMapPage`, `/settings/location`)
 Mechanic arrival/departure event feed, directions handoff, ungeocoded-site worklist; per-branch GPS-consent (PIPA).
 → map screen unit layer (design `map` already has units) + events-as-objects timeline; consent = jurisdiction/consent objects (PII program); geo data gated by deviceCtx policy. Owner: **map-depth slice; consent rides the PII charter.**

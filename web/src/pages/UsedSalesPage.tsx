@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Check, Loader2, RotateCw } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";

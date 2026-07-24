@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
@@ -50,6 +50,9 @@ function renderGuardedRoutes(ctx: AuthContextValue, initialPath = "/dispatch") {
           </Route>
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<div>financial page</div>} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="facilities" />}>
+            <Route path="/facilities" element={<div>facilities page</div>} />
           </Route>
           <Route element={<RequireNavItemRoute itemKey="location" />}>
             <Route path="/settings/location" element={<div>location page</div>} />
@@ -109,6 +112,25 @@ describe("RequireNavItemRoute", () => {
 
     expect(screen.getByText("work hub")).toBeVisible();
     expect(screen.queryByText("location page")).not.toBeInTheDocument();
+  });
+
+  it("redirects a session without FacilitiesObserve away from a direct facilities URL", () => {
+    renderGuardedRoutes(
+      makeAuthContext([ROLES.MEMBER], [FEATURES.MAIL_USE]),
+      "/facilities",
+    );
+
+    expect(screen.getByText("work hub")).toBeVisible();
+    expect(screen.queryByText("facilities page")).not.toBeInTheDocument();
+  });
+
+  it("allows a FacilitiesObserve custom grant to reach its direct URL", () => {
+    renderGuardedRoutes(
+      makeAuthContext([ROLES.MEMBER], [FEATURES.FACILITIES_OBSERVE]),
+      "/facilities",
+    );
+
+    expect(screen.getByText("facilities page")).toBeVisible();
   });
 
   it("allows a logistics feature grant to reach its matching direct URL", () => {

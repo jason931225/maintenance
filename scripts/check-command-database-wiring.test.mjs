@@ -38,6 +38,11 @@ test("database-backed CI and release probes reconcile, migrate, and serve with s
       /MNT_APP_ROLE=migrate[^\n]*DATABASE_URL="postgres:\/\/postgres:/,
     );
   }
+
+  const ci = read(".github/workflows/ci.yml");
+  assert.match(ci, /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="\$PLATFORM_FORCE_COMMAND_PASSWORD"/);
+  assert.match(ci, /PLATFORM_FORCE_COMMAND_DATABASE_URL="postgres:\/\/mnt_platform_force_cmd:/);
+  assert.match(ci, /E2E_MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/);
 });
 
 test("contract and browser harnesses never alias command URLs to DATABASE_URL", () => {
@@ -51,6 +56,10 @@ test("contract and browser harnesses never alias command URLs to DATABASE_URL", 
   assert.match(
     contract,
     /ONTOLOGY_COMMAND_DATABASE_URL: topology\.ontologyCommandDatabaseUrl/,
+  );
+  assert.match(
+    contract,
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL: topology\.platformForceCommandDatabaseUrl/,
   );
   assert.match(contract, /format\([\s\S]*?\$1::text, \$2::text\)/);
   assert.match(
@@ -70,10 +79,18 @@ test("contract and browser harnesses never alias command URLs to DATABASE_URL", 
     e2e,
     /ONTOLOGY_COMMAND_DATABASE_URL="postgres:\/\/mnt_ontology_cmd:/,
   );
+  assert.match(
+    e2e,
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL="postgres:\/\/mnt_platform_force_cmd:/,
+  );
   assert.doesNotMatch(
     e2e,
-    /(?:LEAVE|ONTOLOGY)_COMMAND_DATABASE_URL="\$\{DATABASE_URL\}"/,
+    /(?:LEAVE|ONTOLOGY|PLATFORM_FORCE)_COMMAND_DATABASE_URL="\$\{DATABASE_URL\}"/,
   );
+
+  const databaseHarness = read("e2e/harness/db.sh");
+  assert.match(databaseHarness, /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="\$\{E2E_MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/);
+  assert.match(databaseHarness, /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD="\$\{MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD\}"/);
 });
 
 test("append-only migration 0167 declares serving-role bounds and nonclaims", () => {
@@ -92,6 +109,15 @@ test("append-only migration 0167 declares serving-role bounds and nonclaims", ()
   assert.match(migration, /transaction_timeout=45s/);
   assert.match(migration, /owner[\s\S]*outside this reconciliation and[\s\S]*startup correctness backstop/);
   assert.match(migration, /quiescence\/coordination[\s\S]*xmin\/snapshot watermark/);
+});
+
+test("topology reconciliation drains every serving role after changing defaults", () => {
+  const topology = read("ops/postgres-reconcile-topology.sh");
+  assert.match(
+    topology,
+    /WHERE usename IN \('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd'\) AND pid <> pg_backend_pid\(\) ORDER BY pid/,
+  );
+  assert.match(topology, /verify_serving_login mnt_platform_force_cmd/);
 });
 
 test("live Argo, base, prod, and secret wiring remain DARK-topology-free", () => {
@@ -163,7 +189,7 @@ test("DARK overlays opt into the portable governed command-database component", 
   }
 });
 
-test("governed command-database component declares six roles, topology readback, ordering, and bounded Job networking", () => {
+test("governed command-database component declares seven roles, topology readback, ordering, and bounded Job networking", () => {
   const component = read(
     "deploy/apps/maintenance/components/governed-command-database/kustomization.yaml",
   );
@@ -179,6 +205,7 @@ test("governed command-database component declares six roles, topology readback,
     "mnt_rt",
     "mnt_leave_cmd",
     "mnt_ontology_cmd",
+    "mnt_platform_force_cmd",
     "mnt_leave_definer",
     "mnt_ontology_writer",
   ]);
@@ -209,6 +236,7 @@ test("governed command-database component declares six roles, topology readback,
   );
   assert.match(component, /name: LEAVE_COMMAND_DATABASE_URL/);
   assert.match(component, /name: ONTOLOGY_COMMAND_DATABASE_URL/);
+  assert.match(component, /name: PLATFORM_FORCE_COMMAND_DATABASE_URL/);
   assert.match(component, /name: mnt-migrate[\s\S]*?value: Sync/);
   assert.match(
     component,
@@ -236,7 +264,10 @@ test("governed command-database component declares six roles, topology readback,
     );
   }
 
-  assert.match(topology, /expected_roles='mnt_app\|t\|f\|t\|t\|f\|f\|f/);
+  assert.match(
+    topology,
+    /expected_roles='mnt_app\|t\|f\|t\|t\|f\|f\|f[\s\S]*?mnt_platform_force_cmd\|t\|f\|f\|f\|f\|f\|f/,
+  );
   assert.match(topology, /argocd\.argoproj\.io\/hook: Sync/);
   assert.match(topology, /argocd\.argoproj\.io\/sync-wave: "1"/);
   assert.match(topology, /membership\.admin_option/);
@@ -253,6 +284,7 @@ test("governed command-database component declares six roles, topology readback,
     ["mnt_rt", "MNT_RT_PASSWORD"],
     ["mnt_leave_cmd", "MNT_LEAVE_COMMAND_PASSWORD"],
     ["mnt_ontology_cmd", "MNT_ONTOLOGY_COMMAND_PASSWORD"],
+    ["mnt_platform_force_cmd", "MNT_PLATFORM_FORCE_COMMAND_PASSWORD"],
   ]) {
     assert.match(
       topology,
@@ -281,7 +313,7 @@ test("governed command-database component declares six roles, topology readback,
   assert.match(topology, /if \[\[ "\$\{repair_mnt_rt\}" == true \]\]; then[\s\S]*?reconcile_serving_defaults mnt_rt/);
   assert.match(topology, /if \[\[ "\$\{repair_mnt_rt\}" == true \]\]; then[\s\S]*?drain_serving_backends mnt_rt/);
   const preflightEnd = topology.indexOf(
-    'preflight_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"',
+    'preflight_serving_login mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"',
   );
   const mutationStart = topology.indexOf(
     'reconcile_serving_defaults mnt_rt "${MNT_RT_PASSWORD}"',
@@ -290,7 +322,7 @@ test("governed command-database component declares six roles, topology readback,
     'repair_mnt_rt="$(serving_defaults_need_repair mnt_rt',
   );
   const mutationEnd = topology.indexOf(
-    'reconcile_serving_defaults mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"',
+    'reconcile_serving_defaults mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"',
   );
   const drainStart = topology.indexOf(
     'drain_serving_backends mnt_rt "${MNT_RT_PASSWORD}"',
@@ -301,9 +333,19 @@ test("governed command-database component declares six roles, topology readback,
   assert.ok(preflightEnd > 0 && preflightEnd < repairClassification);
   assert.ok(repairClassification < mutationStart);
   assert.ok(mutationEnd < drainStart && drainStart < freshReadback);
+  const platformForceMutation = topology.indexOf(
+    'reconcile_serving_defaults mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"',
+  );
+  const platformForceDrain = topology.indexOf(
+    'drain_serving_backends mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"',
+  );
+  const platformForceReadback = topology.indexOf(
+    'assert_direct_serving_login mnt_platform_force_cmd "${MNT_PLATFORM_FORCE_COMMAND_PASSWORD}"',
+  );
+  assert.ok(platformForceMutation < platformForceDrain && platformForceDrain < platformForceReadback);
   assert.match(
     topology,
-    /passwords=\([\s\S]*?\$\{PGPASSWORD\}[\s\S]*?\$\{MNT_RT_PASSWORD\}[\s\S]*?\$\{MNT_LEAVE_COMMAND_PASSWORD\}[\s\S]*?\$\{MNT_ONTOLOGY_COMMAND_PASSWORD\}[\s\S]*?\)/,
+    /passwords=\([\s\S]*?\$\{PGPASSWORD\}[\s\S]*?\$\{MNT_RT_PASSWORD\}[\s\S]*?\$\{MNT_LEAVE_COMMAND_PASSWORD\}[\s\S]*?\$\{MNT_ONTOLOGY_COMMAND_PASSWORD\}[\s\S]*?\$\{MNT_PLATFORM_FORCE_COMMAND_PASSWORD\}[\s\S]*?\)/,
   );
   assert.match(
     topology,
@@ -427,11 +469,11 @@ test("DARK operating contract locks whole-Application activation, credentials, r
     databaseDocs,
     /pool at 6 connections and each API command pool at 2/,
   );
-  assert.match(databaseDocs, /4 x \(6 \+ 2 \+ 2\) = 40/);
+  assert.match(databaseDocs, /4 x \(6 \+ 2 \+ 2 \+ 2\) = 48/);
   assert.match(databaseDocs, /2 x 6 = 12/);
   assert.match(
     databaseDocs,
-    /total serving demand is 52, leaving 8 connections/,
+    /total serving demand is 60, leaving no headroom/,
   );
   assert.match(databaseDocs, /PostgreSQL is configured for 60 connections/);
   assert.match(docs, /pairwise distinct/);
@@ -439,13 +481,14 @@ test("DARK operating contract locks whole-Application activation, credentials, r
   assert.match(docs, /expected role and membership rows/);
 });
 
-test("DARK secrets component contains exactly two typed ExternalSecrets and live wiring does not reference it", () => {
+test("DARK secrets component contains exactly three typed ExternalSecrets and live wiring does not reference it", () => {
   const componentPath =
     "deploy/apps/secrets-management/components/governed-command-database";
   const kustomization = read(`${componentPath}/kustomization.yaml`);
   const expectedFiles = [
     "externalsecret-mnt-db-leave-command.yaml",
     "externalsecret-mnt-db-ontology-command.yaml",
+    "externalsecret-mnt-db-platform-force-command.yaml",
   ];
 
   const resources = [
@@ -471,6 +514,6 @@ test("DARK secrets component contains exactly two typed ExternalSecrets and live
   assert.doesNotMatch(liveWiring, /governed-command-database/);
   assert.doesNotMatch(
     liveWiring,
-    /externalsecret-mnt-db-(?:leave|ontology)-command/,
+    /externalsecret-mnt-db-(?:leave|ontology|platform-force)-command/,
   );
 });

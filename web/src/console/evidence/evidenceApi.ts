@@ -30,6 +30,19 @@ type EvidenceHoldRequest = components["schemas"]["EvidenceHoldRequest"];
 
 const T = ko.console.evidence;
 
+/** Stable docs-rest envelope code for a verify request whose evidence store is unavailable. */
+const EVIDENCE_STORE_UNAVAILABLE = "evidence_store_unavailable";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasEvidenceStoreUnavailableCode(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const payload = error["error"];
+  return isRecord(payload) && payload["code"] === EVIDENCE_STORE_UNAVAILABLE;
+}
+
 function mapSource(view: EvidenceObjectView): EvidenceSourceRef {
   return {
     code: view.source.source_code ?? view.source.source_id,
@@ -166,16 +179,64 @@ export function mapEvidenceObjectSummary(view: EvidenceObjectView): EvidenceObje
   };
 }
 
-export async function listEvidenceObjects(
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new DOMException("Evidence records read was aborted", "AbortError");
+}
+
+/**
+ * One offset page from the evidence endpoint. `reportedTotal` is only the
+ * server's current estimate: offset paging has no snapshot identity, so it
+ * must never be treated as proof that all register records were read.
+ */
+export interface EvidenceObjectPageResult {
+  items: EvidenceObjectDetail[];
+  offset: number;
+  nextOffset: number;
+  reportedTotal: number;
+  /** Another page may be available; false is not a snapshot-completeness claim. */
+  mayHaveMore: boolean;
+}
+
+/**
+ * Reads exactly one bounded evidence page. Without a backend snapshot/cursor
+ * contract, aggregating mutable offset pages into a claimed complete register
+ * could silently omit a same-total reorder. Consumers may progressively load
+ * pages, but must never infer register completeness from this result.
+ */
+export async function listEvidenceObjectPage(
   api: ConsoleApiClient,
   limit = 200,
-): Promise<EvidenceObjectDetail[]> {
+  offset = 0,
+  signal?: AbortSignal,
+): Promise<EvidenceObjectPageResult> {
+  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(offset) || offset < 0) {
+    throw new Error("Evidence records pagination requires a positive limit and non-negative offset.");
+  }
+  throwIfAborted(signal);
   const { data, error, response } = await api.GET("/api/v1/evidence/objects", {
-    params: { query: { limit } },
+    params: { query: offset === 0 ? { limit } : { limit, offset } },
+    signal,
   });
+  throwIfAborted(signal);
   if (!data) throw new ApiCallError(response.status, error);
+
   const page: EvidenceObjectPage = data;
-  return page.items.map(mapEvidenceObjectSummary);
+  if (!Number.isInteger(page.total) || page.total < 0 || page.offset !== offset) {
+    throw new Error("Evidence records pagination offset did not match the requested page.");
+  }
+  if (page.items.length > limit) {
+    throw new Error("Evidence records pagination exceeded the requested page limit.");
+  }
+
+  return {
+    items: page.items.map(mapEvidenceObjectSummary),
+    offset,
+    nextOffset: offset + page.items.length,
+    reportedTotal: page.total,
+    // A short/empty page ends this progressive read only; mutable offset
+    // pagination cannot certify that the register is complete.
+    mayHaveMore: page.items.length === limit,
+  };
 }
 
 export async function getEvidenceObjectDetail(
@@ -197,19 +258,32 @@ export async function verifyEvidenceObject(
   api: ConsoleApiClient,
   id: string,
 ): Promise<VerifyOutcome> {
-  const { data } = await api.POST("/api/v1/evidence/objects/{id}/verify", {
+  const { data, error, response } = await api.POST("/api/v1/evidence/objects/{id}/verify", {
     params: { path: { id } },
   });
   if (!data) {
-    return { state: "unavailable" };
+    // A 503 is not sufficient evidence that fixity storage is unavailable:
+    // auth/global infrastructure can also be unavailable. Only the stable
+    // docs-rest envelope code identifies this specific pending condition.
+    if (response.status === 503 && hasEvidenceStoreUnavailableCode(error)) {
+      return { state: "unavailable", copyVerdicts: new Map() };
+    }
+    throw new ApiCallError(response.status, error);
   }
   const report: EvidenceVerifyReport = data;
+  const verdicts = copyVerdicts(report);
   if (report.outcome === "VERIFIED") {
-    return { state: "verified", processedAt: report.verified_at, copyVerdicts: copyVerdicts(report) };
+    return { state: "verified", processedAt: report.verified_at, copyVerdicts: verdicts };
+  }
+  if (report.outcome !== "MISMATCH") {
+    // INDETERMINATE means one or more copies could not be confirmed (for
+    // example, no checksum or a storage read error). It is not a corruption
+    // verdict; retain the per-copy evidence while keeping the aggregate pending.
+    return { state: "unavailable", copyVerdicts: verdicts };
   }
   const failing = report.copies.filter((c) => c.status !== "MATCH");
   const reason = failing.length > 0 ? failing.map((c) => `${c.copy_kind}:${c.status}`).join(", ") : null;
-  return { state: "failed", reason, copyVerdicts: copyVerdicts(report) };
+  return { state: "failed", reason, copyVerdicts: verdicts };
 }
 
 export async function applyLegalHold(
