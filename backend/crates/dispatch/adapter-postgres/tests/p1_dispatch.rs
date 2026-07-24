@@ -498,6 +498,145 @@ async fn declined_target_cannot_be_force_assigned_and_candidate_read_is_side_eff
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn responses_are_ordered_and_force_replay_audits_once(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: None,
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.near_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Decline,
+                    trace: TraceContext::generate(),
+                    occurred_at: now + time::Duration::seconds(20),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        store
+            .record_response(
+                RespondP1DispatchCommand {
+                    actor: seeded.no_consent_mechanic,
+                    dispatch_id: started.id,
+                    response: DispatchResponseKind::Decline,
+                    trace: TraceContext::generate(),
+                    occurred_at: now + time::Duration::seconds(10),
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap();
+        let responses = store.dispatch_responses(started.id).await.unwrap();
+        assert_eq!(responses.items.len(), 2);
+        assert!(responses.items[0].responded_at <= responses.items[1].responded_at);
+        assert_eq!(responses.items[0].user_id, seeded.no_consent_mechanic);
+
+        store
+            .expire_accept_window(ExpireP1DispatchCommand {
+                dispatch_id: started.id,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::minutes(6),
+            })
+            .await
+            .unwrap();
+        let first = store
+            .force_assign(ForceAssignP1DispatchCommand {
+                actor: seeded.manager,
+                dispatch_id: started.id,
+                mechanic_id: seeded.far_mechanic,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::minutes(7),
+            })
+            .await
+            .unwrap();
+        let replay = store
+            .force_assign(ForceAssignP1DispatchCommand {
+                actor: seeded.manager,
+                dispatch_id: started.id,
+                mechanic_id: seeded.far_mechanic,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::minutes(8),
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.id, replay.id);
+        let force_audits: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action = 'p1_dispatch.force_assign' AND target_id = $1",
+        )
+        .bind(first.id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(force_audits, 1, "same force intent must not duplicate audit");
+        assert_eq!(
+            store
+                .force_assign(ForceAssignP1DispatchCommand {
+                    actor: seeded.manager,
+                    dispatch_id: started.id,
+                    mechanic_id: seeded.off_duty_mechanic,
+                    trace: TraceContext::generate(),
+                    occurred_at: now + time::Duration::minutes(9),
+                })
+                .await
+                .unwrap_err()
+                .kind(),
+            ErrorKind::Conflict
+        );
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_same_start_replays_one_dispatch_and_one_audit(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let command = StartP1DispatchCommand {
+            actor: seeded.receptionist,
+            work_order_id: seeded.work_order_id,
+            incident_location: None,
+            include_region: false,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        };
+        let (left, right) = tokio::join!(
+            store.start_dispatch(command.clone(), DispatchTimerConfig::default()),
+            store.start_dispatch(command, DispatchTimerConfig::default())
+        );
+        let left = left.expect("first concurrent request resolves");
+        let right = right.expect("replayed concurrent request resolves");
+        assert_eq!(left.id, right.id);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action = 'p1_dispatch.start' AND target_id = $1",
+        )
+        .bind(left.id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "unique race must roll back losing audit");
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn queue_is_branch_scoped_and_cursor_pages_are_disjoint(pool: PgPool) {
     mnt_platform_request_context::scope_org(OrgId::knl(), async move {
         let seeded = seed_dispatch_context(&pool).await;

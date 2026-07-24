@@ -4,8 +4,8 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchStatus, TechnicianLoad};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, P1DispatchId, Timestamp,
-    TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, P1DispatchId,
+    Timestamp, TraceContext, UserId, WorkOrderId,
 };
 use mnt_workorder_domain::{PriorityLevel, WorkOrderStatus};
 use serde::{Deserialize, Serialize};
@@ -380,4 +380,67 @@ pub struct DispatchCandidatePage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct P1DispatchResponsePage {
     pub items: Vec<P1DispatchResponseSummary>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mnt_kernel_core::ErrorKind;
+
+    #[test]
+    fn queue_cursor_rejects_malformed_unknown_and_future_payloads() {
+        let now = time::OffsetDateTime::UNIX_EPOCH;
+        assert_eq!(
+            DispatchQueueCursor::decode("not-base64", now)
+                .expect_err("malformed cursors must not be accepted")
+                .kind,
+            ErrorKind::Validation
+        );
+
+        let cursor = DispatchQueueCursor::encode(now, None, now, WorkOrderId::new());
+        assert_eq!(
+            DispatchQueueCursor::decode(&cursor, now)
+                .expect("complete opaque cursor must round-trip")
+                .as_of(),
+            now
+        );
+
+        let unknown = URL_SAFE_NO_PAD.encode(
+            br#"{"as_of":"1970-01-01T00:00:00Z","target_due_at":null,"updated_at":"1970-01-01T00:00:00Z","work_order_id":"00000000-0000-0000-0000-000000000001","ignored":true}"#,
+        );
+        assert_eq!(
+            DispatchQueueCursor::decode(&unknown, now)
+                .expect_err("cursor fields are an exact contract")
+                .kind,
+            ErrorKind::Validation
+        );
+
+        let future = DispatchQueueCursor::encode(
+            now + time::Duration::seconds(1),
+            None,
+            now,
+            WorkOrderId::new(),
+        );
+        assert_eq!(
+            DispatchQueueCursor::decode(&future, now)
+                .expect_err("future snapshot cursors are invalid")
+                .kind,
+            ErrorKind::Validation
+        );
+    }
+
+    #[test]
+    fn queue_statuses_are_bounded_and_deduplicated() {
+        let parsed = DispatchQueueStatus::parse_csv(Some("RECEIVED,DELAYED,RECEIVED")).unwrap();
+        assert_eq!(
+            parsed,
+            vec![DispatchQueueStatus::Received, DispatchQueueStatus::Delayed]
+        );
+        assert_eq!(
+            DispatchQueueStatus::parse_csv(Some("CLOSED"))
+                .expect_err("queue excludes terminal statuses")
+                .kind,
+            ErrorKind::Validation
+        );
+    }
 }

@@ -171,6 +171,7 @@ TEST_RESOURCE_REQUIREMENTS = {
             'tests/dev_auth_persona_guard.rs': 'postgres',
             'tests/dev_auth_persona_guard_feature.rs': 'postgres',
             'tests/dev_seed_notification_links.rs': 'none',
+            'tests/dispatch_pipeline_api.rs': 'postgres',
             'tests/equipment_3r_api.rs': 'postgres',
             'tests/facilities_pilot_story.rs': 'postgres',
             'tests/finance_gl_voucher_sod.rs': 'postgres',
@@ -360,12 +361,18 @@ TEST_RESOURCE_REQUIREMENTS = {
             'tests/audit_atomicity.rs': 'postgres',
         },
     },
+    'mnt-dispatch-application': {
+        'unit': 'none',
+    },
     'mnt-dispatch-adapter-postgres': {
         'integration': {
             'tests/p1_dispatch.rs': 'postgres',
         },
     },
     'mnt-dispatch-domain': {
+        'unit': 'none',
+    },
+    'mnt-dispatch-rest': {
         'unit': 'none',
     },
     'mnt-dispatch-worker': {

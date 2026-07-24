@@ -146,7 +146,9 @@ impl PgDispatchStore {
         let work_order_id = command.work_order_id;
         let branch_id = work_order.branch_id;
 
-        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+        let requested_include_region = command.include_region;
+        let requested_incident_location = command.incident_location;
+        let result = with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 let locked = lock_work_order(tx, work_order_id).await?;
                 if locked.branch_id != branch_id {
@@ -185,7 +187,34 @@ impl PgDispatchStore {
                 fetch_dispatch_summary_tx(tx, dispatch_id).await
             })
         })
-        .await
+        .await;
+
+        // A concurrent first request can pass the preflight read before the
+        // winner commits the unique work-order row. Treat only that database
+        // uniqueness race as the same idempotency boundary; the failed
+        // transaction rolls back its audit event, then replay the winner or
+        // report a changed intent without additional fan-out.
+        match result {
+            Ok(summary) => Ok(summary),
+            Err(error) if is_unique_work_order_dispatch_conflict(&error) => {
+                let Some(existing) =
+                    existing_dispatch_intent(&self.pool, command.work_order_id).await?
+                else {
+                    return Err(error);
+                };
+                if existing.include_region == requested_include_region
+                    && existing.incident_location == requested_incident_location
+                {
+                    self.dispatch(existing.dispatch_id).await
+                } else {
+                    Err(
+                        KernelError::conflict("dispatch already exists with different start input")
+                            .into(),
+                    )
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn record_response(
@@ -558,9 +587,9 @@ impl PgDispatchStore {
                   AND ($3::boolean OR w.branch_id = ANY($4))
                   AND ($5::timestamptz IS NULL
                        OR CASE WHEN $6::timestamptz IS NULL THEN
-                            w.target_due_at IS NULL AND (w.updated_at, w.id) < ($7::timestamptz, $8::uuid)
+                            w.target_due_at IS NULL AND (w.updated_at < $7::timestamptz OR (w.updated_at = $7::timestamptz AND w.id > $8::uuid))
                           ELSE w.target_due_at IS NULL OR w.target_due_at > $6
-                            OR (w.target_due_at = $6 AND (w.updated_at, w.id) < ($7::timestamptz, $8::uuid)) END)
+                            OR (w.target_due_at = $6 AND (w.updated_at < $7::timestamptz OR (w.updated_at = $7::timestamptz AND w.id > $8::uuid))) END)
                 ORDER BY w.target_due_at ASC NULLS LAST, w.updated_at DESC, w.id ASC
                 LIMIT $9
             "#)
@@ -1299,6 +1328,14 @@ struct ExistingDispatchIntent {
     dispatch_id: P1DispatchId,
     include_region: bool,
     incident_location: Option<IncidentLocationInput>,
+}
+
+fn is_unique_work_order_dispatch_conflict(error: &PgDispatchError) -> bool {
+    matches!(
+        error,
+        PgDispatchError::Db(DbError::Sqlx(sqlx::Error::Database(database)))
+            if database.code().is_some_and(|code| code == "23505")
+    )
 }
 
 async fn existing_dispatch_intent(

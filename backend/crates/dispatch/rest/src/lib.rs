@@ -675,3 +675,29 @@ impl IntoResponse for RestError {
             .into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_queue_request_rejects_unknown_query_contract() {
+        let parsed: DispatchQueueRequest =
+            serde_json::from_str(r#"{"status":"RECEIVED,DELAYED","limit":50,"after":"opaque"}"#)
+                .expect("documented queue query is accepted");
+        assert_eq!(parsed.limit, Some(50));
+        assert!(
+            serde_json::from_str::<DispatchQueueRequest>(
+                r#"{"status":"RECEIVED","branch_id":"scope-escalation"}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn dispatch_route_surface_includes_bounded_console_reads() {
+        assert!(DISPATCH_ROUTE_PATHS.contains(&CONSOLE_DISPATCH_QUEUE_PATH));
+        assert!(DISPATCH_ROUTE_PATHS.contains(&P1_DISPATCH_CANDIDATES_PATH_TEMPLATE));
+        assert!(DISPATCH_ROUTE_PATHS.contains(&P1_DISPATCH_RESPONSES_PATH_TEMPLATE));
+    }
+}
