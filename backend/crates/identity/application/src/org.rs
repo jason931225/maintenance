@@ -246,6 +246,26 @@ pub struct UserListQuery {
     pub offset: Option<i64>,
 }
 
+/// Validated filters for a tenant people-directory query.
+///
+/// The persistence adapter must apply every filter to both its count and page
+/// queries, and order by `(display_name, id)` before applying pagination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectoryListQuery {
+    /// Lowercase, trimmed search term; `None` means no name search filter.
+    pub search: Option<String>,
+    /// Optional exact team affiliation.
+    pub team: Option<Team>,
+    /// Optional branch filter, intersected with the caller's effective scope.
+    pub branch_id: Option<BranchId>,
+    pub include_inactive: bool,
+    /// Page size; the adapter clamps to `1..=200` and defaults a missing value.
+    pub limit: Option<i64>,
+    /// Zero-based row offset into the fully filtered, `(display_name, id)`
+    /// ordered roster. `None` starts at the first page.
+    pub offset: Option<i64>,
+}
+
 /// One page of users plus the unpaged `total` for the caller's branch scope, so
 /// the console can show an honest count and page beyond the per-request cap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

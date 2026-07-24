@@ -16,6 +16,8 @@ pub const MAX_DISPLAY_NAME_CHARS: usize = 200;
 pub const MAX_PHONE_CHARS: usize = 40;
 /// Maximum length (Unicode scalar values) of a region or branch name.
 pub const MAX_ORG_NAME_CHARS: usize = 200;
+/// Maximum length (Unicode scalar values) of a directory search term.
+pub const MAX_DIRECTORY_SEARCH_CHARS: usize = 200;
 
 /// Field-technician team affiliation (정비/예방), plus the back-office
 /// affiliations (관리/접수). Mirrors the `users.team` CHECK constraint in
@@ -111,6 +113,25 @@ pub fn validate_org_name(name: &str) -> Result<String, KernelError> {
     Ok(trimmed)
 }
 
+/// Normalize an optional people-directory search term.
+///
+/// Blank input means no search filter. A present term is trimmed and converted
+/// to Unicode lowercase so callers can consistently compare it with a
+/// case-normalized database expression.
+pub fn normalize_directory_search(search: Option<&str>) -> Result<Option<String>, KernelError> {
+    match search.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some(value) => {
+            require_max_chars(
+                value,
+                MAX_DIRECTORY_SEARCH_CHARS,
+                "directory search is too long",
+            )?;
+            Ok(Some(value.to_lowercase()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +179,16 @@ mod tests {
     fn optional_phone_length_is_bounded() {
         let too_long = "0".repeat(MAX_PHONE_CHARS + 1);
         assert!(normalize_optional_phone(Some(&too_long)).is_err());
+    }
+
+    #[test]
+    fn directory_search_is_trimmed_casefolded_and_bounded() {
+        assert_eq!(
+            normalize_directory_search(Some("  ALIce  ")).unwrap(),
+            Some("alice".to_owned())
+        );
+        assert_eq!(normalize_directory_search(Some("   ")).unwrap(), None);
+        let too_long = "a".repeat(MAX_DIRECTORY_SEARCH_CHARS + 1);
+        assert!(normalize_directory_search(Some(&too_long)).is_err());
     }
 }
