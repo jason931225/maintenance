@@ -1,146 +1,142 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Dialog } from "../../components/ui/dialog";
 import { consoleScreenPath } from "../../console/shell/nav";
 import { attendanceSelfServiceStrings as text } from "../../i18n/attendanceSelfService";
 
+import { isoMonth, weekStart } from "./attendanceModel";
 import {
   isValidOwnWeek52,
+  SelfServiceAttendanceTransportError,
   type OwnAttendanceException,
   type OwnAttendanceExceptionPage,
-  type OwnAttendanceExceptionQuery,
   type OwnAttendanceWeek52,
   type OwnExceptionStatus,
   type SelfServiceAttendanceApi,
 } from "./selfServiceAttendanceApi";
+import "./attendance.css";
 import "./SelfServiceAttendancePanel.css";
 
 const PAGE_SIZE = 50;
-type ReadState<T> = { state: "loading" } | { state: "error" } | { state: "ready"; data: T };
+const WEEK_LIMIT = 52;
+type ExState = { state: "loading" } | { state: "denied" } | { state: "error" } | { state: "ready"; data: OwnAttendanceExceptionPage; loadingMore: boolean };
+type WeekState = { state: "loading" } | { state: "denied" } | { state: "error" } | { state: "ready"; data: OwnAttendanceWeek52 };
+type Props = { api: SelfServiceAttendanceApi; sessionIdentity: string | undefined; active: boolean; now?: () => Date };
 
-export type SelfServiceAttendancePanelProps = {
-  api: SelfServiceAttendanceApi;
-  /** Remounts state synchronously whenever the authenticated subject changes. */
-  sessionIdentity: string | undefined;
-  /** Inactive console screens must not retain or issue background reads. */
-  active: boolean;
-  now?: () => Date;
-};
+function previousMonth(month: string): string {
+  const [year, value] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, value - 2, 1));
+  return `${String(date.getUTCFullYear())}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function nextMonth(month: string): string {
+  const [year, value] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, value, 1));
+  return `${String(date.getUTCFullYear())}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function monthLabel(month: string): string { const [year, value] = month.split("-"); return `${year}년 ${String(Number(value))}월`; }
+function shortDate(value: string): string { const [, month, day] = value.split("-"); return `${String(Number(month))}/${String(Number(day))}`; }
+function kstTime(value: string): string { return new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function exceptionTone(kind: OwnAttendanceException["kind"]): string { return kind === "NO_SHOW" ? "attendance__extype--danger" : kind === "UNAPPROVED_OVERTIME" ? "attendance__extype--info" : "attendance__extype--warn"; }
+function errorState(cause: unknown): "denied" | "error" { return cause instanceof SelfServiceAttendanceTransportError && cause.status === 403 ? "denied" : "error"; }
+function weekRange(start: string): string { const date = new Date(`${start}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 6); return `${shortDate(start)}–${String(date.getUTCMonth() + 1)}/${String(date.getUTCDate())}`; }
 
-function currentMonth(now: Date): string {
-  return `${String(now.getFullYear())}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+/** Inactive or unauthenticated mounts retain no private data in the tree. */
+export function SelfServiceAttendancePanel(props: Props) {
+  if (!props.active || !props.sessionIdentity) return null;
+  return <SelfServiceAttendancePanelInner key={props.sessionIdentity} {...props} />;
 }
 
-function statusClass(status: OwnExceptionStatus): string {
-  return status === "OPEN" ? "self-attendance__status--open" : "self-attendance__status--resolved";
-}
-
-function toneClass(tone: "OK" | "WARN" | "DANGER"): string {
-  return `self-attendance__tone--${tone.toLowerCase()}`;
-}
-
-/** Synchronous key fence keeps a former session's selection out of the next one. */
-export function SelfServiceAttendancePanel(props: SelfServiceAttendancePanelProps) {
-  return <SelfServiceAttendancePanelInner key={props.sessionIdentity ?? "no-session"} {...props} />;
-}
-
-function SelfServiceAttendancePanelInner({ api, active, now }: SelfServiceAttendancePanelProps) {
+function SelfServiceAttendancePanelInner({ api, now }: Props) {
   const clock = now ?? (() => new Date());
-  const maxMonth = currentMonth(clock());
+  const maxMonth = isoMonth(clock());
+  const currentWeek = weekStart(clock());
   const [month, setMonth] = useState(maxMonth);
-  const [status, setStatus] = useState<OwnExceptionStatus | undefined>("OPEN");
+  const [status, setStatus] = useState<OwnExceptionStatus>("OPEN");
   const [offset, setOffset] = useState(0);
-  const [exceptionRetry, setExceptionRetry] = useState(0);
-  const [week52Retry, setWeek52Retry] = useState(0);
-  const [exceptions, setExceptions] = useState<ReadState<OwnAttendanceExceptionPage>>({ state: "loading" });
-  const [week52, setWeek52] = useState<ReadState<OwnAttendanceWeek52>>({ state: "loading" });
+  const [exceptionRefresh, setExceptionRefresh] = useState(0);
+  const [weekRefresh, setWeekRefresh] = useState(0);
+  const [exceptions, setExceptions] = useState<ExState>({ state: "loading" });
+  const [week, setWeek] = useState<WeekState>({ state: "loading" });
   const [selected, setSelected] = useState<OwnAttendanceException>();
-  const monthId = useId();
-  const statusId = useId();
-
-  const query = useMemo<OwnAttendanceExceptionQuery>(() => ({
-    month,
-    ...(status ? { status } : {}),
-    limit: PAGE_SIZE,
-    offset,
-  }), [month, offset, status]);
-
-  const retryExceptions = useCallback(() => { setExceptionRetry((value) => value + 1); }, []);
-  const retryWeek52 = useCallback(() => { setWeek52Retry((value) => value + 1); }, []);
+  const request = useMemo(() => ({ month, status, limit: PAGE_SIZE, offset }), [month, offset, status]);
 
   useEffect(() => {
-    if (!active) return;
     const controller = new AbortController();
-    void api.listOwnExceptions(query, controller.signal).then(
-      (data) => { if (!controller.signal.aborted) { setExceptions({ state: "ready", data }); } },
-      () => { if (!controller.signal.aborted) { setExceptions({ state: "error" }); } },
-    );
-    return () => { controller.abort(); };
-  }, [api, active, exceptionRetry, query]);
-
-  useEffect(() => {
-    if (!active) return;
-    const controller = new AbortController();
-    void api.getOwnWeek52(controller.signal).then(
+    void api.listOwnExceptions(request, controller.signal).then(
       (data) => {
-        if (!controller.signal.aborted) { setWeek52(isValidOwnWeek52(data) ? { state: "ready", data } : { state: "error" }); }
+        if (controller.signal.aborted) return;
+        setExceptions((prior) => {
+          if (offset > 0 && prior.state === "ready") {
+            return { state: "ready", loadingMore: false, data: { ...data, items: [...prior.data.items, ...data.items] } };
+          }
+          return { state: "ready", loadingMore: false, data };
+        });
       },
-      () => { if (!controller.signal.aborted) { setWeek52({ state: "error" }); } },
+      (cause: unknown) => {
+        if (!controller.signal.aborted) setExceptions({ state: errorState(cause) });
+      },
     );
     return () => { controller.abort(); };
-  }, [api, active, week52Retry]);
+  }, [api, exceptionRefresh, offset, request]);
 
-  const changeMonth = (next: string) => {
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(next) || next > maxMonth) return;
-    setMonth(next);
-    setOffset(0);
-    setSelected(undefined);
-  };
-  const changeStatus = (next: string) => {
-    setStatus(next === "" ? undefined : next as OwnExceptionStatus);
-    setOffset(0);
-    setSelected(undefined);
-  };
-  const exceptionCanGoNext = exceptions.state === "ready" && offset + PAGE_SIZE < exceptions.data.total;
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.getOwnWeek52(currentWeek, controller.signal).then(
+      (data) => { if (!controller.signal.aborted) setWeek(isValidOwnWeek52(data) ? { state: "ready", data } : { state: "error" }); },
+      (cause: unknown) => { if (!controller.signal.aborted) setWeek({ state: errorState(cause) }); },
+    );
+    return () => { controller.abort(); };
+  }, [api, currentWeek, weekRefresh]);
 
-  return (
-    <section className="self-attendance" aria-label={text.title}>
-      <div className="self-attendance__surface">
-        <section className="self-attendance__exceptions" aria-labelledby="self-attendance-exceptions-title">
-          <div className="self-attendance__head">
-            <h2 className="self-attendance__title" id="self-attendance-exceptions-title">{text.exceptions}</h2>
-            <div className="self-attendance__filters">
-              <label htmlFor={monthId}>{text.month}<input id={monthId} aria-label={text.month} type="month" max={maxMonth} value={month} onChange={(event) => { changeMonth(event.target.value); }} /></label>
-              <label htmlFor={statusId}>{text.status}<select id={statusId} aria-label={text.status} value={status ?? ""} onChange={(event) => { changeStatus(event.target.value); }}><option value="">{text.all}</option><option value="OPEN">{text.open}</option><option value="RESOLVED">{text.resolved}</option></select></label>
-            </div>
-          </div>
-          <ExceptionContent state={exceptions} onRetry={retryExceptions} onSelect={setSelected} />
-          {exceptions.state === "ready" && exceptions.data.total > PAGE_SIZE && <div className="self-attendance__pager"><button type="button" disabled={offset === 0} onClick={() => { setOffset((value) => Math.max(0, value - PAGE_SIZE)); }}>{text.previous}</button><button type="button" disabled={!exceptionCanGoNext} onClick={() => { setOffset((value) => value + PAGE_SIZE); }}>{text.next}</button></div>}
-        </section>
-        <section className="self-attendance__week" aria-labelledby="self-attendance-week-title">
-          <div className="self-attendance__head"><h2 className="self-attendance__title" id="self-attendance-week-title">{text.week52}</h2></div>
-          <Week52Content state={week52} onRetry={retryWeek52} />
-        </section>
+  const startExceptionLoad = useCallback((nextMonth: string, nextStatus: OwnExceptionStatus) => {
+    setSelected(undefined);
+    setExceptions({ state: "loading" });
+    setMonth(nextMonth);
+    setStatus(nextStatus);
+    setOffset(0);
+  }, []);
+  const retryExceptions = useCallback(() => { setExceptions({ state: "loading" }); setExceptionRefresh((value) => value + 1); }, []);
+  const retryWeek = useCallback(() => { setWeek({ state: "loading" }); setWeekRefresh((value) => value + 1); }, []);
+  const loadMore = useCallback(() => {
+    if (exceptions.state !== "ready" || exceptions.loadingMore || exceptions.data.items.length >= exceptions.data.total) return;
+    setExceptions({ ...exceptions, loadingMore: true });
+    setOffset((value) => value + PAGE_SIZE);
+  }, [exceptions]);
+  const openCount = exceptions.state === "ready" && status === "OPEN" && offset === 0 ? exceptions.data.total : undefined;
+
+  return <section className="attendanceSelf" aria-label={text.title}>
+    <div className="attendance__card">
+      <header className="attendance__cardhead">
+        {openCount !== undefined && openCount > 0 && <span className="attendance__dot" aria-label={text.count(openCount)} />}
+        <span className="attendance__cardtitle">{text.title}</span>
+        {openCount !== undefined && <span className="attendance__count">{text.count(openCount)}</span>}
+        <span className="attendance__spacer" />
+        <div className="attendance__monthnav" aria-label="대상 월"><button type="button" aria-label="이전 달" onClick={() => { startExceptionLoad(previousMonth(month), "OPEN"); }}>‹</button><span className="attendance__monthlabel">{monthLabel(month)}</span><button type="button" aria-label="다음 달" disabled={month >= maxMonth} onClick={() => { startExceptionLoad(nextMonth(month), "OPEN"); }}>›</button></div>
+        <div className="attendance__seg" aria-label="예외 상태"><button type="button" className={`attendance__segbtn ${status === "OPEN" ? "attendance__segbtn--on" : ""}`} aria-pressed={status === "OPEN"} onClick={() => { if (status !== "OPEN") startExceptionLoad(month, "OPEN"); }}>{text.open}</button><button type="button" className={`attendance__segbtn ${status === "RESOLVED" ? "attendance__segbtn--on" : ""}`} aria-pressed={status === "RESOLVED"} onClick={() => { if (status !== "RESOLVED") startExceptionLoad(month, "RESOLVED"); }}>{text.resolved}</button></div>
+      </header>
+      <div className="attendanceSelf__body">
+        <section className="attendanceSelf__exceptions" aria-label="내 예외"><ExceptionPane state={exceptions} onRetry={retryExceptions} onSelect={setSelected} onMore={loadMore} /></section>
+        <section className="attendanceSelf__week" aria-label="주 52시간"><WeekPane state={week} onRetry={retryWeek} /></section>
       </div>
-      <Dialog open={selected !== undefined} onClose={() => { setSelected(undefined); }} label={text.detail} className="self-attendance__dialog">
-        {selected && <div className="self-attendance__dialog-content"><h2>{text.detail}</h2><p>{text.date}: {selected.work_date}</p><p>{text.kind}: {text.kindLabel[selected.kind]}</p><p>{text.detailLabel}: {selected.detail}</p><button type="button" className="self-attendance__retry" onClick={() => { setSelected(undefined); }}>{text.close}</button></div>}
-      </Dialog>
-    </section>
-  );
+    </div>
+    <Dialog open={selected !== undefined} onClose={() => { setSelected(undefined); }} label={text.detail} className="attendance__modal">
+      {selected && <div className="attendanceSelf__footer"><h2>{text.detail}</h2><p>{text.kind[selected.kind]} · {selected.status === "OPEN" ? text.open : text.resolved}</p><p>{shortDate(selected.work_date)} · {kstTime(selected.occurred_at)}</p><p>{selected.detail}</p>{selected.evidence.length > 0 && <p>{text.evidence}: {selected.evidence.map((evidence) => `${evidence.name}${evidence.size ? ` (${evidence.size})` : ""}`).join(", ")}</p>}{selected.resolution && <p>{text.resolution}: {selected.resolution.action} · {selected.resolution.reason}{selected.resolution.ot_hours ? ` · ${selected.resolution.ot_hours}시간` : ""} · {kstTime(selected.resolution.resolved_at)}</p>}<button type="button" className="attendance__ghostbtn" onClick={() => { setSelected(undefined); }}>{text.close}</button></div>}
+    </Dialog>
+  </section>;
 }
 
-function ExceptionContent({ state, onRetry, onSelect }: { state: ReadState<OwnAttendanceExceptionPage>; onRetry: () => void; onSelect: (item: OwnAttendanceException) => void }) {
-  if (state.state === "loading") return <div className="self-attendance__state" role="status">{text.loading}</div>;
-  if (state.state === "error") return <div className="self-attendance__state" role="alert">{text.loadError}<button type="button" className="self-attendance__retry" onClick={onRetry}>{text.retry}</button></div>;
-  if (state.data.items.length === 0) return <div className="self-attendance__state">{text.empty}</div>;
-  return <div className="self-attendance__rows">{state.data.items.map((item) => <button type="button" className="self-attendance__row" key={item.id} onClick={() => { onSelect(item); }}><span className="self-attendance__date">{item.work_date}</span><span className="self-attendance__detail">{text.kindLabel[item.kind]} · {item.detail}</span><span className={`self-attendance__status ${statusClass(item.status)}`}>{text.statusLabel[item.status]}</span></button>)}</div>;
+function ExceptionPane({ state, onRetry, onSelect, onMore }: { state: ExState; onRetry: () => void; onSelect: (item: OwnAttendanceException) => void; onMore: () => void }) {
+  if (state.state === "loading") return <p className="attendance__status" role="status">{text.loading}</p>;
+  if (state.state === "denied") return <p className="attendance__alert" role="alert">{text.denied}</p>;
+  if (state.state === "error") return <div className="attendance__alert" role="alert">{text.loadError}<button type="button" className="attendance__ghostbtn" onClick={onRetry}>{text.retry}</button></div>;
+  return <><div className="attendance__sidelist">{state.data.items.length === 0 ? <p className="attendance__status">표시할 예외가 없습니다.</p> : state.data.items.map((item) => <button key={item.id} type="button" className={`attendance__exrow attendanceSelf__row ${item.status === "RESOLVED" ? "attendance__exrow--resolved" : ""}`} onClick={() => { onSelect(item); }}><span className={`attendance__extype ${exceptionTone(item.kind)}`}>{text.kind[item.kind]}</span><span className="attendance__exbody"><span className="attendanceSelf__rowMeta">{item.code} · {shortDate(item.work_date)}</span><span className="attendance__exdetail">{item.detail}</span></span><span className="attendance__chip">{item.status === "OPEN" ? text.open : text.resolved}</span></button>)}</div>{state.data.items.length < state.data.total && <footer className="attendanceSelf__footer"><button type="button" className="attendance__ghostbtn" disabled={state.loadingMore} onClick={onMore}>{state.loadingMore ? text.loading : text.more}</button><span className="attendance__count">{String(state.data.items.length)} / {String(state.data.total)}</span></footer>}</>;
 }
 
-function Week52Content({ state, onRetry }: { state: ReadState<OwnAttendanceWeek52>; onRetry: () => void }) {
-  if (state.state === "loading") return <div className="self-attendance__state" role="status">{text.loading}</div>;
-  if (state.state === "error") return <div className="self-attendance__state" role="alert">{text.loadError}<button type="button" className="self-attendance__retry" onClick={onRetry}>{text.retry}</button></div>;
-  if (state.data.status === "not_available") return <div className="self-attendance__state">{text.unavailable}<a className="self-attendance__support" href={consoleScreenPath("support")}>{text.support}</a></div>;
-  const p = state.data.projection;
-  const percent = Math.min(100, Math.max(0, (p.projected_hours / p.limit_hours) * 100));
-  return <div className="self-attendance__weekbody"><div className="self-attendance__metric"><span className="self-attendance__metric-label">{text.progress}</span><strong className={`self-attendance__metric-value ${toneClass(p.tone)}`}>{text.hours(p.current_hours)}</strong><div className={`self-attendance__progress self-attendance__progress--${p.tone.toLowerCase()}`} role="progressbar" aria-label={text.progress} aria-valuemin={0} aria-valuemax={p.limit_hours} aria-valuenow={p.current_hours}><span style={{ width: `${String(percent)}%` }} /></div><span className="self-attendance__metric-label">{text.projected}: {text.hours(p.projected_hours)} · {text.limit}</span></div><a className="self-attendance__support" href={consoleScreenPath("support")}>{text.support}</a></div>;
+function WeekPane({ state, onRetry }: { state: WeekState; onRetry: () => void }) {
+  if (state.state === "loading") return <p className="attendance__status" role="status">{text.loading}</p>;
+  if (state.state === "denied") return <p className="attendance__alert" role="alert">{text.denied}</p>;
+  if (state.state === "error") return <div className="attendance__alert" role="alert">{text.loadError}<button type="button" className="attendance__ghostbtn" onClick={onRetry}>{text.retry}</button></div>;
+  if (state.data.status === "not_available") return <div className="attendanceSelf__footer"><p className="attendance__status">{text.unavailable}</p><a className="attendance__ghostbtn" href={consoleScreenPath("support")}>{text.support}</a></div>;
+  const p = state.data.projection; const percent = Math.min(100, (p.current_hours / WEEK_LIMIT) * 100); const projected = Math.abs(p.projected_hours - p.current_hours) > 0.01;
+  return <div className="attendanceSelf__weekMetrics"><span className="attendanceSelf__rowMeta">{weekRange(p.week_start)}</span><span className={`attendance__chip attendance__chip--${p.tone === "OK" ? "ok" : p.tone === "WARN" ? "warn" : "danger"}`}>{text.tone[p.tone]}</span><div className="attendance__w52bar" role="progressbar" aria-label="주 52시간" aria-valuemin={0} aria-valuemax={WEEK_LIMIT} aria-valuenow={p.current_hours}><span className={`attendance__w52fill attendance__w52fill--${p.tone.toLowerCase()}`} style={{ width: `${String(percent)}%` }} /><span className="attendance__w52limit" /></div><div className="attendance__w52hours"><strong className="attendance__w52cur">{text.current} {text.hours(p.current_hours)}</strong>{projected && <span>{text.projected} {text.hours(p.projected_hours)}</span>}<span>{text.limit}</span>{p.acknowledged_at && <span>{text.acknowledged} {kstTime(p.acknowledged_at)}</span>}</div></div>;
 }

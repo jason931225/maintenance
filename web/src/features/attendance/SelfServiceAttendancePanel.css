@@ -1,36 +1,26 @@
-.self-attendance { color: var(--ink); font-family: var(--font-sans); }
-.self-attendance__surface { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
-.self-attendance__exceptions, .self-attendance__week { min-width: 0; }
-.self-attendance__week { border-left: 1px solid var(--border-soft); }
-.self-attendance__head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
-.self-attendance__title { margin: 0; font-size: var(--text-card-title); font-weight: 800; }
-.self-attendance__filters { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-.self-attendance__filters label { color: var(--steel); font-size: 11px; font-weight: 700; }
-.self-attendance__filters input, .self-attendance__filters select { min-height: 32px; margin-left: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
-.self-attendance__rows { display: flex; flex-direction: column; }
-.self-attendance__row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 9px; width: 100%; min-height: 44px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border-soft); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
-.self-attendance__row:hover, .self-attendance__row:focus-visible { background: var(--muted); outline: none; }
-.self-attendance__date { color: var(--steel); font-family: var(--font-mono); font-size: 11px; }
-.self-attendance__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.self-attendance__status { font-size: 10.5px; font-weight: 800; }
-.self-attendance__status--open, .self-attendance__tone--danger { color: var(--danger-tx); }
-.self-attendance__status--resolved, .self-attendance__tone--ok { color: var(--success-tx); }
-.self-attendance__tone--warn { color: var(--warn-tx); }
-.self-attendance__state { display: grid; gap: 8px; justify-items: start; padding: 18px 12px; color: var(--steel); font-size: 12px; }
-.self-attendance__retry, .self-attendance__pager button, .self-attendance__support { min-height: 32px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--steel); cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; }
-.self-attendance__retry:hover, .self-attendance__pager button:hover, .self-attendance__support:hover { background: var(--muted); color: var(--ink); }
-.self-attendance__pager { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 12px; }
-.self-attendance__pager button:disabled { cursor: default; opacity: .45; }
-.self-attendance__weekbody { display: grid; gap: 12px; padding: 12px; }
-.self-attendance__metric { display: grid; gap: 5px; }
-.self-attendance__metric-label { color: var(--steel); font-size: 11px; font-weight: 700; }
-.self-attendance__metric-value { font-family: var(--font-mono); font-size: 20px; font-weight: 800; }
-.self-attendance__progress { height: 8px; overflow: hidden; border-radius: 999px; background: var(--muted); }
-.self-attendance__progress > span { display: block; height: 100%; background: var(--success-solid); }
-.self-attendance__progress--warn > span { background: var(--warn-solid); }
-.self-attendance__progress--danger > span { background: var(--danger-solid); }
-.self-attendance__support { display: inline-flex; width: fit-content; text-decoration: none; }
-.self-attendance__dialog { max-width: 480px; }
-.self-attendance__dialog-content { display: grid; gap: 10px; }
-.self-attendance__dialog-content p { margin: 0; color: var(--steel); font-size: 12px; line-height: 1.5; }
-@media (max-width: 760px) { .self-attendance__surface { grid-template-columns: minmax(0, 1fr); } .self-attendance__week { border-top: 1px solid var(--border-soft); border-left: 0; } .self-attendance__head { align-items: flex-start; flex-wrap: wrap; } .self-attendance__filters { width: 100%; margin-left: 0; } .self-attendance__row { grid-template-columns: 84px minmax(0, 1fr); } .self-attendance__status { grid-column: 2; } }
+.attendanceSelf { min-width: 0; }
+.attendanceSelf__body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); }
+.attendanceSelf__week { min-width: 0; border-left: 1px solid var(--border-soft); }
+.attendanceSelf__exceptions { min-width: 0; }
+.attendanceSelf__row { min-height: 44px; }
+.attendanceSelf__row:focus-visible,
+.attendanceSelf button:focus-visible,
+.attendanceSelf a:focus-visible { outline: 2px solid var(--info-solid); outline-offset: 2px; }
+.attendanceSelf .attendance__ghostbtn,
+.attendanceSelf .attendance__segbtn,
+.attendanceSelf .attendance__monthnav button { min-height: 44px; }
+.attendanceSelf .attendance__monthnav button { min-width: 44px; width: 44px; height: 44px; }
+.attendanceSelf .attendance__segbtn { padding-inline: 12px; }
+.attendanceSelf__rowMeta { display: block; font-family: var(--font-mono); font-size: 10.5px; font-weight: 800; color: var(--faint); }
+.attendanceSelf .attendance__exdetail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attendanceSelf .attendance__chip { flex: none; }
+.attendanceSelf__weekMetrics { display: grid; gap: 9px; padding: 12px 15px; }
+.attendanceSelf__weekMetrics .attendance__w52bar { width: 100%; }
+.attendanceSelf__weekMetrics .attendance__w52hours { width: auto; text-align: left; display: grid; gap: 2px; }
+.attendanceSelf__weekMetrics .attendance__w52hours span { color: var(--steel); font-size: 10.5px; }
+.attendanceSelf__footer { display: flex; align-items: center; gap: 8px; padding: 10px 15px; border-top: 1px solid var(--border-soft); }
+.attendanceSelf__footer h2, .attendanceSelf__footer p { margin: 0; }
+.attendanceSelf__footer h2 { font-size: var(--text-card-title); }
+.attendanceSelf__footer p { color: var(--steel); font-size: 11px; line-height: 1.5; }
+.attendanceSelf .attendance__alert { min-height: 44px; }
+@media (max-width: 760px) { .attendanceSelf__body { grid-template-columns: minmax(0, 1fr); } .attendanceSelf__week { border-top: 1px solid var(--border-soft); border-left: 0; } }
