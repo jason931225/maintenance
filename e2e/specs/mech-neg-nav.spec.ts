@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  querySql,
   sql,
   TENANT_BRANCH_ID,
   TENANT_ORG_ID,
@@ -21,9 +22,15 @@ import {
 
 const ADMIN_ONLY_ROUTES = ["/settings/users", "/approvals"] as const;
 const MECHANIC_ID = "00000000-0000-0000-0000-0000000d0002";
+const ADMIN_ID = "00000000-0000-0000-0000-0000000d0003";
 const EQUIPMENT_ID = "00000000-0000-0000-0000-000000ee0003";
-const SCHEDULE_ID = "00000000-0000-0000-0000-0000000ab001";
-const DENIED_SCHEDULE_NOTE = "E2E 정비사 일정 등록 권한 경계";
+const DENIED_EQUIPMENT_ID = "00000000-0000-4000-8000-0000000e4882";
+const MECHANIC_INSPECTION_SCHEDULE_ID =
+  "00000000-0000-4000-8000-0000000e4881";
+
+function sqlLiteral(value: string | null): string {
+  return value === null ? "NULL" : `'${value.replaceAll("'", "''")}'`;
+}
 
 const HIDDEN_NAV_LABELS = [
   "승인",        // approvals
@@ -73,18 +80,32 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
   page,
   loginAs,
 }) => {
-  // ADMIN-19 deliberately completes and reassigns this shared seeded schedule.
-  // Restore the canonical mechanic story so this spec remains order-independent.
+  const mechanicRows = querySql<{ team: string | null }>(
+    `SELECT team FROM users WHERE id = '${MECHANIC_ID}'`,
+  );
+  expect(mechanicRows).toHaveLength(1);
+  const previousTeam = mechanicRows[0]!.team;
+
+  // This story owns its schedule id and never repurposes another persona's row.
   sql(
     `BEGIN;
      SELECT set_config('app.current_org', '${TENANT_ORG_ID}', true);
+     DELETE FROM inspection_rounds
+       WHERE schedule_id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
+     DELETE FROM regular_inspection_schedules
+       WHERE id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
      UPDATE users SET team = '예방' WHERE id = '${MECHANIC_ID}';
-     DELETE FROM inspection_rounds WHERE schedule_id = '${SCHEDULE_ID}';
-     UPDATE regular_inspection_schedules
-       SET mechanic_id = '${MECHANIC_ID}', status = 'SCHEDULED',
-           completed_at = NULL, completed_by = NULL,
-           due_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
-       WHERE id = '${SCHEDULE_ID}';
+     INSERT INTO regular_inspection_schedules (
+       id, branch_id, equipment_id, mechanic_id, cycle, interval_days,
+       due_date, status, note, created_by, created_at, org_id
+     )
+     VALUES (
+       '${MECHANIC_INSPECTION_SCHEDULE_ID}', '${TENANT_BRANCH_ID}',
+       '${EQUIPMENT_ID}', '${MECHANIC_ID}', 'WEEKLY', 7,
+       (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date + 1,
+       'SCHEDULED', 'E2E 정비사 전용 예방정비 라운드',
+       '${ADMIN_ID}', now(), '${TENANT_ORG_ID}'
+     );
      COMMIT;`,
   );
 
@@ -141,12 +162,12 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
         headers: { Authorization: authorization ?? "" },
         data: {
           branch_id: TENANT_BRANCH_ID,
-          equipment_id: EQUIPMENT_ID,
+          equipment_id: DENIED_EQUIPMENT_ID,
           mechanic_id: MECHANIC_ID,
-          cycle: "MONTHLY",
-          interval_days: 30,
+          cycle: "YEARLY",
+          interval_days: 365,
           due_date: new Date().toISOString().slice(0, 10),
-          note: DENIED_SCHEDULE_NOTE,
+          note: "E2E 정비사 일정 등록 권한 경계",
         },
       },
     );
@@ -170,7 +191,7 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
       return (
         request.method() === "POST" &&
         new URL(response.url()).pathname ===
-          `/api/v1/inspections/schedules/${SCHEDULE_ID}/rounds`
+          `/api/v1/inspections/schedules/${MECHANIC_INSPECTION_SCHEDULE_ID}/rounds`
       );
     });
     await submit.click();
@@ -182,16 +203,12 @@ test("MECH-NEG mechanic completes only a principal-bound assigned inspection", a
     sql(
       `BEGIN;
        SELECT set_config('app.current_org', '${TENANT_ORG_ID}', true);
-       DELETE FROM inspection_rounds WHERE schedule_id = '${SCHEDULE_ID}';
+       DELETE FROM inspection_rounds
+         WHERE schedule_id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
        DELETE FROM regular_inspection_schedules
-         WHERE created_by = '${MECHANIC_ID}'
-           AND note = '${DENIED_SCHEDULE_NOTE}';
-       UPDATE regular_inspection_schedules
-         SET mechanic_id = '${MECHANIC_ID}', status = 'SCHEDULED',
-             completed_at = NULL, completed_by = NULL,
-             due_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
-         WHERE id = '${SCHEDULE_ID}';
-       UPDATE users SET team = NULL WHERE id = '${MECHANIC_ID}';
+         WHERE id = '${MECHANIC_INSPECTION_SCHEDULE_ID}';
+       UPDATE users SET team = ${sqlLiteral(previousTeam)}
+         WHERE id = '${MECHANIC_ID}';
        COMMIT;`,
     );
   }
