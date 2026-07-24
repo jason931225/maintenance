@@ -29,6 +29,44 @@ describe("CI preflight contract", () => {
     expectFailure(pullWithoutToolchains, "pull_request must include toolchains/** in CI path filters");
   });
 
+  it("rejects toolchain entries placed outside each trigger's paths mapping", () => {
+    const pushWithoutToolchains = workflow.replace('      - "toolchains/**"\n', "");
+    expectFailure(
+      pushWithoutToolchains.replace(
+        "  pull_request:\n",
+        "    paths-ignore:\n      - \"toolchains/**\"\n  pull_request:\n",
+      ),
+      "push must include toolchains/** in CI path filters",
+    );
+    expectFailure(
+      pushWithoutToolchains.replace(
+        "    paths:\n",
+        "    branches-ignore:\n      - \"toolchains/**\"\n    paths:\n",
+      ),
+      "push must include toolchains/** in CI path filters",
+    );
+
+    const pullRequest = workflow.indexOf("  pull_request:\n");
+    const pullWithoutToolchains = workflow.slice(0, pullRequest) + workflow.slice(pullRequest).replace(
+      '      - "toolchains/**"\n',
+      "",
+    );
+    expectFailure(
+      pullWithoutToolchains.replace(
+        "  workflow_dispatch:\n",
+        "    paths-ignore:\n      - \"toolchains/**\"\n  workflow_dispatch:\n",
+      ),
+      "pull_request must include toolchains/** in CI path filters",
+    );
+    expectFailure(
+      pullWithoutToolchains.replace(
+        "  workflow_dispatch:\n",
+        "    branches-ignore:\n      - \"toolchains/**\"\n  workflow_dispatch:\n",
+      ),
+      "pull_request must include toolchains/** in CI path filters",
+    );
+  });
+
   it("rejects Buck2 jobs that do not bootstrap pinned DotSlash before invocation", () => {
     expectFailure(
       workflow.replace(
