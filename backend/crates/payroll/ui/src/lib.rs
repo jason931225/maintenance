@@ -473,7 +473,18 @@ fn ShippingShell(
                 {hydrate_payroll.then(|| {
                     view! {
                         <link rel="modulepreload" href=PKG_JS />
-                        <link rel="preload" href=PKG_WASM r#as="fetch" r#type="application/wasm" />
+                        // `crossorigin` is not decoration. Without it the
+                        // preload's credentials mode does not match the
+                        // module's own fetch, so the browser discards the
+                        // preload and the client downloads the whole bundle
+                        // twice.
+                        <link
+                            rel="preload"
+                            href=PKG_WASM
+                            r#as="fetch"
+                            r#type="application/wasm"
+                            crossorigin="anonymous"
+                        />
                         <script type="module">{ISLAND_BOOTSTRAP}</script>
                     }
                 })}
