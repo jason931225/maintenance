@@ -668,10 +668,9 @@ mod tests {
 
     fn yaml_schema_required_keys<'a>(doc: &'a str, schema: &str) -> Vec<&'a str> {
         let header = format!("    {schema}:\n");
-        let rest = doc
-            .split_once(&header)
-            .unwrap_or_else(|| panic!("OpenAPI must declare schema {schema}"))
-            .1;
+        let found = doc.split_once(&header);
+        assert!(found.is_some(), "OpenAPI must declare schema {schema}");
+        let rest = found.unwrap_or_default().1;
         yaml_required_keys(rest)
     }
 
