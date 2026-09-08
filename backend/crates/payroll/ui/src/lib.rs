@@ -131,33 +131,73 @@ pub fn Shell() -> impl IntoView {
     }
 }
 
+/// The one hydrated subtree on this surface.
+///
+/// Everything else the shell renders is static SSR. This island carries the
+/// only client behavior: a status filter over the runs the server already
+/// authorized and serialized into `data-props`. It is presentation only --
+/// it changes which authorized rows are *visible*, never which rows exist. No
+/// fetch, no server function, and no business rule runs here, so
+/// deny-by-omission stays a server decision and the client gains nothing it
+/// was not already sent.
 #[island]
 pub fn AuthorizedRuns(runs: Vec<RunSummary>) -> impl IntoView {
-    runs.into_iter()
-        .map(|run| {
-            let href = format!("/api/v1/payroll/runs/{}", run.id);
-            let label = format!(
-                "{}–{} {}",
-                run.period_start, run.period_end, run.source_label
-            );
-            view! {
-                <a href=href>
-                    <span
-                        data-run-id=run.id
-                        data-period-start=run.period_start
-                        data-period-end=run.period_end
-                        data-source-label=run.source_label
-                        data-status=run.status
-                        data-calculation-enabled=run.calculation_enabled.to_string()
-                        data-created-at=run.created_at
-                        data-updated-at=run.updated_at
-                    >
-                        {label}
-                    </span>
-                </a>
-            }
-        })
-        .collect_view()
+    // Empty means "전체". The options come from the rows in hand, so the
+    // control can never name a status this actor was not sent.
+    let selected = RwSignal::new(String::new());
+    let mut statuses: Vec<String> = runs.iter().map(|run| run.status.clone()).collect();
+    statuses.sort_unstable();
+    statuses.dedup();
+    view! {
+        <select
+            data-run-status-filter=""
+            aria-label="상태"
+            on:change:target=move |ev| selected.set(ev.target().value())
+        >
+            <option value="">"전체"</option>
+            {statuses
+                .into_iter()
+                .map(|status| {
+                    let label = status.clone();
+                    view! { <option value=status>{label}</option> }
+                })
+                .collect_view()}
+        </select>
+        {runs
+            .into_iter()
+            .map(|run| {
+                let href = format!("/api/v1/payroll/runs/{}", run.id);
+                let label = format!(
+                    "{}–{} {}",
+                    run.period_start, run.period_end, run.source_label
+                );
+                // Visibility only. SSR selects nothing, so every authorized row
+                // is served unhidden and a client that never hydrates still
+                // sees the whole authorized listing.
+                let status = run.status.clone();
+                let filtered_out = move || {
+                    let selected = selected.get();
+                    !selected.is_empty() && selected != status
+                };
+                view! {
+                    <a href=href hidden=filtered_out>
+                        <span
+                            data-run-id=run.id
+                            data-period-start=run.period_start
+                            data-period-end=run.period_end
+                            data-source-label=run.source_label
+                            data-status=run.status
+                            data-calculation-enabled=run.calculation_enabled.to_string()
+                            data-created-at=run.created_at
+                            data-updated-at=run.updated_at
+                        >
+                            {label}
+                        </span>
+                    </a>
+                }
+            })
+            .collect_view()}
+    }
 }
 
 #[component]
@@ -734,7 +774,11 @@ mod tests {
             run_with("00000000-0000-0000-0000-000000000003", "DRAFT"),
         ];
         let html = render_shell_with(&runs);
-        let island = island_subtree(&html).expect("authorized runs must be an island");
+        let island = island_subtree(&html).unwrap_or("");
+        assert!(
+            !island.is_empty(),
+            "authorized runs must be an island: {html}"
+        );
 
         // Inside the island subtree, so hydration owns the control. A filter
         // rendered in the static shell would never receive an event listener.
@@ -1285,4 +1329,3 @@ mod tests {
         );
     }
 }
-
