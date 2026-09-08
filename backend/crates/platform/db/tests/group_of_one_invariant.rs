@@ -198,7 +198,7 @@ async fn t4_sentinel_group_archived_omitted_from_list_knl_included(pool: PgPool)
         .await
         .unwrap();
     assert!(
-        !listed.iter().any(|id| *id == group_id),
+        !listed.contains(&group_id),
         "platform_list_groups must omit the sentinel group id {group_id}"
     );
     assert!(

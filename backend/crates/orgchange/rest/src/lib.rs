@@ -75,10 +75,9 @@ impl OrgChangeRestState {
     /// `/org-entities`, or empty (omit) when unauthenticated, unauthorized,
     /// or the listing fails.
     pub async fn visible_org_entities(&self, headers: &HeaderMap) -> Vec<VisibleOrgEntity> {
-        match list_visible_org_entities(self, headers).await {
-            Ok(entities) => entities,
-            Err(_) => Vec::new(),
-        }
+        list_visible_org_entities(self, headers)
+            .await
+            .unwrap_or_default()
     }
 }
 
