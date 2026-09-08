@@ -718,6 +718,88 @@ mod tests {
         );
     }
 
+    /// The island must own a presentation-only status filter.
+    ///
+    /// This is the only client behavior on the surface, and it is what makes
+    /// selective hydration observable: without it the island re-renders markup
+    /// identical to SSR and a broken bundle is indistinguishable from a working
+    /// one. The filter changes visibility of rows the server already
+    /// authorized; it never adds, removes, or requests a row, so deny-by-
+    /// omission stays a server decision.
+    #[test]
+    fn authorized_runs_island_owns_a_presentation_only_status_filter() {
+        let runs = vec![
+            run_with("00000000-0000-0000-0000-000000000001", "DRAFT"),
+            run_with("00000000-0000-0000-0000-000000000002", "BLOCKED_LEGAL_GATE"),
+            run_with("00000000-0000-0000-0000-000000000003", "DRAFT"),
+        ];
+        let html = render_shell_with(&runs);
+        let island = island_subtree(&html).expect("authorized runs must be an island");
+
+        // Inside the island subtree, so hydration owns the control. A filter
+        // rendered in the static shell would never receive an event listener.
+        assert!(
+            island.contains("data-run-status-filter"),
+            "island must carry the status filter: {island}"
+        );
+
+        // Options are exactly the distinct statuses of the authorized rows plus
+        // the all-option: no fixed enum, no status this actor was not sent.
+        assert!(
+            island.contains(r#"<option value="">"#),
+            "filter must offer an all-option: {island}"
+        );
+        for status in ["DRAFT", "BLOCKED_LEGAL_GATE"] {
+            assert!(
+                island.contains(&format!(r#"<option value="{status}">"#)),
+                "filter must offer authorized status {status}: {island}"
+            );
+        }
+        assert_eq!(
+            island.matches("<option").count(),
+            3,
+            "filter must offer the all-option and each distinct status once: {island}"
+        );
+        assert!(
+            !island.contains("PAYABLE") && !island.contains("APPROVED"),
+            "filter must not invent a status the actor was not sent: {island}"
+        );
+
+        // Every authorized row is served, none pre-hidden. Filtering is client
+        // visibility over server-composed membership.
+        assert_eq!(
+            island.matches("data-run-id=").count(),
+            3,
+            "server must send every authorized row unfiltered: {island}"
+        );
+        assert!(
+            !island.contains("hidden"),
+            "SSR must not pre-hide an authorized row: {island}"
+        );
+
+        // The unauthorized shell gains nothing.
+        assert!(
+            !render_shell().contains("data-run-status-filter"),
+            "empty shell must not carry the filter: {}",
+            render_shell()
+        );
+    }
+
+    fn run_with(id: &str, status: &str) -> RunSummary {
+        RunSummary {
+            id: id.to_owned(),
+            status: status.to_owned(),
+            ..sample_run()
+        }
+    }
+
+    /// The `<leptos-island>` subtree only. Everything else on the page is static
+    /// shell that never hydrates.
+    fn island_subtree(html: &str) -> Option<&str> {
+        let (_, rest) = html.split_once("<leptos-island ")?;
+        rest.split_once("</leptos-island>").map(|(inner, _)| inner)
+    }
+
     fn island_component(html: &str) -> Option<&str> {
         html.split_once("data-component=\"")
             .and_then(|(_, rest)| rest.split_once('"').map(|(id, _)| id))
@@ -1203,3 +1285,4 @@ mod tests {
         );
     }
 }
+
