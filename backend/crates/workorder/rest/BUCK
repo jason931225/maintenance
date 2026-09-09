@@ -8,6 +8,13 @@ export_file(
     visibility = ["PUBLIC"],
 )
 
+export_file(
+    name = "crate-openapi-tree",
+    src = "openapi",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)
+
 rust_library(
     name = "console-workorder-rest",
     mapped_srcs = repo_mapped_srcs("backend/crates/workorder/rest", glob(["src/**/*.rs", "openapi/**/*.yaml", "openapi/**/*.json"])),

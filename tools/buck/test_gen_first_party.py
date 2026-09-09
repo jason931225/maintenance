@@ -20,22 +20,30 @@ SPEC.loader.exec_module(GENERATOR)
 
 
 class FirstPartyBuckGeneratorTests(unittest.TestCase):
-    def test_ui_package_members_are_skipped_because_leptos_is_not_vendored(self) -> None:
-        self.assertTrue(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-payroll-ui"}})
-        )
-        self.assertTrue(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-platform-ui"}})
-        )
-        self.assertFalse(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-payroll-rest"}})
-        )
-        self.assertFalse(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-platform-auth"}})
-        )
-        self.assertFalse(GENERATOR.skip_workspace_member({"package": {"name": "ui"}}))
+    def test_no_workspace_member_is_skipped(self) -> None:
+        """`-ui` members were skipped while Leptos was unvendored. #1079 put it
+        in the third-party graph, so the exclusion has no remaining premise and
+        every member is generated -- including the `-ui` ones this used to
+        assert away."""
+        for name in (
+            "console-payroll-ui",
+            "console-platform-ui",
+            "console-payroll-rest",
+            "console-platform-auth",
+            "ui",
+        ):
+            self.assertFalse(
+                GENERATOR.skip_workspace_member({"package": {"name": name}}),
+                name,
+            )
         self.assertFalse(GENERATOR.skip_workspace_member({}))
         self.assertFalse(GENERATOR.skip_workspace_member({"package": {}}))
+        self.assertIn(
+            str(Path(GENERATOR.REPO) / "backend" / "crates" / "payroll" / "ui"),
+            GENERATOR.find_members(),
+            "the UI member must now be generated",
+        )
+        self.assertEqual(GENERATOR.skipped_ui_package_names(), set())
 
     def test_skipped_ui_dependency_is_omitted_not_rewritten_as_third_party(self) -> None:
         first_party = {"console-app": "//backend/app:console-app"}
@@ -49,7 +57,17 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         self.assertEqual({}, named)
         self.assertNotIn("//third-party/rust:console-payroll-ui", deps)
 
-    def test_app_without_ui_dep_does_not_gain_a_ui_edge(self) -> None:
+    def test_app_carries_its_ui_edge_now_that_leptos_is_vendored(self) -> None:
+        """The inverse of what this asserted before.
+
+        While `-ui` members were skipped, the point was that `console-app`
+        must not invent an edge to a package Buck could not build. Leptos is
+        now in the third-party graph (#1079), the member is generated, and the
+        edge is real: `console-app` depends on `console-payroll-ui` in Cargo,
+        unconditionally, so a Buck graph without that edge is the wrong one --
+        it is what made `Backend — buck-app` fail on `E0433: cannot find module
+        or crate console_payroll_ui`.
+        """
         app_dir = Path(GENERATOR.REPO) / "backend" / "app"
         manifest = GENERATOR.load(app_dir)
         first_party = {}
@@ -62,13 +80,10 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             first_party,
             GENERATOR.skipped_ui_package_names(),
         )
-        self.assertFalse(
-            any("-ui" in target for target in deps),
-            "App must not invent a Ui edge; got {}".format(deps),
-        )
-        self.assertFalse(
-            any("-ui" in target for target in named.values()),
-            "App must not invent a named Ui edge; got {}".format(named),
+        self.assertIn(
+            "//backend/crates/payroll/ui:console-payroll-ui",
+            deps,
+            "app depends on the UI crate in Cargo; the Buck graph must match",
         )
 
     def test_repo_source_layout_uses_mapped_sources_and_explicit_crate_root(self) -> None:

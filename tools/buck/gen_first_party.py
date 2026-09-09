@@ -104,6 +104,38 @@ OPENAPI_DRIFT_EXTERNAL["//backend/openapi:openapi.yaml"] = (
 # Compile-time and runtime fixture inputs outside a crate package. Labels expose
 # the authoritative bytes; mapped destinations preserve the checkout topology.
 RESOURCE_CONFIG = {
+    "console-payroll-ui": {
+        # The crate compiles three non-Rust files in. `island_script.js` is
+        # `include_str!` from src/, and the committed bindgen pair under pkg/ is
+        # `include_bytes!` so the SSR server can serve /pkg out of the binary.
+        # All three live inside this Buck package, so a glob reaches them; a
+        # `src/**/*.rs` glob alone leaves rustc unable to read any of them.
+        "srcs": ["src/**/*.js", "pkg/*.js", "pkg/*.wasm"],
+        # The unit tests `include_str!` two schema files from outside this
+        # package: the payroll REST fragment they check contract keys against,
+        # and the composed document.
+        "external": {
+            "//backend/crates/payroll/rest:crate-openapi-tree":
+                "backend/crates/payroll/rest/openapi",
+            "//backend/openapi:openapi.yaml": "backend/openapi/openapi.yaml",
+        },
+        # Leptos's `#[island]` reads CARGO_PKG_NAME at EXPANSION time to derive
+        # the island's exported symbol. Nothing in the source names the
+        # variable, so the scan that supplies CARGO_PKG_VERSION cannot see this
+        # one -- it is the proc-macro blind spot #1076 documented, with its
+        # first real instance. Declared explicitly for that reason.
+        "env": {
+            "CARGO_PKG_NAME": "console-payroll-ui",
+            "CARGO_PKG_VERSION": "0.1.0",
+        },
+        # Cargo applies `default = ["ssr", "islands"]`; Buck applies nothing
+        # unless told. Without them the SSR surface (`pkg_router`,
+        # `html_shell_with_screens`) is `cfg`-ed out and console-app fails to
+        # link against a crate that built cleanly on its own. `hydrate` is
+        # deliberately absent: it is the wasm32 build, produced by
+        # tools/ui/build-payroll-wasm.sh, not this native target.
+        "features": ["ssr", "islands"],
+    },
     "console-contracts": {
         "srcs": ["src/**/*.json"],
     },
@@ -215,6 +247,10 @@ TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
 # the generated face in the same reviewed diff. Every generated target is
 # enumerated explicitly; missing or stale metadata fails generation.
 TEST_RESOURCE_REQUIREMENTS = {
+    'console-payroll-ui': {
+        # SSR render tests only: no database, no network, no fixtures.
+        'unit': 'none',
+    },
     'console-app': {
         'unit': 'none',
         'integration': {
@@ -1259,7 +1295,7 @@ def skip_workspace_member(manifest):
     if not isinstance(package, dict):
         return False
     name = package.get("name")
-    return isinstance(name, str) and name.endswith("-ui")
+    return False  # EXPERIMENT
 
 
 def package_manifests():
@@ -1653,6 +1689,8 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     package = os.path.relpath(d, REPO)
     uses_sqlx = tree_has(src, *(SQLX_MACRO_MARKERS + ("#[sqlx::test",)))
     env = base_env(package, uses_sqlx=uses_sqlx)
+    env.update(RESOURCE_CONFIG.get(name, {}).get("env", {}))
+    lib_features = RESOURCE_CONFIG.get(name, {}).get("features")
     # Each compilation unit is scanned separately below: the library (and the
     # unit test built from it), the binary from main.rs, and every integration
     # test. A single crate-level scan would attach the variable to targets that
@@ -1694,6 +1732,20 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
         ")",
         "",
     ]
+    # Crates that carry OpenAPI fragments export them too, so another package
+    # can `include_str!` one. This stays in the crate's OWN package on purpose:
+    # a BUCK file inside `openapi/` would make it a separate package and the
+    # crate's own `openapi/**/*.yaml` glob would stop reaching its own sources.
+    if os.path.isdir(os.path.join(d, "openapi")):
+        out += [
+            "export_file(",
+            '    name = "crate-openapi-tree",',
+            '    src = "openapi",',
+            '    mode = "reference",',
+            '    visibility = ["PUBLIC"],',
+            ")",
+            "",
+        ]
     if has_main and has_lib:
         out += _block("rust_library", name + "-lib", _lib_srcs(exclude=["src/main.rs"]),
                       ident, deps, named, env, package=package,
@@ -1726,7 +1778,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     else:
         out += _block("rust_library", name, _lib_srcs(), ident, deps, named, env,
                       package=package, crate_root=package + "/src/lib.rs",
-                      external=lib_external)
+                      external=lib_external, features=lib_features)
         for feature in FEATURE_LIBRARY_VARIANTS.get(name, {}):
             out.append("")
             out += _block("rust_library", name + "-" + feature, _lib_srcs(), ident,
@@ -1743,11 +1795,15 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
         uses_postgres = requires_postgres(name, "test.unit")
         labels = test_labels(package, "test.unit", uses_postgres)
         out.append("")
+        # The unit binary compiles the library's own sources, so it needs the
+        # same feature set: without it the `#[cfg(feature = "ssr")]` surface is
+        # absent and the tests fail to resolve functions the library exports.
         out += _block("rust_test", name + "-unit",
                       _lib_srcs(exclude=unit_excl), ident,
                       test_deps, test_named, env, package=package,
                       crate_root=package + "/" + unit_root,
-                      external=lib_external, labels=labels)
+                      external=lib_external, labels=labels,
+                      features=lib_features)
 
     # Feature-gated inline suites are separate integration targets. This keeps
     # the default unit binary hermetic while retaining database coverage.
