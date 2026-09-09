@@ -98,7 +98,7 @@
     "backend/ci/gates/layer-boundary/src/lib.rs": 23,
     "backend/ci/gates/layer-boundary/tests/gate_detects_violation.rs": 16,
     "backend/ci/gates/migration-safety/tests/gate_detects_violation.rs": 17,
-    "backend/ci/gates/personal-data-classification/tests/gate_detects_violation.rs": 25,
+    "backend/ci/gates/personal-data-classification/tests/gate_detects_violation.rs": 27,
     "backend/ci/gates/pii-no-logs/tests/gate_detects_violation.rs": 7,
     "backend/ci/gates/rls-arming/src/lib.rs": 10,
     "backend/ci/gates/tenant-isolation/src/lib.rs": 19,
