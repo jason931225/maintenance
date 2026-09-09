@@ -896,6 +896,21 @@ fn apply_statement(statement: &[Tok], file: &Path, schema: &mut Schema) {
         | ["alter", "default", "privileges", ..]
         | ["drop", "function", ..]
         | ["drop", "trigger", ..]
+        // The mirror of `CREATE INDEX` above. An index is not a column, so
+        // dropping one cannot change a table's column set -- in any spelling:
+        // `IF EXISTS`, `CONCURRENTLY`, schema-qualified, a comma-separated
+        // list, or `CASCADE`. CASCADE is the only one that removes anything,
+        // and what it removes is a foreign-key constraint resolving against a
+        // bare unique index; PostgreSQL refuses outright to drop an index that
+        // backs a UNIQUE or PRIMARY KEY constraint, CASCADE included. Nothing
+        // reachable from `pg_depend` on an index is a table or a column.
+        //
+        // Its absence made the gate refuse to certify 0225. That is a
+        // fail-closed refusal, not a read failure: `unsupported()` records the
+        // statement and parsing continues, so the table inventory is identical
+        // with and without this arm. Note this stays narrow -- `drop` alone is
+        // not column-neutral, and `DROP TABLE` keeps its own arm above.
+        | ["drop", "index", ..]
         | ["grant", ..]
         | ["revoke", ..] => {}
 

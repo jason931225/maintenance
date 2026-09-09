@@ -80,6 +80,70 @@ fn gate_accepts_a_fully_classified_table() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// Dropping an index cannot change a table's column set, so the gate must read
+/// past it rather than refuse the file.
+///
+/// `CREATE INDEX` was already column-neutral; `DROP INDEX` was not, so the gate
+/// refused to certify migration 0225. That refusal is fail-closed and correct
+/// as a default -- the gate declines what it cannot parse -- but the parser had
+/// a hole where its own mirror image sat.
+#[test]
+fn gate_reads_past_a_dropped_index() -> Result<(), Box<dyn std::error::Error>> {
+    for (case, sql) in [
+        ("bare", "DROP INDEX idx_staff_name;"),
+        ("if-exists", "DROP INDEX IF EXISTS idx_staff_name;"),
+        (
+            "concurrently",
+            "DROP INDEX CONCURRENTLY IF EXISTS idx_staff_name;",
+        ),
+        ("qualified", "DROP INDEX IF EXISTS public.idx_staff_name;"),
+        // CASCADE is the only spelling that removes anything. What it can
+        // remove is a foreign-key constraint resolving against a bare unique
+        // index; PostgreSQL refuses to drop an index backing a UNIQUE or
+        // PRIMARY KEY constraint even with CASCADE. Column-neutral either way.
+        ("cascade", "DROP INDEX idx_staff_name CASCADE;"),
+        ("comma-list", "DROP INDEX idx_staff_name, idx_staff_id;"),
+    ] {
+        let dir = tree(
+            case,
+            &format!(
+                "CREATE TABLE staff (id UUID PRIMARY KEY, name TEXT NOT NULL);
+                 COMMENT ON COLUMN staff.id IS 'pd:personal — surrogate key of a person row';
+                 COMMENT ON COLUMN staff.name IS 'pd:personal — direct identifier';
+                 CREATE INDEX idx_staff_name ON staff (name);
+                 {sql}"
+            ),
+        )?;
+        let result = check_tree(&dir, &empty_baseline())?;
+        assert!(
+            result.passed(),
+            "{case}: dropping an index changes no column set, got {:#?}",
+            result.violations
+        );
+        assert_eq!(result.classified_columns, 2, "{case}");
+    }
+    Ok(())
+}
+
+/// The neighbouring form must still be refused: `DROP TABLE` is already
+/// handled, but nothing else beginning `drop` may be waved through by the arm
+/// above.
+#[test]
+fn gate_still_refuses_an_unrecognised_drop() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tree(
+        "drop-owned",
+        "CREATE TABLE staff (id UUID PRIMARY KEY);
+         COMMENT ON COLUMN staff.id IS 'pd:personal — surrogate key of a person row';
+         DROP OWNED BY some_role;",
+    )?;
+    let result = check_tree(&dir, &empty_baseline())?;
+    assert!(
+        !result.passed(),
+        "an unrecognised `drop` form must still be refused"
+    );
+    Ok(())
+}
+
 /// A column added by a LATER migration must be classified too. This is the
 /// drift the baseline cannot absorb: the table is already off the baseline.
 #[test]
