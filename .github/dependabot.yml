@@ -1,11 +1,103 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
+# Dependabot version updates.
+#
+# Dependabot security updates are already enabled on this repository; this file
+# adds scheduled VERSION updates on top of them.
+#
+# Every entry targets `dev`, because `dev` is the integration branch
+# (docs/current/DELIVERY.md) and `authenticate-console-authority` — a required
+# context — only runs on pull requests aimed at it. A Dependabot pull request
+# opened against any other branch would sit forever on a required check that
+# never reports.
+#
+# Ecosystems are listed explicitly rather than globbed, which is also how the
+# vendored Rust forks under `third-party/rust/vendor/` stay out of scope: they
+# are deliberate patched copies, not dependencies to be bumped.
 version: 2
 updates:
-  - package-ecosystem: "" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  # The Cargo workspace. `third-party/rust/vendor/**` is NOT listed and must not
+  # be: those manifests are pinned compatibility forks.
+  - package-ecosystem: cargo
+    directory: /backend
+    target-branch: dev
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps)"
+    groups:
+      rust-crates:
+        patterns:
+          - "*"
+    ignore:
+      # `[patch.crates-io]` in backend/Cargo.toml redirects these three to
+      # audited local forks that carry the quick-xml >= 0.41 fix for
+      # RUSTSEC-2026-0194/0195. Cargo resolves the patch, not the registry
+      # version, so a Dependabot bump here would churn a version nothing
+      # consumes. Remove these ignores when the patches are removed.
+      - dependency-name: calamine
+      - dependency-name: quick-xml
+      - dependency-name: umya-spreadsheet
+
+  # Root npm tooling. `sdk/typescript/package.json` is private and declares no
+  # dependencies, so it gets no entry.
+  - package-ecosystem: npm
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps)"
+    groups:
+      npm-packages:
+        patterns:
+          - "*"
+
+  # Workflows and the composite actions under .github/actions. Actions here are
+  # SHA-pinned with a version comment; Dependabot updates both together, which
+  # is the property `helpers:pinGitHubActionDigests` was configured to keep.
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # backend/Dockerfile. Base images are digest-pinned; Dependabot keeps the
+  # digest current.
+  - package-ecosystem: docker
+    directory: /backend
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
