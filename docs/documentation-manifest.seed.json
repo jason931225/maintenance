@@ -1016,7 +1016,17 @@
     "status": "active",
     "replacement": null,
     "retention": "retain",
-    "blob_sha": "cd3fb1f6ef129227454aace1a9f0f6078a6023fd",
+    "blob_sha": "e7404e85ca5cd3689b208e2deb4729423d298a0a",
+    "archive_tag": null
+  },
+  {
+    "path": "docs/decisions/ADR-0043-required-ci-coverage.md",
+    "class": "decision",
+    "owner": "repository maintainers",
+    "status": "active",
+    "replacement": null,
+    "retention": "retain",
+    "blob_sha": "06cc5dbb973071dbb8109ef08739b01fe140f5f9",
     "archive_tag": null
   },
   {
@@ -1026,7 +1036,7 @@
     "status": "active",
     "replacement": null,
     "retention": "retain",
-    "blob_sha": "3be32e887fc9b7dd50a58d2930c408293eb5aa6e",
+    "blob_sha": "3d1319c9b9e5d3c5513713a3378f797d6b07d3a0",
     "archive_tag": null
   },
   {
