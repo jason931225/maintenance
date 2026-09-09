@@ -1,0 +1,4 @@
+# The script's only output is `rustc_nightly`. The locked version of this
+# crate does not reference that cfg anywhere in `src/`, so the script cannot
+# affect what compiles even on a nightly host.
+buildscript.run = false

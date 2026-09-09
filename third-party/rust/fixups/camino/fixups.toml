@@ -1,0 +1,9 @@
+# Runs, unlike its neighbours, because its cfgs key off the STABLE compiler
+# version rather than the channel: `path_buf_deref_mut`, `os_str_bytes`,
+# `absolute_path` and friends gate real std-backed impls that any current
+# stable toolchain has. Asserting them away would compile a different, more
+# conservative crate than Cargo builds. Verified non-empty: the generated
+# rustc_flags carry try_reserve_2, path_buf_deref_mut, os_str_bytes,
+# absolute_path, os_string_pathbuf_leak, path_add_extension and
+# pathbuf_const_new.
+buildscript.run = true

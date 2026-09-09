@@ -1,0 +1,6 @@
+# Runs for the same reason as camino: `wbg_diagnostic` is emitted for any
+# compiler at or past 1.78, which every toolchain this repository builds with
+# satisfies, so Cargo does set it. Skipping the script would silently compile
+# the non-diagnostic path. Verified non-empty: the generated rustc_flags carry
+# `--cfg=wbg_diagnostic`.
+buildscript.run = true
