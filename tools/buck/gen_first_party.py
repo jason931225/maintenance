@@ -119,22 +119,26 @@ RESOURCE_CONFIG = {
                 "backend/crates/payroll/rest/openapi",
             "//backend/openapi:openapi.yaml": "backend/openapi/openapi.yaml",
         },
-        # Leptos's `#[island]` reads CARGO_PKG_NAME at EXPANSION time to derive
-        # the island's exported symbol. Nothing in the source names the
-        # variable, so the scan that supplies CARGO_PKG_VERSION cannot see this
-        # one -- it is the proc-macro blind spot #1076 documented, with its
-        # first real instance. Declared explicitly for that reason.
-        "env": {
-            "CARGO_PKG_NAME": "console-payroll-ui",
-            "CARGO_PKG_VERSION": "0.1.0",
-        },
-        # Cargo applies `default = ["ssr", "islands"]`; Buck applies nothing
-        # unless told. Without them the SSR surface (`pkg_router`,
+        # wasm-bindgen's attribute macro reads CARGO_PKG_NAME and
+        # CARGO_PKG_VERSION from the environment DURING EXPANSION
+        # (wasm-bindgen-macro-support hash.rs / encode.rs) to derive the
+        # exported symbol. Leptos's `#[island]` expands to
+        # `#[wasm_bindgen(...)]`, so rustc reports the panic against `island`
+        # and the reader is easy to misname -- leptos_macro's own sources
+        # contain neither variable.
+        #
+        # Named rather than valued: nothing in the source text mentions either,
+        # so the scan #1076 added cannot see them, but both are derivable from
+        # the manifest and must not be frozen as literals here.
+        "needs_env": ["CARGO_PKG_NAME", "CARGO_PKG_VERSION"],
+        # Cargo applies the manifest's `default`; Buck applies nothing unless
+        # told, and without it the SSR surface (`pkg_router`,
         # `html_shell_with_screens`) is `cfg`-ed out and console-app fails to
-        # link against a crate that built cleanly on its own. `hydrate` is
-        # deliberately absent: it is the wasm32 build, produced by
-        # tools/ui/build-payroll-wasm.sh, not this native target.
-        "features": ["ssr", "islands"],
+        # link against a crate that built cleanly on its own. Taken FROM the
+        # manifest so it cannot drift from what Cargo builds -- `hydrate` stays
+        # out because it is not a default: it is the wasm32 build produced by
+        # tools/ui/build-payroll-wasm.sh.
+        "default_features": True,
     },
     "console-contracts": {
         "srcs": ["src/**/*.json"],
@@ -161,6 +165,13 @@ RESOURCE_CONFIG = {
                 "srcs": ["slos/**"],
             },
         },
+    },
+    "console-payroll-rest": {
+        # The one consumed OpenAPI export in the graph: console-payroll-ui's
+        # unit tests map this tree in (see its `external` above). Declared here
+        # rather than inferred from the directory so the export and the single
+        # consumer are one reviewed pair.
+        "exports_openapi_tree": True,
     },
     "console-intelligence-application": {
         "srcs": ["Cargo.toml"],
@@ -240,6 +251,16 @@ RESOURCE_CONFIG = {
 SQLX_MACRO_MARKERS = ("query!", "query_as!", "query_scalar!")
 TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
 
+# Manifest keys this generator does NOT read, recorded so the next reader does
+# not assume they are honoured:
+#   * `[lib] crate-type` -- every library is emitted as a plain `rust_library`.
+#     console-payroll-ui declares `["rlib", "cdylib"]`; the cdylib half is the
+#     wasm32 artifact, built by tools/ui/build-payroll-wasm.sh and not by Buck,
+#     so ignoring it is correct TODAY and wrong the day Buck builds the wasm.
+#   * dependency `optional = true` -- `map_deps` links an optional dependency
+#     unconditionally, so a Buck target can see a crate Cargo would have gated
+#     behind an off feature. Pre-existing; it makes the graph wider, not wrong.
+
 # Resource scheduling is target metadata, not source-text inference. Test type
 # comes from the generated target shape (inline tests are unit; tests/*.rs are
 # integration); PostgreSQL is an explicit reviewable execution requirement.
@@ -248,7 +269,10 @@ TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
 # enumerated explicitly; missing or stale metadata fails generation.
 TEST_RESOURCE_REQUIREMENTS = {
     'console-payroll-ui': {
-        # SSR render tests only: no database, no network, no fixtures.
+        # SSR render tests only: no database and no network. They DO read
+        # fixtures -- the two OpenAPI files mapped in by RESOURCE_CONFIG below,
+        # which is the point: the rendered keys are checked against the real
+        # contract, not against a copy.
         'unit': 'none',
     },
     'console-app': {
@@ -1289,15 +1313,6 @@ def test_labels(package, test_type, uses_postgres):
     return labels
 
 
-def skip_workspace_member(manifest):
-    """Skip `-ui` packages: Leptos is not in the vendored third-party graph."""
-    package = manifest.get("package")
-    if not isinstance(package, dict):
-        return False
-    name = package.get("name")
-    return False  # EXPERIMENT
-
-
 def package_manifests():
     for root in MEMBER_ROOTS:
         for dirpath, _, files in os.walk(os.path.join(REPO, root)):
@@ -1309,16 +1324,14 @@ def package_manifests():
 
 
 def find_members():
-    return sorted(dirpath for dirpath, manifest in package_manifests() if not skip_workspace_member(manifest))
+    return sorted(dirpath for dirpath, _ in package_manifests())
 
 
-def skipped_ui_package_names():
-    """Package names omitted from first-party BUCK because Leptos is unvendored."""
-    return {
-        manifest["package"]["name"]
-        for _, manifest in package_manifests()
-        if skip_workspace_member(manifest)
-    }
+def manifest_default_features(directory):
+    """The crate's own `[features] default`, as Cargo would apply it."""
+    manifest = load(directory)
+    default = (manifest.get("features") or {}).get("default") or []
+    return [f for f in default if isinstance(f, str)]
 
 
 def load(dirpath):
@@ -1406,22 +1419,21 @@ def openapi_dotfile_srcs(package_dir):
     return sorted(found)
 
 
-def map_deps(dep_table, first_party, skipped_ui_packages=None):
+def map_deps(dep_table, first_party):
     """Map a [dependencies]/[dev-dependencies] table to (deps_list, named_dict).
 
-    Skipped `-ui` workspace members are omitted, not rewritten as
-    ``//third-party/rust:<name>``. App does not gain Ui edges unless its
-    Cargo.toml actually declares them and the ui member is first-party.
+    Every workspace member is first-party, so a member dependency always maps
+    to its `//backend/...` target. The `skipped` branch this used to carry --
+    omit a `-ui` member rather than rewrite it as `//third-party/rust:<name>` --
+    was removed with `skip_workspace_member` once #1079 vendored Leptos and
+    nothing was excluded any more.
     """
-    skipped = skipped_ui_packages or frozenset()
     deps, named = [], {}
     for key, spec in (dep_table or {}).items():
         pkg = spec.get("package", key) if isinstance(spec, dict) else key
         version = spec.get("version", "") if isinstance(spec, dict) else spec
         if pkg in first_party:
             target = first_party[pkg]
-        elif pkg in skipped:
-            continue
         elif pkg == "sqlx" and str(version).lstrip("=").startswith("0.8"):
             target = "//third-party/rust:sqlx-0_8"  # buckify.sh renames the 0.8 alias
         else:
@@ -1666,12 +1678,12 @@ def main():
         discovered.update(discovered_test_resource_keys(d, name))
     validate_resource_metadata(discovered)
 
-    skipped_ui = skipped_ui_package_names()
+
     generated = 0
     for d in members:
         name, m = meta[d]
-        deps, named = map_deps(m.get("dependencies"), first_party, skipped_ui)
-        dev_deps, dev_named = map_deps(m.get("dev-dependencies"), first_party, skipped_ui)
+        deps, named = map_deps(m.get("dependencies"), first_party)
+        dev_deps, dev_named = map_deps(m.get("dev-dependencies"), first_party)
         version = (m.get("package") or {}).get("version")
         emit(
             d, name, sorted(deps), named, sorted(dev_deps), dev_named, version=version
@@ -1689,8 +1701,27 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     package = os.path.relpath(d, REPO)
     uses_sqlx = tree_has(src, *(SQLX_MACRO_MARKERS + ("#[sqlx::test",)))
     env = base_env(package, uses_sqlx=uses_sqlx)
-    env.update(RESOURCE_CONFIG.get(name, {}).get("env", {}))
-    lib_features = RESOURCE_CONFIG.get(name, {}).get("features")
+    resources = RESOURCE_CONFIG.get(name, {})
+    # A crate whose macros read CARGO_PKG_* during expansion names the
+    # variables it needs; the VALUES come from the manifest, never a literal,
+    # so a version bump cannot leave Buck and Cargo disagreeing silently.
+    for needed in resources.get("needs_env", ()):
+        if needed == "CARGO_PKG_NAME":
+            env["CARGO_PKG_NAME"] = name
+        elif needed == "CARGO_PKG_VERSION":
+            env["CARGO_PKG_VERSION"] = resolved_package_version(version)
+        else:
+            raise ValueError(
+                "{}: needs_env does not know how to derive {}".format(name, needed)
+            )
+    # Cargo's own `[features] default`, so the two cannot drift.
+    lib_features = None
+    if resources.get("default_features"):
+        lib_features = sorted(manifest_default_features(d))
+        if not lib_features:
+            raise ValueError(
+                "{}: default_features requested but the manifest declares none".format(name)
+            )
     # Each compilation unit is scanned separately below: the library (and the
     # unit test built from it), the binary from main.rs, and every integration
     # test. A single crate-level scan would attach the variable to targets that
@@ -1704,7 +1735,6 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
         main_env.update(
             cargo_pkg_version_env(file_text(os.path.join(src, "main.rs")), version)
         )
-    resources = RESOURCE_CONFIG.get(name, {})
     lib_pats = ["src/**/*.rs"] + list(resources.get("srcs", []))
     # Face crates compile OpenAPI fragments via include_str!("../openapi/..."); Buck
     # hermeticity requires those YAML/JSON files in mapped_srcs (src/**/*.rs alone is
@@ -1732,11 +1762,19 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
         ")",
         "",
     ]
-    # Crates that carry OpenAPI fragments export them too, so another package
-    # can `include_str!` one. This stays in the crate's OWN package on purpose:
-    # a BUCK file inside `openapi/` would make it a separate package and the
-    # crate's own `openapi/**/*.yaml` glob would stop reaching its own sources.
-    if os.path.isdir(os.path.join(d, "openapi")):
+    # Crates that carry OpenAPI fragments can export them so another package
+    # can `include_str!` one. Emitted on OPT-IN, not on the existence of an
+    # `openapi/` directory: 34 crates have one and exactly one is consumed, so
+    # keying on the directory published 33 PUBLIC targets nothing referenced.
+    # An export is a promise to other packages; it is declared, not inferred.
+    # This stays in the crate's OWN package on purpose: a BUCK file inside
+    # `openapi/` would make it a separate package and the crate's own
+    # `openapi/**/*.yaml` glob would stop reaching its own sources.
+    if resources.get("exports_openapi_tree"):
+        if not os.path.isdir(os.path.join(d, "openapi")):
+            raise ValueError(
+                "{}: exports_openapi_tree declared but there is no openapi/".format(name)
+            )
         out += [
             "export_file(",
             '    name = "crate-openapi-tree",',
@@ -1749,7 +1787,8 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     if has_main and has_lib:
         out += _block("rust_library", name + "-lib", _lib_srcs(exclude=["src/main.rs"]),
                       ident, deps, named, env, package=package,
-                      crate_root=package + "/src/lib.rs", external=lib_external)
+                      crate_root=package + "/src/lib.rs", external=lib_external,
+                      features=lib_features)
         for feature in FEATURE_LIBRARY_VARIANTS.get(name, {}):
             out.append("")
             out += _block("rust_library", name + "-lib-" + feature,
@@ -1758,10 +1797,15 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
                           package=package, crate_root=package + "/src/lib.rs",
                           external=lib_external, features=[feature])
         out.append("")
+        # The binary is its OWN compilation: `#[cfg(feature = ...)]` in main.rs
+        # is decided here, not by the library it links. Cargo applies `default`
+        # to both, so both must carry it or the two build systems disagree on
+        # which half of main.rs exists.
         out += _block("rust_binary", name, listsrcs(["src/main.rs"]), ident,
                       sorted(deps + [":" + name + "-lib"]), {},
                       main_env, package=package,
-                      crate_root=package + "/src/main.rs")
+                      crate_root=package + "/src/main.rs",
+                      features=lib_features)
         for feature in FEATURE_LIBRARY_VARIANTS.get(name, {}):
             out.append("")
             out += _block("rust_binary", name + "-" + feature,
@@ -1773,7 +1817,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     elif has_main:
         out += _block("rust_binary", name, _lib_srcs(), ident, deps, named, env,
                       package=package, crate_root=package + "/src/main.rs",
-                      external=lib_external)
+                      external=lib_external, features=lib_features)
         lib_target, unit_root, unit_excl = ":" + name, "src/main.rs", None
     else:
         out += _block("rust_library", name, _lib_srcs(), ident, deps, named, env,
@@ -1840,7 +1884,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
         helpers = sorted(p for p in all_rs if p not in test_files)
         for tf in test_files:
             test_path = os.path.join(d, tf)
-            contents = open(test_path, encoding="utf-8", errors="ignore").read()
+            contents = file_text(test_path)
             stem = crate_ident(os.path.splitext(os.path.basename(tf))[0])
             labels = test_labels(
                 package,

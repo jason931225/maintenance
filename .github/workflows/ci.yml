@@ -401,6 +401,16 @@ jobs:
             -p console-ontology-canonical-adapter-postgres -p console-orgchange-adapter-postgres \
             -p console-gate-writer-ownership -p console-identity-adapter-postgres
           check_status "domain --lib sweep"
+          # Separate invocation because its features must be NAMED. The
+          # executed-tests ratchet keys a test binary by (crate_root, feature
+          # set), and this crate's Buck face declares islands+ssr -- the same
+          # set Cargo applies by default. An invocation that leaves them
+          # implicit keys as a different binary, so the real one reads as
+          # executing nowhere and the ratchet calls it a test that cannot fail.
+          # Naming them costs nothing and makes the two identities the same.
+          SQLX_OFFLINE=true cargo test --locked --manifest-path backend/Cargo.toml --lib \
+            -p console-payroll-ui --features islands,ssr
+          check_status "payroll-ui --lib"
           # Doc tests, same step so no new step name has to be declared anywhere.
           # `compile_fail` doctests are the only artifact that can hold a NEGATIVE
           # type-boundary claim ("this must not compile"), and they execute nowhere

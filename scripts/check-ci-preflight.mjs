@@ -603,6 +603,20 @@ const domainUnitOpenApiGenCommands = [
 ];
 const domainUnitExpectedCommands = [
   [...domainCargoPrefix, "--lib", ...domainUnitPackages.flatMap((pkg) => ["-p", pkg])],
+  // Its own invocation because the features must be NAMED, and named ones
+  // cannot ride the shared `-p` sweep above. check:executed-tests keys a test
+  // binary by (crate_root, feature set); this crate's Buck face declares
+  // islands+ssr, which is also what Cargo applies by default. Leaving them
+  // implicit here keys a different binary and the real one reads as executing
+  // nowhere -- the exact condition that gate exists to measure.
+  [
+    ...domainCargoPrefix,
+    "--lib",
+    "-p",
+    "console-payroll-ui",
+    "--features",
+    "islands,ssr",
+  ],
   // Workspace-wide by contract: a `-p` list here executed 0 doctests for years
   // while 23 real ones -- including 10 `compile_fail` authorization claims --
   // never ran. See the matching note in .github/workflows/ci.yml.
@@ -1034,7 +1048,7 @@ const requiredJobRunContracts = Object.freeze({
   ],
   "domain-unit": [
     proofDigest("Path-class skip proof", "1fdf99dda32af815824808d703216d2c0cf04a0adc146dd29f24746e549c44e0", { if: skipProofCondition, shell: "bash" }),
-    proofDigest("Domain crate unit tests", "024e3d3d565a9c3f5dffa782f1ee32c2c08128d47ae6904d7c12aea9097e5649", { if: runHeavyCondition }),
+    proofDigest("Domain crate unit tests", "edb1b9f192d826c3f99f67ef336a2f2cda7b6b93df90f581db76962f22b635e6", { if: runHeavyCondition }),
   ],
   "backend": [
     proofDigest("Path-class skip proof", "1fdf99dda32af815824808d703216d2c0cf04a0adc146dd29f24746e549c44e0", { if: skipProofCondition, shell: "bash" }),

@@ -19,7 +19,7 @@ rust_library(
     crate_root = "backend/crates/payroll/ui/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/payroll/ui", "CARGO_PKG_NAME": "console-payroll-ui", "CARGO_PKG_VERSION": "0.1.0"},
-    features = ["ssr", "islands"],
+    features = ["islands", "ssr"],
     deps = [
         "//third-party/rust:axum",
         "//third-party/rust:leptos",
@@ -40,7 +40,7 @@ rust_test(
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/payroll/ui", "CARGO_PKG_NAME": "console-payroll-ui", "CARGO_PKG_VERSION": "0.1.0"},
     labels = ["owner.backend.crates.payroll.ui", "domain.payroll", "test.unit", "resource.none"],
-    features = ["ssr", "islands"],
+    features = ["islands", "ssr"],
     deps = [
         "//third-party/rust:axum",
         "//third-party/rust:leptos",
