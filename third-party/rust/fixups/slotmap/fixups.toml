@@ -1,0 +1,8 @@
+# Three outputs, none reachable. `nightly` is emitted only on a
+# feature-flaggable channel, and its sole use is
+# `#![cfg_attr(all(nightly, doc), feature(doc_cfg))]` -- a docs attribute that
+# gates nothing dependent-visible. The `rustc-check-cfg` line only teaches
+# rustc that `cfg(nightly)` is a known name, suppressing a lint rather than
+# changing what compiles. The third is a `cargo:warning` for rustc < 1.58,
+# unreachable on any toolchain this repository supports.
+buildscript.run = false

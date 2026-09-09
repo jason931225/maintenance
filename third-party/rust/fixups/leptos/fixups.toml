@@ -1,0 +1,14 @@
+# Skipped. The script emits `rustc_nightly` on the nightly channel, and
+# `getrandom_backend="wasm_js"` when TARGET is wasm32-unknown-unknown.
+#
+# Neither reaches anything here. A build script's `rustc-cfg` applies only to
+# the crate that emits it, and `getrandom_backend` appears nowhere in leptos
+# outside build.rs -- getrandom reads that cfg on its own compilation, not from
+# a dependent's script. The Buck graph is host-only, so the wasm arm never
+# fires: the generated `leptos-0.9-build-script-run[rustc_flags]` artifact is
+# empty, measured at 0 bytes. Running it buys two targets and an execution for
+# no output.
+#
+# The wasm32 hydrate bundle is built by tools/ui/build-payroll-wasm.sh under
+# Cargo, which runs this script normally; nothing about that path changes here.
+buildscript.run = false

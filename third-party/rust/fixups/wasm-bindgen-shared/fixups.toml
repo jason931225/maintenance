@@ -1,0 +1,18 @@
+# Skipped, and the reason is a Buck-specific hazard rather than a nightly cfg.
+#
+# The script exports two env vars. SCHEMA_FILE_HASH is read in exactly one
+# place -- `src/schema_hash_approval.rs`, inside a `#[test]` that compares it to
+# a hardcoded constant. That is upstream's own self-check; it reaches no
+# dependent, and reindeer emits no test target for this crate, so the item is
+# stripped from every build here. (`SCHEMA_VERSION`, the value the wasm-bindgen
+# CLI actually handshakes on, is a plain `const` in src/lib.rs and never
+# touched by the script.)
+#
+# WBG_VERSION is the reason this must NOT run. The script shells out to
+# `git rev-parse HEAD`. Under Cargo it executes inside the registry checkout,
+# which is not a git repository, so the variable is absent. Under Buck the
+# working directory is this repository, so it captures CONSOLE's HEAD and bakes
+# it into `wasm_bindgen_shared::version()` -- a foreign SHA, with no input
+# dependency on `.git`, frozen at whatever the first execution saw and different
+# per checkout. Not running the script is both hermetic and what Cargo does.
+buildscript.run = false

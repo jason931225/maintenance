@@ -1,0 +1,12 @@
+# The script's only output is `rustc_nightly`, emitted solely on the nightly
+# channel. Its one use in the crate is additionally gated on
+# `feature = "nightly"` (src/lib.rs:1, `feature(proc_macro_span)`), which no
+# first-party manifest enables, so the code it guards is unreachable here
+# regardless of channel.
+#
+# CI pins the compiler explicitly (`toolchain: "1.97.1"` on every Rust job in
+# .github/workflows/ci.yml). The root Buck build uses `system_rust_toolchain`
+# and there is no root rust-toolchain.toml, so the channel is the developer's
+# ambient default locally -- the feature gate above is what makes that
+# difference immaterial.
+buildscript.run = false

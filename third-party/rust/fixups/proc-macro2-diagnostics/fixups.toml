@@ -1,0 +1,12 @@
+# The script emits `nightly_diagnostics` when the channel supports unstable
+# features. Unlike its neighbours this cfg is NOT additionally feature-gated
+# (src/lib.rs, diagnostic.rs, line.rs all read it directly), so the decision
+# rests on the channel alone.
+#
+# CI pins the compiler explicitly (`toolchain: "1.97.1"` on every Rust job in
+# .github/workflows/ci.yml), so the hosted build is stable and Cargo would emit
+# nothing either. The root Buck build uses `system_rust_toolchain` with no root
+# rust-toolchain.toml, so a developer whose ambient default is nightly would
+# see Cargo and Buck disagree here. That is the one crate in this set where
+# that gap is observable; it is recorded rather than hidden.
+buildscript.run = false

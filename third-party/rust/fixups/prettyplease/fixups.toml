@@ -1,0 +1,6 @@
+# The script emits three `rustc-check-cfg` names -- lint vocabulary, not
+# codegen -- and `cargo:VERSION`. The crate DOES declare `links =
+# "prettyplease02"`, so that metadata would surface to dependents' build
+# scripts as DEP_PRETTYPLEASE02_VERSION; nothing in this closure reads it.
+# Skipping therefore changes nothing that is compiled or consumed.
+buildscript.run = false
