@@ -6,7 +6,7 @@ date: 2026-09-08
 owner: jasonlee
 decision: ssr-document-authorization-transport
 proposes_amendments_to: [ADR-0030]
-related: [ADR-0004, ADR-0025, ADR-0030, ADR-0041]
+related: [ADR-0004, ADR-0025, ADR-0030, ADR-0041, ADR-0043]
 ---
 
 # ADR-0042 — Authorization transport for SSR documents
