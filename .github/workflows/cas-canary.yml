@@ -69,21 +69,21 @@ jobs:
       # A build failure here prints only its last lines, and the CAS server's
       # own log is never surfaced at all -- so a failure that is not the
       # assertion this job makes costs an investigation with no evidence.
+      # `${{ github.run_attempt }}` in the name, not `overwrite: true`. A job
+      # re-run keeps the same run_id, so a fixed name collides on the second
+      # attempt: the action's default refuses and reds a job whose build and
+      # assertion both passed, while `overwrite: true` DELETES the earlier
+      # attempt -- which on the canonical flake (fails, re-run, passes) throws
+      # away the failing log this workflow exists to keep. A per-attempt name
+      # avoids the collision and keeps every attempt.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: cas-canary-seed-logs
+          name: cas-canary-seed-logs-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/buck-seed.log
             ${{ runner.temp }}/nativelink.log
           if-no-files-found: ignore
-          # A job re-run keeps the same run_id, so the second attempt uploads
-          # the same artifact name. The action's default (overwrite: false)
-          # FAILS on that collision, and this step is `if: always()` with no
-          # continue-on-error -- so a re-run would red a job whose build and
-          # assertion both passed. Re-running is the dominant Day-2 operation
-          # for a workflow that exists to diagnose flakes.
-          overwrite: true
           # Matches the repo's only other artifacts (image-release.yml). These
           # upload on every push to every PR and the tee'd buck log is
           # unbounded; nothing prunes artifacts, so the bound is the retention.
@@ -131,18 +131,11 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: cas-canary-consume-logs
+          name: cas-canary-consume-logs-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/buck-consume.log
             ${{ runner.temp }}/nativelink.log
           if-no-files-found: ignore
-          # A job re-run keeps the same run_id, so the second attempt uploads
-          # the same artifact name. The action's default (overwrite: false)
-          # FAILS on that collision, and this step is `if: always()` with no
-          # continue-on-error -- so a re-run would red a job whose build and
-          # assertion both passed. Re-running is the dominant Day-2 operation
-          # for a workflow that exists to diagnose flakes.
-          overwrite: true
           # Matches the repo's only other artifacts (image-release.yml). These
           # upload on every push to every PR and the tee'd buck log is
           # unbounded; nothing prunes artifacts, so the bound is the retention.
