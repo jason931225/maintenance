@@ -665,6 +665,35 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         self.assertNotIn("CARGO_PKG_NAME", itest, itest)
         self.assertIn("CARGO_MANIFEST_DIR", itest)
 
+        # (3) The bin-only shape is a THIRD emission branch -- one rust_binary
+        # built from the whole src tree, no library face at all -- and it is
+        # reached by neither assertion above. Left untested it is the same
+        # partial-mechanism shape F7 was raised about, one level down.
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_binonly"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-binonly"] = {"unit": "none"}
+        GENERATOR.RESOURCE_CONFIG["probe-binonly"] = {"default_features": True}
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "main.rs").write_text(
+                "fn main() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-binonly"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["only"]\nonly = []\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), "probe-binonly", [], {}, [], {}, version="1.2.3")
+            binonly = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-binonly", None)
+            GENERATOR.RESOURCE_CONFIG.pop("probe-binonly", None)
+
+        self.assertIn("rust_binary(", binonly)
+        self.assertNotIn("rust_library(", binonly)
+        self.assertEqual(2, binonly.count('features = ["only"]'), binonly)
+
     def test_openapi_tree_is_exported_only_where_it_is_consumed(self) -> None:
         """Review finding F9 on #1080: keying the export on the existence of an
         `openapi/` directory published 34 PUBLIC targets for 1 consumer. The
