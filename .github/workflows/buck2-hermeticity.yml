@@ -50,11 +50,32 @@ jobs:
           endpoint: "127.0.0.1:50051"
           role: writer
 
+      # This step is the ONLY assertion this workflow makes -- the one below
+      # it is `du -sh ... || true`. Without pipefail, GitHub's `bash -e` takes
+      # the exit code of `tail`, so a BUILD FAILED here exited 0 and the gate
+      # reported success: it could not fail. All 22 scheduled runs to date are
+      # genuinely BUILD SUCCEEDED, so nothing was masked -- the vacuity was
+      # latent. Same defect this PR fixes in the canary's seed step; found by
+      # the review of that fix.
       - name: Build the Buck2 gate graph
         run: |
+          set -o pipefail
           tools/buck2 --isolation-dir ci build --config-file infra/ci/buckconfig/warm-cache.buckconfig \
             ${{ steps.warm.outputs.flags }} \
-            //backend/ci/gates/... --console=simple 2>&1 | tail -12
+            //backend/ci/gates/... --console=simple 2>&1 \
+            | tee "${RUNNER_TEMP}/buck-hermeticity.log" | tail -12
+      # ...and `tail -12` throws the rest away, which is the evidence loss the
+      # rest of this change is about. Keep it for the same reason.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: buck2-hermeticity-logs
+          path: |
+            ${{ runner.temp }}/buck-hermeticity.log
+            ${{ runner.temp }}/nativelink.log
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 1
 
       - name: Report cache effectiveness
         if: always()

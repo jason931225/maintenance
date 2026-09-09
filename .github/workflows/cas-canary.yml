@@ -77,7 +77,17 @@ jobs:
             ${{ runner.temp }}/buck-seed.log
             ${{ runner.temp }}/nativelink.log
           if-no-files-found: ignore
-          retention-days: 7
+          # A job re-run keeps the same run_id, so the second attempt uploads
+          # the same artifact name. The action's default (overwrite: false)
+          # FAILS on that collision, and this step is `if: always()` with no
+          # continue-on-error -- so a re-run would red a job whose build and
+          # assertion both passed. Re-running is the dominant Day-2 operation
+          # for a workflow that exists to diagnose flakes.
+          overwrite: true
+          # Matches the repo's only other artifacts (image-release.yml). These
+          # upload on every push to every PR and the tee'd buck log is
+          # unbounded; nothing prunes artifacts, so the bound is the retention.
+          retention-days: 1
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/nativelink-cas
@@ -126,7 +136,17 @@ jobs:
             ${{ runner.temp }}/buck-consume.log
             ${{ runner.temp }}/nativelink.log
           if-no-files-found: ignore
-          retention-days: 7
+          # A job re-run keeps the same run_id, so the second attempt uploads
+          # the same artifact name. The action's default (overwrite: false)
+          # FAILS on that collision, and this step is `if: always()` with no
+          # continue-on-error -- so a re-run would red a job whose build and
+          # assertion both passed. Re-running is the dominant Day-2 operation
+          # for a workflow that exists to diagnose flakes.
+          overwrite: true
+          # Matches the repo's only other artifacts (image-release.yml). These
+          # upload on every push to every PR and the tee'd buck log is
+          # unbounded; nothing prunes artifacts, so the bound is the retention.
+          retention-days: 1
 
   prune:
     name: Keep the shared cache budget bounded
