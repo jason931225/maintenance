@@ -547,10 +547,10 @@ impl PgEmploymentPort {
         from: Option<OffsetDateTime>,
         to: Option<OffsetDateTime>,
     ) -> Result<Vec<EmploymentHead>, EmploymentError> {
-        if let (Some(start), Some(end)) = (from, to) {
-            if start >= end {
-                return Err(EmploymentError::InvertedRange);
-            }
+        if let (Some(start), Some(end)) = (from, to)
+            && start >= end
+        {
+            return Err(EmploymentError::InvertedRange);
         }
         if from.is_none() && to.is_none() {
             return self.list(org_id);

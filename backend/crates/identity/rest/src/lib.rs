@@ -214,10 +214,9 @@ impl IdentityRestState {
         &self,
         headers: &HeaderMap,
     ) -> Vec<VisibleDirectoryPerson> {
-        match list_visible_directory_people(self, headers).await {
-            Ok(people) => people,
-            Err(_) => Vec::new(),
-        }
+        list_visible_directory_people(self, headers)
+            .await
+            .unwrap_or_default()
     }
 }
 

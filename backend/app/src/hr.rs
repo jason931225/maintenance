@@ -1455,12 +1455,12 @@ async fn list_employments(
 ) -> Result<Json<Vec<employment::EmploymentHead>>, HrError> {
     authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
     record_hr_read("employments");
-    if let (Some(from), Some(to)) = (query.from, query.to) {
-        if from >= to {
-            return Err(HrError::validation(
-                "from/to must be a non-empty half-open window (from < to)",
-            ));
-        }
+    if let (Some(from), Some(to)) = (query.from, query.to)
+        && from >= to
+    {
+        return Err(HrError::validation(
+            "from/to must be a non-empty half-open window (from < to)",
+        ));
     }
     let org = principal.org_id;
     let pool = state.pool.clone();

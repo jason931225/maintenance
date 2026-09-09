@@ -1138,7 +1138,7 @@ fn skip_item(source: &str) -> &str {
     ""
 }
 
-fn skip_delimited<'a>(source: &'a str, open: char, close: char) -> Option<&'a str> {
+fn skip_delimited(source: &str, open: char, close: char) -> Option<&str> {
     if !source.starts_with(open) {
         return None;
     }
@@ -1405,10 +1405,10 @@ fn intelligence_and_chat_http_surfaces_are_absent() {
             );
             saw_ui_pkg = true;
             for route in route_calls(source, &[]) {
-                if let Some(path) = route.path {
-                    if matches!(path.as_str(), "/" | "/organization" | "/hr" | "/payroll") {
-                        ui_routes.insert(path);
-                    }
+                if let Some(path) = route.path
+                    && matches!(path.as_str(), "/" | "/organization" | "/hr" | "/payroll")
+                {
+                    ui_routes.insert(path);
                 }
             }
         }
