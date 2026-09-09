@@ -4,6 +4,57 @@ use serde::{Deserialize, Serialize};
 
 const PKG_JS: &str = "/pkg/console_payroll_ui.js";
 const PKG_WASM: &str = "/pkg/console_payroll_ui_bg.wasm";
+/// The whole stylesheet, inlined.
+///
+/// It is inlined rather than served because the unauthorized shell must carry
+/// no `/pkg/` reference at all -- an external stylesheet there would be a
+/// request an unauthenticated visitor makes, and the test that pins the empty
+/// shell forbids it. Inlining also costs the authorized screens no extra
+/// round trip. No `>` in any selector: `<style>` content is emitted raw, and
+/// descendant selectors keep the sheet independent of that.
+const STYLE: &str = "\
+:root{color-scheme:light dark;--bg:#f5f6f8;--surface:#fff;--line:#e4e7ec;--ink:#111418;\
+--muted:#5c6773;--accent:#2563c7;--chip:#eef1f5;--chip-ink:#41505f;--flag:#fdeceb;--flag-ink:#9a2b25}\
+@media (prefers-color-scheme:dark){:root{--bg:#0e1115;--surface:#161a20;--line:#252b33;\
+--ink:#e7ebf0;--muted:#98a3af;--accent:#6ea8fe;--chip:#212831;--chip-ink:#c3ccd6;\
+--flag:#3b1d1c;--flag-ink:#f0a6a1}}\
+*{box-sizing:border-box}\
+[hidden]{display:none!important}\
+body{margin:0;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;\
+font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','Noto Sans KR',sans-serif}\
+a{color:inherit;text-decoration:none}\
+header.app{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:22px;\
+height:56px;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--line)}\
+.brand{font-weight:650;letter-spacing:-.01em;font-size:15px}\
+header.app nav{display:flex;gap:2px}\
+header.app nav a{padding:6px 12px;border-radius:8px;color:var(--muted);font-weight:550}\
+header.app nav a:hover{background:var(--chip);color:var(--ink)}\
+header.app nav a[aria-current]{background:var(--chip);color:var(--ink)}\
+main{max-width:1020px;margin:0 auto;padding:26px 24px 72px}\
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;\
+margin:0 0 20px;overflow:hidden}\
+.panel h2{margin:0;padding:13px 18px;font-size:12px;font-weight:650;letter-spacing:.05em;\
+text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}\
+.toolbar{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--line)}\
+.fl{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}\
+select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);\
+color:var(--ink);font:inherit;font-size:14px}\
+select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}\
+.row{display:flex;align-items:baseline;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line)}\
+.row:last-child{border-bottom:0}\
+.row:hover{background:var(--bg)}\
+.row .name{font-weight:550;flex:0 0 auto}\
+.row .meta{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;\
+color:var(--muted);font-size:13px}\
+.row .rev{flex:0 0 auto;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}\
+.badge{flex:0 0 auto;margin-left:auto;padding:3px 9px;border-radius:999px;background:var(--chip);\
+color:var(--chip-ink);font-size:12px;font-weight:600;letter-spacing:.02em}\
+.badge[data-status*='BLOCK']{background:var(--flag);color:var(--flag-ink)}\
+.state{margin:0;padding:34px 18px;text-align:center;color:var(--muted)}\
+@media (max-width:640px){header.app{gap:12px;padding:0 14px}main{padding:18px 14px 56px}\
+.row{flex-wrap:wrap;gap:6px 12px}.row .meta{flex:1 0 100%;order:3}}\
+";
+
 const ISLAND_BOOTSTRAP: &str = concat!(
     include_str!("island_script.js"),
     "(\"\", \"pkg\", \"console_payroll_ui\", \"console_payroll_ui_bg\");"
@@ -119,45 +170,113 @@ pub enum UiScreen {
     Payroll,
 }
 
+/// Presentation-only revision chip. The raw value stays in `data-version`;
+/// this is the label a reader sees.
+fn revision_label(version: &str) -> String {
+    if version.is_empty() {
+        String::new()
+    } else {
+        format!("v{version}")
+    }
+}
+
+/// Calendar day of an effective-dated value. Employment carries an RFC 3339
+/// instant, but a reader of an appointment wants the day, not the zero clock
+/// time. Presentation only -- `data-appointed-on` keeps the exact value.
+fn day_of(value: &str) -> String {
+    value
+        .split_once('T')
+        .map_or_else(|| value.to_owned(), |(day, _)| day.to_owned())
+}
+
 #[component]
 pub fn Shell() -> impl IntoView {
     view! {
-        <html>
+        <html lang="ko">
             <head>
                 <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>"Console"</title>
+                <style>{STYLE}</style>
             </head>
             <body></body>
         </html>
     }
 }
 
+/// The one hydrated subtree on this surface.
+///
+/// Everything else the shell renders is static SSR. This island carries the
+/// only client behavior: a status filter over the runs the server already
+/// authorized and serialized into `data-props`. It is presentation only --
+/// it changes which authorized rows are *visible*, never which rows exist. No
+/// fetch, no server function, and no business rule runs here, so
+/// deny-by-omission stays a server decision and the client gains nothing it
+/// was not already sent.
 #[island]
 pub fn AuthorizedRuns(runs: Vec<RunSummary>) -> impl IntoView {
-    runs.into_iter()
-        .map(|run| {
-            let href = format!("/api/v1/payroll/runs/{}", run.id);
-            let label = format!(
-                "{}–{} {}",
-                run.period_start, run.period_end, run.source_label
-            );
-            view! {
-                <a href=href>
-                    <span
-                        data-run-id=run.id
-                        data-period-start=run.period_start
-                        data-period-end=run.period_end
-                        data-source-label=run.source_label
-                        data-status=run.status
-                        data-calculation-enabled=run.calculation_enabled.to_string()
-                        data-created-at=run.created_at
-                        data-updated-at=run.updated_at
-                    >
-                        {label}
-                    </span>
-                </a>
-            }
-        })
-        .collect_view()
+    // Empty means "전체". The options come from the rows in hand, so the
+    // control can never name a status this actor was not sent.
+    let selected = RwSignal::new(String::new());
+    let mut statuses: Vec<String> = runs.iter().map(|run| run.status.clone()).collect();
+    statuses.sort_unstable();
+    statuses.dedup();
+    view! {
+        <div class="toolbar">
+            <label class="fl" for="run-status">"상태"</label>
+            <select
+                id="run-status"
+                data-run-status-filter=""
+                on:change:target=move |ev| selected.set(ev.target().value())
+            >
+                <option value="">"전체"</option>
+                {statuses
+                    .into_iter()
+                    .map(|status| {
+                        let label = status.clone();
+                        view! { <option value=status>{label}</option> }
+                    })
+                    .collect_view()}
+            </select>
+        </div>
+        {runs
+            .into_iter()
+            .map(|run| {
+                let href = format!("/api/v1/payroll/runs/{}", run.id);
+                let period = format!("{}–{}", run.period_start, run.period_end);
+                let source = run.source_label.clone();
+                let badge = run.status.clone();
+                let badge_key = run.status.clone();
+                // Visibility only. SSR selects nothing, so every authorized row
+                // is served unhidden and a client that never hydrates still
+                // sees the whole authorized listing.
+                let status = run.status.clone();
+                let filtered_out = move || {
+                    let selected = selected.get();
+                    !selected.is_empty() && selected != status
+                };
+                view! {
+                    <a class="row" href=href hidden=filtered_out>
+                        <span
+                            class="name"
+                            data-run-id=run.id
+                            data-period-start=run.period_start
+                            data-period-end=run.period_end
+                            data-source-label=run.source_label
+                            data-status=run.status
+                            data-calculation-enabled=run.calculation_enabled.to_string()
+                            data-created-at=run.created_at
+                            data-updated-at=run.updated_at
+                        >
+                            {period}
+                        </span>
+                        <span class="meta">{source}</span>
+                        <span class="badge" data-status=badge_key>{badge}</span>
+                    </a>
+                }
+            })
+            .collect_view()}
+    }
 }
 
 #[component]
@@ -171,9 +290,12 @@ fn Companies(companies: Vec<CompanyView>) -> impl IntoView {
             } else {
                 company.legal_name.clone()
             };
+            let meta = company.reg_no.clone();
+            let version = revision_label(&company.version);
             view! {
-                <a href=href>
+                <a class="row" href=href>
                     <span
+                        class="name"
                         data-org-id=company.org_id
                         data-legal-name=company.legal_name
                         data-reg-no=company.reg_no
@@ -181,6 +303,8 @@ fn Companies(companies: Vec<CompanyView>) -> impl IntoView {
                     >
                         {label}
                     </span>
+                    <span class="meta">{meta}</span>
+                    <span class="rev">{version}</span>
                 </a>
             }
         })
@@ -198,9 +322,12 @@ fn OrgUnits(units: Vec<OrgUnitView>) -> impl IntoView {
             } else {
                 unit.name.clone()
             };
+            let meta = unit.parent_id.clone();
+            let version = revision_label(&unit.version);
             view! {
-                <a href=href>
+                <a class="row" href=href>
                     <span
+                        class="name"
                         data-org-unit-id=unit.id
                         data-name=unit.name
                         data-parent-id=unit.parent_id
@@ -208,6 +335,8 @@ fn OrgUnits(units: Vec<OrgUnitView>) -> impl IntoView {
                     >
                         {label}
                     </span>
+                    <span class="meta">{meta}</span>
+                    <span class="rev">{version}</span>
                 </a>
             }
         })
@@ -227,9 +356,17 @@ fn DirectoryPeople(people: Vec<PersonView>) -> impl IntoView {
             } else {
                 person.id.clone()
             };
+            // Repeating the display name as its own subtitle is noise.
+            let meta = if person.legal_name == label {
+                String::new()
+            } else {
+                person.legal_name.clone()
+            };
+            let version = revision_label(&person.version);
             view! {
-                <a href=href>
+                <a class="row" href=href>
                     <span
+                        class="name"
                         data-person-id=person.id
                         data-display-name=person.display_name
                         data-legal-name=person.legal_name
@@ -237,6 +374,8 @@ fn DirectoryPeople(people: Vec<PersonView>) -> impl IntoView {
                     >
                         {label}
                     </span>
+                    <span class="meta">{meta}</span>
+                    <span class="rev">{version}</span>
                 </a>
             }
         })
@@ -252,11 +391,14 @@ fn Employments(employments: Vec<EmploymentView>) -> impl IntoView {
             let label = if employment.appointed_on.is_empty() {
                 employment.id.clone()
             } else {
-                employment.appointed_on.clone()
+                day_of(&employment.appointed_on)
             };
+            let meta = employment.person_id.clone();
+            let version = revision_label(&employment.version);
             view! {
-                <a href=href>
+                <a class="row" href=href>
                     <span
+                        class="name"
                         data-employment-id=employment.id
                         data-version=employment.version
                         data-appointed-on=employment.appointed_on
@@ -266,6 +408,8 @@ fn Employments(employments: Vec<EmploymentView>) -> impl IntoView {
                     >
                         {label}
                     </span>
+                    <span class="meta">{meta}</span>
+                    <span class="rev">{version}</span>
                 </a>
             }
         })
@@ -273,13 +417,28 @@ fn Employments(employments: Vec<EmploymentView>) -> impl IntoView {
 }
 
 #[component]
-fn ShippingNav(has_org: bool, has_hr: bool, has_payroll: bool) -> impl IntoView {
+fn ShippingNav(has_org: bool, has_hr: bool, has_payroll: bool, focus: UiScreen) -> impl IntoView {
     view! {
-        <nav>
-            {has_org.then(|| view! { <a href="/organization">"조직"</a> })}
-            {has_hr.then(|| view! { <a href="/hr">"인사"</a> })}
-            {has_payroll.then(|| view! { <a href="/payroll">"급여"</a> })}
-        </nav>
+        <header class="app">
+            <a class="brand" href="/">"Console"</a>
+            <nav>
+                {has_org
+                    .then(|| {
+                        let current = matches!(focus, UiScreen::Organization).then_some("page");
+                        view! { <a href="/organization" aria-current=current>"조직"</a> }
+                    })}
+                {has_hr
+                    .then(|| {
+                        let current = matches!(focus, UiScreen::Hr).then_some("page");
+                        view! { <a href="/hr" aria-current=current>"인사"</a> }
+                    })}
+                {has_payroll
+                    .then(|| {
+                        let current = matches!(focus, UiScreen::Payroll).then_some("page");
+                        view! { <a href="/payroll" aria-current=current>"급여"</a> }
+                    })}
+            </nav>
+        </header>
     }
 }
 
@@ -296,6 +455,7 @@ pub fn AuthorizedShell(runs: Vec<RunSummary>) -> impl IntoView {
             nav_org=false
             nav_hr=false
             nav_payroll=nav_payroll
+            focus=UiScreen::Home
         />
     }
 }
@@ -323,21 +483,24 @@ fn org_body(
     if company_rows.is_empty() && unit_rows.is_empty() {
         if failed {
             return view! {
-                <section data-screen="organization" data-state="failure">
-                    "목록을 불러오지 못했습니다"
+                <section class="panel" data-screen="organization" data-state="failure">
+                    <h2>"조직"</h2>
+                    <p class="state">"목록을 불러오지 못했습니다"</p>
                 </section>
             }
             .into_any();
         }
         return view! {
-            <section data-screen="organization" data-state="empty">
-                "표시할 조직이 없습니다"
+            <section class="panel" data-screen="organization" data-state="empty">
+                <h2>"조직"</h2>
+                <p class="state">"표시할 조직이 없습니다"</p>
             </section>
         }
         .into_any();
     }
     view! {
-        <section data-screen="organization">
+        <section class="panel" data-screen="organization">
+            <h2>"조직"</h2>
             <Companies companies=company_rows />
             <OrgUnits units=unit_rows />
         </section>
@@ -368,21 +531,24 @@ fn hr_body(
     if person_rows.is_empty() && employment_rows.is_empty() {
         if failed {
             return view! {
-                <section data-screen="hr" data-state="failure">
-                    "목록을 불러오지 못했습니다"
+                <section class="panel" data-screen="hr" data-state="failure">
+                    <h2>"인사"</h2>
+                    <p class="state">"목록을 불러오지 못했습니다"</p>
                 </section>
             }
             .into_any();
         }
         return view! {
-            <section data-screen="hr" data-state="empty">
-                "표시할 사람이 없습니다"
+            <section class="panel" data-screen="hr" data-state="empty">
+                <h2>"인사"</h2>
+                <p class="state">"표시할 사람이 없습니다"</p>
             </section>
         }
         .into_any();
     }
     view! {
-        <section data-screen="hr">
+        <section class="panel" data-screen="hr">
+            <h2>"인사"</h2>
             <DirectoryPeople people=person_rows />
             <Employments employments=employment_rows />
         </section>
@@ -394,19 +560,22 @@ fn payroll_body(runs: ScreenSection<RunSummary>) -> impl IntoView {
     match runs {
         ScreenSection::Omitted => ().into_any(),
         ScreenSection::Empty => view! {
-            <section data-screen="payroll" data-state="empty">
-                "표시할 급여 이력이 없습니다"
+            <section class="panel" data-screen="payroll" data-state="empty">
+                <h2>"급여"</h2>
+                <p class="state">"표시할 급여 이력이 없습니다"</p>
             </section>
         }
         .into_any(),
         ScreenSection::Failure => view! {
-            <section data-screen="payroll" data-state="failure">
-                "목록을 불러오지 못했습니다"
+            <section class="panel" data-screen="payroll" data-state="failure">
+                <h2>"급여"</h2>
+                <p class="state">"목록을 불러오지 못했습니다"</p>
             </section>
         }
         .into_any(),
         ScreenSection::Rows(runs) => view! {
-            <section data-screen="payroll">
+            <section class="panel" data-screen="payroll">
+                <h2>"급여"</h2>
                 <AuthorizedRuns runs=runs />
             </section>
         }
@@ -424,25 +593,48 @@ fn ShippingShell(
     nav_org: bool,
     nav_hr: bool,
     nav_payroll: bool,
+    focus: UiScreen,
 ) -> impl IntoView {
     let hydrate_payroll = matches!(&runs, ScreenSection::Rows(rows) if !rows.is_empty());
     view! {
-        <html>
+        <html lang="ko">
             <head>
                 <meta charset="utf-8" />
-                {hydrate_payroll.then(|| {
-                    view! {
-                        <link rel="modulepreload" href=PKG_JS />
-                        <link rel="preload" href=PKG_WASM r#as="fetch" r#type="application/wasm" />
-                        <script type="module">{ISLAND_BOOTSTRAP}</script>
-                    }
-                })}
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>"Console"</title>
+                <style>{STYLE}</style>
+                {hydrate_payroll
+                    .then(|| {
+                        view! {
+                            <link rel="modulepreload" href=PKG_JS />
+                            // `crossorigin` is not decoration. Without it the
+                            // preload's credentials mode does not match the
+                            // module's own fetch, so the browser discards the
+                            // preload and the client downloads the whole
+                            // bundle twice.
+                            <link
+                                rel="preload"
+                                href=PKG_WASM
+                                r#as="fetch"
+                                r#type="application/wasm"
+                                crossorigin="anonymous"
+                            />
+                            <script type="module">{ISLAND_BOOTSTRAP}</script>
+                        }
+                    })}
             </head>
             <body>
-                <ShippingNav has_org=nav_org has_hr=nav_hr has_payroll=nav_payroll />
-                {org_body(companies, org_units)}
-                {hr_body(people, employments)}
-                {payroll_body(runs)}
+                <ShippingNav
+                    has_org=nav_org
+                    has_hr=nav_hr
+                    has_payroll=nav_payroll
+                    focus=focus
+                />
+                <main>
+                    {org_body(companies, org_units)}
+                    {hr_body(people, employments)}
+                    {payroll_body(runs)}
+                </main>
             </body>
         </html>
     }
@@ -511,6 +703,7 @@ pub fn render_screens(screens: &ShippingScreens, focus: UiScreen) -> String {
                 nav_org=nav_org
                 nav_hr=nav_hr
                 nav_payroll=nav_payroll
+                focus=focus
             />
         }
         .to_html(),
@@ -688,8 +881,12 @@ mod tests {
             html.contains("href=\"/api/v1/payroll/runs/00000000-0000-0000-0000-000000000001\""),
             "payroll drill-through must use the existing run GET: {html}"
         );
+        // Anchored on `>text<` so this proves the value is rendered content,
+        // not merely a data-* attribute. Stronger than matching a concatenated
+        // string, and independent of how the row lays the two values out.
         assert!(
-            html.contains("2026-06-01–2026-06-30 workflow_runtime_m2:run:example"),
+            html.contains(">2026-06-01–2026-06-30<")
+                && html.contains(">workflow_runtime_m2:run:example<"),
             "payroll drill-through must show human-safe period and source_label: {html}"
         );
         assert!(
@@ -711,11 +908,132 @@ mod tests {
             b"\0asm",
             "committed wasm must be a Wasm module"
         );
+        // Close the binding: SSR -> JS -> wasm. Without this a fresh bindgen JS
+        // paired with a stale wasm passes, because the JS carries the export
+        // name and the wasm was only checked for its magic bytes.
+        let needle = component.as_bytes();
+        assert!(
+            payroll_ui_wasm().windows(needle.len()).any(|w| w == needle),
+            "committed wasm must contain the {component} export the SSR page names"
+        );
         assert!(
             !render_shell().contains("AuthorizedRuns"),
             "empty shell must not emit an island: {}",
             render_shell()
         );
+    }
+
+    /// The island must own a presentation-only status filter.
+    ///
+    /// This is the only client behavior on the surface, and it is what makes
+    /// selective hydration observable: without it the island re-renders markup
+    /// identical to SSR and a broken bundle is indistinguishable from a working
+    /// one. The filter changes visibility of rows the server already
+    /// authorized; it never adds, removes, or requests a row, so deny-by-
+    /// omission stays a server decision.
+    #[test]
+    fn authorized_runs_island_owns_a_presentation_only_status_filter() {
+        let runs = vec![
+            run_with("00000000-0000-0000-0000-000000000001", "DRAFT"),
+            run_with("00000000-0000-0000-0000-000000000002", "BLOCKED_LEGAL_GATE"),
+            run_with("00000000-0000-0000-0000-000000000003", "DRAFT"),
+        ];
+        let html = render_shell_with(&runs);
+        let island = island_subtree(&html).unwrap_or("");
+        assert!(
+            !island.is_empty(),
+            "authorized runs must be an island: {html}"
+        );
+
+        // Inside the island subtree, so hydration owns the control. A filter
+        // rendered in the static shell would never receive an event listener.
+        assert!(
+            island.contains("data-run-status-filter"),
+            "island must carry the status filter: {island}"
+        );
+
+        // Options are exactly the distinct statuses of the authorized rows plus
+        // the all-option: no fixed enum, no status this actor was not sent.
+        assert!(
+            island.contains(r#"<option value="">"#),
+            "filter must offer an all-option: {island}"
+        );
+        for status in ["DRAFT", "BLOCKED_LEGAL_GATE"] {
+            assert!(
+                island.contains(&format!(r#"<option value="{status}">"#)),
+                "filter must offer authorized status {status}: {island}"
+            );
+        }
+        assert_eq!(
+            island.matches("<option").count(),
+            3,
+            "filter must offer the all-option and each distinct status once: {island}"
+        );
+        assert!(
+            !island.contains("PAYABLE") && !island.contains("APPROVED"),
+            "filter must not invent a status the actor was not sent: {island}"
+        );
+
+        // Every authorized row is served, none pre-hidden. Filtering is client
+        // visibility over server-composed membership.
+        assert_eq!(
+            island.matches("data-run-id=").count(),
+            3,
+            "server must send every authorized row unfiltered: {island}"
+        );
+        // Scoped to each anchor's open tag: that keeps the serialized
+        // `data-props` out of range -- a run whose `source_label` merely
+        // contained the word must not fail this -- while keeping the form
+        // Leptos actually emits in range. It renders a boolean attribute bare
+        // (` hidden`, never ` hidden="..."`) and puts `class` last, so matching
+        // on ` hidden=` or ` hidden>` would be a check that cannot fail.
+        // Counted first so the loop cannot pass vacuously. The row count
+        // asserted above does not imply an anchor exists -- rewriting the row
+        // element would keep `data-run-id` at three and silently zero this.
+        let anchors: Vec<&str> = island.split("<a ").skip(1).collect();
+        assert_eq!(
+            anchors.len(),
+            3,
+            "every authorized row must be an anchor: {island}"
+        );
+        for tag in anchors {
+            let open = tag.split_once('>').map_or(tag, |(open, _)| open);
+            assert!(
+                !open.contains(" hidden"),
+                "SSR must not pre-hide an authorized row: {island}"
+            );
+        }
+        // The filter's only effect. `.row` sets `display:flex` and both
+        // selectors have specificity (0,1,0), so without `!important` the
+        // later rule wins on source order and the `hidden` attribute is inert:
+        // the island hydrates, the control responds, and nothing disappears.
+        // No Rust test can observe that symptom, so pin the rule itself.
+        assert!(
+            STYLE.contains("[hidden]{display:none!important}"),
+            "the status filter works by toggling `hidden`; this rule is what makes it visible"
+        );
+
+        // The unauthorized shell gains nothing.
+        assert!(
+            !render_shell().contains("data-run-status-filter"),
+            "empty shell must not carry the filter: {}",
+            render_shell()
+        );
+    }
+
+    fn run_with(id: &str, status: &str) -> RunSummary {
+        RunSummary {
+            id: id.to_owned(),
+            status: status.to_owned(),
+            ..sample_run()
+        }
+    }
+
+    /// The `<leptos-island>` subtree only. Everything else on the page is static
+    /// shell that never hydrates.
+    fn island_subtree(html: &str) -> Option<&str> {
+        let (_, rest) = html.split_once("<leptos-island ")?;
+        rest.split_once("</leptos-island>").map(|(inner, _)| inner)
     }
 
     fn island_component(html: &str) -> Option<&str> {

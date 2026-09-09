@@ -443,6 +443,90 @@ mod authorized {
         }
     }
 
+    /// ADR-0042 tripwire. This is **not** a claim that the behavior is correct.
+    ///
+    /// A browser cannot attach `Authorization` to a top-level navigation, and
+    /// `bearer_token()` accepts no other transport, so a person who navigates to
+    /// the SSR screens gets the empty shell however they authenticated. Every
+    /// other UI test sets the header programmatically, as an HTTP client must,
+    /// so the suite proves composition is right GIVEN a principal and says
+    /// nothing about whether the intended client can supply one. This pins that
+    /// asymmetry where a reader of the suite can see it.
+    ///
+    /// What it does NOT do is detect an arbitrary future transport. It sends
+    /// one credential shape -- `console_refresh` carrying an access token --
+    /// so it goes red only for a fix that reuses that exact cookie. ADR-0042's
+    /// recommended option mints a *new* cookie beside the existing pair, and
+    /// the client-bootstrap option keeps serving this very shell, so neither
+    /// would turn this red. Treat it as a pin on today's behavior and a
+    /// pointer to the ADR, not as a gate on the fix: when a transport lands,
+    /// delete this and put the positive test in its place -- a
+    /// navigation-shaped request renders the authorized screens.
+    ///
+    /// The cookie is deliberately unrealistic in the browser's favor.
+    /// `console_refresh` is `HttpOnly; SameSite=Strict; Path=/api/v1/auth` and
+    /// carries a refresh token, so a real browser would never send it to `/`
+    /// and it would never hold an access token. Handing it one anyway makes
+    /// the negative result stronger, not representative.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn browser_navigation_reaches_no_authorized_screen_adr_0042(pool: PgPool) {
+        let keys = keys();
+        let org = OrgId::knl();
+        let admin = UserId::new();
+        seed_user(&pool, org, admin, "SUPER_ADMIN").await;
+        let run = seed_run(&pool, org, admin).await;
+        let service = build_router(jwt_app_state(
+            runtime_role_pool(&pool).await,
+            keys.public_pem.clone(),
+        ));
+        let token = bearer(&keys, org, admin, "SUPER_ADMIN");
+
+        // One principal, over the transport an HTTP client can use.
+        let (status, with_header) = get_ui(service.clone(), Some(&token)).await;
+        assert_eq!(status, StatusCode::OK, "{with_header}");
+        assert!(
+            with_header.contains(&format!("data-run-id=\"{run}\"")),
+            "header transport must reach the authorized run: {with_header}"
+        );
+        assert!(
+            with_header.contains("leptos-island"),
+            "header transport must reach the hydrated island: {with_header}"
+        );
+
+        // The same principal, over what a browser navigation can carry.
+        // Generous on purpose: this hands the browser a real access token in
+        // the only cookie the system sets at all -- a cookie that is
+        // path-scoped away from `/` and never holds an access token. Even so
+        // the page is empty.
+        let navigation = Request::builder()
+            .uri("/")
+            .header(
+                header::USER_AGENT,
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            )
+            .header(header::ACCEPT, "text/html,application/xhtml+xml")
+            .header(header::COOKIE, format!("console_refresh={token}"))
+            .header("upgrade-insecure-requests", "1")
+            .body(Body::empty())
+            .unwrap();
+        let response = service.oneshot(navigation).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let navigated = String::from_utf8(bytes.to_vec()).unwrap();
+
+        assert_eq!(
+            navigated,
+            console_payroll_ui::render_shell(),
+            "ADR-0042: a navigation still renders the empty shell. If this line \
+             failed, a cookie transport now exists -- replace this test with \
+             the positive one rather than loosening it."
+        );
+        assert!(
+            !navigated.contains(&run.to_string()) && !navigated.contains("leptos-island"),
+            "the empty shell must leak neither the run nor the island: {navigated}"
+        );
+    }
+
     async fn get_ui(app: axum::Router, token: Option<&str>) -> (StatusCode, String) {
         get_ui_path(app, "/", token).await
     }

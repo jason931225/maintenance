@@ -596,7 +596,7 @@
     "status": "active",
     "replacement": null,
     "retention": "retain",
-    "blob_sha": "dcc8d39fad1a742c72f2aece266d3f200f14613c",
+    "blob_sha": "3d7e583d21e6e885a50272a0329df7b3b00c2843",
     "archive_tag": null
   },
   {
@@ -606,7 +606,7 @@
     "status": "active",
     "replacement": null,
     "retention": "retain",
-    "blob_sha": "7bfd1c248aec3890465fe7e8b16022a8d9c4f3a6",
+    "blob_sha": "797e3fe2a797d11b25d2659b276102bfa9d10325",
     "archive_tag": null
   },
   {
@@ -1010,13 +1010,23 @@
     "archive_tag": null
   },
   {
+    "path": "docs/decisions/ADR-0042-ssr-document-authorization-transport.md",
+    "class": "decision",
+    "owner": "repository maintainers",
+    "status": "active",
+    "replacement": null,
+    "retention": "retain",
+    "blob_sha": "cd3fb1f6ef129227454aace1a9f0f6078a6023fd",
+    "archive_tag": null
+  },
+  {
     "path": "docs/decisions/README.md",
     "class": "decision",
     "owner": "repository maintainers",
     "status": "active",
     "replacement": null,
     "retention": "retain",
-    "blob_sha": "fecfa578345a4914251ebd9329917fad6a2ec7b2",
+    "blob_sha": "3be32e887fc9b7dd50a58d2930c408293eb5aa6e",
     "archive_tag": null
   },
   {
