@@ -821,9 +821,10 @@ mod tests {
 
     fn yaml_schema_required_keys<'a>(doc: &'a str, schema: &str) -> Vec<&'a str> {
         let header = format!("    {schema}:\n");
-        let found = doc.split_once(&header);
-        assert!(found.is_some(), "OpenAPI must declare schema {schema}");
-        let rest = found.unwrap_or_default().1;
+        let rest = doc
+            .split_once(&header)
+            .unwrap_or_else(|| panic!("OpenAPI must declare schema {schema}"))
+            .1;
         yaml_required_keys(rest)
     }
 
@@ -972,9 +973,21 @@ mod tests {
             3,
             "server must send every authorized row unfiltered: {island}"
         );
+        // Targeted at the rendered anchor. `island_subtree` includes the
+        // serialized `data-props`, so a bare substring check would also fail
+        // on a run whose `source_label` or `status` merely contained the word.
         assert!(
-            !island.contains("hidden"),
+            !island.contains(" hidden>") && !island.contains(" hidden="),
             "SSR must not pre-hide an authorized row: {island}"
+        );
+        // The filter's only effect. `.row` sets `display:flex` and both
+        // selectors have specificity (0,1,0), so without `!important` the
+        // later rule wins on source order and the `hidden` attribute is inert:
+        // the island hydrates, the control responds, and nothing disappears.
+        // No Rust test can observe that symptom, so pin the rule itself.
+        assert!(
+            STYLE.contains("[hidden]{display:none!important}"),
+            "the status filter works by toggling `hidden`; this rule is what makes it visible"
         );
 
         // The unauthorized shell gains nothing.

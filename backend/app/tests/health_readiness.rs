@@ -453,10 +453,21 @@ mod authorized {
     /// nothing about whether the intended client can supply one. This pins that
     /// asymmetry where a reader of the suite can see it.
     ///
-    /// It is green while the defect stands and MUST go red when a
-    /// browser-usable transport lands. Do not repair it by relaxing the
-    /// assertion: delete it and put the positive test in its place -- a
+    /// What it does NOT do is detect an arbitrary future transport. It sends
+    /// one credential shape -- `console_refresh` carrying an access token --
+    /// so it goes red only for a fix that reuses that exact cookie. ADR-0042's
+    /// recommended option mints a *new* cookie beside the existing pair, and
+    /// the client-bootstrap option keeps serving this very shell, so neither
+    /// would turn this red. Treat it as a pin on today's behavior and a
+    /// pointer to the ADR, not as a gate on the fix: when a transport lands,
+    /// delete this and put the positive test in its place -- a
     /// navigation-shaped request renders the authorized screens.
+    ///
+    /// The cookie is deliberately unrealistic in the browser's favor.
+    /// `console_refresh` is `HttpOnly; SameSite=Strict; Path=/api/v1/auth` and
+    /// carries a refresh token, so a real browser would never send it to `/`
+    /// and it would never hold an access token. Handing it one anyway makes
+    /// the negative result stronger, not representative.
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn browser_navigation_reaches_no_authorized_screen_adr_0042(pool: PgPool) {
         let keys = keys();
@@ -482,11 +493,11 @@ mod authorized {
             "header transport must reach the hydrated island: {with_header}"
         );
 
-        // The same principal, over what a browser navigation actually sends.
-        // Generous on purpose: this hands the browser the real access token in
-        // the only cookie the system ever sets, which production never does.
-        // The page is still empty, so no browser-reachable credential of any
-        // kind authorizes this document today.
+        // The same principal, over what a browser navigation can carry.
+        // Generous on purpose: this hands the browser a real access token in
+        // the only cookie the system sets at all -- a cookie that is
+        // path-scoped away from `/` and never holds an access token. Even so
+        // the page is empty.
         let navigation = Request::builder()
             .uri("/")
             .header(
@@ -507,8 +518,8 @@ mod authorized {
             navigated,
             console_payroll_ui::render_shell(),
             "ADR-0042: a navigation still renders the empty shell. If this line \
-             failed, a browser-usable transport now exists -- replace this test \
-             with the positive one rather than loosening it."
+             failed, a cookie transport now exists -- replace this test with \
+             the positive one rather than loosening it."
         );
         assert!(
             !navigated.contains(&run.to_string()) && !navigated.contains("leptos-island"),

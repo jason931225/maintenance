@@ -22,9 +22,14 @@ authority and clears no HOLD.
 The Leptos SSR surface authorizes a **document navigation** with an **API
 transport**. Those do not meet, so no browser can reach an authorized screen.
 
-`bearer_token()` in `crates/platform/request-context` is the single merged
-principal extractor. It reads `Authorization: Bearer` and nothing else; there is
-no cookie fallback. That is deliberate: the mint documents the access token as
+`bearer_token()` in `crates/platform/request-context` is the extractor behind
+`resolve_principal`, which both `/` composers reach: the shipping-screen listing
+floors and `visible_run_summaries` via `list_runs_page`. It reads
+`Authorization: Bearer` and nothing else; there is no cookie fallback on these
+routes. (`console-platform-realtime` does accept a token through
+`Sec-WebSocket-Protocol` -- a genuinely browser-usable transport -- but that is a
+WebSocket upgrade, not a document navigation, and it does not compose these
+screens.) That is deliberate: the mint documents the access token as
 *"ALWAYS in the body … a short-lived in-memory bearer token, never a cookie"*,
 and the only cookie in the system, `console_refresh`, is HttpOnly, path-scoped
 to the auth namespace, and read solely by refresh and logout.
@@ -102,4 +107,7 @@ role rather than as an implementation detail.
   change, no cookie, no exposure, and no HOLD clearance.
 - Whichever option is taken needs a regression that fails on a **header-less
   navigation**, so the suite can no longer be green while the browser path is
-  broken.
+  broken. The existing tripwire does not serve that purpose: it sends one
+  credential shape and would stay green for both the recommended cookie option
+  (a new cookie name) and the client-bootstrap option (which keeps serving this
+  shell). Replace it with the positive test rather than relying on it to fail.
