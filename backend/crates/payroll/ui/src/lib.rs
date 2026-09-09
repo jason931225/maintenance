@@ -908,6 +908,14 @@ mod tests {
             b"\0asm",
             "committed wasm must be a Wasm module"
         );
+        // Close the binding: SSR -> JS -> wasm. Without this a fresh bindgen JS
+        // paired with a stale wasm passes, because the JS carries the export
+        // name and the wasm was only checked for its magic bytes.
+        let needle = component.as_bytes();
+        assert!(
+            payroll_ui_wasm().windows(needle.len()).any(|w| w == needle),
+            "committed wasm must contain the {component} export the SSR page names"
+        );
         assert!(
             !render_shell().contains("AuthorizedRuns"),
             "empty shell must not emit an island: {}",
@@ -973,13 +981,19 @@ mod tests {
             3,
             "server must send every authorized row unfiltered: {island}"
         );
-        // Targeted at the rendered anchor. `island_subtree` includes the
-        // serialized `data-props`, so a bare substring check would also fail
-        // on a run whose `source_label` or `status` merely contained the word.
-        assert!(
-            !island.contains(" hidden>") && !island.contains(" hidden="),
-            "SSR must not pre-hide an authorized row: {island}"
-        );
+        // Scoped to each anchor's open tag: that keeps the serialized
+        // `data-props` out of range -- a run whose `source_label` merely
+        // contained the word must not fail this -- while keeping the form
+        // Leptos actually emits in range. It renders a boolean attribute bare
+        // (` hidden`, never ` hidden="..."`) and puts `class` last, so matching
+        // on ` hidden=` or ` hidden>` would be a check that cannot fail.
+        for tag in island.split("<a ").skip(1) {
+            let open = tag.split_once('>').map_or(tag, |(open, _)| open);
+            assert!(
+                !open.contains(" hidden"),
+                "SSR must not pre-hide an authorized row: {island}"
+            );
+        }
         // The filter's only effect. `.row` sets `display:flex` and both
         // selectors have specificity (0,1,0), so without `!important` the
         // later rule wins on source order and the `hidden` attribute is inert:
