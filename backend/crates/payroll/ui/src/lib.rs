@@ -987,7 +987,16 @@ mod tests {
         // Leptos actually emits in range. It renders a boolean attribute bare
         // (` hidden`, never ` hidden="..."`) and puts `class` last, so matching
         // on ` hidden=` or ` hidden>` would be a check that cannot fail.
-        for tag in island.split("<a ").skip(1) {
+        // Counted first so the loop cannot pass vacuously. The row count
+        // asserted above does not imply an anchor exists -- rewriting the row
+        // element would keep `data-run-id` at three and silently zero this.
+        let anchors: Vec<&str> = island.split("<a ").skip(1).collect();
+        assert_eq!(
+            anchors.len(),
+            3,
+            "every authorized row must be an anchor: {island}"
+        );
+        for tag in anchors {
             let open = tag.split_once('>').map_or(tag, |(open, _)| open);
             assert!(
                 !open.contains(" hidden"),
