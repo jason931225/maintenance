@@ -4,6 +4,7 @@
 import importlib.util
 import inspect
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -350,6 +351,234 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         for (crate, test_file), external in expected.items():
             config = GENERATOR.integration_resource_config(crate, test_file)
             self.assertEqual(external, config["external"], f"{crate}:{test_file}")
+
+    def test_cargo_pkg_version_env_tracks_source_references(self) -> None:
+        """Cargo defines CARGO_PKG_VERSION for every crate; Buck2 does not.
+
+        A crate that reaches for it through `env!` cannot compile under Buck
+        unless the generator supplies it, which is how #1015 turned the Buck
+        leg red -- `console-contracts` stamps the composed OpenAPI version from
+        it, so every Buck target depending on contracts stopped building.
+
+        The version deliberately is not `0.1.0`: every versioned member of this
+        workspace is `0.1.0`, so a helper that ignored its `version` argument
+        entirely would satisfy a test written against that value.
+        """
+        self.assertEqual(
+            GENERATOR.cargo_pkg_version_env("pub const UNRELATED: u8 = 1;", "9.9.9-test"),
+            {},
+            "a unit that never names CARGO_PKG_VERSION must not carry it",
+        )
+        self.assertEqual(
+            GENERATOR.cargo_pkg_version_env(
+                'pub const V: &str = env!("CARGO_PKG_VERSION");', "9.9.9-test"
+            ),
+            {"CARGO_PKG_VERSION": "9.9.9-test"},
+            "the emitted value must be this package's version, not a constant",
+        )
+        # `CARGO_PKG_VERSION_MAJOR` is a different variable. A substring match
+        # would define VERSION, leave rustc failing on _MAJOR, and report success.
+        self.assertEqual(
+            GENERATOR.cargo_pkg_version_env(
+                'env!("CARGO_PKG_VERSION_MAJOR")', "9.9.9-test"
+            ),
+            {},
+            "a longer CARGO_PKG_VERSION_* name must not be read as VERSION",
+        )
+
+    def test_cargo_pkg_version_resolves_the_version_cargo_would_use(self) -> None:
+        """23 members omit `version` from `[package]`. Cargo's documented
+        default is 0.0.0, and `[workspace.package]` declares none to inherit, so
+        refusing them would abort generation for the whole repository the first
+        time one of them mentioned the variable -- in a comment, even."""
+        self.assertEqual(GENERATOR.resolved_package_version("0.1.0"), "0.1.0")
+        self.assertEqual(GENERATOR.resolved_package_version(None), "0.0.0")
+        self.assertEqual(GENERATOR.resolved_package_version(""), "0.0.0")
+        # `version.workspace = true` parses as a dict. Rendering it would put a
+        # Python repr in BUCK as the crate version, so it fails closed instead.
+        with self.assertRaises(ValueError):
+            GENERATOR.resolved_package_version({"workspace": True})
+
+    def test_cargo_pkg_version_is_scoped_to_the_referencing_target(self) -> None:
+        """The library, the binary built from `main.rs`, and each integration
+        test are separate compilation units. A single crate-level scan attaches
+        the variable to whichever targets happen to come from `src/` -- too
+        broad for a library that never names it, and too narrow for the binary
+        and the integration tests, which are exactly where `--version` lives.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            (src / "lib.rs").write_text("pub fn helper() {}\n", encoding="utf-8")
+            (src / "main.rs").write_text(
+                'fn main() { println!("{}", env!("CARGO_PKG_VERSION")); }\n',
+                encoding="utf-8",
+            )
+
+            library = GENERATOR.cargo_pkg_version_env(
+                GENERATOR.read_rs_sources(str(src), exclude=("main.rs",)), "9.9.9-test"
+            )
+            binary = GENERATOR.cargo_pkg_version_env(
+                GENERATOR.file_text(str(src / "main.rs")), "9.9.9-test"
+            )
+            self.assertEqual(
+                library, {}, "the library never names it; main.rs is not its unit"
+            )
+            self.assertEqual(
+                binary,
+                {"CARGO_PKG_VERSION": "9.9.9-test"},
+                "the binary compiles main.rs and must carry it",
+            )
+
+            integration = GENERATOR.cargo_pkg_version_env(
+                '#[test]\nfn v() { assert!(!env!("CARGO_PKG_VERSION").is_empty()); }\n',
+                "9.9.9-test",
+            )
+            self.assertEqual(
+                integration,
+                {"CARGO_PKG_VERSION": "9.9.9-test"},
+                "an integration test is its own compilation unit",
+            )
+
+    def test_emit_scopes_cargo_pkg_version_to_the_referencing_target(self) -> None:
+        """Drives `emit` itself, not the helper.
+
+        Asserting the helper on hand-built strings proves it is right when fed
+        the right text; it cannot see whether `emit` feeds the right text to
+        the right target, which is the entire defect class here -- the variable
+        landing on a library that never names it while the binary that does
+        goes without, and integration tests being skipped altogether.
+
+        Reverting any of those wirings leaves the helper tests green, so this
+        is the pin that holds them.
+        """
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_crate"
+        # Tolerate a fixture left by a hard interrupt rather than failing once
+        # on the next run.
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-crate"] = {
+            "unit": "none",
+            "integration": {"tests/probe.rs": "none"},
+        }
+        # A feature variant so the second `rust_binary` block is exercised too;
+        # it takes its own env and regressed independently of the plain one.
+        GENERATOR.FEATURE_LIBRARY_VARIANTS["probe-crate"] = {"probe-feature": {"deps": {}}}
+        try:
+            (probe / "src").mkdir(parents=True)
+            # `#[cfg(test)]` so a `-unit` face is generated: it shares the
+            # library's compilation unit, so it must track the library's answer.
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn helper() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "src" / "main.rs").write_text(
+                'fn main() { println!("{}", env!("CARGO_PKG_VERSION")); }\n',
+                encoding="utf-8",
+            )
+            (probe / "tests").mkdir()
+            (probe / "tests" / "probe.rs").write_text(
+                '#[test]\nfn v() { assert!(!env!("CARGO_PKG_VERSION").is_empty()); }\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(
+                str(probe), "probe-crate", [], {}, [], {}, version="9.9.9-test"
+            )
+            faces = self._buck_targets((probe / "BUCK").read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-crate", None)
+            GENERATOR.FEATURE_LIBRARY_VARIANTS.pop("probe-crate", None)
+
+        self.assertEqual(
+            faces.get("probe-crate"),
+            True,
+            "the binary compiles main.rs, which names it",
+        )
+        self.assertEqual(
+            faces.get("probe-crate-lib"),
+            False,
+            "the library never names it; main.rs is not its compilation unit",
+        )
+        self.assertEqual(
+            faces.get("probe-crate-itest-probe"),
+            True,
+            "an integration test is its own compilation unit",
+        )
+        self.assertEqual(
+            faces.get("probe-crate-probe-feature"),
+            True,
+            "the feature-variant binary compiles the same main.rs",
+        )
+        self.assertEqual(
+            faces.get("probe-crate-lib-probe-feature"),
+            False,
+            "its library variant still never names it",
+        )
+        self.assertEqual(
+            faces.get("probe-crate-unit"),
+            False,
+            "the unit face shares the library's unit, which never names it",
+        )
+    def test_emit_uses_cargos_default_version_for_versionless_crates(self) -> None:
+        """23 members omit `version`; rendering `None` into BUCK would be worse
+        than the abort it replaced."""
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_versionless"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-versionless"] = {"unit": "none"}
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                'pub const V: &str = env!("CARGO_PKG_VERSION");\n'
+                "#[cfg(test)]\nmod t {}\n",
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), "probe-versionless", [], {}, [], {}, version=None)
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+            faces = self._buck_targets(buck)
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-versionless", None)
+        self.assertIn('"CARGO_PKG_VERSION": "0.0.0"', buck)
+        self.assertNotIn("None", buck)
+        # The unit face is built from the same sources as the library, so it
+        # must carry the same answer. Asserting this on a library that DOES
+        # name the variable is what pins the unit block's env wiring -- with a
+        # library that never names it, both the correct and the broken form
+        # render the same absent value.
+        self.assertEqual(
+            faces.get("probe-versionless"),
+            True,
+            "the library names it",
+        )
+        self.assertEqual(
+            faces.get("probe-versionless-unit"),
+            True,
+            "the unit face shares the library's compilation unit",
+        )
+
+    @staticmethod
+    def _buck_targets(buck: str) -> "dict[str, bool]":
+        """{target name: does its env define CARGO_PKG_VERSION}."""
+        found = {}
+        for match in re.finditer(
+            r"rust_\w+\(\s*\n\s*name = \"([^\"]+)\"(.*?)\n\)", buck, re.S
+        ):
+            found[match.group(1)] = "CARGO_PKG_VERSION" in match.group(2)
+        return found
+
+    def test_contracts_buck_carries_cargo_pkg_version(self) -> None:
+        """The concrete crate that broke the Buck leg."""
+        buck = (
+            Path(GENERATOR.REPO) / "backend" / "crates" / "contracts" / "BUCK"
+        ).read_text(encoding="utf-8")
+        # The value, not just the key: asserting the key alone leaves the
+        # `main()` -> `emit` seam unpinned, so a caller that stopped passing
+        # `version` would still emit the variable, at Cargo's 0.0.0 default.
+        self.assertIn(
+            '"CARGO_PKG_VERSION": "0.1.0"',
+            buck,
+            "console-contracts stamps env!(CARGO_PKG_VERSION); Buck must define "
+            "it, and with the crate's own version",
+        )
 
     def test_manifest_env_is_hermetic_and_repo_relative(self) -> None:
         env = GENERATOR.base_env("backend/crates/example", uses_sqlx=True)

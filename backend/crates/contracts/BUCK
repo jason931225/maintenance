@@ -15,7 +15,7 @@ rust_library(
     edition = "2024",
     crate_root = "backend/crates/contracts/src/lib.rs",
     visibility = ["PUBLIC"],
-    env = {"CARGO_MANIFEST_DIR": "backend/crates/contracts"},
+    env = {"CARGO_MANIFEST_DIR": "backend/crates/contracts", "CARGO_PKG_VERSION": "0.1.0"},
 )
 
 rust_test(
