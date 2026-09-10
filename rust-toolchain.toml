@@ -1,5 +1,23 @@
+# THE toolchain pin for this repository. Single source of truth.
+#
+# At repo ROOT deliberately: rustup walks up from the invocation directory and
+# takes the nearest file, so a nested copy would shadow this one for anything
+# run inside that directory. Before 2026-09-10 the only copy lived in
+# `backend/`, which meant `cargo --manifest-path backend/Cargo.toml` run from
+# the root -- how CI and most tooling invoke it -- never saw the pin at all.
+#
+# Nothing may name a Rust version anywhere else. `.github/actions/setup-rust`
+# reads `channel` from this file and installs it; every workflow uses that
+# action and passes no version. `scripts/check-toolchain-pin.mjs` fails the
+# build if a version literal reappears. Rationale and the roll procedure:
+# docs/decisions/ADR-0044-rust-toolchain-pin.md
+#
+# To bump: change `channel` here, nothing else. To roll back: revert that line.
 [toolchain]
-# Pinned to current stable (verified live via `rustup check` on 2026-07-26).
-# Bump deliberately; CI and local builds must agree.
 channel = "1.97.1"
 components = ["rustfmt", "clippy"]
+# console-payroll-ui's hydration bundle is a wasm32 artifact built by
+# tools/ui/build-payroll-wasm.sh. Declared here so a fresh clone can run that
+# script without a separate `rustup target add`, and so the roller can refuse a
+# nightly that did not publish rust-std for it.
+targets = ["wasm32-unknown-unknown"]
