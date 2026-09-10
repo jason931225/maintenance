@@ -103,6 +103,12 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      # Read-only. The verdict below asks the cache list which of three
+      # situations produced an empty restore; without it they are
+      # indistinguishable and all three read as green.
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with: { persist-credentials: false }
@@ -113,6 +119,13 @@ jobs:
         id: warm
         with: { endpoint: "127.0.0.1:50051", role: reader }
       - name: Build, and require hits when a seeded cache was restored
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MY_PREFIX: ${{ steps.cas.outputs.key-prefix }}
+          # Through env, not inline `${{ }}` in the run block. Not exploitable
+          # here -- a cache key cannot carry free text -- but it is the classic
+          # injection shape, and MY_PREFIX one line up already does it right.
+          RESTORED_KEY: ${{ steps.cas.outputs.restored-key }}
         run: |
           set -o pipefail
           tools/buck2 --isolation-dir ci build --config-file infra/ci/buckconfig/warm-cache.buckconfig \
@@ -120,18 +133,26 @@ jobs:
             //backend/ci/gates/layer-boundary:console-gate-layer-boundary --console=simple 2>&1 \
             | tee "${RUNNER_TEMP}/buck-consume.log" | tail -50
           echo "--- verdict ---"
-          if [ -z "${{ steps.cas.outputs.restored-key }}" ]; then
-            # No dev-seeded cache exists yet. Report it; do not invent a pass or a failure.
-            echo "NO SEEDED CACHE YET — nothing to reuse. This becomes a real assertion once dev has seeded one."
-            grep -E 'Cache hits|Commands:' "${RUNNER_TEMP}/buck-consume.log" || true
-            exit 0
-          fi
-          if grep -qE 'Cache hits: (100|[1-9][0-9])%' "${RUNNER_TEMP}/buck-consume.log"; then
-            echo "OK: this PR reused the cache dev seeded"
+          # gh's exit status is the signal: a readable list lets the verdict tell
+          # a missing seed from a broken one, an unreadable list does not, and
+          # those are different answers. See scripts/cas/canary-verdict.sh.
+          # stderr is NOT discarded. A permanent failure (a 403 from an org
+          # policy or token-scope change) and a transient 502 both land in the
+          # else branch and print COULD NOT DETERMINE, and without the error
+          # text they are indistinguishable forever -- which is how this fix
+          # would quietly become a no-op that still looks like a fix.
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+               -q '.actions_caches[].key' > "${RUNNER_TEMP}/cache-keys.txt"; then
+            scripts/cas/canary-verdict.sh \
+              --restored "${RESTORED_KEY}" \
+              --prefix "${MY_PREFIX}" \
+              --log "${RUNNER_TEMP}/buck-consume.log" \
+              --keys "${RUNNER_TEMP}/cache-keys.txt"
           else
-            echo "REGRESSION: a seeded cache was restored but produced no hits"
-            grep -E 'Cache hits|Commands:' "${RUNNER_TEMP}/buck-consume.log" || true
-            exit 1
+            scripts/cas/canary-verdict.sh \
+              --restored "${RESTORED_KEY}" \
+              --prefix "${MY_PREFIX}" \
+              --log "${RUNNER_TEMP}/buck-consume.log"
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
