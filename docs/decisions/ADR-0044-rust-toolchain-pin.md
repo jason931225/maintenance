@@ -87,12 +87,16 @@ standing coin flip on runner assignment.
    once it is the only namer of a version, repointing it silently is the
    remaining way to defeat the pin.
 
-4. **Rolling is routine and reviewed.** A scheduled job proposes the bump as a
-   pull request; it never merges one. The PR is the canary, `dev` is the
-   promote, and rollback is reverting one line. This is deliberate: the
-   repository requires independent adversarial review before merge
-   (`docs/current/DELIVERY.md`), and an auto-merging bot would launder a
-   compiler change past it.
+4. **Rolling is routine and reviewed.** The invariant is the review, not the
+   proposer: no compiler change merges without independent adversarial review
+   (`docs/current/DELIVERY.md`), and nothing auto-merges one. A hand-made pin
+   PR satisfies that; so would a bot-proposed one. The intended *mechanism* is
+   a scheduled job that proposes the bump as a pull request and never merges
+   one — that job does not exist yet, so until it lands bumps are made by hand
+   through the machinery this record describes. The PR is the canary, `dev` is
+   the promote, and rollback is reverting one line. An auto-merging bot would
+   launder a compiler change past the review, which is what the invariant
+   forbids.
 
 5. **Dated, never bare.** A nightly pin is `nightly-YYYY-MM-DD`. Bare `nightly`
    is not reproducible: two machines resolve it differently on the same day,
