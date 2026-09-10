@@ -141,7 +141,9 @@ most recent date that has them, which is a check, not a lookup.
   long-running roll PR) the consume job takes its `NO SEEDED CACHE YET` branch
   and asserts nothing, degrading to a slow build and a silent green. That is a
   cache-efficiency and canary-honesty problem, never a poisoned hit, which is
-  why the retention policy is deliberately not decided here.
+  why the retention policy is deliberately not decided here. Tracked in #1089;
+  the durable fix is teaching the canary to tell a legitimately-new prefix from
+  a broken seed job, not merely widening prune's budget.
 - That green was **untested, not safe**: `97 (cached: 97, local: 0)` means
   nothing compiled, so nothing linked, so the mismatch was never exercised. Dev
   seed run `34470200013` shows what a real build costs — `97 (cached: 83,
