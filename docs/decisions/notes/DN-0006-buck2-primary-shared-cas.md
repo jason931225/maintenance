@@ -43,8 +43,16 @@ cargo-primary path.
 2. **Reopen** DN-0005 rejected alternative “Keep Buck, enable remote cache” —
    substrate now exists; hermeticity (`system_cxx_toolchain`) still limits
    cross-machine hit rate (opportunistic hits ≠ fleet license).
-3. **Fail-closed warm reads** until console cites GREEN_REAPI + reviewed license
-   (mirror oyatie `warm_reads_licensed: false`).
+3. **Fail-closed warm reads** until console cites GREEN_REAPI + reviewed license.
+   **No mechanism carries this; it is honoured by convention.** This line
+   previously said "mirror oyatie `warm_reads_licensed: false`", which pointed
+   at a control that does not exist: nothing on oyatie's `dev` writes or reads
+   that value, and a root `specs/` path cannot carry it there — `specs` is in
+   the layout gate's FORBIDDEN_NAMES, so a PR recreating it goes red. The
+   posture is unchanged; only the pointer was wrong.
+
+   For what console's own cache wiring is, and what has actually been measured
+   of it, see DN-0007 — it exists, it is opt-in, and it is not restated here.
 4. **Do not expose** writer CAS secrets to fork `pull_request` workflows.
 5. **ADR-0039** remains proposed; this note reverses only the *cargo-as-driver*
    planning path, not face/delete authority.

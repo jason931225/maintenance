@@ -34,10 +34,16 @@ runs:
         # COMPONENTS AND TARGETS ARE NOT OPTIONAL EXTRAS. rustup consults
         # rust-toolchain.toml itself whenever it runs inside the workspace, so a
         # toolchain installed without them is one rustup will try to complete
-        # LATER -- including in the middle of a buck2 build action, where
-        # parallel actions race on ~/.rustup/downloads and the install fails
-        # with `component download failed`. Installing exactly what the file
+        # LATER, mid-job, where a partial install surfaces as
+        # `component download failed`. Installing exactly what the file
         # declares, up front, is what stops that.
+        #
+        # This first bit me inside buck2 build actions, where parallel actions
+        # raced on ~/.rustup/downloads. Buck2 no longer consults rustup at all
+        # (toolchains/rust: the compiler is a hash-pinned build input), so that
+        # specific racer is gone -- but cargo, `cargo fmt` and
+        # tools/ui/build-payroll-wasm.sh all still resolve through rustup here,
+        # and they need the same completeness.
         list() { sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\[(.*)\].*/\1/p" "$pin" | tr -d '" ' ; }
         echo "channel=$channel" >> "$GITHUB_OUTPUT"
         echo "components=$(list components)" >> "$GITHUB_OUTPUT"
@@ -57,12 +63,17 @@ runs:
       run: |
         set -euo pipefail
         # Deliberately WITHOUT RUSTUP_TOOLCHAIN, and from the workspace, so this
-        # exercises the path buck2 actually takes: rustup reading
-        # rust-toolchain.toml. An earlier revision proved the wrong thing -- it
-        # printed the version with RUSTUP_TOOLCHAIN set, which is the cargo path,
-        # while buck2's `system_rust_toolchain` scrubs that variable and resolves
-        # through the file. It therefore reported success while every buck2
-        # rustc action was failing to download a component mid-build.
+        # exercises the resolution path a bare `cargo`/`rustc` in the workspace
+        # takes: rustup reading rust-toolchain.toml. An earlier revision proved
+        # the wrong thing -- it printed the version with RUSTUP_TOOLCHAIN set,
+        # which is only the explicitly-overridden path, and reported success
+        # while file-based resolution was still downloading components.
+        #
+        # That divergence was found via buck2, whose `system_rust_toolchain`
+        # scrubbed the variable. Buck2 no longer resolves through rustup at all,
+        # so it is no longer the witness -- but the file-based path is still what
+        # every workspace-relative cargo invocation uses, so this still tests the
+        # thing that can break.
         #
         # If anything is still missing, rustup says so on stderr and installs it
         # here, where an install is safe -- and this step fails, because an

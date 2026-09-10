@@ -1320,7 +1320,17 @@ const requiredJobMetadataSha256 = Object.freeze({
 
 const workflowExecutionEnvelopeSha256 = "ca24e7bdbd6b02f79d1dea2fc2787835156b669a2ae4643d60290207f72864cf";
 const freeRunnerDiskActionSha256 = "1c1a2307321f732c3dcd67e3af2f33a771ce5b81ea814445390b65946b52fc8f";
-const setupRustActionSha256 = "bdaee098d08609a608fcb75f2a32f99d29fc65386b9ce5c6a5ca231c855d72a2";
+// Re-pinned 2026-09-10 for a COMMENTS-ONLY change to the action. Verified
+// before repinning: diffing the action against the previous revision shows no
+// non-comment line changed. The digest still moved because it covers the YAML
+// MODEL, and these comments sit inside `run:` block scalars -- string content,
+// not syntax the parser discards.
+//
+// This lock exists so that repointing the one action allowed to name a Rust
+// version cannot happen quietly. Anyone updating this constant owes the same
+// check: establish what actually changed before replacing the hash. A digest
+// updated on reflex is the same as no digest at all.
+const setupRustActionSha256 = "ec330246cba905f5c63306b06ed01d5eb639a385791566f263a826c6b045948f";
 const exactCiJobIds = Object.freeze([
   "api-contract",
   "backend",

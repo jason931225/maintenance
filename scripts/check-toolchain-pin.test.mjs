@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -88,5 +88,186 @@ describe("setup-rust reads the whole pin", () => {
     assert.equal(kv.channel, "1.0.0");
     assert.equal(kv.components, "");
     assert.equal(kv.targets, "");
+  });
+});
+
+const REAL_LOCK = readFileSync(join(ROOT, "toolchains/rust/lock.bzl"), "utf8");
+
+/** A minimal repo the gate can scan: a valid pin, a lock, one workflow.
+ *
+ * `mutate` exists because an earlier version of this harness copied the real
+ * lock verbatim into every case, so every corpus entry ran against a lock that
+ * passes -- leaving the three lock checks with no coverage at all, which is
+ * exactly where the `field indentation` bypass below was found.
+ */
+function craft(workflow, mutate = (t) => t, pinText = PIN) {
+  const dir = mkdtempSync(join(tmpdir(), "pin-gate-"));
+  mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+  mkdirSync(join(dir, "toolchains/rust"), { recursive: true });
+  writeFileSync(join(dir, "rust-toolchain.toml"), pinText);
+  writeFileSync(join(dir, "toolchains/rust/lock.bzl"), mutate(REAL_LOCK));
+  writeFileSync(join(dir, ".github/workflows/probe.yml"), workflow);
+  return dir;
+}
+
+/** The same lock, reshaped as a stable release publishes it.
+ *
+ * Stable has no dated directory and carries the version in the filename
+ * (`rustc-1.97.1-<triple>.tar.xz`), so it takes the OTHER branch of the
+ * url-names-the-channel check. The repository pin is a dated nightly, which
+ * means that branch runs in none of the cases above -- it was the only
+ * uncovered branch in the three lock checks.
+ */
+const asStable = (version) => (t) =>
+  t.replace(/^RUST_CHANNEL = "[^"]+"/m, `RUST_CHANNEL = "${version}"`)
+    .replace(/dist\/\d{4}-\d\d-\d\d\//g, "dist/")
+    .replace(/-nightly-/g, `-${version}-`);
+const stablePin = (version) => PIN.replace(/^(\s*channel\s*=\s*)"[^"]+"/m, `$1"${version}"`);
+
+/** Exit code of the real gate against a crafted tree. 0 = the input passed. */
+function gate(dir) {
+  try {
+    execFileSync("node", [join(ROOT, "scripts/check-toolchain-pin.mjs"), "--root", dir], { stdio: "pipe" });
+    return 0;
+  } catch (e) {
+    return e.status;
+  }
+}
+
+describe("the pin gate cannot be walked past", () => {
+  // Every one of these passed an earlier revision of this gate. They are kept
+  // as a corpus rather than a changelog: a gate is only worth its exit code if
+  // something is known to make it non-zero, and the shapes are easy to narrow
+  // by accident when adding the next one.
+  const BYPASSES = {
+    "a toolchain: input": "        toolchain: 1.99.0",
+    "a trailing comment invoking the reindeer carve-out": "        toolchain: 1.99.0 # REINDEER_TOOLCHAIN",
+    "a version reaching rustup through a shell variable":
+      "    env:\n      RUST_VERSION: 1.99.0\n    steps:\n      - run: rustup default \"$RUST_VERSION\"",
+    "rustup install": "      - run: rustup install 1.99.0",
+    "rustup-init --default-toolchain": "      - run: rustup-init -y --default-toolchain 1.99.0",
+    "a third-party action pinned to a version": "      - uses: dtolnay/rust-toolchain@1.99.0",
+    "RUSTUP_TOOLCHAIN as a literal": "    env:\n      RUSTUP_TOOLCHAIN: 1.99.0",
+    "rustup component add --toolchain": "      - run: rustup component add clippy --toolchain 1.99.0",
+    "a rust: container image": "    container: rust:1.96",
+  };
+  for (const [name, workflow] of Object.entries(BYPASSES)) {
+    it(`rejects ${name}`, () => {
+      const dir = craft(workflow);
+      try {
+        assert.notEqual(gate(dir), 0, `${name} passed the gate`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  // The other half: a gate that fails on everything is equally useless, and
+  // reindeer's separately locked bootstrap compiler is a legitimate fifth Rust
+  // version that MUST keep working.
+  const ALLOWED = {
+    "reindeer's bootstrap, which names no version": '      - run: rustup run "$REINDEER_TOOLCHAIN" cargo build',
+    "an action pinned to a floating ref": "      - uses: dtolnay/rust-toolchain@master",
+    "a container image that is not rust": "    container: node:22",
+  };
+  for (const [name, workflow] of Object.entries(ALLOWED)) {
+    it(`allows ${name}`, () => {
+      const dir = craft(workflow);
+      try {
+        assert.equal(gate(dir), 0, `${name} was wrongly rejected`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+describe("the lock cannot drift from the pin", () => {
+  const OK = "name: probe\n";
+
+  // The lock carries the compiler buck2 materializes. Every one of these
+  // produces a lock that is internally consistent and self-describing -- the
+  // failure mode is not corruption, it is a lock that quietly names a
+  // DIFFERENT compiler than the one CI installs. That is #1083's divergence
+  // one level down, so each of these must be a non-zero exit.
+  const DRIFTS = {
+    // The headline scenario: RUST_CHANNEL still reads the pinned channel.
+    "urls pointing at another month": (t) => t.replace(/dist\/2026-\d\d-\d\d\//g, "dist/2026-08-01/"),
+    "a strip_prefix that does not match the archive layout":
+      (t) => t.replace(/"strip_prefix": "([^"]*)\/rustc"/, '"strip_prefix": "$1/rustc-aarch64-apple-darwin"'),
+    "a required artifact removed": (t) => t.replace(/ {4}"rustfmt-preview": \{[\s\S]*?\n {4}\},\n/, ""),
+    "an artifact the pin does not call for": (t) => t.replace(
+      / {4}"rustc": \{/,
+      '    "miri-preview": {\n        "aarch64-apple-darwin": {\n'
+        + '            "url": "https://static.rust-lang.org/dist/2026-09-10/miri-nightly-aarch64-apple-darwin.tar.xz",\n'
+        + '            "sha256": "aa",\n'
+        + '            "strip_prefix": "miri-nightly-aarch64-apple-darwin/miri-preview",\n'
+        + "        },\n    },\n    \"rustc\": {",
+    ),
+    "a channel the pin does not declare": (t) => t.replace(/^RUST_CHANNEL = "[^"]+"/m, 'RUST_CHANNEL = "1.0.0"'),
+    // Found by review. Re-indenting ONLY the field lines leaves the package and
+    // triple regexes matching, so the artifact-set check sees every key present
+    // and passes -- while both value checks skip on an empty entry. The lock
+    // pointed at August and the gate printed "one source of truth".
+    "field indentation, with urls pointing at another month":
+      (t) => t.replace(/dist\/2026-\d\d-\d\d\//g, "dist/2026-08-01/").replace(/^ {12}"/gm, '          "'),
+  };
+  for (const [name, mutate] of Object.entries(DRIFTS)) {
+    it(`rejects ${name}`, () => {
+      const dir = craft(OK, mutate);
+      try {
+        assert.notEqual(gate(dir), 0, `${name} passed the gate`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("accepts the committed lock unmodified", () => {
+    // The control. Without it the suite above is satisfied by a gate that
+    // rejects everything, which would be no more useful than one that rejects
+    // nothing. It deliberately uses the REAL lock rather than a frozen
+    // fixture: a fixture would pin today's nightly shape forever, so a later
+    // roll to stable would leave the stable branch uncovered permanently --
+    // which is exactly the gap the two cases below close.
+    const dir = craft(OK);
+    try {
+      assert.equal(
+        gate(dir),
+        0,
+        "the committed lock does not pass the gate. This is not a corpus bug: "
+          + "run `node scripts/check-toolchain-pin.mjs` and fix the lock.",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A stable pin takes the other branch of the url-names-the-channel check:
+  // no dated directory, version in the filename. The repository pin is a dated
+  // nightly, so without these two the branch never executes.
+  it("accepts a stable lock that names the stable pin", () => {
+    const dir = craft(OK, asStable("1.97.1"), stablePin("1.97.1"));
+    try {
+      assert.equal(gate(dir), 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a stable lock whose urls name a different patch", () => {
+    // RUST_CHANNEL is left CORRECT and only the urls drift, which is what
+    // isolates the stable branch of the url check. Declaring 1.97.0 as well
+    // would be caught by the pre-existing RUST_CHANNEL comparison first, and
+    // the case would pass whether or not the branch under test ran at all --
+    // verified by mutation: stubbing the stable branch to `true` left that
+    // version of this test green.
+    const urlsDriftOnly = (t) => asStable("1.97.0")(t).replace(/^RUST_CHANNEL = "[^"]+"/m, 'RUST_CHANNEL = "1.97.1"');
+    const dir = craft(OK, urlsDriftOnly, stablePin("1.97.1"));
+    try {
+      assert.notEqual(gate(dir), 0, "a lock of 1.97.0 urls passed under a 1.97.1 pin");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,0 +1,67 @@
+# The hermetic Rust toolchain: the compiler as a build INPUT, not a PATH lookup.
+#
+# Everything here derives from //rust-toolchain.toml via lock.bzl, which
+# scripts/lock-rust-toolchain.mjs generates.
+#
+# check-toolchain-pin.mjs holds that lock to the pin OFFLINE: the artifact set
+# must be exactly what the pin calls for, every URL must name the pinned
+# channel, and every strip_prefix is recomputed from the archive layout rather
+# than trusted. What it cannot check without the network is whether a sha256 is
+# the RIGHT hash for a correctly-named artifact; `lock-rust-toolchain.mjs
+# --check` does that and is deliberately not in CI, because a gate that needs
+# static.rust-lang.org to pass fails when upstream has an outage.
+load(":lock.bzl", "RUST_DIST", "RUST_HOSTS")
+load(":sysroot.bzl", "rust_sysroot")
+
+# One http_archive per (package, triple). sha256 is what makes these content-
+# addressed: buck2 defers the download when a hash is present, so the bytes come
+# from the CAS like any other input rather than from the network on every run.
+[
+    http_archive(
+        name = "{}-{}".format(pkg, triple),
+        urls = [entry["url"]],
+        sha256 = entry["sha256"],
+        # Taken from the lock, not rebuilt here. Upstream names the archive
+        # directory after the RELEASE string -- the channel for stable, the
+        # literal word `nightly` for a dated nightly -- so predicting it in
+        # Starlark breaks on exactly the bump this design exists to make routine.
+        strip_prefix = entry["strip_prefix"],
+        visibility = ["PUBLIC"],
+    )
+    for pkg, triples in RUST_DIST.items()
+    for triple, entry in triples.items()
+]
+
+# What the SYSROOT needs, which is narrower than what the PIN needs.
+#
+# rustfmt is in the pin because `cargo fmt` and a fresh clone need it, but the
+# prelude's Rust rules never invoke it -- `RustToolchainInfo` has no rustfmt
+# field, and CI formats with `cargo fmt`. Shipping it here copied ~90 MB into
+# every sysroot for a binary buck2 cannot call.
+_SYSROOT_SKIP = ["rustc", "rust-std", "rustfmt-preview"]
+
+_COMPONENTS = [p for p in RUST_DIST if p not in _SYSROOT_SKIP]
+
+# rustc ships without a standard library and rust-std ships without a compiler;
+# a working sysroot is the two overlaid. Assembling it here, once, makes the
+# result a single artifact the toolchain can point at -- and makes THAT artifact
+# part of the action's input tree.
+[
+    rust_sysroot(
+        name = "sysroot-{}".format(host),
+        rustc = ":rustc-{}".format(host),
+        # The host std ONLY. Cross-target stds are in the lock because rustup
+        # needs them from the pin -- `targets = ["wasm32-unknown-unknown"]` is
+        # how a fresh clone can run tools/ui/build-payroll-wasm.sh without a
+        # separate `rustup target add`. But buck2 never cross-compiles here:
+        # `rustc_target_triple` only ever selects a host, and the wasm bundle is
+        # built by cargo in that script, not by any buck2 rule. Overlaying every
+        # non-host std put ~100 MB of unreachable wasm32 std into each sysroot,
+        # three times over once exec configurations multiply it.
+        stds = [":rust-std-{}".format(host)],
+        components = [":{}-{}".format(c, host) for c in _COMPONENTS],
+        triple = host,
+        visibility = ["PUBLIC"],
+    )
+    for host in RUST_HOSTS
+]
