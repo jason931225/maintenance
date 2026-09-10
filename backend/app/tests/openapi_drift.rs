@@ -584,7 +584,8 @@ fn openapi_documents_closed_inventory_movement_source_variants() {
         );
     }
     assert!(
-        OPENAPI_YAML.contains("source: { $ref: '#/components/schemas/InventoryMovementSource' }"),
+        OPENAPI_YAML
+            .contains("        source:\n          $ref: '#/components/schemas/InventoryMovementSource'"),
         "InventoryMovement.source must not degrade to an untyped object"
     );
     assert!(
@@ -604,7 +605,7 @@ fn openapi_documents_closed_inventory_movement_source_variants() {
 fn openapi_documents_closed_month_as_year_month_not_calendar_date() {
     let schema = openapi_schema_body(OPENAPI_YAML, "AttendanceMonthClose");
     assert!(
-        schema.contains("month: { type: string, pattern: '^\\\\d{4}-\\\\d{2}$' }"),
+        schema.contains("        month:\n          type: string\n          pattern: ^\\\\d{4}-\\\\d{2}$"),
         "closed-month response must match the server's YYYY-MM wire value, not an OpenAPI calendar date"
     );
 }
@@ -695,12 +696,18 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
     let copy = openapi_schema_body(OPENAPI_YAML, "EvidenceCopyView");
     assert!(
         copy.contains(
-            "evidentiary_status: { $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus' }"
+            "        evidentiary_status:\n          $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus'"
         ),
         "EV copy view must expose the server-derived evidentiary classification"
     );
     assert!(
-        copy.contains("required: [id, evidence_object_id, copy_kind, evidentiary_status, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]"),
+        copy.contains(concat!(
+            "      required:\n",
+            "        - id\n        - evidence_object_id\n        - copy_kind\n",
+            "        - evidentiary_status\n        - storage\n        - digest_sha256\n",
+            "        - content_type\n        - size_bytes\n        - worm_status\n",
+            "        - created_by\n        - created_at\n",
+        )),
         "EV copy view must require the server-derived evidentiary classification"
     );
 
