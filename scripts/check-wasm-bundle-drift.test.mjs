@@ -25,6 +25,10 @@ function fixture() {
   cpSync(join(ROOT, "tools/ui/build-payroll-wasm.sh"), join(dir, "tools/ui/build-payroll-wasm.sh"));
   cpSync(join(ROOT, "backend/Cargo.toml"), join(dir, "backend/Cargo.toml"));
   cpSync(join(ROOT, "rust-toolchain.toml"), join(dir, "rust-toolchain.toml"));
+  // The repo's own .gitignore, so the fixture models the real tree. Without it
+  // `.DS_Store` here is untracked-and-NOT-ignored, and the strict write check
+  // fires on the very noise it was written to stay silent about.
+  cpSync(join(ROOT, ".gitignore"), join(dir, ".gitignore"));
   mkdirSync(join(dir, "scripts"), { recursive: true });
   cpSync(join(ROOT, GATE), join(dir, GATE));
   const git = (...args) => execFileSync("git", ["-C", dir, ...args], { stdio: "pipe" });
@@ -40,6 +44,17 @@ function gate(dir) {
     return 0;
   } catch (error) {
     return error.status;
+  }
+}
+
+/** Run `--write`, returning status and stderr. The strict source checks live
+ *  on this path only: the write side is where blindness gets recorded. */
+function writeManifest(dir) {
+  try {
+    execFileSync("node", [join(dir, GATE), "--write"], { stdio: "pipe" });
+    return { status: 0, stderr: "" };
+  } catch (error) {
+    return { status: error.status, stderr: String(error.stderr ?? "") };
   }
 }
 
@@ -176,6 +191,49 @@ describe("the committed hydration bundle cannot drift from its source", () => {
       }
       assert.notEqual(status, 0, "--write accepted a source listing with no sources in it");
       assert.match(stderr, /was not among them/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to WRITE while an untracked source sits under src/", () => {
+    // The anchor alone only asks "is lib.rs tracked?", so it passes while a
+    // compiled file is invisible. cargo builds what is on disk; the manifest
+    // records what git lists; --write must refuse when those disagree.
+    const dir = fixture();
+    try {
+      write(dir, `${CRATE}/src/table.rs`, "pub fn t() {}\n");
+      const { status, stderr } = writeManifest(dir);
+      assert.notEqual(status, 0, "--write recorded a manifest while a source was untracked");
+      assert.match(stderr, /untracked file\(s\)/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to WRITE while a gitignored source sits under src/", () => {
+    // The nastier twin: invisible to `ls-files` on BOTH sides, so it would
+    // never surface later either. An edit to it could never fail this gate.
+    const dir = fixture();
+    try {
+      write(dir, `${CRATE}/src/generated.rs`, "pub fn g() {}\n");
+      write(dir, ".gitignore", `${read(dir, ".gitignore")}\ngenerated.rs\n`);
+      const { status, stderr } = writeManifest(dir);
+      assert.notEqual(status, 0, "--write recorded a manifest while a compiled source was gitignored");
+      assert.match(stderr, /gitignored source file\(s\)/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still tolerates ignored NON-source noise when writing", () => {
+    // The other half, and the reason the ignored check filters by extension:
+    // `.DS_Store` is gitignored too, and firing on it would reopen the Finder
+    // loop this gate was changed to close.
+    const dir = fixture();
+    try {
+      write(dir, `${CRATE}/src/.DS_Store`, "\0\0junk");
+      assert.equal(writeManifest(dir).status, 0, "--write refused over an ignored non-source file");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

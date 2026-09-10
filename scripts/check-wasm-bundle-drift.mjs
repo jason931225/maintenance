@@ -24,11 +24,13 @@
 //   * the toolchain channel, and the wasm-bindgen CLI that actually emitted the
 //     glue, because both change the bytes
 //
+// Only GIT-TRACKED files under src/ are inputs, which would leave an untracked
+// or gitignored source compiled by cargo and invisible here on both sides. That
+// is not left as a residual: --write refuses outright when git reports anything
+// under src/ it is not listing (see sourceFiles), so the blind manifest cannot
+// be written in the first place.
+//
 // What it does NOT check, stated so it is not mistaken for more:
-//   * only GIT-TRACKED files under src/ are inputs. A gitignored source is
-//     compiled by cargo and invisible here, on both sides, permanently. The
-//     listing has a floor (see sourceFiles) so an EMPTY one is refused rather
-//     than recorded, but a file deliberately hidden from git stays hidden.
 //   * anything reached through dependency resolution: Cargo.lock, and the
 //     `[workspace.dependencies]` this crate inherits `serde` from. Widening to
 //     either would fire on every unrelated backend bump, and the failure this
@@ -93,28 +95,67 @@ const hashFile = (rel) => {
  * `4913` do the same.
  */
 const ANCHOR = `${SRC}/lib.rs`;
+// What cargo actually compiles into the bundle. Used to decide whether a file
+// git is hiding matters -- `.DS_Store` is ignored and irrelevant, `generated.rs`
+// is ignored and compiled.
+const COMPILED = /\.(rs|js)$/;
 
-function sourceFiles() {
-  let out;
+function git(...args) {
   try {
-    out = execFileSync("git", ["-C", REPO, "ls-files", "-z", SRC], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return execFileSync("git", ["-C", REPO, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+      .split("\0").filter(Boolean).sort();
   } catch (error) {
     // No .git (a tarball, a Docker COPY, an archive export) or no git binary.
     // Named, because the alternative was a raw execFileSync stack trace.
-    throw new Error(`could not list ${SRC} with git (${String(error.stderr ?? error.message).trim()}). This gate needs a checkout with .git.`);
+    throw new Error(`could not read ${SRC} with git (${String(error.stderr ?? error.message).trim()}). This gate needs a checkout with .git.`);
   }
-  const files = out.split("\0").filter(Boolean).sort();
-  // A FLOOR, because an under-reporting listing is the fail-open case on the
-  // write side. If git returns nothing -- src/ untracked, a gitignored source,
-  // a partial checkout -- `--write` would happily record a manifest with the
-  // recipe files and no sources at all, and the check side then passes over
-  // every future edit to those sources, forever. The check side fails closed on
-  // a shrinking set; a manifest born blind stays blind.
+}
+
+/** The crate's tracked sources.
+ *
+ * `strict` is for --write only. The write side is where blindness gets baked in
+ * permanently -- a manifest recorded from a partial listing accepts every later
+ * edit to the files it never saw. The check side already fails closed on a
+ * shrinking set, and a developer with an unrelated scratch file under src/
+ * should not get a hard failure on an otherwise-valid committed bundle.
+ */
+function sourceFiles({ strict = false } = {}) {
+  const files = git("ls-files", "-z", SRC);
+
+  // The degenerate case: no listing at all. Named after a file so the message
+  // says which, rather than reporting a count nobody can act on.
   if (!files.includes(ANCHOR)) {
     throw new Error(
       `git listed ${files.length} file(s) under ${SRC} and ${ANCHOR} was not among them. `
         + "Refusing to describe a bundle whose sources cannot be enumerated -- a manifest "
         + "written from an empty listing would silently accept every later edit.",
+    );
+  }
+  if (!strict) return files;
+
+  // The anchor alone is too weak, and only asks "is ONE file tracked?". The
+  // question that matters is "is anything under src/ invisible to me?", and git
+  // answers it exactly rather than by heuristic. A minimum count would be a
+  // magic number to maintain; comparing against the manifest would be circular,
+  // since the manifest is what is being written.
+  const untracked = git("ls-files", "--others", "--exclude-standard", "-z", "--", SRC);
+  if (untracked.length) {
+    throw new Error(
+      `untracked file(s) under ${SRC}: ${untracked.join(", ")}. cargo compiles what is on disk, `
+        + "but only tracked files are recorded, so the manifest would describe a bundle built "
+        + "from more than it lists. Commit them or remove them, then rebuild.",
+    );
+  }
+  // Ignored-and-compiled is the nastier twin: invisible to `ls-files` on BOTH
+  // sides, so it never surfaces later either. Filtered to what cargo compiles,
+  // because `.DS_Store` is ignored too and is exactly the noise this must not
+  // reintroduce.
+  const hidden = git("ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", SRC).filter((f) => COMPILED.test(f));
+  if (hidden.length) {
+    throw new Error(
+      `gitignored source file(s) under ${SRC}: ${hidden.join(", ")}. cargo compiles them and git `
+        + "never lists them, so they would be absent from the manifest permanently -- an edit to "
+        + "one would never fail this gate. Un-ignore them or move them out of the crate.",
     );
   }
   return files;
@@ -162,16 +203,16 @@ function cliBindgen() {
   return m[1];
 }
 
-function inputHashes() {
+function inputHashes({ strict = false } = {}) {
   const inputs = {};
-  for (const rel of [...RECIPE, CARGO, ...sourceFiles()].sort()) inputs[rel] = hashFile(rel);
+  for (const rel of [...RECIPE, CARGO, ...sourceFiles({ strict })].sort()) inputs[rel] = hashFile(rel);
   return inputs;
 }
 
 /** `cli` is supplied only by --write. The check path deliberately omits it:
  *  nothing reads `now.wasm_bindgen_cli`, and defaulting it to the declared
  *  version would be a field asserting a CLI version it never asked a CLI for. */
-function describe({ cli } = {}) {
+function describe({ cli, strict = false } = {}) {
   const outputs = {};
   for (const rel of OUTPUTS) outputs[rel] = hashFile(rel);
   return {
@@ -181,7 +222,7 @@ function describe({ cli } = {}) {
     // glue. The check compares the recorded CLI against the declaration.
     wasm_bindgen: declaredBindgen(),
     ...(cli ? { wasm_bindgen_cli: cli } : {}),
-    inputs: inputHashes(),
+    inputs: inputHashes({ strict }),
     outputs,
   };
 }
@@ -189,7 +230,7 @@ function describe({ cli } = {}) {
 const REBUILD = "Rebuild with: bash tools/ui/build-payroll-wasm.sh";
 
 if (process.argv.includes("--write")) {
-  const written = describe({ cli: cliBindgen() });
+  const written = describe({ cli: cliBindgen(), strict: true });
   writeFileSync(join(REPO, MANIFEST), `${JSON.stringify(written, null, 2)}\n`);
   const n = Object.keys(written.inputs).length;
   console.log(
