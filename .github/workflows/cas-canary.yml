@@ -122,6 +122,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MY_PREFIX: ${{ steps.cas.outputs.key-prefix }}
+          # Through env, not inline `${{ }}` in the run block. Not exploitable
+          # here -- a cache key cannot carry free text -- but it is the classic
+          # injection shape, and MY_PREFIX one line up already does it right.
+          RESTORED_KEY: ${{ steps.cas.outputs.restored-key }}
         run: |
           set -o pipefail
           tools/buck2 --isolation-dir ci build --config-file infra/ci/buckconfig/warm-cache.buckconfig \
@@ -132,16 +136,21 @@ jobs:
           # gh's exit status is the signal: a readable list lets the verdict tell
           # a missing seed from a broken one, an unreadable list does not, and
           # those are different answers. See scripts/cas/canary-verdict.sh.
+          # stderr is NOT discarded. A permanent failure (a 403 from an org
+          # policy or token-scope change) and a transient 502 both land in the
+          # else branch and print COULD NOT DETERMINE, and without the error
+          # text they are indistinguishable forever -- which is how this fix
+          # would quietly become a no-op that still looks like a fix.
           if gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
-               -q '.actions_caches[].key' > "${RUNNER_TEMP}/cache-keys.txt" 2>/dev/null; then
+               -q '.actions_caches[].key' > "${RUNNER_TEMP}/cache-keys.txt"; then
             scripts/cas/canary-verdict.sh \
-              --restored "${{ steps.cas.outputs.restored-key }}" \
+              --restored "${RESTORED_KEY}" \
               --prefix "${MY_PREFIX}" \
               --log "${RUNNER_TEMP}/buck-consume.log" \
               --keys "${RUNNER_TEMP}/cache-keys.txt"
           else
             scripts/cas/canary-verdict.sh \
-              --restored "${{ steps.cas.outputs.restored-key }}" \
+              --restored "${RESTORED_KEY}" \
               --prefix "${MY_PREFIX}" \
               --log "${RUNNER_TEMP}/buck-consume.log"
           fi

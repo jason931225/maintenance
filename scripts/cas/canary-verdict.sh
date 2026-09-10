@@ -7,7 +7,7 @@
 #   (c) no nativelink seeds at all                              -> first run, pass
 #
 # The job used to green all three. (b) happens on EVERY toolchain roll, because
-# the cache prefix carries the compiler (#1083) and dev has not seeded the new
+# the cache prefix carries the compiler (#1086) and dev has not seeded the new
 # one yet -- so the run right after a compiler change, the one you would most
 # want a real cache assertion from, was the one guaranteed to assert nothing and
 # report success (#1089).

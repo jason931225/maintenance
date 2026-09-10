@@ -77,6 +77,27 @@ describe("cas canary verdict", () => {
     assert.match(r.out, /COULD NOT DETERMINE/);
   });
 
+  it("anchors the nativelink check at the start of the key", () => {
+    // Same discipline as the prefix match, nine lines down and previously
+    // untested: an unanchored grep would count a key that merely CONTAINS
+    // `nativelink-cas-` as another compiler's seed, turning "no seeds at all"
+    // into "new prefix" and hiding a dead seed job.
+    const r = verdict({ keys: ["x-nativelink-cas-linux-x64-rustc-1.97.1-8bab26f4f-1"] });
+    assert.equal(r.status, 0);
+    assert.match(r.out, /NO SEED AT ALL/);
+    assert.doesNotMatch(r.out, /NEW PREFIX/);
+  });
+
+  it("lists the offending key when it reports BROKEN", () => {
+    // The verdict is only actionable if it names which seed exists. Without
+    // this the operator gets a red build and no evidence.
+    const offender = `${PREFIX}777`;
+    const r = verdict({ keys: [offender] });
+    assert.equal(r.status, 1);
+    assert.match(r.out, /BROKEN/);
+    assert.ok(r.out.includes(offender), "must print the key it found");
+  });
+
   it("matches the prefix literally, not as a regex", () => {
     // The prefix carries dots (`rustc-1.100.0-nightly`). Under `grep "^$prefix"`
     // each `.` matches any character, so this key would read as BROKEN -- a red
