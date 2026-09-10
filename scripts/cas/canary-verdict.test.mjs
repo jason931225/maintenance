@@ -6,7 +6,14 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 const SCRIPT = new URL("./canary-verdict.sh", import.meta.url).pathname;
-const PREFIX = "nativelink-cas-linux-x64-rustc-1.100.0-nightly-a36d05efa-";
+// The real shape the action emits, kept faithful on purpose. Since #1088 it
+// carries the C compiler too, which makes it markedly dot-heavier -- and this
+// script once matched prefixes with `grep -q "^${prefix}"`, where every `.` is
+// a regex wildcard that matches any character. That bug would have reported a
+// GREEN cache for a store that does not exist. Every case below now runs
+// against the longer, dottier prefix, so the literal `case` matching that
+// replaced it is exercised by the whole suite rather than asserted once.
+const PREFIX = "nativelink-cas-linux-x64-rustc-1.100.0-nightly-a36d05efa-cc-Ubuntu-clang-version-18.1.3-1ubuntu1-";
 
 /** Run the verdict with fixture files; returns { status, out }. */
 function verdict({ restored = "", log = "Cache hits: 0%", keys = null }) {

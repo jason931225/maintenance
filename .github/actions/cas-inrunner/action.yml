@@ -46,7 +46,20 @@ runs:
     # compiler now differs from the cached artifacts on every single run. So the
     # compiler has to be in the key. A version this runner cannot link against
     # is then a cache MISS -- a slow build -- rather than a poisoned hit.
-    - name: Scope the cache to the compiler that will read it
+    # The C compiler needs the same treatment, for the same reason (#1088).
+    # `toolchains/BUCK` sets `linker = "/usr/bin/clang"`, so EVERY Rust binary
+    # and test in the graph links through an ambient clang -- the exposure is
+    # not limited to the crates that compile C. Those actions are cacheable and
+    # were keyed on rustc alone, so two runners with the same rustc and a
+    # different clang shared a prefix. That is #1083's shape one language over,
+    # and it would surface as a link error naming something unrelated.
+    #
+    # This is the cheap half of the fix: it turns a mis-hit into a miss. It does
+    # NOT make the graph hermetic -- `system_cxx_toolchain` takes a path string,
+    # not an artifact, so clang is still resolved at execution time and is still
+    # absent from every action digest. Projecting clang out of a hash-pinned
+    # archive, as //toolchains/rust now does for rustc, remains the real fix.
+    - name: Scope the cache to the compilers that will read it
       id: scope
       shell: bash
       run: |
@@ -55,8 +68,20 @@ runs:
         # the store must be keyed on the binary that links its contents.
         version=$(rustc --version | sed -E 's/^rustc ([^ ]+) \(([0-9a-f]+).*/\1-\2/')
         [ -n "$version" ] || { echo "::error::could not read rustc --version to scope the cache"; exit 1; }
-        printf 'prefix=%srustc-%s-\n' "${{ inputs.key-prefix }}" "$version" >> "$GITHUB_OUTPUT"
-        printf 'cache scoped to rustc %s\n' "$version"
+        # The SAME binary toolchains/BUCK names, not whatever `clang` resolves to
+        # on PATH -- keying on a different clang than the one that links would
+        # describe a store nothing produced. Its absence is fatal rather than
+        # skipped: a prefix that silently drops the C compiler is the unkeyed
+        # store this step exists to end.
+        cc_bin=/usr/bin/clang
+        [ -x "$cc_bin" ] || { echo "::error::$cc_bin is missing; toolchains/BUCK links every target with it"; exit 1; }
+        # Vendors differ ("Apple clang version 21.0.0 (clang-2100.1.1.101)",
+        # "Ubuntu clang version 18.1.3"), so the whole first line is normalised
+        # rather than parsed into fields that only one vendor has.
+        cc_version=$("$cc_bin" --version | head -1 | tr -cs '[:alnum:].' '-' | sed -E 's/^-+|-+$//g')
+        [ -n "$cc_version" ] || { echo "::error::could not read $cc_bin --version to scope the cache"; exit 1; }
+        printf 'prefix=%srustc-%s-cc-%s-\n' "${{ inputs.key-prefix }}" "$version" "$cc_version" >> "$GITHUB_OUTPUT"
+        printf 'cache scoped to rustc %s and cc %s\n' "$version" "$cc_version"
 
     - name: Restore CAS
       id: restore
