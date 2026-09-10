@@ -77,7 +77,7 @@ test("pathIsTipSerial covers capability registry, generated BUCK faces, and Rein
   assert.equal(pathIsTipSerial("release-please-config.json"), true);
   assert.equal(pathIsTipSerial("renovate.json5"), true);
   assert.equal(pathIsTipSerial("backend/deny.toml"), true);
-  assert.equal(pathIsTipSerial("backend/rust-toolchain.toml"), true);
+  assert.equal(pathIsTipSerial("rust-toolchain.toml"), true);
   assert.equal(pathIsTipSerial("security/something"), true);
   assert.ok(TIP_SERIAL_PATH_PREFIXES.includes("docs/program/console-capability-registry.json"));
   assert.ok(TIP_SERIAL_PATH_PREFIXES.includes("docs/program/console-enterprise-roadmap.md"));

@@ -118,9 +118,7 @@ jobs:
       - name: Install Rust toolchain for Cargo.lock consistency
         id: rust-toolchain
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.path_class.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
 
       - name: Cheap Buck2 generated-face admission
         id: buck-admission
@@ -286,9 +284,7 @@ jobs:
 
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies + build artifacts
         if: ${{ needs.preflight.outputs.run_heavy == 'true' }}
@@ -547,9 +543,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
       - name: Cache Rust dependencies + build artifacts
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -607,9 +601,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
       - name: Cache Rust dependencies + build artifacts
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -667,9 +659,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
       - name: Cache Rust dependencies + build artifacts
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -727,9 +717,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
       - name: Cache Rust dependencies + build artifacts
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -787,9 +775,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
       - name: Cache Rust dependencies + build artifacts
         if: ${{ needs.preflight.outputs.run_live_postgres == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -889,9 +875,7 @@ jobs:
 
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
 
 
       - name: Company conformance against disposable PostgreSQL
@@ -943,9 +927,7 @@ jobs:
 
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         if: ${{ needs.preflight.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
 
       - name: Install lock-pinned Reindeer Rust toolchain
         if: ${{ needs.preflight.outputs.run_heavy == 'true' }}
@@ -1064,11 +1046,8 @@ jobs:
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         id: rust
         if: ${{ !cancelled() && needs.preflight.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: ./.github/actions/setup-rust
         with:
-          # rust-toolchain.toml drives the exact version; this step just
-          # ensures rustup is available and honours the file.
-          toolchain: "1.97.1"
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies + build artifacts
@@ -1519,11 +1498,8 @@ jobs:
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         id: rust
         if: ${{ !cancelled() && needs.preflight.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: ./.github/actions/setup-rust
         with:
-          # rust-toolchain.toml drives the exact version; this step just
-          # ensures rustup is available and honours the file.
-          toolchain: "1.97.1"
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies + build artifacts
@@ -1889,9 +1865,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: "1.97.1"
           components: rustfmt
       - name: rustfmt check
         run: cargo fmt --all -- --check

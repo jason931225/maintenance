@@ -61,9 +61,7 @@ const reachabilityPreflightCommands = [
 const preflightRustToolchainSetup = `      - name: Install Rust toolchain for Cargo.lock consistency
         id: rust-toolchain
         if: \${{ !cancelled() && steps.checkout.outcome == 'success' && steps.path_class.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
 
 `;
 const runHeavyIf = "${{ needs.preflight.outputs.run_heavy == 'true' }}";
@@ -95,8 +93,15 @@ function expectFailure(
   message,
   buckBuildFile = postgresWrapperBuildFile,
   actionFile = freeRunnerDiskAction,
+  setupRustAction = undefined,
 ) {
-  const { failures } = evaluateCiPreflight(source, buckBuildFile, actionFile);
+  const { failures } = evaluateCiPreflight(
+    source,
+    buckBuildFile,
+    actionFile,
+    undefined,
+    setupRustAction,
+  );
   assert.ok(failures.some((failure) => failure.includes(message)), failures.join("\n"));
 }
 
@@ -1163,7 +1168,53 @@ describe("CI preflight contract", () => {
     }
 
     // 2026-08-28: +13 from rust-fmt checkout+toolchain identity/input/order mutations.
-    assert.equal(mutationCount, 262, "setup-action identity/input/interleaving matrix must not shrink");
+    // 2026-09-10: 262 -> 240. This matrix generates one mutation per action
+    // INPUT, and the 13 toolchain steps between them carried 22 inputs
+    // (`toolchain:` on all 13, plus `components:` on 3 -- 9 of the 13 are in
+    // the jobs this list covers). Routing them through
+    // ./.github/actions/setup-rust removes those inputs from the workflow
+    // entirely, so there is nothing left here to mutate.
+    //
+    // The coverage did not shrink, it MOVED, and deliberately to a place that
+    // holds it better: a version repeated in 13 workflow inputs could drift
+    // 12-of-13 and still look pinned. It is now asserted once at the source by
+    // scripts/check-toolchain-pin.mjs (which also refuses a second
+    // rust-toolchain.toml anywhere in the tree), and the action body that reads
+    // it is digest-locked by the test below -- both proven by mutation. Lower
+    // this number only alongside the same accounting.
+    assert.equal(mutationCount, 240, "setup-action identity/input/interleaving matrix must not shrink");
+  });
+
+  it("locks the setup-rust action body, which is now the only namer of a Rust version", () => {
+    // The toolchain literals left 13 workflow steps; this action is where they
+    // went. If its body is not locked, the single source of truth is a file
+    // anyone can repoint without tripping anything.
+    const setupRust = readFileSync(
+      new URL("../.github/actions/setup-rust/action.yml", import.meta.url),
+      "utf8",
+    );
+    expectFailure(
+      workflow,
+      "setup-rust must preserve its exact toolchain-resolution contract",
+      undefined,
+      undefined,
+      // The pinned dtolnay digest: swapping it silently changes what installs
+      // the compiler for every Rust job in the repository.
+      setupRust.replace(
+        "29eef336d9b2848a0b548edc03f92a220660cdb8",
+        "0000000000000000000000000000000000000000",
+      ),
+    );
+    expectFailure(
+      workflow,
+      "setup-rust must preserve its exact toolchain-resolution contract",
+      undefined,
+      undefined,
+      // The fail-closed parse. Accepting >1 channel means a second `channel =`
+      // line resolves to whichever came first -- exactly the two-truths drift
+      // the root pin exists to end.
+      setupRust.replace('[ "$count" = "1" ]', '[ "$count" -ge "1" ]'),
+    );
   });
 
   it("locks the candidate-controlled local free-runner-disk action body", () => {

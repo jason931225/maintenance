@@ -11,7 +11,20 @@ runs:
       shell: bash
       run: tools/buck/install_dotslash.sh
 
-    - name: Ensure toolchains//:cxx and rust resolve
+    # toolchains/BUCK uses `system_rust_toolchain`, i.e. whatever rustc is on
+    # PATH. Until 2026-09-10 this action installed no Rust at all and merely
+    # PRINTED the version, so the Buck2 graph compiled with whatever the runner
+    # image happened to ship. GitHub's fleet served rustc 1.98.0 and 1.98.1
+    # concurrently, and because the CAS key carries no compiler identity, an
+    # rlib built by one was handed to the other: `error[E0514]: found crate
+    # unicode_ident compiled by an incompatible version of rustc`. Every run on
+    # 1.98.0 failed and every run on 1.98.1 passed, which read as a flake for
+    # weeks (#1083). Installing the pin makes the compiler deterministic, which
+    # is the half of that defect this repository owns.
+    - name: Install the pinned Rust toolchain
+      uses: ./.github/actions/setup-rust
+
+    - name: Ensure toolchains//:cxx resolves
       shell: bash
       run: |
         set -euo pipefail
@@ -21,5 +34,9 @@ runs:
           sudo apt-get install -y -qq clang
         fi
         /usr/bin/clang --version | head -1
+        # Not decoration: this is the line that proves buck2 and cargo agree.
+        # `which` too, because a non-rustup rustc earlier on PATH would defeat
+        # RUSTUP_TOOLCHAIN silently.
+        command -v rustc
         rustc --version
         tools/buck2 --version

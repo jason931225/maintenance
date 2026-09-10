@@ -1,0 +1,53 @@
+name: Set up Rust
+description: >
+  Install the repository-pinned Rust toolchain. The version comes from
+  //rust-toolchain.toml and from nowhere else -- no workflow passes a version,
+  so a bump is one line in one file and cannot leave CI half-migrated.
+inputs:
+  components:
+    description: >
+      Extra rustup components beyond the ones rust-toolchain.toml declares.
+      Passed through verbatim to dtolnay/rust-toolchain.
+    required: false
+    default: ""
+outputs:
+  channel:
+    description: The toolchain channel that was installed.
+    value: ${{ steps.pin.outputs.channel }}
+runs:
+  using: composite
+  steps:
+    - name: Read the pinned channel
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        pin="${GITHUB_WORKSPACE}/rust-toolchain.toml"
+        [ -f "$pin" ] || { echo "::error::$pin is missing; it is the only place a Rust version may live"; exit 1; }
+        # Fail closed on 0 or >1 channel lines rather than silently taking the
+        # first: two channels in one file is precisely the drift this pin exists
+        # to prevent, and it must not resolve to whichever came first.
+        count=$(grep -cE '^[[:space:]]*channel[[:space:]]*=' "$pin" || true)
+        [ "$count" = "1" ] || { echo "::error::rust-toolchain.toml must declare exactly one channel; found $count"; exit 1; }
+        channel=$(grep -E '^[[:space:]]*channel[[:space:]]*=' "$pin" | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')
+        [ -n "$channel" ] || { echo "::error::could not parse channel from rust-toolchain.toml"; exit 1; }
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+        echo "pinned Rust channel: $channel"
+    - name: Install it
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      with:
+        toolchain: ${{ steps.pin.outputs.channel }}
+        components: ${{ inputs.components }}
+    - name: Prove the installed compiler is the pinned one
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The pin is worthless if something later shadows it. RUSTUP_TOOLCHAIN
+        # is exported so every subsequent step -- including buck2, whose
+        # toolchains/BUCK takes the SYSTEM rustc through the rustup proxy --
+        # resolves the same compiler. Unpinned system rustc is what let a
+        # 1.98.1-built rlib into a 1.98.0 build and poisoned the shared CAS
+        # (see #1083).
+        echo "RUSTUP_TOOLCHAIN=${{ steps.pin.outputs.channel }}" >> "$GITHUB_ENV"
+        RUSTUP_TOOLCHAIN="${{ steps.pin.outputs.channel }}" rustc --version
+        RUSTUP_TOOLCHAIN="${{ steps.pin.outputs.channel }}" rustc --print sysroot
