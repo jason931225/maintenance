@@ -811,7 +811,9 @@ mod tests {
         let queries = source.queries.lock().unwrap();
         assert_eq!(queries.len(), page_count * ActionInboxSource::ALL.len());
         for (page_index, page_queries) in queries
-            .chunks_exact(ActionInboxSource::ALL.len())
+            .as_chunks::<{ ActionInboxSource::ALL.len() }>()
+            .0
+            .iter()
             .enumerate()
         {
             assert!(page_queries.iter().all(|(_, query)| query.as_of == as_of));

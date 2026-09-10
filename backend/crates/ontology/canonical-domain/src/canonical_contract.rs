@@ -60,7 +60,10 @@ impl<O: CanonicalObject> CanonicalPort for NoPort<O> {
     fn execute(&self, _command: &Self::Command) -> Result<CommandReceipt, Self::Error> {
         // Witness is never constructed; Infallible keeps the Error bound honest.
         match Option::<std::convert::Infallible>::None {
-            Some(never) => Err(never),
+            // `never` is Infallible, so this arm is uninhabited. An empty match
+            // is how you consume that; `Err(never)` reads as reachable code and
+            // nightly's `unreachable-code` (implied by -D warnings) says so.
+            Some(never) => match never {},
             None => unreachable!("NoPort is never constructed"),
         }
     }
