@@ -1,5 +1,0 @@
-[toolchain]
-# Pinned to current stable (verified live via `rustup check` on 2026-07-26).
-# Bump deliberately; CI and local builds must agree.
-channel = "1.97.1"
-components = ["rustfmt", "clippy"]

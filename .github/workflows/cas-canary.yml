@@ -54,6 +54,7 @@ jobs:
         with: { persist-credentials: false }
       - uses: ./.github/actions/buck2-setup
       - uses: ./.github/actions/cas-inrunner
+        id: cas
       - uses: ./.github/actions/cas-warm
         id: warm
         with: { endpoint: "127.0.0.1:50051", role: writer }
@@ -91,7 +92,11 @@ jobs:
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/nativelink-cas
-          key: nativelink-cas-linux-x64-${{ github.run_id }}
+          # Saved under the prefix cas-inrunner RESTORED from, which names the
+          # compiler. A literal here would drift from the restore side the first
+          # time the toolchain rolls, and the store would go back to mixing
+          # artifacts from two compilers -- #1083.
+          key: ${{ steps.cas.outputs.key-prefix }}${{ github.run_id }}
 
   consume:
     name: A PR reuses what dev seeded

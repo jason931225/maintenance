@@ -61,9 +61,7 @@ const reachabilityPreflightCommands = [
 const preflightRustToolchainSetup = `      - name: Install Rust toolchain for Cargo.lock consistency
         id: rust-toolchain
         if: \${{ !cancelled() && steps.checkout.outcome == 'success' && steps.path_class.outputs.run_heavy == 'true' }}
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: "1.97.1"
+        uses: ./.github/actions/setup-rust
 
 `;
 const runHeavyIf = "${{ needs.preflight.outputs.run_heavy == 'true' }}";
@@ -95,8 +93,15 @@ function expectFailure(
   message,
   buckBuildFile = postgresWrapperBuildFile,
   actionFile = freeRunnerDiskAction,
+  setupRustAction = undefined,
 ) {
-  const { failures } = evaluateCiPreflight(source, buckBuildFile, actionFile);
+  const { failures } = evaluateCiPreflight(
+    source,
+    buckBuildFile,
+    actionFile,
+    undefined,
+    setupRustAction,
+  );
   assert.ok(failures.some((failure) => failure.includes(message)), failures.join("\n"));
 }
 
@@ -1163,7 +1168,59 @@ describe("CI preflight contract", () => {
     }
 
     // 2026-08-28: +13 from rust-fmt checkout+toolchain identity/input/order mutations.
-    assert.equal(mutationCount, 262, "setup-action identity/input/interleaving matrix must not shrink");
+    // 2026-09-10: 262 -> 236. Recounted after review found the first version of
+    // this note wrong three ways. The matrix emits TWO mutations per input
+    // (deleted and changed), not one. ELEVEN of the 13 toolchain steps fall in
+    // the jobs this list covers, not 13 or 9. Those eleven carried 13 inputs:
+    // 11 `toolchain:` and 2 `components:`. All are gone -- routing through
+    // ./.github/actions/setup-rust removes the version, and the components go
+    // because the pin already declares them and a job repeating them would be
+    // the same second declaration. 13 x 2 = 26.
+    //
+    // The coverage those 26 held has to land somewhere, and a digest lock alone
+    // is NOT equivalent: it asserts the action is UNCHANGED, not that it is
+    // CORRECT. What broke in review was neither -- the action installed a
+    // channel without the components the pin declared, so rustup tried to
+    // complete the toolchain inside a buck2 build action and failed. So the
+    // replacement is behavioural: check-toolchain-pin.test.mjs runs this
+    // action's own parse step against fixtures and asserts every declared
+    // component and target reaches the installer, and the action's last step
+    // re-proves it on the runner with RUSTUP_TOOLCHAIN unset, failing if rustup
+    // still has anything to download. Lower this number only with the same
+    // accounting.
+    assert.equal(mutationCount, 236, "setup-action identity/input/interleaving matrix must not shrink");
+  });
+
+  it("locks the setup-rust action body, which is now the only namer of a Rust version", () => {
+    // The toolchain literals left 13 workflow steps; this action is where they
+    // went. If its body is not locked, the single source of truth is a file
+    // anyone can repoint without tripping anything.
+    const setupRust = readFileSync(
+      new URL("../.github/actions/setup-rust/action.yml", import.meta.url),
+      "utf8",
+    );
+    expectFailure(
+      workflow,
+      "setup-rust must preserve its exact toolchain-resolution contract",
+      undefined,
+      undefined,
+      // The pinned dtolnay digest: swapping it silently changes what installs
+      // the compiler for every Rust job in the repository.
+      setupRust.replace(
+        "29eef336d9b2848a0b548edc03f92a220660cdb8",
+        "0000000000000000000000000000000000000000",
+      ),
+    );
+    expectFailure(
+      workflow,
+      "setup-rust must preserve its exact toolchain-resolution contract",
+      undefined,
+      undefined,
+      // The fail-closed parse. Accepting >1 channel means a second `channel =`
+      // line resolves to whichever came first -- exactly the two-truths drift
+      // the root pin exists to end.
+      setupRust.replace('[ "$count" = "1" ]', '[ "$count" -ge "1" ]'),
+    );
   });
 
   it("locks the candidate-controlled local free-runner-disk action body", () => {

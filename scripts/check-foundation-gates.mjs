@@ -318,7 +318,12 @@ requireIncludes(
   "image release regressions execute in production-hardening suite",
 );
 requireIncludes(".github/workflows/release-please.yml", "RELEASE_PLEASE_TOKEN", "release-please branch transport token documented");
-requireIncludes("backend/rust-toolchain.toml", "channel = \"1.97.1\"", "Rust toolchain pinned to 1.97.1");
+// The version itself is deliberately NOT asserted here. Pinning it in a gate
+// means a routine toolchain roll touches two files that must agree, which is
+// the two-truths problem the root pin exists to end. What must hold is that
+// the pin is at the root and declares a channel; scripts/check-toolchain-pin.mjs
+// enforces single-sourcing, and ADR-0044 records the roll procedure.
+requireIncludes("rust-toolchain.toml", "channel = ", "Rust toolchain pinned at the repository root");
 
 // Enterprise UX benchmark matrices stay repo-owned even though the browser
 // shell they were written against now lives outside this repository.

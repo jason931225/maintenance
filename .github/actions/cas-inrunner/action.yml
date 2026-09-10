@@ -23,16 +23,50 @@ outputs:
   restored-key:
     description: Cache key actually restored, empty on a miss.
     value: ${{ steps.restore.outputs.cache-matched-key }}
+  key-prefix:
+    description: >
+      The compiler-scoped prefix actually used. A seed job that saves this store
+      MUST save under this, or the save and the restore stop agreeing.
+    value: ${{ steps.scope.outputs.prefix }}
 runs:
   using: composite
   steps:
+    # The compiler is part of this cache's identity, and it was not.
+    #
+    # Buck2 stores rlibs, and an rlib is only linkable by the compiler that
+    # built it. GitHub's fleet served rustc 1.98.0 and 1.98.1 concurrently, the
+    # key carried no compiler, and `restore-keys` matched by bare prefix -- so a
+    # store accumulated artifacts from both and handed one compiler's rlib to
+    # the other: `error[E0514]: found crate unicode_ident compiled by an
+    # incompatible version of rustc`. Every run on one version failed, every run
+    # on the other passed, and it read as a flake for weeks (#1083).
+    #
+    # Pinning the toolchain removes the nondeterminism but NOT the mixed store:
+    # it makes the mismatch permanent instead of intermittent, because a pinned
+    # compiler now differs from the cached artifacts on every single run. So the
+    # compiler has to be in the key. A version this runner cannot link against
+    # is then a cache MISS -- a slow build -- rather than a poisoned hit.
+    - name: Scope the cache to the compiler that will read it
+      id: scope
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Whatever rustc buck2 will actually resolve, not what a pin file says:
+        # the store must be keyed on the binary that links its contents.
+        version=$(rustc --version | sed -E 's/^rustc ([^ ]+) \(([0-9a-f]+).*/\1-\2/')
+        [ -n "$version" ] || { echo "::error::could not read rustc --version to scope the cache"; exit 1; }
+        printf 'prefix=%srustc-%s-\n' "${{ inputs.key-prefix }}" "$version" >> "$GITHUB_OUTPUT"
+        printf 'cache scoped to rustc %s\n' "$version"
+
     - name: Restore CAS
       id: restore
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ~/nativelink-cas
-        key: ${{ inputs.key-prefix }}${{ github.run_id }}
-        restore-keys: ${{ inputs.key-prefix }}
+        key: ${{ steps.scope.outputs.prefix }}${{ github.run_id }}
+        # Prefix-matched, but now the prefix names a compiler, so this can only
+        # ever restore artifacts the current rustc can link.
+        restore-keys: ${{ steps.scope.outputs.prefix }}
 
     - name: Install checksum-pinned NativeLink
       shell: bash

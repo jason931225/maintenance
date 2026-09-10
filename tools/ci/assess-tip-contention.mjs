@@ -62,7 +62,7 @@ export const TIP_SERIAL_PATH_PREFIXES = [
   "backend/**/openapi/",
 
   "security/",
-  "backend/rust-toolchain.toml",
+  "rust-toolchain.toml",
   "backend/deny.toml",
   "renovate.json5",
   "release-please-config.json",
