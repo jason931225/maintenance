@@ -41,7 +41,8 @@
 //! a column that is really unclassified. This list is a RESIDUAL REGISTER, not
 //! standing authority to widen a correction. The schema, quoted-identifier and
 //! concatenation cases were planted as migrations and confirmed by execution;
-//! the other two are read from this file's own code, not planted:
+//! the other three are read from this file's own code; the non-ASCII case below
+//! was additionally measured against `parse_schema` directly:
 //!
 //! * **Schema qualification is discarded.** `read_qualified_name` keeps only
 //!   the last component, so `shadow.employees` registers as `employees` and
@@ -67,6 +68,22 @@
 //!   against the SET baseline: gate EXIT=0, **catalog EXIT=101**, naming
 //!   `medical_certificate_no` as landed and `reason` as no longer unclassified.
 //!   This parser still cannot reach it; it no longer needs to.
+//! * **An unquoted non-ASCII column name.**
+//!   `CREATE TABLE t (id UUID PRIMARY KEY, 주민등록번호 TEXT, plain_col TEXT)`.
+//!   `lex`'s word branch accepts only `[A-Za-z0-9_$]`, so every byte of a
+//!   multibyte identifier lexes as `Tok::Punct`; `apply_create_table` then reads
+//!   no word at the head of that item and drops it with NO `unsupported-ddl`, so
+//!   the gate prints PASSED over a column it never saw. Measured through
+//!   `parse_schema`: the table comes back as `{id, plain_col}`. PostgreSQL
+//!   accepts that identifier unquoted without complaint, and this is a Korean
+//!   HR schema in which 주민등록번호 is the canonical sensitive column, so the
+//!   construct is idiomatic here rather than exotic. The catalog assertion is
+//!   expected to reach it, as it does the concatenation case: `application_columns`
+//!   filters on `nspname`, `relpersistence`, `relkind`, `attnum` and
+//!   `attisdropped`, none of which is encoding-sensitive, so a live 주민등록번호
+//!   column should surface as unclassified. INFERRED, not measured — the planted
+//!   entries above carry EXIT codes and this one does not. Plant it before
+//!   relying on the coverage.
 //!
 //! WHAT THIS CORRECTION CLOSES. A multi-action `ALTER TABLE` used to be judged
 //! from its FIRST action. `alter_action_is_column_neutral` read one action and
