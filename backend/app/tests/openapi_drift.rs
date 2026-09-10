@@ -565,6 +565,45 @@ fn openapi_schema_body<'a>(yaml: &'a str, schema_name: &str) -> &'a str {
     &yaml[start..end]
 }
 
+/// One property's complete block, from its key to the next sibling key.
+///
+/// Exists so an assertion can be CLOSED. The flow-style literals this file used
+/// before #990 reformatted the document ended in `}` or `]`, which asserted not
+/// just that the right keys were present but that no others were. Matching a
+/// block-style prefix instead accepts anything appended after it: a `month`
+/// carrying both `pattern` and `format: date` would satisfy a prefix match
+/// while meaning the opposite of what the assertion says, because every
+/// generator maps `format: date` to a calendar date regardless of `pattern`.
+/// Slicing to the next sibling and comparing the whole slice restores that.
+///
+/// `indent` is the property's own indentation; the block ends at the first
+/// subsequent line indented no further, which is the sibling key or the parent's
+/// next key.
+fn openapi_property_body<'a>(body: &'a str, indent: usize, property: &str) -> &'a str {
+    let pad = " ".repeat(indent);
+    let needle = format!("\n{pad}{property}:\n");
+    let start = body
+        .find(&needle)
+        .unwrap_or_else(|| panic!("expected a `{property}` property at indent {indent}"))
+        + 1;
+    let after = start + needle.len() - 1;
+    let mut end = body.len();
+    let mut cursor = after;
+    while cursor < body.len() {
+        let line_end = body[cursor..]
+            .find('\n')
+            .map_or(body.len(), |i| cursor + i + 1);
+        let line = &body[cursor..line_end];
+        let deeper = line.starts_with(&format!("{pad} "));
+        if !line.trim().is_empty() && !deeper {
+            end = cursor;
+            break;
+        }
+        cursor = line_end;
+    }
+    &body[start..end]
+}
+
 #[test]
 fn openapi_documents_closed_inventory_movement_source_variants() {
     // Compose emits schemas in sorted key order; assert by named anchors, not sibling windows.
@@ -584,8 +623,11 @@ fn openapi_documents_closed_inventory_movement_source_variants() {
         );
     }
     assert!(
-        OPENAPI_YAML
-            .contains("        source:\n          $ref: '#/components/schemas/InventoryMovementSource'"),
+        openapi_property_body(
+            openapi_schema_body(OPENAPI_YAML, "InventoryMovement"),
+            8,
+            "source"
+        ) == "        source:\n          $ref: '#/components/schemas/InventoryMovementSource'\n",
         "InventoryMovement.source must not degrade to an untyped object"
     );
     assert!(
@@ -605,7 +647,8 @@ fn openapi_documents_closed_inventory_movement_source_variants() {
 fn openapi_documents_closed_month_as_year_month_not_calendar_date() {
     let schema = openapi_schema_body(OPENAPI_YAML, "AttendanceMonthClose");
     assert!(
-        schema.contains("        month:\n          type: string\n          pattern: ^\\\\d{4}-\\\\d{2}$"),
+        openapi_property_body(schema, 8, "month")
+            == "        month:\n          type: string\n          pattern: ^\\\\d{4}-\\\\d{2}$\n",
         "closed-month response must match the server's YYYY-MM wire value, not an OpenAPI calendar date"
     );
 }
@@ -695,9 +738,8 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
 
     let copy = openapi_schema_body(OPENAPI_YAML, "EvidenceCopyView");
     assert!(
-        copy.contains(
-            "        evidentiary_status:\n          $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus'"
-        ),
+        openapi_property_body(copy, 8, "evidentiary_status")
+            == "        evidentiary_status:\n          $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus'\n",
         "EV copy view must expose the server-derived evidentiary classification"
     );
     assert!(
@@ -707,6 +749,10 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
             "        - evidentiary_status\n        - storage\n        - digest_sha256\n",
             "        - content_type\n        - size_bytes\n        - worm_status\n",
             "        - created_by\n        - created_at\n",
+            // Closes the sequence. Without a following key any twelfth entry
+            // appended after `created_at` satisfies the prefix, which is what
+            // the flow-style `required: [...]` this replaced would have caught.
+            "      properties:\n",
         )),
         "EV copy view must require the server-derived evidentiary classification"
     );
