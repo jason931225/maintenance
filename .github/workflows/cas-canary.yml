@@ -182,10 +182,26 @@ jobs:
       # testable -- and a price worth naming rather than leaving as a mystery
       # checkout in a job that otherwise only talks to the API.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          # This is the only `actions: write` job here -- it can delete caches --
+          # and it needs exactly one 86-line script, so it takes neither the
+          # credentials nor the rest of the tree. Every other checkout in this
+          # file already passes persist-credentials: false.
+          sparse-checkout: scripts/cas
+          persist-credentials: false
       - name: Retain the newest CAS cache per compiler
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # `shell: bash` and this line together are load-bearing. GitHub's
+          # default shell is `bash -e {0}`, WITHOUT pipefail, so in
+          # `gh api ... | node prune-plan.mjs | while read`, a failure in either
+          # of the first two stages is swallowed and the step exits 0 having
+          # deleted nothing. The script's own fail-closed `exit 1` on an
+          # unparseable payload -- and any `gh api` 403 or 502 -- would have
+          # been invisible, leaving a silent no-op that looks green forever.
+          set -o pipefail
           # cache-hygiene.yml holds the repo to an 8 GiB soft budget and hard-fails
           # above it, so this deletes eagerly rather than waiting for the daily
           # protocol. WHICH caches to delete is decided per prefix, not globally.
@@ -201,7 +217,20 @@ jobs:
           # policy, and the shape of this bug -- a rule that looks right in a jq
           # one-liner and silently evicts the wrong thing -- is exactly what an
           # inline expression in a workflow cannot be tested for.
-          gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+          # --paginate --slurp, because a single page silently under-prunes the
+          # moment the repo holds more than 100 caches -- which is exactly when
+          # the 8 GiB budget needs this job most. Truncation cannot destroy an
+          # unseen prefix's seed (a prefix absent from the page contributes no
+          # caches, so nothing can be planned for it), so the failure is a quiet
+          # no-op rather than a wrong deletion. --slurp yields an array of pages;
+          # the jq flattens them back into one payload of the shape the script
+          # reads.
+          # `--slurp` is rejected alongside `--jq` ("the --slurp option is not
+          # supported with --jq or --template"), so the flattening is a separate
+          # jq stage. Verified against the live API, which is also why this is a
+          # pipe rather than the one-liner it looks like it should be.
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+          | jq '{actions_caches: map(.actions_caches[])}' \
           | node scripts/cas/prune-plan.mjs \
           | while read -r id key size; do
               echo "deleting $key ($((size/1048576)) MiB)"
