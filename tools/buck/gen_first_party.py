@@ -1760,29 +1760,19 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     env.update(cargo_pkg_version_env(read_rs_sources(src, exclude=lib_only), version))
     # Only the main+lib shape builds a separate binary target; a main-only crate
     # uses `env` above, whose whole-tree scan already matches that binary's srcs.
-    # The binary gets the DECLARED variables too. This was built fresh from
-    # base_env, so the declaration reached only the library and a main+lib
-    # crate emitted a rust_binary without them (#1084 N3).
+    # The binary gets the DECLARED variables too; this was built fresh from
+    # base_env, so a main+lib crate emitted a rust_binary without them (N3).
     #
-    # NOT because "main.rs is part of the same crate" -- an earlier revision of
-    # this comment said exactly that and it is false. `src/main.rs` and
-    # `src/lib.rs` are two CRATES in one package; the binary links the library
-    # as an extern crate just as an integration test does, which this file
-    # already says twice ("separate compilation units" above, "its OWN
-    # compilation" below). That argument would have EXCLUDED the binary.
+    # NOT because main.rs shares the library's crate -- it does not, and this
+    # file says so at "separate compilation units" above and "its OWN
+    # compilation" below. An earlier revision of this comment claimed it did,
+    # which is an argument for EXCLUDING the binary. The reason is that Cargo
+    # sets CARGO_PKG_* for every target in the package, so under-setting is a
+    # divergence, and a loud one: NotPresent at runtime, not a quiet mis-build.
     #
-    # The real reason is what Cargo does: it sets CARGO_PKG_* for every target
-    # in the package. Under-setting them here is therefore a divergence -- and
-    # a loud one, `should have CARGO_PKG_NAME env var: NotPresent` at runtime
-    # rather than a quietly different build.
-    #
-    # Integration tests stay excluded, and that is a hygiene TRADE-OFF rather
-    # than a structural claim. Propagating hands every itest whatever the
-    # library declared -- the over-broad copy that gave console-contracts a
-    # CARGO_PKG_VERSION its test never names. Under-broad fails loudly at
-    # rustc; over-broad quietly makes every face wrong. The existing
-    # `test_default_features_reach_the_binary_and_stop_at_integration_tests`
-    # locks that choice and it stays.
+    # Integration tests stay excluded as a hygiene TRADE-OFF, not a structural
+    # claim: propagating hands every itest whatever the library declared. Under-
+    # broad fails loudly; over-broad quietly makes every face wrong.
     main_env = base_env(package)
     main_env.update(declared_env)
     if has_main and has_lib:
