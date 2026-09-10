@@ -131,9 +131,12 @@ most recent date that has them, which is a check, not a lookup.
   prefix from `rustc --version`, and the seed saves under the prefix it restored
   from. An artifact this runner cannot link becomes a cache *miss* — a slow
   build — instead of a poisoned hit.
-- **The cache prefix is now multi-valued, and `cache-hygiene` prune's budget is
-  prefix-blind.** It keeps the two newest `nativelink-cas-` caches sorted by
-  `created_at`, regardless of which compiler each belongs to. The newest seed is
+- **The cache prefix is now multi-valued, and the prune budget is prefix-blind.**
+  `cas-canary.yml`'s `prune` job (`:149-167`) keeps the two newest
+  `nativelink-cas-` caches sorted by `created_at`, regardless of which compiler
+  each belongs to. (Not `cache-hygiene.yml`, which is a separate 8 GiB
+  total-budget protocol with its own keep-list — an earlier revision of this
+  bullet named it and would have sent a reader to the wrong file.) The newest seed is
   therefore always retained, so a roll cannot evict the compiler it just moved
   to, and the old prefix ages out in about two dev pushes — that part is fine.
   What the prefix does NOT fix is the canary's honesty: whenever a prefix has no
