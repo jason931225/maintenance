@@ -115,8 +115,9 @@ most recent date that has them, which is a check, not a lookup.
 - A bump is one line in one file. A rollback is reverting it.
 - **A pin change does NOT invalidate the Buck2 CAS.** An earlier revision of
   this record claimed the opposite — that every action digest changes, so
-  #1083's poisoned entries age out on the first run. Measured on this change's
-  own canary: `Cache hits: 100%`, 97 of 97 commands cached. It could not be
+  #1083's poisoned entries age out on the first run. Measured at `52ba0e30`,
+  before the key carried a compiler (run `34472988239`): `Cache hits: 100%`,
+  `97 (cached: 97, local: 0)` — a pin change invalidated nothing. It could not be
   otherwise: `rust-toolchain.toml` is not a declared input to any Buck2 target,
   and `system_rust_toolchain` resolves rustc at execution time, so no digest
   changes. That claim also contradicted this record's own statement above that
@@ -130,10 +131,18 @@ most recent date that has them, which is a check, not a lookup.
   prefix from `rustc --version`, and the seed saves under the prefix it restored
   from. An artifact this runner cannot link becomes a cache *miss* — a slow
   build — instead of a poisoned hit.
-- That risk was **untested, not absent**, on the run that looked green: `97
-  (cached: 97, local: 0)` means nothing compiled, so nothing linked. The base
-  run for comparison was `97 (cached: 83, local: 14)` on rustc 1.98.1. The first
-  content change would have run a local rustc against 1.98.x-built rlibs.
+- That green was **untested, not safe**: `97 (cached: 97, local: 0)` means
+  nothing compiled, so nothing linked, so the mismatch was never exercised. Dev
+  seed run `34470200013` shows what a real build costs — `97 (cached: 83,
+  local: 14)` at `Cache hits: 86%` on rustc 1.98.1. The first content change
+  would have run a local rustc against those 1.98.x-built rlibs.
+- **With the compiler in the key, the same canary proves the opposite.** At
+  `e3db9dad` (run `34487451449`): `Cache hits: 0%`, `97 (cached: 0, local: 97)`.
+  The compiler-scoped prefix matches no pre-existing entry, so all 97 actions
+  compiled locally under the pinned toolchain with zero mid-build component
+  downloads. That 0% is the design working rather than a regression — an
+  artifact this compiler cannot link is now a miss — and it exercises the buck2
+  rustc path far harder than the 100%-cached run, which ran no compiler at all.
 - `check:executed-tests` keys test binaries by `(crate_root, feature set)`, not
   by compiler, so a toolchain change does not re-key anything.
 - Committed `pkg/*.wasm` bytes are built by `tools/ui/build-payroll-wasm.sh`,

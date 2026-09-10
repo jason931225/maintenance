@@ -34,9 +34,10 @@ runs:
           sudo apt-get install -y -qq clang
         fi
         /usr/bin/clang --version | head -1
-        # Not decoration: this is the line that proves buck2 and cargo agree.
-        # `which` too, because a non-rustup rustc earlier on PATH would defeat
-        # RUSTUP_TOOLCHAIN silently.
+        # Informational now. setup-rust owns the proof, and it does it properly:
+        # from the workspace, with RUSTUP_TOOLCHAIN unset and RUSTUP_AUTO_INSTALL=0,
+        # failing if rustup has anything left to download. An earlier revision
+        # claimed these two lines proved buck2 and cargo agree; they never did.
         command -v rustc
         rustc --version
         tools/buck2 --version
