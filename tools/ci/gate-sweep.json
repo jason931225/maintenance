@@ -15,7 +15,7 @@
     },
     {
       "id": "check-cas-canary-verdict",
-      "run": "node --test scripts/cas/canary-verdict.test.mjs"
+      "run": "node --test scripts/cas/canary-verdict.test.mjs scripts/cas/prune-plan.test.mjs"
     },
     {
       "id": "ci-tools-suites",

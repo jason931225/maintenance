@@ -177,15 +177,32 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Retain only the newest CAS caches
+      # This job needed no repo files while the policy was an inline jq
+      # expression. It does now, which is the price of making the policy
+      # testable -- and a price worth naming rather than leaving as a mystery
+      # checkout in a job that otherwise only talks to the API.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Retain the newest CAS cache per compiler
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # cache-hygiene.yml holds the repo to an 8 GiB soft budget and hard-fails
-          # above it. Keep the two newest seeds so a restore always has a target,
-          # and delete the rest rather than waiting for the daily protocol.
+          # above it, so this deletes eagerly rather than waiting for the daily
+          # protocol. WHICH caches to delete is decided per prefix, not globally.
+          #
+          # The prefix names the compilers whose artifacts a store holds, so it is
+          # multi-valued: a toolchain roll, or two runner images with different
+          # clang, puts several live prefixes in the repo at once. The previous
+          # rule sorted every cache by age and kept the two newest, prefix-blind,
+          # so both survivors could belong to ONE prefix -- and the other lost its
+          # only seed, leaving every job on that compiler to build cold (#1089).
+          #
+          # The decision lives in a script with tests because it is a retention
+          # policy, and the shape of this bug -- a rule that looks right in a jq
+          # one-liner and silently evicts the wrong thing -- is exactly what an
+          # inline expression in a workflow cannot be tested for.
           gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
-            -q '[.actions_caches[] | select(.key|startswith("nativelink-cas-"))] | sort_by(.created_at) | reverse | .[2:] | .[] | "\(.id) \(.key) \(.size_in_bytes)"' \
+          | node scripts/cas/prune-plan.mjs \
           | while read -r id key size; do
               echo "deleting $key ($((size/1048576)) MiB)"
               gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" || true
