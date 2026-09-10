@@ -81,3 +81,8 @@ ci/harness/lane-board.live.json
 .beads/
 .omx/
 .omc/
+
+# rustc's default output name when compiling from stdin (`rustc - <<EOF`).
+# A 463 KB Mach-O binary reached a PR that way and no gate caught it; Repo
+# gates was green on the SHA that carried it.
+rust_out
