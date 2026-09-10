@@ -28,7 +28,7 @@ const failures = [];
 // records hashes that silently stop describing what the name resolves to. The
 // whole design -- compiler bytes inside the action digest -- requires that the
 // channel and the compiler are the same fact.
-const EXACT_CHANNEL = /^(\d+\.\d+(\.\d+)?|nightly-\d{4}-\d{2}-\d{2})$/;
+const EXACT_CHANNEL = /^(\d+\.\d+\.\d+|nightly-\d{4}-\d{2}-\d{2})$/;
 
 // --- the pin itself ---------------------------------------------------------
 let channel = null;
@@ -138,6 +138,8 @@ for (const file of SCAN_DIRS.flatMap((d) => scan(join(REPO, d)))) {
 // level down. Checked by content rather than by regenerating: this gate must
 // not reach the network.
 const LOCK = "toolchains/rust/lock.bzl";
+// Every locked artifact must come from Rust's own dist host.
+const DIST_PREFIX = "https://static.rust-lang.org/dist";
 try {
   const lockText = readFileSync(join(REPO, LOCK), "utf8");
   const declared = /^RUST_CHANNEL = "([^"]+)"/m.exec(lockText);
@@ -153,6 +155,14 @@ try {
   // build cannot verify, which is the property the lock exists to provide.
   const urls = (lockText.match(/^\s+"url":/gm) ?? []).length;
   const hashes = (lockText.match(/^\s+"sha256":/gm) ?? []).length;
+  for (const [, url] of lockText.matchAll(/^\s+"url": "([^"]+)"/gm)) {
+    if (!url.startsWith(`${DIST_PREFIX}/`)) {
+      failures.push(
+        `${LOCK}: ${url} is not under ${DIST_PREFIX}. The sha256 still pins the `
+          + "bytes, but nothing else checked where a hand-edited lock points.",
+      );
+    }
+  }
   if (urls === 0) failures.push(`${LOCK}: no artifacts locked`);
   if (urls !== hashes) failures.push(`${LOCK}: ${urls} urls but ${hashes} sha256s — every artifact must be hash-pinned`);
 } catch {

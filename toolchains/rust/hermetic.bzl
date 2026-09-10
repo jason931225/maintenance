@@ -50,7 +50,10 @@ hermetic_rust_toolchain = rule(
         "default_edition": attrs.option(attrs.string(), default = None),
         "deny_lints": attrs.list(attrs.string(), default = []),
         "doctests": attrs.bool(default = False),
-        "nightly_features": attrs.bool(default = True),
+        # The prelude defaults this False and the `system_rust_toolchain` call
+        # this replaced never passed it. Defaulting True would silently permit
+        # unstable features graph-wide and break a rollback to stable.
+        "nightly_features": attrs.bool(default = False),
         "report_unused_deps": attrs.bool(default = False),
         "rustc_binary_flags": attrs.list(attrs.arg(), default = []),
         "rustc_flags": attrs.list(attrs.arg(), default = []),

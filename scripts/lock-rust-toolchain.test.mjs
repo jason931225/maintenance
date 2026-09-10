@@ -32,7 +32,10 @@ describe("lock-rust-toolchain", () => {
   it("refuses a floating channel instead of locking a hash that will stop matching", () => {
     // The whole design requires the channel and the compiler to be the same
     // fact. `nightly` is a different compiler tomorrow.
-    for (const channel of ["nightly", "stable", "beta"]) {
+    // `1.97` is the subtle one: channel-rust-1.97.toml is HTTP 200 and floats
+    // to the newest patch, so it generates a VALID lock whose hashes stop
+    // describing the name the day 1.97.2 ships.
+    for (const channel of ["nightly", "stable", "beta", "1.97", "1"]) {
       assert.throws(() => manifestUrl(channel), /not an exact version/, channel);
     }
   });

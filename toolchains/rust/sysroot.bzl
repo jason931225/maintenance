@@ -12,10 +12,14 @@
 def _rust_sysroot_impl(ctx):
     out = ctx.actions.declare_output("sysroot", dir = True)
 
-    # `cp -a`, not buck2's copied_dir: the rustc tree contains symlinks that
-    # dangle until the tree is whole (lib/rustlib/<triple>/bin/gcc-ld/ld.lld
-    # points at rust-lld), and copied_dir dereferences them, so it fails on a
-    # tarball that is perfectly valid. -a preserves links as links.
+    # `cp -a` preserves modes and any links rather than dereferencing them.
+    #
+    # An earlier revision justified this by claiming the rustc tree contains
+    # symlinks that dangle until the tree is whole. Review measured it: there
+    # are ZERO symlinks in either host's extracted rustc archive or in either
+    # assembled sysroot, and gcc-ld/ld.lld is a regular file. The reason was
+    # wrong even though the command is fine, so it is corrected rather than
+    # left to mislead whoever edits this next.
     script = ctx.actions.write(
         "assemble.sh",
         [

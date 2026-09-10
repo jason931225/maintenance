@@ -45,7 +45,10 @@ const COMPONENT_PKG = { rustfmt: "rustfmt-preview", clippy: "clippy-preview" };
 export function manifestUrl(channel) {
   const dated = /^nightly-(\d{4}-\d{2}-\d{2})$/.exec(channel);
   if (dated) return `${DIST}/${dated[1]}/channel-rust-nightly.toml`;
-  if (/^\d+\.\d+(\.\d+)?$/.test(channel)) return `${DIST}/channel-rust-${channel}.toml`;
+  // Patch REQUIRED. `channel-rust-1.97.toml` is HTTP 200 and floats to the
+  // newest patch, so a lock generated from it stops describing the name it was
+  // generated for the day 1.97.2 ships.
+  if (/^\d+\.\d+\.\d+$/.test(channel)) return `${DIST}/channel-rust-${channel}.toml`;
   // Bare `nightly`/`stable`/`beta` name a different compiler on different days.
   // Locking one would record a hash that silently stops matching the name.
   throw new Error(
