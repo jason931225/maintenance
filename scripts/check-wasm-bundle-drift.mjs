@@ -5,8 +5,12 @@
 // SHIP: `src/lib.rs` include_bytes! them into the server binary and serves them
 // at /_ui/pkg. They are produced by tools/ui/build-payroll-wasm.sh, by hand.
 // Nothing regenerated or checked them, so the committed bytes could drift from
-// the source that is supposed to produce them -- and had: measured 640 bytes
-// stale against its own toolchain pin before this gate existed (#1092).
+// the source that is supposed to produce them -- and had. Rebuilding under the
+// pin this gate was added on moved the wasm from 373,332 to 383,081 bytes
+// (#1092). An earlier revision of this comment said "640 bytes stale", a
+// pre-bump figure that cannot be re-derived from this tree and that
+// contradicted its own commit message; replaced with the number anyone here
+// can reproduce.
 //
 // `backend/app/tests/health_readiness.rs` asserts the served bytes, which looks
 // like it would catch this and cannot: it pins the COMMITTED bytes, not the
@@ -27,16 +31,25 @@
 // bump, and the failure this gate exists for is "edited the crate, forgot to
 // rebundle". If lock-driven drift ever bites, tighten it then rather than
 // claiming a coverage it does not have.
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CRATE = "backend/crates/payroll/ui";
 const SRC = `${CRATE}/src`;
 const CARGO = `${CRATE}/Cargo.toml`;
 const MANIFEST = `${CRATE}/bundle.lock.json`;
 const PIN = "rust-toolchain.toml";
+// The recipe is an input too. `--release`, `--no-default-features
+// --features hydrate,islands` and `--target web` all determine the bytes, so a
+// bundle can go stale against its own build script with every source file
+// untouched -- and that script's own header says "Do not commit debug wasm"
+// with nothing enforcing it. The workspace manifest is here because this crate
+// inherits dependencies from its `[workspace.dependencies]`.
+const RECIPE = ["tools/ui/build-payroll-wasm.sh", "backend/Cargo.toml"];
 const OUTPUTS = [
   `${CRATE}/pkg/console_payroll_ui_bg.wasm`,
   `${CRATE}/pkg/console_payroll_ui.js`,
@@ -45,14 +58,19 @@ const OUTPUTS = [
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hashFile = (rel) => sha256(readFileSync(join(REPO, rel)));
 
-/** Every file under the crate's src/, sorted, repo-relative. */
-function sourceFiles(dir = join(REPO, SRC), out = []) {
-  for (const entry of readdirSync(dir).sort()) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) sourceFiles(path, out);
-    else out.push(relative(REPO, path));
-  }
-  return out;
+/** The crate's tracked source files, repo-relative and sorted.
+ *
+ * Asks git rather than walking the filesystem, because CI only ever has
+ * tracked files and the manifest must describe what CI will see. Walking
+ * recorded whatever happened to be lying in the directory: a Mac developer who
+ * opened src/ in Finder got `.DS_Store` hashed into the lock, CI then failed
+ * telling them to rebuild, and rebuilding on their machine regenerated the
+ * same poisoned lock. Fail-closed, but a loop -- and `.swp`, `.orig` and vim's
+ * `4913` do the same.
+ */
+function sourceFiles() {
+  const out = execFileSync("git", ["-C", REPO, "ls-files", "-z", SRC], { encoding: "utf8" });
+  return out.split("\0").filter(Boolean).sort();
 }
 
 function pinChannel() {
@@ -61,24 +79,58 @@ function pinChannel() {
   return m[1];
 }
 
-/** The wasm-bindgen version the crate declares. The CLI that produced the
- *  bundle must match it -- bindgen's glue is version-coupled to its runtime. */
-function bindgenVersion() {
+/** The wasm-bindgen version the crate DECLARES. */
+function declaredBindgen() {
   const m = /^\s*wasm-bindgen\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m.exec(readFileSync(join(REPO, CARGO), "utf8"));
   if (!m) throw new Error(`${CARGO}: no wasm-bindgen version`);
   return m[1];
 }
 
-function describe() {
+/** The wasm-bindgen CLI that is about to emit the glue.
+ *
+ * Recorded at --write time and compared against the declaration at check time.
+ * Recording only the declared version would have been decorative: Cargo.toml
+ * is already hashed as an input, so no state exists where a declaration check
+ * fires and the input hash does not. The CLI is the actual free variable --
+ * build-payroll-wasm.sh states "CLI wasm-bindgen must match Cargo.toml" as
+ * prose, and nothing enforced it.
+ */
+function cliBindgen() {
+  let out;
+  try {
+    out = execFileSync("wasm-bindgen", ["--version"], { encoding: "utf8" }).trim();
+  } catch (error) {
+    // Only --write needs this, and --write runs from build-payroll-wasm.sh
+    // immediately after wasm-bindgen produced the glue. Reaching here means
+    // someone is regenerating the manifest without the tool that builds the
+    // bundle, which would record a version nothing emitted.
+    throw new Error(
+      `\`wasm-bindgen --version\` failed (${error.code ?? error.message}). `
+        + `The manifest records the CLI that emitted the glue, so it cannot be written without it. `
+        + `Install wasm-bindgen ${declaredBindgen()} to match ${CARGO}.`,
+    );
+  }
+  const m = /(\d+\.\d+\.\d+\S*)/.exec(out);
+  if (!m) throw new Error(`could not read a version from \`wasm-bindgen --version\`: ${out}`);
+  return m[1];
+}
+
+function inputHashes() {
   const inputs = {};
-  for (const rel of [CARGO, ...sourceFiles()]) inputs[rel] = hashFile(rel);
+  for (const rel of [...RECIPE, CARGO, ...sourceFiles()].sort()) inputs[rel] = hashFile(rel);
+  return inputs;
+}
+
+function describe({ cli } = {}) {
   const outputs = {};
   for (const rel of OUTPUTS) outputs[rel] = hashFile(rel);
   return {
-    _comment: `Regenerate with: bash tools/ui/build-payroll-wasm.sh (it writes this file). Checked by scripts/${"check-wasm-bundle-drift.mjs"}.`,
+    _comment: "Regenerate with: bash tools/ui/build-payroll-wasm.sh (it writes this file). Checked by scripts/check-wasm-bundle-drift.mjs.",
     toolchain_channel: pinChannel(),
-    wasm_bindgen: bindgenVersion(),
-    inputs,
+    // What the crate declares, and what actually built it. They must agree.
+    wasm_bindgen: declaredBindgen(),
+    wasm_bindgen_cli: cli ?? declaredBindgen(),
+    inputs: inputHashes(),
     outputs,
   };
 }
@@ -86,16 +138,32 @@ function describe() {
 const REBUILD = "Rebuild with: bash tools/ui/build-payroll-wasm.sh";
 
 if (process.argv.includes("--write")) {
-  writeFileSync(join(REPO, MANIFEST), `${JSON.stringify(describe(), null, 2)}\n`);
-  const n = Object.keys(describe().inputs).length;
-  console.log(`wrote ${MANIFEST}: ${n} inputs, ${OUTPUTS.length} outputs, channel ${pinChannel()}`);
+  const written = describe({ cli: cliBindgen() });
+  writeFileSync(join(REPO, MANIFEST), `${JSON.stringify(written, null, 2)}\n`);
+  const n = Object.keys(written.inputs).length;
+  console.log(
+    `wrote ${MANIFEST}: ${n} inputs, ${OUTPUTS.length} outputs, channel ${written.toolchain_channel}, `
+      + `wasm-bindgen CLI ${written.wasm_bindgen_cli}`,
+  );
   process.exit(0);
 }
 
 const failures = [];
 let recorded = null;
 try {
-  recorded = JSON.parse(readFileSync(join(REPO, MANIFEST), "utf8"));
+  const parsed = JSON.parse(readFileSync(join(REPO, MANIFEST), "utf8"));
+  // A FALSY-BUT-VALID document is the fail-open case. `0`, `false` and `""` are
+  // all legal JSON, so `JSON.parse` returns without throwing, and an
+  // `if (recorded)` guard then skipped every check below and printed success
+  // over a stale bundle -- a manifest truncated to `0` by a bad merge or a
+  // partial write would have shipped silently. The shape is checked, not the
+  // truthiness: an array is rejected too, since `recorded.inputs` on one is
+  // `undefined` rather than an error.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    failures.push(`${MANIFEST} is not a JSON object (parsed as ${Array.isArray(parsed) ? "an array" : typeof parsed}). ${REBUILD}`);
+  } else {
+    recorded = parsed;
+  }
 } catch {
   failures.push(`${MANIFEST} is missing or unparseable. ${REBUILD}`);
 }
@@ -109,9 +177,17 @@ if (recorded) {
         + `${now.toolchain_channel}. A different compiler emits different wasm. ${REBUILD}`,
     );
   }
-  if (recorded.wasm_bindgen !== now.wasm_bindgen) {
+  // The CLI that actually emitted the glue, against what the crate declares.
+  // This is the non-redundant half: `wasm_bindgen` alone could never fire
+  // without the Cargo.toml input hash firing first, because Cargo.toml is
+  // itself a hashed input. The CLI is a machine-local variable nothing else
+  // records, and build-payroll-wasm.sh only asks for the match in prose.
+  const builtWith = recorded.wasm_bindgen_cli ?? recorded.wasm_bindgen;
+  if (!builtWith) {
+    failures.push(`${MANIFEST} records no wasm-bindgen version. ${REBUILD}`);
+  } else if (builtWith !== now.wasm_bindgen) {
     failures.push(
-      `the bundle was built with wasm-bindgen ${recorded.wasm_bindgen} but ${CARGO} declares `
+      `the bundle's glue was emitted by wasm-bindgen CLI ${builtWith} but ${CARGO} declares `
         + `${now.wasm_bindgen}. The glue and the runtime are version-coupled. ${REBUILD}`,
     );
   }
