@@ -1074,36 +1074,63 @@ jobs:
         if: ${{ !cancelled() && matrix.leg == 'cargo' && needs.preflight.outputs.run_heavy == 'true' }}
         run: cargo fmt --all -- --check
 
-      # This lints the DEFAULT feature set, which for `console-app` is the EMPTY
-      # one -- backend/app/Cargo.toml declares no `default` key, so cargo's
-      # implicit default is nothing. Every non-default feature in the workspace
-      # was therefore unlinted, and a green clippy here was over-read as "the
-      # workspace lints clean" when it meant "one feature set lints clean"
-      # (#1093).
-      # The extra sets stay INSIDE this step deliberately. The preflight
-      # contract pins that source-only gates run immediately after clippy, and
-      # that adjacency is an invariant rather than an artefact -- a separate
-      # step would break it for cosmetics.
+      # Every feature combination the workspace can build, and each named.
       #
-      # The non-default sets below lint clean today, so they cannot regress
-      # unnoticed. Both are scoped rather than workspace-wide: `dev-auth` is an
-      # app-level feature (`dev-auth = ["console-platform-auth-rest/dev-auth"]`)
-      # and the wasm bundle is one crate, so this costs ~40s warm rather than a
-      # second full workspace pass.
+      # This step used to lint the DEFAULT set only, which for `console-app` is
+      # the EMPTY one -- backend/app/Cargo.toml declares no `default` key, so
+      # cargo's implicit default is nothing. A green clippy was then over-read
+      # as "the workspace lints clean" when it meant "one feature set lints
+      # clean" (#1093). Exactly 3 of 175 members declare a `[features]` table.
       #
-      # `--features test-postgres` is deliberately absent and is NOT clean: it
-      # exits 101, on this branch and equally on the base before it, so it
-      # predates this change. Declared rather than silently omitted -- an
-      # unlinted feature set nobody wrote down is how the gap above happened.
-      # Tracked in #1093.
+      # `-p console-platform-auth-rest` is NOT redundant with `-p console-app`.
+      # `--all-targets` applies only to SELECTED packages: a path dependency is
+      # built as a lib, without `cfg(test)`. Without naming it, that crate's
+      # tests/dev_auth_*.rs and its `#[cfg(all(test, feature = "dev-auth"))]`
+      # module go unlinted -- and those suites EXECUTE, on the buck-dev-auth
+      # leg below. Measured: an injected lint there exits 0 with `-p
+      # console-app` alone and 101 once the crate is named.
+      #
+      # The extra sets stay INSIDE this step deliberately: the preflight
+      # contract pins that source-only gates run immediately after clippy
+      # (check-ci-preflight.mjs asserts gateIndexes[1] == gateIndexes[0] + 1),
+      # and that adjacency is an invariant, not an artefact.
+      #
+      # Fail-SLOW, matching the doctrine two comments up and the accumulator
+      # this file already uses for the cargo-test step: `set -e` here would let
+      # a default-set failure hide whether dev-auth and wasm are also broken,
+      # and the step is named only "clippy", so the log would not say which set
+      # died. Each invocation is labelled instead.
+      #
+      # `--features test-postgres` is deliberately ABSENT and is not clean: it
+      # exits 101 here and equally on the base before this change, so it
+      # predates it. The failures are all warn-level lints promoted by
+      # `-D warnings` -- unused imports and dead code, no type or borrow errors
+      # -- so the suite compiles; it fails hygiene. Named rather than silently
+      # omitted, because an unlinted feature set nobody wrote down is exactly
+      # how the gap above happened. Tracked in #1093.
       - name: clippy -D warnings
         id: clippy
         if: ${{ !cancelled() && matrix.leg == 'cargo' && needs.preflight.outputs.run_heavy == 'true' }}
         run: |
-          set -euo pipefail
+          set +e
+          failed_count=0
+          check_status() {
+            local rc=$?
+            if [[ $rc -ne 0 ]]; then
+              echo "FAILED (exit $rc): clippy $1" >&2
+              failed_count=$((failed_count + 1))
+            fi
+          }
           SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
-          SQLX_OFFLINE=true cargo clippy -p console-app --all-targets --features dev-auth -- -D warnings
+          check_status "default feature set"
+          SQLX_OFFLINE=true cargo clippy -p console-app -p console-platform-auth-rest --all-targets --features dev-auth -- -D warnings
+          check_status "--features dev-auth"
           SQLX_OFFLINE=true cargo clippy -p console-payroll-ui --target wasm32-unknown-unknown --no-default-features --features hydrate,islands --lib -- -D warnings
+          check_status "wasm32 --features hydrate,islands"
+          if [[ $failed_count -ne 0 ]]; then
+            echo "$failed_count clippy feature set(s) failed" >&2
+            exit 1
+          fi
       # Wave C (DN-0006): first Required-CI gate family on Buck2. Invoked from
       # backend/ so the binary's cwd remains the Cargo workspace root it scans;
       # Buck2 walks up to the repo .buckconfig. Keep warm-cache overlays opt-in
