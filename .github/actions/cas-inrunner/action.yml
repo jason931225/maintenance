@@ -1,7 +1,11 @@
 name: In-runner warm cache
 description: >
   Run a cache-only NativeLink inside the runner, seeded from the GitHub Actions
-  cache, so one runner reuses what an earlier runner built. Never fails the job.
+  cache, so one runner reuses what an earlier runner built. A cache MISS never
+  fails the job -- but scoping does: if the compilers that will read this store
+  cannot be identified, the step exits non-zero rather than serve an unkeyed
+  cache. The description previously said "never fails the job" while the file
+  already had three hard exits, which is the kind of promise a caller relies on.
 inputs:
   max-bytes:
     description: >
@@ -58,30 +62,59 @@ runs:
     # NOT make the graph hermetic -- `system_cxx_toolchain` takes a path string,
     # not an artifact, so clang is still resolved at execution time and is still
     # absent from every action digest. Projecting clang out of a hash-pinned
-    # archive, as //toolchains/rust now does for rustc, remains the real fix.
+    # archive, as toolchains//rust now does for rustc, remains the real fix.
+    # (`toolchains` is a cell -- see .buckconfig -- so the label is
+    # `toolchains//rust`, not `//toolchains/rust`.)
     - name: Scope the cache to the compilers that will read it
       id: scope
       shell: bash
       run: |
         set -euo pipefail
-        # Whatever rustc buck2 will actually resolve, not what a pin file says:
-        # the store must be keyed on the binary that links its contents.
-        version=$(rustc --version | sed -E 's/^rustc ([^ ]+) \(([0-9a-f]+).*/\1-\2/')
-        [ -n "$version" ] || { echo "::error::could not read rustc --version to scope the cache"; exit 1; }
-        # The SAME binary toolchains/BUCK names, not whatever `clang` resolves to
-        # on PATH -- keying on a different clang than the one that links would
-        # describe a store nothing produced. Its absence is fatal rather than
-        # skipped: a prefix that silently drops the C compiler is the unkeyed
-        # store this step exists to end.
+        # EVERY component is a fixed-width digest, and that is the point rather
+        # than tidiness. `-` is both the separator inside a component and the
+        # terminator between components, so a variable-width component makes
+        # `<X>-` a strict prefix of `<X>-<Y>-` -- and `restore-keys` below is
+        # PREFIX-matched. A first revision of this step transliterated clang's
+        # version line, which meant `cc-clang-version-18.1.8-` prefix-matched a
+        # store saved by `cc-clang-version-18.1.8-https-github.com-llvm-...-`:
+        # a cross-compiler restore, reintroduced by the very step meant to stop
+        # one. Fixed width removes the ambiguity by construction.
+        #
+        # The human-readable values are printed below, so debuggability is kept
+        # in the log rather than in the key where it can collide.
+        digest() { printf '%s' "$1" | sha256sum | cut -c1-12; }
+
+        # rustc. Since #1094 buck2 does NOT resolve this from PATH -- the
+        # compiler is an artifact projected from the hash-pinned sysroot, so it
+        # is inside every Rust action's digest already and a mismatch is a miss
+        # on its own. This component is therefore defence in depth, not the load
+        # bearing part; it also keeps the store partitioned for the cargo legs.
+        rustc_line=$(rustc --version)
+        case "$rustc_line" in
+          "rustc "*) ;;
+          *) echo "::error::unrecognised rustc --version output: $rustc_line"; exit 1 ;;
+        esac
+
+        # clang is the load-bearing one. `system_cxx_toolchain` takes a path
+        # string, not an artifact, so the C compiler is in NO action digest --
+        # and toolchains/BUCK sets `linker = "/usr/bin/clang"`, so every Rust
+        # binary and test links through it, not just the crates that compile C.
+        # Read the binary toolchains/BUCK actually names, not whatever `clang`
+        # resolves to on PATH: keying on a different clang than the one that
+        # links would describe a store nothing produced.
         cc_bin=/usr/bin/clang
-        [ -x "$cc_bin" ] || { echo "::error::$cc_bin is missing; toolchains/BUCK links every target with it"; exit 1; }
-        # Vendors differ ("Apple clang version 21.0.0 (clang-2100.1.1.101)",
-        # "Ubuntu clang version 18.1.3"), so the whole first line is normalised
-        # rather than parsed into fields that only one vendor has.
-        cc_version=$("$cc_bin" --version | head -1 | tr -cs '[:alnum:].' '-' | sed -E 's/^-+|-+$//g')
-        [ -n "$cc_version" ] || { echo "::error::could not read $cc_bin --version to scope the cache"; exit 1; }
-        printf 'prefix=%srustc-%s-cc-%s-\n' "${{ inputs.key-prefix }}" "$version" "$cc_version" >> "$GITHUB_OUTPUT"
-        printf 'cache scoped to rustc %s and cc %s\n' "$version" "$cc_version"
+        [ -x "$cc_bin" ] || { echo "::error::$cc_bin is missing or not executable; toolchains/BUCK links every target with it"; exit 1; }
+        # Captured whole, then cut at the first newline with parameter
+        # expansion. No pipeline: `head -1` closing the pipe early raises the
+        # SIGPIPE-under-pipefail question for nothing, and a `sed` that fails to
+        # match passes its input through unchanged, so the emptiness guard it
+        # was paired with could never fire.
+        cc_out=$("$cc_bin" --version) || { echo "::error::$cc_bin --version failed"; exit 1; }
+        cc_line=${cc_out%%$'\n'*}
+        [ -n "$cc_line" ] || { echo "::error::$cc_bin --version printed nothing to scope the cache"; exit 1; }
+
+        printf 'prefix=%srustc-%s-cc-%s-\n' "${{ inputs.key-prefix }}" "$(digest "$rustc_line")" "$(digest "$cc_line")" >> "$GITHUB_OUTPUT"
+        printf 'cache scoped to:\n  rustc: %s\n  cc:    %s\n' "$rustc_line" "$cc_line"
 
     - name: Restore CAS
       id: restore
