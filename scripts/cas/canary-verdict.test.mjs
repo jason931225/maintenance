@@ -6,15 +6,25 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 const SCRIPT = new URL("./canary-verdict.sh", import.meta.url).pathname;
-const PREFIX = "nativelink-cas-linux-x64-rustc-1.100.0-nightly-a36d05efa-";
+// The real shape the action emits since #1088: a fixed-width digest per
+// compiler, `rustc-<12hex>-cc-<12hex>-`. Kept faithful on purpose, and it is
+// worth saying why the shape changed. An earlier revision transliterated
+// clang's version line, which made components variable-width -- and `-` is both
+// the separator inside a component and the terminator between them, so
+// `cc-<X>-` prefix-matched `cc-<X>-<Y>-`. `restore-keys` is prefix-matched, so
+// that was a cross-compiler restore created by the step meant to stop one.
+//
+// Note this shape has NO dots, which is why the literal-matching case below
+// carries its own synthetic prefix instead of deriving one from this.
+const PREFIX = "nativelink-cas-linux-x64-rustc-4ca944b0b14a-cc-ebdd1913203a-";
 
 /** Run the verdict with fixture files; returns { status, out }. */
-function verdict({ restored = "", log = "Cache hits: 0%", keys = null }) {
+function verdict({ restored = "", log = "Cache hits: 0%", keys = null, prefix = PREFIX }) {
   const dir = mkdtempSync(join(tmpdir(), "canary-"));
   try {
     const logPath = join(dir, "buck.log");
     writeFileSync(logPath, `${log}\nCommands: 97 (cached: 0, remote: 0, local: 97)\n`);
-    const args = ["--restored", restored, "--prefix", PREFIX, "--log", logPath];
+    const args = ["--restored", restored, "--prefix", prefix, "--log", logPath];
     if (keys !== null) {
       const keysPath = join(dir, "keys.txt");
       writeFileSync(keysPath, keys.length ? `${keys.join("\n")}\n` : "");
@@ -99,12 +109,23 @@ describe("cas canary verdict", () => {
   });
 
   it("matches the prefix literally, not as a regex", () => {
-    // The prefix carries dots (`rustc-1.100.0-nightly`). Under `grep "^$prefix"`
-    // each `.` matches any character, so this key would read as BROKEN -- a red
-    // build for a cache that does not exist.
-    const decoyed = PREFIX.replace(/\./g, "X");
-    assert.notEqual(decoyed, PREFIX);
-    const r = verdict({ keys: [`${decoyed}42`, "nativelink-cas-linux-x64-rustc-1.97.1-8bab26f4f-1"] });
+    // DELIBERATELY synthetic and dotted, not derived from PREFIX. This script
+    // once matched with `grep -q "^${prefix}"`, where every `.` is a wildcard,
+    // so a dotted prefix would read a decoyed key as its own -- a RED build for
+    // a cache that does not exist.
+    //
+    // The prefix the action emits today is digests and carries no dots, so
+    // deriving the decoy from PREFIX would produce `decoyed === PREFIX` and
+    // assert nothing. The property still needs guarding: `--prefix` comes from
+    // MY_PREFIX at runtime, and a future format could reintroduce dots. So the
+    // case supplies its own dotted prefix rather than tracking the real one.
+    const dotted = "nativelink-cas-linux-x64-rustc-1.100.0-nightly-a36d05efa-";
+    const decoyed = dotted.replace(/\./g, "X");
+    assert.notEqual(decoyed, dotted, "the decoy must differ, or this asserts nothing");
+    const r = verdict({
+      prefix: dotted,
+      keys: [`${decoyed}42`, "nativelink-cas-linux-x64-rustc-1.97.1-8bab26f4f-1"],
+    });
     assert.equal(r.status, 0, "a dot-decoyed key must not be read as this prefix");
     assert.match(r.out, /NEW PREFIX/);
     assert.doesNotMatch(r.out, /BROKEN/);
