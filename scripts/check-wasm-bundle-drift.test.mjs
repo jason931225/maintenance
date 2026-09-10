@@ -120,6 +120,15 @@ describe("the committed hydration bundle cannot drift from its source", () => {
       drift: (d) => manifest(d, (m) => { delete m.wasm_bindgen_cli; delete m.wasm_bindgen; }),
       because: /records no wasm-bindgen version/,
     },
+    "only the recorded CLI version is dropped": {
+      // Distinct from the case above, and the reason the `?? wasm_bindgen`
+      // fallback had to go: with `wasm_bindgen` left correct, that fallback
+      // degraded to the comparison which cannot fire -- Cargo.toml is already a
+      // hashed input -- so deleting one field switched off the only
+      // non-redundant check and the gate passed.
+      drift: (d) => manifest(d, (m) => { delete m.wasm_bindgen_cli; }),
+      because: /records no wasm-bindgen version/,
+    },
   };
 
   for (const [name, { drift, because }] of Object.entries(DRIFTS)) {
@@ -143,6 +152,30 @@ describe("the committed hydration bundle cannot drift from its source", () => {
     try {
       write(dir, `${CRATE}/src/.DS_Store`, "\0\0junk");
       assert.equal(gate(dir), 0, "an untracked stray file must not be treated as a source input");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to WRITE a manifest whose sources git cannot enumerate", () => {
+    // The write-side twin of the fail-open above. With src/ untracked, an
+    // unfloored `--write` records the recipe files and no sources at all, and
+    // the check side then passes over every later edit to them, forever -- a
+    // manifest born blind stays blind. The check side fails closed on a
+    // shrinking set; only a floor covers the moment of writing.
+    const dir = fixture();
+    try {
+      execFileSync("git", ["-C", dir, "rm", "-r", "--cached", "-q", `${CRATE}/src`], { stdio: "pipe" });
+      let status = 0;
+      let stderr = "";
+      try {
+        execFileSync("node", [join(dir, GATE), "--write"], { stdio: "pipe" });
+      } catch (error) {
+        status = error.status;
+        stderr = String(error.stderr ?? "");
+      }
+      assert.notEqual(status, 0, "--write accepted a source listing with no sources in it");
+      assert.match(stderr, /was not among them/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
