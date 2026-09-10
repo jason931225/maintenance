@@ -36,11 +36,22 @@ export const GENERATIONS = 1;
 // live seed -- this file's own bug, at arity 4. Three would have flapped:
 // whichever combination was seeded least recently loses, every time.
 //
-// Budget: cas-inrunner caps the CAS at 1 GiB plus a 200 MB action cache, so
-// four prefixes is ~4.8 GiB worst case against cache-hygiene's 8 GiB. That is
-// a real increase over the old rule's ~2.4 GiB, and it is the cost of not
-// evicting live seeds; the store is still under budget and still unprotected,
-// so hygiene can reclaim it under pressure.
+// Budget, measured rather than derived. An earlier revision multiplied the
+// EVICTION CAPS -- 4 x (1 GiB + 200 MB) = ~4.8 GiB -- which assumes every
+// store sits exactly at its cap and is 4.6x the observed figure. The seed job
+// builds one gate target, not the workspace, and actions/cache compresses on
+// upload.
+//
+// Observed 2026-09-10 from the live API, which is what actually counts against
+// the cap: 2 nativelink stores totalling 0.51 GiB, largest 260 MiB. Four
+// prefixes at one generation is therefore ~1 GiB, against 8 GiB soft (all 14
+// caches in the repo total 6.1 GiB today). Re-derive it rather than trusting
+// this line: `cas-canary.yml` already prints `usage now: N GiB across M
+// caches` on every prune run.
+//
+// The store is also still absent from cache-hygiene's KEEP_PREFIXES, so the
+// daily protocol can reclaim it under pressure -- which is the property that
+// makes "not evicting live seeds" the right side to err on.
 export const PREFIXES = 4;
 const SELECT = "nativelink-cas-";
 
@@ -62,7 +73,27 @@ export function plan(payload, { generations = GENERATIONS, prefixes = PREFIXES }
   // which is fail-safe from the CLI (no stdout, so no deletions) but throws
   // for any other caller and made the "does not throw" test a lie.
   const all = Array.isArray(payload?.actions_caches) ? payload.actions_caches : [];
-  const caches = all.filter((c) => typeof c?.key === "string" && c.key.startsWith(SELECT));
+  // A row without a usable `created_at` is never planned for deletion.
+  //
+  // The API marks only `id` as required: `created_at` and `last_accessed_at`
+  // are both optional and neither is documented non-null. (Observed 2026-09-10:
+  // 0 of 14 live rows lacked either, so this is insurance against a contract
+  // the docs do not give, not a fix for something seen.) Sorting a dateless row
+  // with `?? ""` put it LAST, which deleted it -- and at prefix level did
+  // something worse: a brand-new seed has been created but not yet restored, so
+  // an absent `last_accessed_at` ranked its whole prefix last and retired the
+  // newest compiler first. A strictly worse inversion than the bug this file
+  // fixes.
+  //
+  // Declining to plan them is not a leak, which the `prefixOf` docstring's
+  // "exempt from pruning forever" warning would otherwise imply:
+  // cache-hygiene.yml age-evicts at MAX_AGE_DAYS 14 and `nativelink-cas-` is
+  // deliberately absent from its KEEP_PREFIXES, so the daily protocol reclaims
+  // anything this job declines to touch. That backstop is what makes
+  // fail-closed the right default here.
+  const caches = all.filter((c) => (
+    typeof c?.key === "string" && c.key.startsWith(SELECT) && typeof c.created_at === "string"
+  ));
 
   const byPrefix = new Map();
   for (const cache of caches) {
@@ -81,7 +112,12 @@ export function plan(payload, { generations = GENERATIONS, prefixes = PREFIXES }
   // API itself sorts by default. Ranking on created_at retires a combination
   // that dev seeds rarely but PRs restore from constantly, while a combination
   // seeded once and never used again outranks it.
-  const lastUsed = by("last_accessed_at");
+  // Falls back to creation. A seed on a fresh toolchain roll has been created
+  // but not yet restored, so `last_accessed_at` may be absent on exactly the
+  // prefix that must survive; ranking it as "" would retire the newest
+  // compiler first.
+  const lastUsed = (a, b) => String(b.last_accessed_at ?? b.created_at ?? "")
+    .localeCompare(String(a.last_accessed_at ?? a.created_at ?? ""));
   const groupActivity = (group) => group.reduce(
     (newest, c) => (lastUsed(newest, c) > 0 ? c : newest),
     group[0],

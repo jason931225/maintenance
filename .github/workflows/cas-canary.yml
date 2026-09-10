@@ -194,13 +194,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # `shell: bash` and this line together are load-bearing. GitHub's
-          # default shell is `bash -e {0}`, WITHOUT pipefail, so in
+          # `shell: bash` is the load-bearing part, not the line below.
+          # GitHub's DEFAULT shell is `bash -e {0}` -- no pipefail -- so in
           # `gh api ... | node prune-plan.mjs | while read`, a failure in either
-          # of the first two stages is swallowed and the step exits 0 having
-          # deleted nothing. The script's own fail-closed `exit 1` on an
-          # unparseable payload -- and any `gh api` 403 or 502 -- would have
-          # been invisible, leaving a silent no-op that looks green forever.
+          # of the first two stages was swallowed and the step exited 0 having
+          # deleted nothing. The script's own fail-closed `exit 1`, and any
+          # `gh api` 403 or 502, were invisible: a silent no-op that looks green
+          # forever.
+          #
+          # Naming `shell: bash` gets `--noprofile --norc -eo pipefail`, which
+          # already sets it (verified: `set -o` reports pipefail on under
+          # `shell: bash`, off under the default). The explicit line is
+          # belt-and-braces and survives someone dropping the `shell:` key --
+          # but an earlier comment here said the two were needed TOGETHER,
+          # which would teach the wrong rule to anyone copying this into a job
+          # that names the shell and omits the `set`.
           set -o pipefail
           # cache-hygiene.yml holds the repo to an 8 GiB soft budget and hard-fails
           # above it, so this deletes eagerly rather than waiting for the daily

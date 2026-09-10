@@ -171,10 +171,36 @@ describe("it does not touch what it does not own", () => {
     assert.deepEqual(plan(null), []);
   });
 
-  it("does not delete a cache merely because its timestamps are null", () => {
-    // A partially-null row sorted last and got planned for deletion. One seed
-    // per prefix must survive even when the API omits its dates.
-    const input = payload({ id: 950, key: `${RUSTC_A}1`, created_at: null, last_accessed_at: null, size_in_bytes: 1 });
-    assert.deepEqual(plan(input), []);
+  it("does not delete a dateless row that shares a prefix with a dated one", () => {
+    // TWO caches in ONE prefix, deliberately. An earlier version of this test
+    // used a single cache, so `group.slice(1)` was empty regardless and the
+    // assertion held with NO null handling at all -- review proved it by
+    // swapping the null default for a completely different policy and getting
+    // a green suite. That is the same "retention arithmetic satisfies the
+    // assertion, not the thing it names" defect as the selector test above,
+    // in the test written to close it.
+    const input = payload(
+      { id: 950, key: `${RUSTC_A}1`, created_at: null, last_accessed_at: null, size_in_bytes: 1 },
+      cache(RUSTC_A, "2020-01-01T00:00:00Z"),
+    );
+    const doomed = doomedKeys(input);
+    assert.ok(!doomed.includes(`${RUSTC_A}1`), "a row with no usable date must never be planned");
+  });
+
+  it("does not retire a whole prefix whose newest seed has never been restored", () => {
+    // The prefix-level form, and strictly worse than the bug this file fixes:
+    // a brand-new seed on a fresh roll has been CREATED but not yet RESTORED,
+    // so `last_accessed_at` is absent on exactly the prefix that must survive.
+    // Ranking it as "" retires the newest compiler first.
+    const FRESH = "nativelink-cas-linux-x64-rustc-fresh-cc-x-";
+    const input = payload(
+      { id: 960, key: `${FRESH}1`, created_at: "2026-09-10T12:00:00Z", size_in_bytes: 1 },
+      cache(RUSTC_A, "2026-09-09T10:00:00Z"),
+      cache(RUSTC_B, "2026-09-08T10:00:00Z"),
+      cache(CLANG_B, "2026-09-07T10:00:00Z"),
+      cache(BOTH_B, "2026-09-06T10:00:00Z"),
+    );
+    const kept = keptKeys(input);
+    assert.ok(kept.some((k) => k.startsWith(FRESH)), "the newest, never-restored prefix was retired");
   });
 });
