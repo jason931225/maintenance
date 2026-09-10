@@ -51,14 +51,8 @@ cargo-primary path.
    the layout gate's FORBIDDEN_NAMES, so a PR recreating it goes red. The
    posture is unchanged; only the pointer was wrong.
 
-   Console's de facto state already matches, for a reason unrelated to any
-   flag: the root `.buckconfig` declares no `[cache]` section, and
-   `allow_cache_upload` appears in **0 of 186** BUCK files. So no lane wires
-   buck2 to a cache at all, and `cached: N` on a rebuild says nothing about
-   any store. Note the limit of that measurement: an unusable cache
-   *configuration* fails the build outright, but what a correctly configured
-   yet unreachable endpoint does is unmeasured — claim neither failure nor
-   graceful degradation for it.
+   For what console's own cache wiring is, and what has actually been measured
+   of it, see DN-0007 — it exists, it is opt-in, and it is not restated here.
 4. **Do not expose** writer CAS secrets to fork `pull_request` workflows.
 5. **ADR-0039** remains proposed; this note reverses only the *cargo-as-driver*
    planning path, not face/delete authority.
