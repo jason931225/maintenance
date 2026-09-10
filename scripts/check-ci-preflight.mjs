@@ -1065,7 +1065,7 @@ const requiredJobRunContracts = Object.freeze({
     proofDigest("Path-class skip proof", "1fdf99dda32af815824808d703216d2c0cf04a0adc146dd29f24746e549c44e0", { if: skipProofCondition, shell: "bash" }),
     setupRun("Install pinned DotSlash runtime", "../tools/buck/install_dotslash.sh", { if: backendIndependentCondition }),
     proofRun("rustfmt check", "cargo fmt --all -- --check", { if: backendLegCondition("cargo") }),
-    proofRun("clippy -D warnings", "SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings", { if: backendLegCondition("cargo") }),
+    proofRun("clippy -D warnings", "set +e\nfailed_count=0\ncheck_status() {\n  local rc=$?\n  if [[ $rc -ne 0 ]]; then\n    echo \"FAILED (exit $rc): clippy $1\" >&2\n    failed_count=$((failed_count + 1))\n  fi\n}\nSQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings\ncheck_status \"default feature set\"\nSQLX_OFFLINE=true cargo clippy -p console-app -p console-platform-auth-rest --all-targets --features dev-auth -- -D warnings\ncheck_status \"--features dev-auth\"\nSQLX_OFFLINE=true cargo clippy -p console-payroll-ui --target wasm32-unknown-unknown --no-default-features --features hydrate,islands --lib -- -D warnings\ncheck_status \"wasm32 --features hydrate,islands\"\nif [[ $failed_count -ne 0 ]]; then\n  echo \"$failed_count clippy feature set(s) failed\" >&2\n  exit 1\nfi\n", { if: backendLegCondition("cargo") }),
     proofRun("Layer-boundary gate", "../tools/buck2 run //backend/ci/gates/layer-boundary:console-gate-layer-boundary", { if: backendLegCondition("cargo") }),
     proofRun("Audit-coverage gate", "cargo run -p console-gate-audit-coverage", { if: backendLegCondition("cargo") }),
     proofRun("Migration-safety gate", "cargo run -p console-gate-migration-safety", { if: backendLegCondition("cargo") }),
@@ -2780,7 +2780,7 @@ export function evaluateCiPreflight(
     const gateIndexes = requireOrderedStepContracts(
       steps,
       [
-        { name: "clippy -D warnings", run: "SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings", if: backendLegCondition("cargo") },
+        { name: "clippy -D warnings", run: "set +e\nfailed_count=0\ncheck_status() {\nlocal rc=$?\nif [[ $rc -ne 0 ]]; then\necho \"FAILED (exit $rc): clippy $1\" >&2\nfailed_count=$((failed_count + 1))\nfi\n}\nSQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings\ncheck_status \"default feature set\"\nSQLX_OFFLINE=true cargo clippy -p console-app -p console-platform-auth-rest --all-targets --features dev-auth -- -D warnings\ncheck_status \"--features dev-auth\"\nSQLX_OFFLINE=true cargo clippy -p console-payroll-ui --target wasm32-unknown-unknown --no-default-features --features hydrate,islands --lib -- -D warnings\ncheck_status \"wasm32 --features hydrate,islands\"\nif [[ $failed_count -ne 0 ]]; then\necho \"$failed_count clippy feature set(s) failed\" >&2\nexit 1\nfi", if: backendLegCondition("cargo") },
         ...sourceGateContracts.map(([name, run]) => ({ name, run, if: backendLegCondition("cargo") })),
         { name: "PR 473 migration operational contract tests", run: pr473ContractTestCommand, if: backendLegCondition("cargo") },
         { name: "Reconcile portable PostgreSQL role topology", run: undefined, if: backendIndependentCondition },
