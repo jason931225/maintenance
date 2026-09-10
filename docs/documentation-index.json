@@ -1115,7 +1115,7 @@
     },
     {
       "path": "docs/decisions/ADR-0044-rust-toolchain-pin.md",
-      "blob_sha": "12d6016e91932b48d9fa076a094ce0fd2230a07a",
+      "blob_sha": "e8ac19c8cbd072ab4d9c70b26e75cec22de5bb0d",
       "class": "decision",
       "owner": "repository maintainers",
       "status": "active",

@@ -113,9 +113,27 @@ most recent date that has them, which is a check, not a lookup.
 ## Consequences
 
 - A bump is one line in one file. A rollback is reverting it.
-- The first CI run after a bump misses the Buck2 CAS entirely, because every
-  action digest changes. That miss is not a cost to avoid — it is the poisoned
-  entries from #1083 aging out.
+- **A pin change does NOT invalidate the Buck2 CAS.** An earlier revision of
+  this record claimed the opposite — that every action digest changes, so
+  #1083's poisoned entries age out on the first run. Measured on this change's
+  own canary: `Cache hits: 100%`, 97 of 97 commands cached. It could not be
+  otherwise: `rust-toolchain.toml` is not a declared input to any Buck2 target,
+  and `system_rust_toolchain` resolves rustc at execution time, so no digest
+  changes. That claim also contradicted this record's own statement above that
+  the CAS key carries no compiler identity.
+- **The real consequence is the inverse, and it is why both halves of #1083
+  land together.** Cached rlibs outlive a pin change, and an rlib is linkable
+  only by the compiler that built it. Pinning removes the nondeterminism but not
+  the mixed store, so it would turn `E0514` from an intermittent coin flip into
+  a *standing* failure — the pinned compiler differing from the cached artifacts
+  on every run rather than half of them. So `cas-inrunner` now derives its cache
+  prefix from `rustc --version`, and the seed saves under the prefix it restored
+  from. An artifact this runner cannot link becomes a cache *miss* — a slow
+  build — instead of a poisoned hit.
+- That risk was **untested, not absent**, on the run that looked green: `97
+  (cached: 97, local: 0)` means nothing compiled, so nothing linked. The base
+  run for comparison was `97 (cached: 83, local: 14)` on rustc 1.98.1. The first
+  content change would have run a local rustc against 1.98.x-built rlibs.
 - `check:executed-tests` keys test binaries by `(crate_root, feature set)`, not
   by compiler, so a toolchain change does not re-key anything.
 - Committed `pkg/*.wasm` bytes are built by `tools/ui/build-payroll-wasm.sh`,

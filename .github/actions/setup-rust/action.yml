@@ -68,7 +68,11 @@ runs:
         # here, where an install is safe -- and this step fails, because an
         # install happening at THIS point means it would otherwise have happened
         # inside a build action.
-        out=$(rustc --version 2>&1) || { printf '%s\n' "$out"; exit 1; }
+        # RUSTUP_AUTO_INSTALL=0 turns a mismatch into an immediate named error
+        # instead of a slow silent auto-install. Verified to exist: rustup names
+        # this variable itself when it auto-installs. Belt and braces with the
+        # grep below, which still catches a rustup too old to honour it.
+        out=$(RUSTUP_AUTO_INSTALL=0 rustc --version 2>&1) || { printf '%s\n' "$out"; exit 1; }
         printf '%s\n' "$out"
         if printf '%s' "$out" | grep -qiE 'downloading|installing|syncing'; then
           echo "::error::the installed toolchain does not satisfy rust-toolchain.toml -- rustup tried to complete it here, which means it would try again inside a buck2 build action"
