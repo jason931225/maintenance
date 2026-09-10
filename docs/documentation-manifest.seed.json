@@ -1030,13 +1030,23 @@
     "archive_tag": null
   },
   {
+    "path": "docs/decisions/ADR-0044-rust-toolchain-pin.md",
+    "blob_sha": "c4fdca68728594f0039206dc7e756ecd363b20d3",
+    "class": "decision",
+    "owner": "repository maintainers",
+    "status": "active",
+    "replacement": null,
+    "retention": "retain",
+    "archive_tag": null
+  },
+  {
     "path": "docs/decisions/README.md",
     "class": "decision",
     "owner": "repository maintainers",
     "status": "active",
     "replacement": null,
     "retention": "retain",
-    "blob_sha": "3d1319c9b9e5d3c5513713a3378f797d6b07d3a0",
+    "blob_sha": "906ac99a87314312b6b0efa68c6171f679579400",
     "archive_tag": null
   },
   {
