@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -89,4 +89,73 @@ describe("setup-rust reads the whole pin", () => {
     assert.equal(kv.components, "");
     assert.equal(kv.targets, "");
   });
+});
+
+/** A minimal repo the gate can scan: a valid pin, a valid lock, one workflow. */
+function craft(workflow) {
+  const dir = mkdtempSync(join(tmpdir(), "pin-gate-"));
+  mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+  mkdirSync(join(dir, "toolchains/rust"), { recursive: true });
+  writeFileSync(join(dir, "rust-toolchain.toml"), PIN);
+  writeFileSync(join(dir, "toolchains/rust/lock.bzl"), readFileSync(join(ROOT, "toolchains/rust/lock.bzl"), "utf8"));
+  writeFileSync(join(dir, ".github/workflows/probe.yml"), workflow);
+  return dir;
+}
+
+/** Exit code of the real gate against a crafted tree. 0 = the input passed. */
+function gate(dir) {
+  try {
+    execFileSync("node", [join(ROOT, "scripts/check-toolchain-pin.mjs"), "--root", dir], { stdio: "pipe" });
+    return 0;
+  } catch (e) {
+    return e.status;
+  }
+}
+
+describe("the pin gate cannot be walked past", () => {
+  // Every one of these passed an earlier revision of this gate. They are kept
+  // as a corpus rather than a changelog: a gate is only worth its exit code if
+  // something is known to make it non-zero, and the shapes are easy to narrow
+  // by accident when adding the next one.
+  const BYPASSES = {
+    "a toolchain: input": "        toolchain: 1.99.0",
+    "a trailing comment invoking the reindeer carve-out": "        toolchain: 1.99.0 # REINDEER_TOOLCHAIN",
+    "a version reaching rustup through a shell variable":
+      "    env:\n      RUST_VERSION: 1.99.0\n    steps:\n      - run: rustup default \"$RUST_VERSION\"",
+    "rustup install": "      - run: rustup install 1.99.0",
+    "rustup-init --default-toolchain": "      - run: rustup-init -y --default-toolchain 1.99.0",
+    "a third-party action pinned to a version": "      - uses: dtolnay/rust-toolchain@1.99.0",
+    "RUSTUP_TOOLCHAIN as a literal": "    env:\n      RUSTUP_TOOLCHAIN: 1.99.0",
+    "rustup component add --toolchain": "      - run: rustup component add clippy --toolchain 1.99.0",
+    "a rust: container image": "    container: rust:1.96",
+  };
+  for (const [name, workflow] of Object.entries(BYPASSES)) {
+    it(`rejects ${name}`, () => {
+      const dir = craft(workflow);
+      try {
+        assert.notEqual(gate(dir), 0, `${name} passed the gate`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  // The other half: a gate that fails on everything is equally useless, and
+  // reindeer's separately locked bootstrap compiler is a legitimate fifth Rust
+  // version that MUST keep working.
+  const ALLOWED = {
+    "reindeer's bootstrap, which names no version": '      - run: rustup run "$REINDEER_TOOLCHAIN" cargo build',
+    "an action pinned to a floating ref": "      - uses: dtolnay/rust-toolchain@master",
+    "a container image that is not rust": "    container: node:22",
+  };
+  for (const [name, workflow] of Object.entries(ALLOWED)) {
+    it(`allows ${name}`, () => {
+      const dir = craft(workflow);
+      try {
+        assert.equal(gate(dir), 0, `${name} was wrongly rejected`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
 });

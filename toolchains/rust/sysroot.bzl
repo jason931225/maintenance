@@ -30,14 +30,18 @@ def _rust_sysroot_impl(ctx):
             'rm -rf "$out"; mkdir -p "$out"',
             'cp -a "$rustc_dir"/. "$out"/',
             'mkdir -p "$out/lib/rustlib"',
-            '# Remaining args are rust-std trees (merge their rustlib) and',
-            '# component trees like clippy/rustfmt (merge their whole tree).',
+            '# Remaining args are: std trees, then `--`, then component trees.',
+            '# The rule already knows which is which -- an earlier revision threw',
+            '# that away and sniffed directory shape to rediscover it, which works',
+            '# only while no component ships a lib/rustlib without a bin/.',
+            '# llvm-tools-preview would have been the first one to break it.',
+            'while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do',
+            '  cp -a "$1"/lib/rustlib/. "$out"/lib/rustlib/',
+            '  shift',
+            'done',
+            '[ "$#" -gt 0 ] && shift',
             'for tree in "$@"; do',
-            '  if [ -d "$tree/lib/rustlib" ] && [ ! -d "$tree/bin" ]; then',
-            '    cp -a "$tree"/lib/rustlib/. "$out"/lib/rustlib/',
-            '  else',
-            '    cp -a "$tree"/. "$out"/',
-            '  fi',
+            '  cp -a "$tree"/. "$out"/',
             'done',
         ],
         is_executable = True,
@@ -48,13 +52,17 @@ def _rust_sysroot_impl(ctx):
             script,
             out.as_output(),
             ctx.attrs.rustc[DefaultInfo].default_outputs[0],
-            [dep[DefaultInfo].default_outputs[0] for dep in ctx.attrs.stds + ctx.attrs.components],
+            [dep[DefaultInfo].default_outputs[0] for dep in ctx.attrs.stds],
+            "--",
+            [dep[DefaultInfo].default_outputs[0] for dep in ctx.attrs.components],
         ),
         category = "rust_sysroot",
         identifier = ctx.attrs.triple,
-        # Assembling ~1 GB of symlinks is cheaper locally than shipping the
-        # result to a remote executor and back; the INPUTS are still content-
-        # addressed, which is what the digest cares about.
+        # Measured at 534 MB assembled, not the "~1 GB of symlinks" an earlier
+        # revision of this comment claimed -- the same revision whose symlink
+        # story is corrected 30 lines above. Copying that locally is cheaper
+        # than shipping it to a remote executor and back; the INPUTS stay
+        # content-addressed, which is what the digest cares about.
         local_only = True,
     )
     return [DefaultInfo(default_output = out)]

@@ -146,6 +146,11 @@ export function renderBzl(lock) {
     "",
     `RUST_CHANNEL = ${JSON.stringify(lock.channel)}`,
     "",
+    "# The hosts a sysroot is assembled for. Emitted rather than restated in",
+    "# Starlark: a second hand-maintained copy of this list is exactly the kind",
+    "# of second source of truth this whole design exists to remove.",
+    `RUST_HOSTS = ${JSON.stringify(lock.hosts ?? HOSTS)}`,
+    "",
     "# package -> target triple -> (url, sha256)",
     "RUST_DIST = {",
   ];

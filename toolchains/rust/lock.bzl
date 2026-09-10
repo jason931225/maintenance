@@ -7,6 +7,11 @@
 
 RUST_CHANNEL = "nightly-2026-09-10"
 
+# The hosts a sysroot is assembled for. Emitted rather than restated in
+# Starlark: a second hand-maintained copy of this list is exactly the kind
+# of second source of truth this whole design exists to remove.
+RUST_HOSTS = ["x86_64-unknown-linux-gnu","aarch64-apple-darwin"]
+
 # package -> target triple -> (url, sha256)
 RUST_DIST = {
     "clippy-preview": {

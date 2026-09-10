@@ -13,7 +13,10 @@
 # never becomes the ambient toolchain. `.github/actions/setup-rust`
 # reads `channel` from this file and installs it; every workflow uses that
 # action and passes no version. `scripts/check-toolchain-pin.mjs` fails the
-# build if a version literal reappears. Rationale and the roll procedure:
+# build if a version literal reappears under `.github`, and holds
+# toolchains/rust/lock.bzl to this channel. Read that gate's header for what it
+# does NOT cover -- notably backend/Dockerfile, which is outside its scan and
+# still names its own version. Rationale and the roll procedure:
 # docs/decisions/ADR-0044-rust-toolchain-pin.md
 #
 # To bump: change `channel` here, nothing else. To roll back: revert that line.
@@ -22,6 +25,11 @@ channel = "nightly-2026-09-10"
 components = ["rustfmt", "clippy"]
 # console-payroll-ui's hydration bundle is a wasm32 artifact built by
 # tools/ui/build-payroll-wasm.sh. Declared here so a fresh clone can run that
-# script without a separate `rustup target add`, and so the roller can refuse a
-# nightly that did not publish rust-std for it.
+# script without a separate `rustup target add`, and so a bump to a nightly that
+# did not publish rust-std for it fails at lock time: `buildLock` throws rather
+# than emitting a lock with a hole in it. (An earlier revision credited this
+# refusal to "the roller", which does not exist -- see ADR-0044 section 4.)
+#
+# buck2 does NOT get this std in its sysroot: it never cross-compiles, and the
+# wasm bundle is a cargo build inside that script. See toolchains/rust/BUCK.
 targets = ["wasm32-unknown-unknown"]

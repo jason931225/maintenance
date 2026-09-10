@@ -50,10 +50,21 @@ hermetic_rust_toolchain = rule(
         "default_edition": attrs.option(attrs.string(), default = None),
         "deny_lints": attrs.list(attrs.string(), default = []),
         "doctests": attrs.bool(default = False),
-        # The prelude defaults this False and the `system_rust_toolchain` call
-        # this replaced never passed it. Defaulting True would silently permit
-        # unstable features graph-wide and break a rollback to stable.
-        "nightly_features": attrs.bool(default = False),
+        # True is the prelude's default, in both places it is declared:
+        # `prelude/toolchains/rust.bzl` (attrs.bool) and
+        # `prelude/rust/rust_toolchain.bzl` (provider_field). The
+        # `system_rust_toolchain` call this replaced passed no value, so it
+        # resolved True -- and this rule must resolve True too, or replacing
+        # the toolchain silently changes the graph.
+        #
+        # An earlier revision of this file defaulted it False under a comment
+        # asserting the prelude default was False. It is not. That flip would
+        # have dropped `RUSTC_BOOTSTRAP=1` (prelude/rust/build.bzl), removed
+        # the `[expand]` subtarget, hard-failed doc coverage, and failed
+        # analysis outright for `report_unused_deps` -- none of it announced.
+        # The pin is a nightly, so the "keeps a stable rollback honest"
+        # rationale was backwards as well: stable would need it flipped back.
+        "nightly_features": attrs.bool(default = True),
         "report_unused_deps": attrs.bool(default = False),
         "rustc_binary_flags": attrs.list(attrs.arg(), default = []),
         "rustc_flags": attrs.list(attrs.arg(), default = []),
