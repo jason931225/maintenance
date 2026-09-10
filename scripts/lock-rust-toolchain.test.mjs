@@ -8,13 +8,14 @@ import { parsePin } from "./lib/rust-pin.mjs";
 const HOST = "x86_64-unknown-linux-gnu";
 const PIN = '[toolchain]\nchannel = "nightly-2026-09-10"\ncomponents = ["rustfmt", "clippy"]\ntargets = ["wasm32-unknown-unknown"]\n';
 
-const entry = (pkg, triple, release = "nightly") => `[pkg.${pkg}.target.${triple}]
+const DIST_FILE = { "clippy-preview": "clippy", "rustfmt-preview": "rustfmt" };
+const entry = (pkg, triple, release = "nightly") => ((file) => `[pkg.${pkg}.target.${triple}]
 available = true
-url = "https://static.rust-lang.org/dist/2026-09-10/${pkg}-${release}-${triple}.tar.gz"
+url = "https://static.rust-lang.org/dist/2026-09-10/${file}-${release}-${triple}.tar.gz"
 hash = "gz${pkg}${triple}"
-xz_url = "https://static.rust-lang.org/dist/2026-09-10/${pkg}-${release}-${triple}.tar.xz"
+xz_url = "https://static.rust-lang.org/dist/2026-09-10/${file}-${release}-${triple}.tar.xz"
 xz_hash = "xz${pkg}${triple}"
-`;
+`)(DIST_FILE[pkg] ?? pkg);
 
 describe("lock-rust-toolchain", () => {
   it("routes a dated nightly to its dated manifest and a stable to its own", () => {
@@ -53,9 +54,23 @@ describe("lock-rust-toolchain", () => {
     );
   });
 
-  it("puts rustc's payload under rustc/, not a per-triple directory", () => {
-    const manifest = parseManifest(entry("rustc", HOST));
-    assert.equal(manifest.rustc[HOST].strip_prefix, `rustc-nightly-${HOST}/rustc`);
+  it("names the inner directory per package: only rust-std carries the triple", () => {
+    // Got this wrong once in each direction. rust-std is the only per-target
+    // payload, so it is the only archive whose inner directory is suffixed;
+    // rustc, clippy-preview and rustfmt-preview are all bare. A wrong prefix
+    // fails at `buck2 build` with an unhelpful archive error, not here.
+    const shapes = {
+      rustc: `rustc-nightly-${HOST}/rustc`,
+      // The archive is `clippy-nightly-*`, not `clippy-preview-nightly-*`: the
+      // dist FILE name drops the `-preview` the PACKAGE name carries.
+      "clippy-preview": `clippy-nightly-${HOST}/clippy-preview`,
+      "rustfmt-preview": `rustfmt-nightly-${HOST}/rustfmt-preview`,
+      "rust-std": `rust-std-nightly-${HOST}/rust-std-${HOST}`,
+    };
+    for (const [pkg, expected] of Object.entries(shapes)) {
+      const manifest = parseManifest(entry(pkg, HOST));
+      assert.equal(manifest[pkg][HOST].strip_prefix, expected, pkg);
+    }
   });
 
   it("prefers the xz artifact, because CI pays for every byte", () => {

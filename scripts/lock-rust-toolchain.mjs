@@ -75,8 +75,13 @@ export function parseManifest(text) {
     // Rebuilding that in Starlark got it wrong the first time; the filename
     // already states it, so read it instead of predicting it.
     const base = url[1].split("/").pop().replace(/\.tar\.(xz|gz)$/, "");
-    // Inside that, the payload sits in a per-component directory.
-    const inner = pkg === "rustc" ? "rustc" : `${pkg}-${triple}`;
+    // Inside that, the payload sits in a directory named after the component.
+    // `rust-std` is the ONLY one that carries the triple, because it is the only
+    // per-target payload -- rustc, clippy-preview and rustfmt-preview are all
+    // bare. Verified against all four tarballs; each archive also states its own
+    // directory in a top-level `components` file, which is the authority if this
+    // ever needs revisiting.
+    const inner = pkg === "rust-std" ? `rust-std-${triple}` : pkg;
     (out[pkg] ??= {})[triple] = {
       url: url[1],
       sha256: hash[1],

@@ -24,8 +24,9 @@ _HOSTS = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
     )
     for pkg, triples in RUST_DIST.items()
     for triple, entry in triples.items()
-    if pkg in ["rustc", "rust-std"]
 ]
+
+_COMPONENTS = [p for p in RUST_DIST if p not in ["rustc", "rust-std"]]
 
 # rustc ships without a standard library and rust-std ships without a compiler;
 # a working sysroot is the two overlaid. Assembling it here, once, makes the
@@ -40,6 +41,7 @@ _HOSTS = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
             for t in RUST_DIST["rust-std"]
             if t not in _HOSTS
         ],
+        components = [":{}-{}".format(c, host) for c in _COMPONENTS],
         triple = host,
         visibility = ["PUBLIC"],
     )

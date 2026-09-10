@@ -13,12 +13,12 @@ RUST_DIST = {
         "aarch64-apple-darwin": {
             "url": "https://static.rust-lang.org/dist/2026-09-10/clippy-nightly-aarch64-apple-darwin.tar.xz",
             "sha256": "fe84080a28fac7d37b1615b0594e88ecb51417a3b85da2b0a5dfa4cc76d8c1d5",
-            "strip_prefix": "clippy-nightly-aarch64-apple-darwin/clippy-preview-aarch64-apple-darwin",
+            "strip_prefix": "clippy-nightly-aarch64-apple-darwin/clippy-preview",
         },
         "x86_64-unknown-linux-gnu": {
             "url": "https://static.rust-lang.org/dist/2026-09-10/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz",
             "sha256": "d103e9bd003848b20b136def40152d97761d7af0542bab0567a97e02c1f4673d",
-            "strip_prefix": "clippy-nightly-x86_64-unknown-linux-gnu/clippy-preview-x86_64-unknown-linux-gnu",
+            "strip_prefix": "clippy-nightly-x86_64-unknown-linux-gnu/clippy-preview",
         },
     },
     "rust-std": {
@@ -54,12 +54,12 @@ RUST_DIST = {
         "aarch64-apple-darwin": {
             "url": "https://static.rust-lang.org/dist/2026-09-10/rustfmt-nightly-aarch64-apple-darwin.tar.xz",
             "sha256": "23892f63b0f63d48cea6f5069f80627c947acbcd3a389f218dd1363dd0dd9613",
-            "strip_prefix": "rustfmt-nightly-aarch64-apple-darwin/rustfmt-preview-aarch64-apple-darwin",
+            "strip_prefix": "rustfmt-nightly-aarch64-apple-darwin/rustfmt-preview",
         },
         "x86_64-unknown-linux-gnu": {
             "url": "https://static.rust-lang.org/dist/2026-09-10/rustfmt-nightly-x86_64-unknown-linux-gnu.tar.xz",
             "sha256": "21abc867097bc6850fbd9cc50969c0186631d34f7216c815df533fc0daddf1cf",
-            "strip_prefix": "rustfmt-nightly-x86_64-unknown-linux-gnu/rustfmt-preview-x86_64-unknown-linux-gnu",
+            "strip_prefix": "rustfmt-nightly-x86_64-unknown-linux-gnu/rustfmt-preview",
         },
     },
 }

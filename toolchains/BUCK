@@ -3,12 +3,23 @@ load("@prelude//toolchains:cxx.bzl", "system_cxx_toolchain")
 load("@prelude//toolchains:genrule.bzl", "system_genrule_toolchain")
 load("@prelude//toolchains:python.bzl", "remote_python_toolchain", "system_python_wheel_toolchain")
 load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
-load("@prelude//toolchains:rust.bzl", "system_rust_toolchain")
+load("//rust:hermetic.bzl", "hermetic_rust_toolchain")
 
-system_rust_toolchain(
+# Every rustc/rustdoc/clippy binary is an ARTIFACT from //rust:sysroot-<host>,
+# hash-pinned in toolchains/rust/lock.bzl and derived from //rust-toolchain.toml.
+# Nothing resolves from PATH, so the compiler is inside every action's digest.
+hermetic_rust_toolchain(
     name = "rust",
     default_edition = "2024",
     rustc_flags = ["-Copt-level=0"],
+    rustc_target_triple = select({
+        "prelude//os:linux": "x86_64-unknown-linux-gnu",
+        "prelude//os:macos": "aarch64-apple-darwin",
+    }),
+    sysroot = select({
+        "prelude//os:linux": "//rust:sysroot-x86_64-unknown-linux-gnu",
+        "prelude//os:macos": "//rust:sysroot-aarch64-apple-darwin",
+    }),
     visibility = ["PUBLIC"],
 )
 

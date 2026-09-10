@@ -26,8 +26,15 @@ def _rust_sysroot_impl(ctx):
             'rm -rf "$out"; mkdir -p "$out"',
             'cp -a "$rustc_dir"/. "$out"/',
             'mkdir -p "$out/lib/rustlib"',
-            '# Each remaining argument is a rust-std tree for one target triple.',
-            'for std in "$@"; do cp -a "$std"/lib/rustlib/. "$out"/lib/rustlib/; done',
+            '# Remaining args are rust-std trees (merge their rustlib) and',
+            '# component trees like clippy/rustfmt (merge their whole tree).',
+            'for tree in "$@"; do',
+            '  if [ -d "$tree/lib/rustlib" ] && [ ! -d "$tree/bin" ]; then',
+            '    cp -a "$tree"/lib/rustlib/. "$out"/lib/rustlib/',
+            '  else',
+            '    cp -a "$tree"/. "$out"/',
+            '  fi',
+            'done',
         ],
         is_executable = True,
     )
@@ -37,7 +44,7 @@ def _rust_sysroot_impl(ctx):
             script,
             out.as_output(),
             ctx.attrs.rustc[DefaultInfo].default_outputs[0],
-            [std[DefaultInfo].default_outputs[0] for std in ctx.attrs.stds],
+            [dep[DefaultInfo].default_outputs[0] for dep in ctx.attrs.stds + ctx.attrs.components],
         ),
         category = "rust_sysroot",
         identifier = ctx.attrs.triple,
@@ -52,6 +59,9 @@ rust_sysroot = rule(
     impl = _rust_sysroot_impl,
     attrs = {
         "rustc": attrs.dep(providers = [DefaultInfo]),
+        # clippy-driver and rustfmt live in their own archives. Overlaid so the
+        # sysroot's bin/ is the complete toolchain and nothing falls back to PATH.
+        "components": attrs.list(attrs.dep(providers = [DefaultInfo]), default = []),
         "stds": attrs.list(attrs.dep(providers = [DefaultInfo])),
         "triple": attrs.string(),
     },
