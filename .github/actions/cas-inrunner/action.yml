@@ -5,7 +5,7 @@ description: >
   fails the job -- but scoping does: if the compilers that will read this store
   cannot be identified, the step exits non-zero rather than serve an unkeyed
   cache. The description previously said "never fails the job" while the file
-  already had three hard exits, which is the kind of promise a caller relies on.
+  already had several hard exits, which is the kind of promise a caller relies on.
 inputs:
   max-bytes:
     description: >
@@ -113,8 +113,29 @@ runs:
         cc_line=${cc_out%%$'\n'*}
         [ -n "$cc_line" ] || { echo "::error::$cc_bin --version printed nothing to scope the cache"; exit 1; }
 
-        printf 'prefix=%srustc-%s-cc-%s-\n' "${{ inputs.key-prefix }}" "$(digest "$rustc_line")" "$(digest "$cc_line")" >> "$GITHUB_OUTPUT"
+        # Assigned, not inlined. A command substitution used as an ARGUMENT does
+        # not propagate its exit status to the enclosing command: `printf`
+        # returns 0 regardless, so `set -e` never fires. With `digest` broken --
+        # say sha256sum unresolvable -- both substitutions yield empty and this
+        # step SUCCEEDS while emitting `...rustc--cc--`: a fixed prefix,
+        # identical on every runner that hits the path, which is the unkeyed
+        # shared store this step exists to end. A standalone assignment does
+        # fire, and that is the only difference between the two forms.
+        rustc_key=$(digest "$rustc_line")
+        cc_key=$(digest "$cc_line")
+        printf 'prefix=%srustc-%s-cc-%s-\n' "${{ inputs.key-prefix }}" "$rustc_key" "$cc_key" >> "$GITHUB_OUTPUT"
         printf 'cache scoped to:\n  rustc: %s\n  cc:    %s\n' "$rustc_line" "$cc_line"
+        # Also to the run summary, because stdout is the wrong place for it.
+        # An operator meets this prefix in canary-verdict's BROKEN / NEW PREFIX
+        # lines and in prune's "deleting $key" -- and prune is a DIFFERENT job,
+        # so there is no adjacent translation from digest back to compiler
+        # anywhere. The summary is per-run rather than per-step, so it is.
+        {
+          printf '### CAS cache scope\n\n'
+          printf '| component | digest | version |\n|---|---|---|\n'
+          printf '| rustc | `%s` | %s |\n' "$rustc_key" "$rustc_line"
+          printf '| cc | `%s` | %s |\n' "$cc_key" "$cc_line"
+        } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
     - name: Restore CAS
       id: restore
