@@ -91,13 +91,21 @@ describe("setup-rust reads the whole pin", () => {
   });
 });
 
-/** A minimal repo the gate can scan: a valid pin, a valid lock, one workflow. */
-function craft(workflow) {
+const REAL_LOCK = readFileSync(join(ROOT, "toolchains/rust/lock.bzl"), "utf8");
+
+/** A minimal repo the gate can scan: a valid pin, a lock, one workflow.
+ *
+ * `mutate` exists because an earlier version of this harness copied the real
+ * lock verbatim into every case, so every corpus entry ran against a lock that
+ * passes -- leaving the three lock checks with no coverage at all, which is
+ * exactly where the `field indentation` bypass below was found.
+ */
+function craft(workflow, mutate = (t) => t) {
   const dir = mkdtempSync(join(tmpdir(), "pin-gate-"));
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   mkdirSync(join(dir, "toolchains/rust"), { recursive: true });
   writeFileSync(join(dir, "rust-toolchain.toml"), PIN);
-  writeFileSync(join(dir, "toolchains/rust/lock.bzl"), readFileSync(join(ROOT, "toolchains/rust/lock.bzl"), "utf8"));
+  writeFileSync(join(dir, "toolchains/rust/lock.bzl"), mutate(REAL_LOCK));
   writeFileSync(join(dir, ".github/workflows/probe.yml"), workflow);
   return dir;
 }
@@ -158,4 +166,58 @@ describe("the pin gate cannot be walked past", () => {
       }
     });
   }
+});
+
+describe("the lock cannot drift from the pin", () => {
+  const OK = "name: probe\n";
+
+  // The lock carries the compiler buck2 materializes. Every one of these
+  // produces a lock that is internally consistent and self-describing -- the
+  // failure mode is not corruption, it is a lock that quietly names a
+  // DIFFERENT compiler than the one CI installs. That is #1083's divergence
+  // one level down, so each of these must be a non-zero exit.
+  const DRIFTS = {
+    // The headline scenario: RUST_CHANNEL still reads the pinned channel.
+    "urls pointing at another month": (t) => t.replace(/dist\/2026-\d\d-\d\d\//g, "dist/2026-08-01/"),
+    "a strip_prefix that does not match the archive layout":
+      (t) => t.replace(/"strip_prefix": "([^"]*)\/rustc"/, '"strip_prefix": "$1/rustc-aarch64-apple-darwin"'),
+    "a required artifact removed": (t) => t.replace(/ {4}"rustfmt-preview": \{[\s\S]*?\n {4}\},\n/, ""),
+    "an artifact the pin does not call for": (t) => t.replace(
+      / {4}"rustc": \{/,
+      '    "miri-preview": {\n        "aarch64-apple-darwin": {\n'
+        + '            "url": "https://static.rust-lang.org/dist/2026-09-10/miri-nightly-aarch64-apple-darwin.tar.xz",\n'
+        + '            "sha256": "aa",\n'
+        + '            "strip_prefix": "miri-nightly-aarch64-apple-darwin/miri-preview",\n'
+        + "        },\n    },\n    \"rustc\": {",
+    ),
+    "a channel the pin does not declare": (t) => t.replace(/^RUST_CHANNEL = "[^"]+"/m, 'RUST_CHANNEL = "1.0.0"'),
+    // Found by review. Re-indenting ONLY the field lines leaves the package and
+    // triple regexes matching, so the artifact-set check sees every key present
+    // and passes -- while both value checks skip on an empty entry. The lock
+    // pointed at August and the gate printed "one source of truth".
+    "field indentation, with urls pointing at another month":
+      (t) => t.replace(/dist\/2026-\d\d-\d\d\//g, "dist/2026-08-01/").replace(/^ {12}"/gm, '          "'),
+  };
+  for (const [name, mutate] of Object.entries(DRIFTS)) {
+    it(`rejects ${name}`, () => {
+      const dir = craft(OK, mutate);
+      try {
+        assert.notEqual(gate(dir), 0, `${name} passed the gate`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("accepts the committed lock unmodified", () => {
+    // The control. Without it the suite above is satisfied by a gate that
+    // rejects everything, which would be no more useful than one that rejects
+    // nothing.
+    const dir = craft(OK);
+    try {
+      assert.equal(gate(dir), 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

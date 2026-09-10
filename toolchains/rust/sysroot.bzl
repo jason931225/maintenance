@@ -39,7 +39,13 @@ def _rust_sysroot_impl(ctx):
             '  cp -a "$1"/lib/rustlib/. "$out"/lib/rustlib/',
             '  shift',
             'done',
-            '[ "$#" -gt 0 ] && shift',
+            '# The separator is always emitted by the rule, so a missing one is a',
+            '# bug in the caller -- and a silent one: without it the loop above',
+            '# consumes the component trees as stds, and the script SUCCEEDS having',
+            '# overlaid nothing. clippy-driver would simply be absent, surfacing',
+            '# much later inside a clippy action as a missing binary.',
+            '[ "${1-}" = "--" ] || { echo "assemble.sh: expected -- after the std trees" >&2; exit 2; }',
+            'shift',
             'for tree in "$@"; do',
             '  cp -a "$tree"/. "$out"/',
             'done',
@@ -71,8 +77,11 @@ rust_sysroot = rule(
     impl = _rust_sysroot_impl,
     attrs = {
         "rustc": attrs.dep(providers = [DefaultInfo]),
-        # clippy-driver and rustfmt live in their own archives. Overlaid so the
-        # sysroot's bin/ is the complete toolchain and nothing falls back to PATH.
+        # clippy-driver lives in its own archive, overlaid so the sysroot's bin/
+        # holds every binary buck2 invokes and nothing falls back to PATH.
+        # NOT rustfmt: the prelude never invokes it (no RustToolchainInfo field,
+        # zero references in prelude/rust/), so it stays in the pin for
+        # `cargo fmt` and is excluded here -- see `_SYSROOT_SKIP` in ./BUCK.
         "components": attrs.list(attrs.dep(providers = [DefaultInfo]), default = []),
         "stds": attrs.list(attrs.dep(providers = [DefaultInfo])),
         "triple": attrs.string(),

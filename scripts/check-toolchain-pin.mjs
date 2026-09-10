@@ -280,6 +280,24 @@ try {
       if (!want.has(k)) failures.push(`${LOCK}: ${show(k)} is locked but ${PIN} does not call for it`);
     }
 
+    // (a2) an entry whose fields did not parse is a lock that is not in
+    // generated form, and MUST fail rather than be skipped. Checks (b) and (c)
+    // below both key off `e.url` / `e.strip_prefix`; when only the field-level
+    // indentation changes, (a) still sees all nine keys -- so every value is
+    // `{}`, both loops `continue`, and a lock whose every URL points at another
+    // month passes the gate green. That is a check that cannot check anything
+    // reporting success, which is the failure this file exists to prevent.
+    // `required(pin)` already guarantees the key, so a missing field is never
+    // "absent upstream"; it is only ever a lock nothing generated.
+    for (const [k, e] of locked) {
+      if (!e.url || !e.strip_prefix) {
+        failures.push(
+          `${LOCK}: ${show(k)} has no readable url/strip_prefix. The lock is not in `
+            + "generated form -- regenerate with: node scripts/lock-rust-toolchain.mjs",
+        );
+      }
+    }
+
     // (b) every URL must name the pinned channel. A dated nightly lives under
     // /dist/<date>/; a stable release carries the version in the filename.
     const dated = /^nightly-(\d{4}-\d{2}-\d{2})$/.exec(pin.channel);
