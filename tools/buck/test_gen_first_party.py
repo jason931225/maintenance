@@ -967,5 +967,206 @@ class TestResourceClassification(unittest.TestCase):
                 self.assertEqual(1, len(set(labels) & GENERATOR.RESOURCE_LABELS))
 
 
+class FeatureAndEnvPropagationTests(unittest.TestCase):
+    """#1084: two emission branches that took a partial copy of the crate.
+
+    Both were latent -- zero instances in the workspace today -- so neither is
+    a bug report. They are the shape the generator exists to prevent: a
+    compilation unit that sees a different crate than Cargo compiles.
+    """
+
+    @staticmethod
+    def _blocks(buck: str) -> dict:
+        out = {}
+        for block in buck.split("\n\n"):
+            match = re.search(r'name = "([^"]+)"', block)
+            if match:
+                out[match.group(1)] = block
+        return out
+
+    def test_integration_test_features_union_the_manifest_defaults(self) -> None:
+        """N2. Cargo's `--features x` ADDS to `[features] default`; only
+        `--no-default-features` replaces it. The generator emitted the requested
+        set verbatim, so an itest on a crate with defaults compiled a different
+        `#[cfg(feature)]` world than Cargo does.
+
+        The trigger is the first crate to have BOTH a `[features] default` and
+        an INTEGRATION_TEST_FEATURES entry. None exists today, which is why this
+        needs a probe rather than a workspace assertion.
+        """
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_feat"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-feat"] = {
+            "unit": "none",
+            "integration": {"tests/it.rs": "none"},
+        }
+        GENERATOR.INTEGRATION_TEST_FEATURES["probe-feat"] = {"tests/it.rs": ("extra",)}
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "tests").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "tests" / "it.rs").write_text("#[test]\nfn t() {}\n", encoding="utf-8")
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-feat"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["base"]\nbase = []\nextra = []\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), "probe-feat", [], {}, [], {}, version="1.2.3")
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-feat", None)
+            GENERATOR.INTEGRATION_TEST_FEATURES.pop("probe-feat", None)
+
+        blocks = self._blocks(buck)
+        itest = blocks["probe-feat-itest-it"]
+        # The union, sorted -- not the requested set alone, and not the
+        # defaults alone.
+        self.assertIn('features = ["base", "extra"]', itest, itest)
+        # And the library still carries just its defaults, so the union did not
+        # leak the itest's request back onto the crate. A lib-only crate names
+        # its library target after the package, with no -lib suffix.
+        self.assertIn('features = ["base"]', blocks["probe-feat"])
+        self.assertNotIn("extra", blocks["probe-feat"])
+
+    def test_inline_variant_features_union_the_manifest_defaults(self) -> None:
+        """N2, second emission branch. `features=[variant["feature"]]` had the
+        same override defect as the integration-test path, and the two are
+        separate call sites -- fixing one leaves the other, which is exactly
+        how a partial mechanism survives. Covered separately so reverting
+        either fix fails a named test.
+        """
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_variant"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-variant"] = {"unit": "none"}
+        GENERATOR.INLINE_TEST_VARIANTS["probe-variant"] = ({
+            "name": "itest-inline-postgres",
+            "feature": "extra",
+            "resource": "postgres",
+        },)
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-variant"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["base"]\nbase = []\nextra = []\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), "probe-variant", [], {}, [], {}, version="1.2.3")
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-variant", None)
+            GENERATOR.INLINE_TEST_VARIANTS.pop("probe-variant", None)
+
+        variant = self._blocks(buck)["probe-variant-itest-inline-postgres"]
+        self.assertIn('features = ["base", "extra"]', variant, variant)
+
+    def _variant_probe(self, dirname: str, package: str, main: bool) -> dict:
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / dirname
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS[package] = {"unit": "none"}
+        GENERATOR.FEATURE_LIBRARY_VARIANTS[package] = {"dev-auth": {"deps": {}}}
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            if main:
+                (probe / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "{}"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["base"]\nbase = []\ndev-auth = []\n'.format(package),
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), package, [], {}, [], {}, version="1.2.3")
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop(package, None)
+            GENERATOR.FEATURE_LIBRARY_VARIANTS.pop(package, None)
+        return self._blocks(buck)
+
+    def test_feature_library_variants_union_the_manifest_defaults(self) -> None:
+        """N2, the three remaining emission branches.
+
+        `FEATURE_LIBRARY_VARIANTS` emits a library variant for a lib-only crate
+        and BOTH a library and a binary variant for a main+lib crate. All three
+        overrode the defaults, and none was covered when the first two call
+        sites were fixed -- review found them by grepping the class rather than
+        the issue's enumeration.
+
+        Concretely: a variant compiled with `["dev-auth"]` alone, linked from an
+        itest compiled with `["base", "dev-auth"]`, cannot resolve a
+        `#[cfg(feature = "base")]` item. Buck fails where Cargo passes, which is
+        the divergence family this generator exists to prevent.
+        """
+        libonly = self._variant_probe("_probe_var_lib", "probe-var-lib", main=False)
+        self.assertIn('features = ["base"]', libonly["probe-var-lib"])
+        self.assertIn('features = ["base", "dev-auth"]', libonly["probe-var-lib-dev-auth"])
+
+        mainlib = self._variant_probe("_probe_var_main", "probe-var-main", main=True)
+        # The library variant and the BINARY variant are separate emissions.
+        self.assertIn('features = ["base", "dev-auth"]', mainlib["probe-var-main-lib-dev-auth"])
+        self.assertIn('features = ["base", "dev-auth"]', mainlib["probe-var-main-dev-auth"])
+        # And the non-variant faces still carry defaults only.
+        self.assertIn('features = ["base"]', mainlib["probe-var-main-lib"])
+        self.assertIn('features = ["base"]', mainlib["probe-var-main"])
+
+    def test_declared_needs_env_reaches_the_binary_but_not_integration_tests(self) -> None:
+        """N3. `needs_env` mutated `env`, then `main_env` was built fresh from
+        `base_env`, so a main+lib crate declaring it emitted a rust_binary
+        without the variables. main.rs is the same crate and expands the same
+        macros, so the binary needs them.
+
+        The second half is a fence, not an oversight: integration tests are a
+        separate compilation of tests/*.rs that does NOT expand the crate's
+        macros, and propagating there hands every itest whatever the library
+        needed -- the over-broad copy that gave console-contracts a
+        CARGO_PKG_VERSION its test never names. That stays excluded, and this
+        asserts both halves so neither can drift.
+        """
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_envmain"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-envmain"] = {
+            "unit": "none",
+            "integration": {"tests/it.rs": "none"},
+        }
+        GENERATOR.RESOURCE_CONFIG["probe-envmain"] = {
+            "needs_env": ["CARGO_PKG_NAME", "CARGO_PKG_VERSION"],
+        }
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "tests").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+            (probe / "tests" / "it.rs").write_text("#[test]\nfn t() {}\n", encoding="utf-8")
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-envmain"\nversion = "4.5.6"\n', encoding="utf-8"
+            )
+            GENERATOR.emit(str(probe), "probe-envmain", [], {}, [], {}, version="4.5.6")
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-envmain", None)
+            GENERATOR.RESOURCE_CONFIG.pop("probe-envmain", None)
+
+        blocks = self._blocks(buck)
+        binary = blocks["probe-envmain"]
+        self.assertIn('"CARGO_PKG_NAME": "probe-envmain"', binary, binary)
+        self.assertIn('"CARGO_PKG_VERSION": "4.5.6"', binary, binary)
+        # The library keeps them, as before.
+        self.assertIn('"CARGO_PKG_NAME": "probe-envmain"', blocks["probe-envmain-lib"])
+        # The fence: integration tests must NOT inherit the declaration.
+        itest = blocks["probe-envmain-itest-it"]
+        self.assertNotIn("CARGO_PKG_NAME", itest, itest)
+
+
 if __name__ == "__main__":
     unittest.main()

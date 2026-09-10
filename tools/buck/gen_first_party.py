@@ -1184,6 +1184,23 @@ def integration_test_features(package_name, test_file):
     return INTEGRATION_TEST_FEATURES.get(package_name, {}).get(test_file, ())
 
 
+def with_default_features(explicit, defaults):
+    """Union an explicitly-requested feature set with the manifest's defaults.
+
+    Cargo does this: `--features dev-auth` ADDS to `[features] default`, it does
+    not replace it (only `--no-default-features` replaces it). The generator
+    applied defaults to the library, the binary and the unit test, but emitted
+    `features = [explicit]` verbatim for integration tests and inline variants
+    -- so those two compilation units saw a DIFFERENT `#[cfg(feature)]` world
+    than Cargo compiles, which is the silent Buck/Cargo divergence this
+    generator exists to prevent (#1084 N2).
+
+    Returns None for "no features attribute at all", matching `lib_features`.
+    """
+    merged = sorted(set(explicit or ()) | set(defaults or ()))
+    return merged or None
+
+
 def integration_test_library_target(package_name, test_file, default_target):
     features = integration_test_features(package_name, test_file)
     if features == ("dev-auth",):
@@ -1714,15 +1731,17 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     # A crate whose macros read CARGO_PKG_* during expansion names the
     # variables it needs; the VALUES come from the manifest, never a literal,
     # so a version bump cannot leave Buck and Cargo disagreeing silently.
+    declared_env = {}
     for needed in resources.get("needs_env", ()):
         if needed == "CARGO_PKG_NAME":
-            env["CARGO_PKG_NAME"] = name
+            declared_env["CARGO_PKG_NAME"] = name
         elif needed == "CARGO_PKG_VERSION":
-            env["CARGO_PKG_VERSION"] = resolved_package_version(version)
+            declared_env["CARGO_PKG_VERSION"] = resolved_package_version(version)
         else:
             raise ValueError(
                 "{}: needs_env does not know how to derive {}".format(name, needed)
             )
+    env.update(declared_env)
     # Cargo's own `[features] default`, applied to every member unconditionally
     # so the two build systems cannot disagree about which `#[cfg(feature)]`
     # code exists. This was an opt-in flag in an earlier revision; the opt-in
@@ -1741,7 +1760,21 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     env.update(cargo_pkg_version_env(read_rs_sources(src, exclude=lib_only), version))
     # Only the main+lib shape builds a separate binary target; a main-only crate
     # uses `env` above, whose whole-tree scan already matches that binary's srcs.
+    # The binary gets the DECLARED variables too; this was built fresh from
+    # base_env, so a main+lib crate emitted a rust_binary without them (N3).
+    #
+    # NOT because main.rs shares the library's crate -- it does not, and this
+    # file says so at "separate compilation units" above and "its OWN
+    # compilation" below. An earlier revision of this comment claimed it did,
+    # which is an argument for EXCLUDING the binary. The reason is that Cargo
+    # sets CARGO_PKG_* for every target in the package, so under-setting is a
+    # divergence, and a loud one: NotPresent at runtime, not a quiet mis-build.
+    #
+    # Integration tests stay excluded as a hygiene TRADE-OFF, not a structural
+    # claim: propagating hands every itest whatever the library declared. Under-
+    # broad fails loudly; over-broad quietly makes every face wrong.
     main_env = base_env(package)
+    main_env.update(declared_env)
     if has_main and has_lib:
         main_env.update(
             cargo_pkg_version_env(file_text(os.path.join(src, "main.rs")), version)
@@ -1806,7 +1839,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
                           _lib_srcs(exclude=["src/main.rs"]), ident,
                           variant_deps(name, feature, deps), named, env,
                           package=package, crate_root=package + "/src/lib.rs",
-                          external=lib_external, features=[feature])
+                          external=lib_external, features=with_default_features([feature], lib_features))
         out.append("")
         # The binary is its OWN compilation: `#[cfg(feature = ...)]` in main.rs
         # is decided here, not by the library it links. Cargo applies `default`
@@ -1823,7 +1856,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
                           listsrcs(["src/main.rs"]), ident,
                           sorted(variant_deps(name, feature, deps) + [":" + name + "-lib-" + feature]), {},
                           main_env, package=package,
-                          crate_root=package + "/src/main.rs", features=[feature])
+                          crate_root=package + "/src/main.rs", features=with_default_features([feature], lib_features))
         lib_target, unit_root, unit_excl = ":" + name + "-lib", "src/lib.rs", ["src/main.rs"]
     elif has_main:
         out += _block("rust_binary", name, _lib_srcs(), ident, deps, named, env,
@@ -1839,7 +1872,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
             out += _block("rust_library", name + "-" + feature, _lib_srcs(), ident,
                           variant_deps(name, feature, deps), named, env,
                           package=package, crate_root=package + "/src/lib.rs",
-                          external=lib_external, features=[feature])
+                          external=lib_external, features=with_default_features([feature], lib_features))
         lib_target, unit_root, unit_excl = ":" + name, "src/lib.rs", None
 
     test_deps = sorted(set(deps + dev_deps))
@@ -1878,7 +1911,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
             crate_root=package + "/" + unit_root,
             external=lib_external,
             labels=test_labels(package, "test.integration", True),
-            features=[variant["feature"]],
+            features=with_default_features([variant["feature"]], lib_features),
         )
 
     # Integration tests: one rust_test per tests/*.rs with a test marker; non-test
@@ -1914,11 +1947,23 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
             )
             itest_env.update(cargo_bin_exe_env(name, tf, contents, has_main))
             itest_env.update(cargo_pkg_version_env(contents, version))
-            features = integration_test_features(name, tf)
+            # The REQUESTED features select the dep variant; the EMITTED set is
+            # those unioned with the manifest defaults. Two names, because the
+            # `== ("dev-auth",)` test below matches the exact requested tuple --
+            # fold the union into this name and a crate that declares a default
+            # feature silently stops getting the dev-auth deps.
+            #
+            # `integration_test_library_target` is NOT a second consumer: it
+            # calls `integration_test_features` itself and never reads this
+            # variable. An earlier revision of this comment claimed both, which
+            # overstated the coupling and would send the next reader hunting a
+            # hazard that exists at one site only.
+            requested_features = integration_test_features(name, tf)
+            features = with_default_features(requested_features, lib_features)
             out.append("")
             test_lib_target = integration_test_library_target(name, tf, lib_target)
             featured_test_deps = test_deps
-            if features == ("dev-auth",):
+            if requested_features == ("dev-auth",):
                 featured_test_deps = variant_deps(name, "dev-auth", test_deps)
             out += _block("rust_test", "{}-itest-{}".format(name, stem),
                           srcs_expr, stem,
