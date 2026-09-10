@@ -390,7 +390,7 @@ jobs:
             -p console-gate-tenant-isolation -p console-gate-vendor-lockin -p console-identity-rest \
             -p console-inventory-adapter-postgres -p console-inventory-rest -p console-leave-adapter-postgres \
             -p console-leave-rest -p console-ontology-adapter-postgres -p console-ontology-rest \
-            -p console-payroll-rest -p console-payroll-ui -p console-platform-email -p console-platform-jobs \
+            -p console-payroll-rest -p console-platform-email -p console-platform-jobs \
             -p console-platform-push -p console-platform-realtime -p console-platform-request-context \
             -p console-production-rest -p console-reporting-adapter-postgres -p console-support-adapter-postgres \
             -p console-kernel-core -p console-registry-rest -p console-reporting-rest \
@@ -401,6 +401,19 @@ jobs:
             -p console-ontology-canonical-adapter-postgres -p console-orgchange-adapter-postgres \
             -p console-gate-writer-ownership -p console-identity-adapter-postgres
           check_status "domain --lib sweep"
+          # Its own invocation, and deliberately NOT also in the sweep above.
+          # The executed-tests ratchet keys a test binary by (crate_root,
+          # feature set), and this crate's Buck face declares islands+ssr --
+          # the same set Cargo applies by default. An invocation leaving them
+          # implicit keys a different binary, so the real one reads as
+          # executing nowhere and the ratchet calls it a test that cannot fail.
+          # Naming them makes the two identities the same; listing the crate
+          # in both places would compile and run the same 8 tests twice and
+          # leave a bare key the ratchet cannot see, because it only checks
+          # defined-minus-executed.
+          SQLX_OFFLINE=true cargo test --locked --manifest-path backend/Cargo.toml --lib \
+            -p console-payroll-ui --features islands,ssr
+          check_status "payroll-ui --lib"
           # Doc tests, same step so no new step name has to be declared anywhere.
           # `compile_fail` doctests are the only artifact that can hold a NEGATIVE
           # type-boundary claim ("this must not compile"), and they execute nowhere

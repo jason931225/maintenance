@@ -20,36 +20,44 @@ SPEC.loader.exec_module(GENERATOR)
 
 
 class FirstPartyBuckGeneratorTests(unittest.TestCase):
-    def test_ui_package_members_are_skipped_because_leptos_is_not_vendored(self) -> None:
-        self.assertTrue(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-payroll-ui"}})
-        )
-        self.assertTrue(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-platform-ui"}})
-        )
-        self.assertFalse(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-payroll-rest"}})
-        )
-        self.assertFalse(
-            GENERATOR.skip_workspace_member({"package": {"name": "console-platform-auth"}})
-        )
-        self.assertFalse(GENERATOR.skip_workspace_member({"package": {"name": "ui"}}))
-        self.assertFalse(GENERATOR.skip_workspace_member({}))
-        self.assertFalse(GENERATOR.skip_workspace_member({"package": {}}))
+    def test_no_workspace_member_is_skipped(self) -> None:
+        """`-ui` members were skipped while Leptos was unvendored.
 
-    def test_skipped_ui_dependency_is_omitted_not_rewritten_as_third_party(self) -> None:
-        first_party = {"console-app": "//backend/app:console-app"}
-        skipped = frozenset({"console-payroll-ui"})
+        #1079 put Leptos in the third-party graph, so the exclusion has no
+        remaining premise. `skip_workspace_member` / `skipped_ui_package_names`
+        and `map_deps`'s `skipped` branch were REMOVED rather than left
+        returning empty (review finding F6 on #1080); what is asserted now is
+        the outcome those functions used to prevent -- every member generated,
+        and a member dependency mapped to its first-party target instead of
+        being dropped or rewritten as `//third-party/rust:<name>`.
+        """
+        self.assertFalse(hasattr(GENERATOR, "skip_workspace_member"))
+        self.assertFalse(hasattr(GENERATOR, "skipped_ui_package_names"))
+        for member in ("payroll/ui", "payroll/rest"):
+            self.assertIn(
+                str(Path(GENERATOR.REPO, "backend", "crates", member)),
+                GENERATOR.find_members(),
+                member,
+            )
         deps, named = GENERATOR.map_deps(
             {"console-payroll-ui": {"path": "crates/payroll/ui"}},
-            first_party,
-            skipped,
+            {"console-payroll-ui": "//backend/crates/payroll/ui:console-payroll-ui"},
         )
-        self.assertEqual([], deps)
+        self.assertEqual(["//backend/crates/payroll/ui:console-payroll-ui"], deps)
         self.assertEqual({}, named)
         self.assertNotIn("//third-party/rust:console-payroll-ui", deps)
 
-    def test_app_without_ui_dep_does_not_gain_a_ui_edge(self) -> None:
+    def test_app_carries_its_ui_edge_now_that_leptos_is_vendored(self) -> None:
+        """The inverse of what this asserted before.
+
+        While `-ui` members were skipped, the point was that `console-app`
+        must not invent an edge to a package Buck could not build. Leptos is
+        now in the third-party graph (#1079), the member is generated, and the
+        edge is real: `console-app` depends on `console-payroll-ui` in Cargo,
+        unconditionally, so a Buck graph without that edge is the wrong one --
+        it is what made `Backend — buck-app` fail on `E0433: cannot find module
+        or crate console_payroll_ui`.
+        """
         app_dir = Path(GENERATOR.REPO) / "backend" / "app"
         manifest = GENERATOR.load(app_dir)
         first_party = {}
@@ -57,18 +65,11 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             name = GENERATOR.load(directory)["package"]["name"]
             rel = str(Path(directory).relative_to(GENERATOR.REPO))
             first_party[name] = "//{}:{}".format(rel, name)
-        deps, named = GENERATOR.map_deps(
-            manifest.get("dependencies"),
-            first_party,
-            GENERATOR.skipped_ui_package_names(),
-        )
-        self.assertFalse(
-            any("-ui" in target for target in deps),
-            "App must not invent a Ui edge; got {}".format(deps),
-        )
-        self.assertFalse(
-            any("-ui" in target for target in named.values()),
-            "App must not invent a named Ui edge; got {}".format(named),
+        deps, named = GENERATOR.map_deps(manifest.get("dependencies"), first_party)
+        self.assertIn(
+            "//backend/crates/payroll/ui:console-payroll-ui",
+            deps,
+            "app depends on the UI crate in Cargo; the Buck graph must match",
         )
 
     def test_repo_source_layout_uses_mapped_sources_and_explicit_crate_root(self) -> None:
@@ -564,6 +565,178 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         ):
             found[match.group(1)] = "CARGO_PKG_VERSION" in match.group(2)
         return found
+
+    def test_needs_env_and_default_features_come_from_the_manifest(self) -> None:
+        """Both were literals in an earlier revision, and both were silent.
+
+        A crate whose macros read CARGO_PKG_* during expansion names the
+        variables; the values must be derived, or a version bump leaves Buck
+        and Cargo disagreeing with no diagnostic -- wasm-bindgen hashes
+        (name, version) into the exported symbol. The feature set is taken
+        from the manifest's own `default` for EVERY member, with nothing to
+        opt into: a hardcoded list cannot follow the manifest, and an opt-in
+        flag is one more thing to forget.
+        """
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_env"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-env"] = {"unit": "none"}
+        GENERATOR.RESOURCE_CONFIG["probe-env"] = {
+            "needs_env": ["CARGO_PKG_NAME", "CARGO_PKG_VERSION"],
+        }
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-env"\nversion = "9.9.9-probe"\n'
+                '[features]\ndefault = ["beta", "alpha"]\nalpha = []\nbeta = []\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(
+                str(probe), "probe-env", [], {}, [], {}, version="9.9.9-probe"
+            )
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-env", None)
+            GENERATOR.RESOURCE_CONFIG.pop("probe-env", None)
+
+        self.assertIn('"CARGO_PKG_NAME": "probe-env"', buck)
+        self.assertIn('"CARGO_PKG_VERSION": "9.9.9-probe"', buck)
+        # sorted, so the emitted graph does not churn on manifest ordering
+        self.assertIn('features = ["alpha", "beta"]', buck)
+        self.assertNotIn("0.1.0", buck)
+
+    def test_default_features_reach_the_binary_and_stop_at_integration_tests(self) -> None:
+        """Two halves of review finding F7 on #1080, both previously untested.
+
+        (1) A main+lib crate builds TWO compilation units. `#[cfg(feature)]`
+        inside main.rs is decided by the binary's own feature set, so a crate
+        whose features came only from the library face would have Buck and
+        Cargo disagreeing about which half of main.rs exists.
+
+        (2) `needs_env` does NOT reach integration tests. They are a separate
+        compilation of tests/*.rs, which does not expand the crate's macros, so
+        propagating there would hand every itest whatever the library needed --
+        the over-broad copy that gave console-contracts a CARGO_PKG_VERSION its
+        test never names. An itest that really does expand wasm_bindgen fails
+        loudly at rustc, not silently.
+        """
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_mainlib"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-mainlib"] = {
+            "unit": "none",
+            "integration": {"tests/it.rs": "none"},
+        }
+        GENERATOR.RESOURCE_CONFIG["probe-mainlib"] = {
+            "needs_env": ["CARGO_PKG_NAME"],
+        }
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "tests").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+            (probe / "tests" / "it.rs").write_text("#[test]\nfn t() {}\n", encoding="utf-8")
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-mainlib"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["only"]\nonly = []\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), "probe-mainlib", [], {}, [], {}, version="1.2.3")
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-mainlib", None)
+            GENERATOR.RESOURCE_CONFIG.pop("probe-mainlib", None)
+
+        blocks = {}
+        for block in buck.split("\n\n"):
+            match = re.search(r'name = "([^"]+)"', block)
+            if match:
+                blocks[match.group(1)] = block
+        for target in ("probe-mainlib-lib", "probe-mainlib", "probe-mainlib-unit"):
+            self.assertIn(target, blocks, sorted(blocks))
+            self.assertIn('features = ["only"]', blocks[target], target)
+
+        itest = blocks["probe-mainlib-itest-it"]
+        self.assertNotIn("CARGO_PKG_NAME", itest, itest)
+        self.assertIn("CARGO_MANIFEST_DIR", itest)
+
+        # (3) The bin-only shape is a THIRD emission branch -- one rust_binary
+        # built from the whole src tree, no library face at all -- and it is
+        # reached by neither assertion above. Left untested it is the same
+        # partial-mechanism shape F7 was raised about, one level down.
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_binonly"
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-binonly"] = {"unit": "none"}
+        GENERATOR.RESOURCE_CONFIG["probe-binonly"] = {}
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "main.rs").write_text(
+                "fn main() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "probe-binonly"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["only"]\nonly = []\n',
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), "probe-binonly", [], {}, [], {}, version="1.2.3")
+            binonly = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop("probe-binonly", None)
+            GENERATOR.RESOURCE_CONFIG.pop("probe-binonly", None)
+
+        self.assertIn("rust_binary(", binonly)
+        self.assertNotIn("rust_library(", binonly)
+        self.assertEqual(2, binonly.count('features = ["only"]'), binonly)
+
+    def test_openapi_tree_is_exported_only_where_it_is_consumed(self) -> None:
+        """Review finding F9 on #1080: keying the export on the existence of an
+        `openapi/` directory published 34 PUBLIC targets for 1 consumer. The
+        export is now declared by the producer, so the two sides are one pair.
+        """
+        declared = {
+            name
+            for name, config in GENERATOR.RESOURCE_CONFIG.items()
+            if config.get("exports_openapi_tree")
+        }
+        consumed = {
+            target.split(":")[0].removeprefix("//")
+            for config in GENERATOR.RESOURCE_CONFIG.values()
+            for target in config.get("external", {})
+            if target.endswith(":crate-openapi-tree")
+        }
+        # Deliberately NOT pinned to `{"console-payroll-rest"}`: a second
+        # producer/consumer pair is legitimate and must not fail this. What
+        # must hold is that the three sets agree.
+        self.assertTrue(declared, "at least one producer must declare the export")
+
+        emitted = {
+            str(Path(directory).relative_to(GENERATOR.REPO))
+            for directory in GENERATOR.find_members()
+            if 'name = "crate-openapi-tree"'
+            in (Path(directory) / "BUCK").read_text(encoding="utf-8")
+        }
+        self.assertEqual(consumed, emitted)
+
+    def test_needs_env_refuses_a_variable_it_cannot_derive(self) -> None:
+        """Fail closed: a name with no derivation must raise at generation
+        rather than emit a target missing the variable it asked for."""
+        with self.assertRaises(ValueError):
+            GENERATOR.RESOURCE_CONFIG["probe-bad"] = {"needs_env": ["CARGO_PKG_LICENSE"]}
+            probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_bad"
+            shutil.rmtree(probe, ignore_errors=True)
+            try:
+                (probe / "src").mkdir(parents=True)
+                (probe / "src" / "lib.rs").write_text("pub fn f() {}\n", encoding="utf-8")
+                GENERATOR.emit(str(probe), "probe-bad", [], {}, [], {}, version="1.0.0")
+            finally:
+                shutil.rmtree(probe, ignore_errors=True)
+                GENERATOR.RESOURCE_CONFIG.pop("probe-bad", None)
 
     def test_contracts_buck_carries_cargo_pkg_version(self) -> None:
         """The concrete crate that broke the Buck leg."""
