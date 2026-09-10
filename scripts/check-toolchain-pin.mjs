@@ -22,6 +22,14 @@ const REPO = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const PIN = "rust-toolchain.toml";
 const failures = [];
 
+// --- the pin must be EXACT --------------------------------------------------
+// A floating channel (`nightly`, `stable`, `beta`) names a different compiler
+// on different days. It cannot be hash-pinned, and a lock generated against one
+// records hashes that silently stop describing what the name resolves to. The
+// whole design -- compiler bytes inside the action digest -- requires that the
+// channel and the compiler are the same fact.
+const EXACT_CHANNEL = /^(\d+\.\d+(\.\d+)?|nightly-\d{4}-\d{2}-\d{2})$/;
+
 // --- the pin itself ---------------------------------------------------------
 let channel = null;
 try {
@@ -32,7 +40,15 @@ try {
   } else {
     const m = /^\s*channel\s*=\s*"([^"]+)"/.exec(lines[0]);
     if (!m) failures.push(`${PIN}: channel must be a double-quoted string`);
-    else channel = m[1];
+    else {
+      channel = m[1];
+      if (!EXACT_CHANNEL.test(channel)) {
+        failures.push(
+          `${PIN}: channel "${channel}" is not exact. Use x.y.z or nightly-YYYY-MM-DD — `
+            + "a floating channel cannot be hash-pinned, so the lock would describe a compiler the name no longer resolves to.",
+        );
+      }
+    }
   }
 } catch {
   failures.push(`${PIN} is missing from the repository root — it is the only place a Rust version may live`);
@@ -113,6 +129,34 @@ for (const file of SCAN_DIRS.flatMap((d) => scan(join(REPO, d)))) {
       failures.push(`${rel}: ${what} (${line}). Use \`uses: ./.github/actions/setup-rust\`; the version comes from ${PIN}, except reindeer's separately locked bootstrap compiler in ${REINDEER_PIN}.`);
     }
   }
+}
+
+// --- the lock must be derived FROM the pin, not maintained beside it --------
+// The lock carries urls and sha256s for the compiler buck2 materializes. If it
+// drifts from the pin, buck2 builds with one compiler while CI installs another
+// -- which is the exact divergence this whole design removes, reintroduced one
+// level down. Checked by content rather than by regenerating: this gate must
+// not reach the network.
+const LOCK = "toolchains/rust/lock.bzl";
+try {
+  const lockText = readFileSync(join(REPO, LOCK), "utf8");
+  const declared = /^RUST_CHANNEL = "([^"]+)"/m.exec(lockText);
+  if (!declared) {
+    failures.push(`${LOCK}: no RUST_CHANNEL — regenerate with node scripts/lock-rust-toolchain.mjs`);
+  } else if (channel && declared[1] !== channel) {
+    failures.push(
+      `${LOCK} is locked to ${declared[1]} but ${PIN} says ${channel}. `
+        + "Regenerate with: node scripts/lock-rust-toolchain.mjs",
+    );
+  }
+  // Every artifact must carry a hash. An entry without one is a download this
+  // build cannot verify, which is the property the lock exists to provide.
+  const urls = (lockText.match(/^\s+"url":/gm) ?? []).length;
+  const hashes = (lockText.match(/^\s+"sha256":/gm) ?? []).length;
+  if (urls === 0) failures.push(`${LOCK}: no artifacts locked`);
+  if (urls !== hashes) failures.push(`${LOCK}: ${urls} urls but ${hashes} sha256s — every artifact must be hash-pinned`);
+} catch {
+  failures.push(`${LOCK} is missing — generate it with node scripts/lock-rust-toolchain.mjs`);
 }
 
 if (failures.length) {

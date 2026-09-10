@@ -1,0 +1,51 @@
+# The hermetic Rust toolchain: the compiler as a build INPUT, not a PATH lookup.
+#
+# Everything here derives from //rust-toolchain.toml via lock.bzl, which
+# scripts/lock-rust-toolchain.mjs generates and a gate holds to the pin.
+load(":lock.bzl", "RUST_CHANNEL", "RUST_DIST")
+load(":sysroot.bzl", "rust_sysroot")
+
+_HOSTS = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+
+# One http_archive per (package, triple). sha256 is what makes these content-
+# addressed: buck2 defers the download when a hash is present, so the bytes come
+# from the CAS like any other input rather than from the network on every run.
+[
+    http_archive(
+        name = "{}-{}".format(pkg, triple),
+        urls = [entry["url"]],
+        sha256 = entry["sha256"],
+        # Both tarballs nest one level under a versioned directory; strip it so
+        # the layouts compose into a sysroot without encoding the version in
+        # every downstream path.
+        strip_prefix = "{}-{}-{}/{}".format(
+            pkg,
+            RUST_CHANNEL,
+            triple,
+            "rustc" if pkg == "rustc" else "{}-{}".format(pkg, triple),
+        ),
+        visibility = ["PUBLIC"],
+    )
+    for pkg, triples in RUST_DIST.items()
+    for triple, entry in triples.items()
+    if pkg in ["rustc", "rust-std"]
+]
+
+# rustc ships without a standard library and rust-std ships without a compiler;
+# a working sysroot is the two overlaid. Assembling it here, once, makes the
+# result a single artifact the toolchain can point at -- and makes THAT artifact
+# part of the action's input tree.
+[
+    rust_sysroot(
+        name = "sysroot-{}".format(host),
+        rustc = ":rustc-{}".format(host),
+        stds = [":rust-std-{}".format(host)] + [
+            ":rust-std-{}".format(t)
+            for t in RUST_DIST["rust-std"]
+            if t not in _HOSTS
+        ],
+        triple = host,
+        visibility = ["PUBLIC"],
+    )
+    for host in _HOSTS
+]
