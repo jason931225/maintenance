@@ -577,8 +577,19 @@ fn openapi_schema_body<'a>(yaml: &'a str, schema_name: &str) -> &'a str {
 /// Slicing to the next sibling and comparing the whole slice restores that.
 ///
 /// `indent` is the property's own indentation; the block ends at the first
-/// subsequent line indented no further, which is the sibling key or the parent's
-/// next key.
+/// subsequent non-blank line indented no further.
+///
+/// That is NOT always "the next sibling key". YAML lets a block sequence sit at
+/// the same indent as the key that owns it, and this composer emits that shape
+/// 2220 times (`type:` or `enum:` followed by `- item` at equal indent), so for
+/// such a property the slice stops at the first `- ` and drops the sequence.
+///
+/// Safe here because every call site compares the slice with `==`, which turns
+/// an under-slice into a red test rather than a silent pass, and because all
+/// three values are nested mappings at indent 10. **Do not use this helper with
+/// `.contains()`**, and check the shape before pointing it at a new property:
+/// `openapi_property_body(page, 10, "type")` against the `next_cursor`
+/// nullable-string form below would return just `"          type:\n"`.
 fn openapi_property_body<'a>(body: &'a str, indent: usize, property: &str) -> &'a str {
     let pad = " ".repeat(indent);
     let needle = format!("\n{pad}{property}:\n");
@@ -628,6 +639,14 @@ fn openapi_documents_closed_inventory_movement_source_variants() {
             8,
             "source"
         ) == "        source:\n          $ref: '#/components/schemas/InventoryMovementSource'\n",
+        // Closed on purpose, and OAS 3.1 permits `$ref` siblings -- the
+        // composer already emits seven of them elsewhere. So adding a
+        // `description:` under `source:` in the hand-authored fragment
+        // backend/crates/inventory/rest/openapi/schemas/InventoryMovement.yaml
+        // will redden this for a reason unrelated to the message below.
+        // Updating the literal is the intended response, not loosening the
+        // assertion: a loud red on a one-line fragment edit is the opposite of
+        // the failure that hid a stale assertion here for eleven days.
         "InventoryMovement.source must not degrade to an untyped object"
     );
     assert!(
@@ -740,6 +759,9 @@ fn openapi_documents_evidence_register_snapshot_and_evidentiary_contract() {
     assert!(
         openapi_property_body(copy, 8, "evidentiary_status")
             == "        evidentiary_status:\n          $ref: '#/components/schemas/EvidenceCopyEvidentiaryStatus'\n",
+        // Closed, with the same `$ref`-sibling caveat as InventoryMovement.source
+        // above: a future `description:` here is a literal update, not a reason
+        // to go back to a prefix match.
         "EV copy view must expose the server-derived evidentiary classification"
     );
     assert!(
