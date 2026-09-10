@@ -1320,7 +1320,7 @@ const requiredJobMetadataSha256 = Object.freeze({
 
 const workflowExecutionEnvelopeSha256 = "ca24e7bdbd6b02f79d1dea2fc2787835156b669a2ae4643d60290207f72864cf";
 const freeRunnerDiskActionSha256 = "1c1a2307321f732c3dcd67e3af2f33a771ce5b81ea814445390b65946b52fc8f";
-const setupRustActionSha256 = "674158973d844a41659b8f0bfc620aceae12e9581add5853e673142139c75c44";
+const setupRustActionSha256 = "bdaee098d08609a608fcb75f2a32f99d29fc65386b9ce5c6a5ca231c855d72a2";
 const exactCiJobIds = Object.freeze([
   "api-contract",
   "backend",
