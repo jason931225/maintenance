@@ -37,6 +37,22 @@ done
 
 stats() { grep -E 'Cache hits|Commands:' "$log" 2>/dev/null || true; }
 
+# LITERAL prefix matching. `grep "^$prefix"` treats the prefix as a regex, and a
+# prefix carries dots -- `rustc-1.100.0-nightly` -- so `.` matches any character
+# and a key differing only at those positions would falsely read as BROKEN, i.e.
+# a red build for a cache that is not there. `case` globs literally.
+starts_with_prefix() {
+  while IFS= read -r key; do
+    case "$key" in "${prefix}"*) return 0 ;; esac
+  done < "$1"
+  return 1
+}
+matching_keys() {
+  while IFS= read -r key; do
+    case "$key" in "${prefix}"*) printf '%s\n' "$key" ;; esac
+  done < "$1"
+}
+
 # A cache WAS restored: the original assertion, unchanged.
 if [ -n "$restored" ]; then
   if grep -qE 'Cache hits: (100|[1-9][0-9])%' "$log"; then
@@ -55,10 +71,10 @@ if [ -z "$keys" ]; then
   exit 0
 fi
 
-if grep -q "^${prefix}" "$keys"; then
+if starts_with_prefix "$keys"; then
   echo "BROKEN: a cache exists under ${prefix} but nothing was restored."
   echo "That is a restore failure, not a missing seed. Seeds present:"
-  grep "^${prefix}" "$keys" || true
+  matching_keys "$keys"
   exit 1
 fi
 

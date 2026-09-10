@@ -77,6 +77,18 @@ describe("cas canary verdict", () => {
     assert.match(r.out, /COULD NOT DETERMINE/);
   });
 
+  it("matches the prefix literally, not as a regex", () => {
+    // The prefix carries dots (`rustc-1.100.0-nightly`). Under `grep "^$prefix"`
+    // each `.` matches any character, so this key would read as BROKEN -- a red
+    // build for a cache that does not exist.
+    const decoyed = PREFIX.replace(/\./g, "X");
+    assert.notEqual(decoyed, PREFIX);
+    const r = verdict({ keys: [`${decoyed}42`, "nativelink-cas-linux-x64-rustc-1.97.1-8bab26f4f-1"] });
+    assert.equal(r.status, 0, "a dot-decoyed key must not be read as this prefix");
+    assert.match(r.out, /NEW PREFIX/);
+    assert.doesNotMatch(r.out, /BROKEN/);
+  });
+
   it("refuses to run without a prefix rather than guessing one", () => {
     try {
       execFileSync(SCRIPT, ["--log", "/dev/null"], { encoding: "utf8" });
