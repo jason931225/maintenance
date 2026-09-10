@@ -1,0 +1,16 @@
+{
+  "_comment": "Regenerate with: bash tools/ui/build-payroll-wasm.sh (it writes this file). Checked by scripts/check-wasm-bundle-drift.mjs.",
+  "toolchain_channel": "nightly-2026-09-10",
+  "wasm_bindgen": "0.2.123",
+  "wasm_bindgen_cli": "0.2.123",
+  "inputs": {
+    "backend/crates/payroll/ui/Cargo.toml": "1d70d2049d05b82bd5bdbc2b17dd0a99c2990ca5339379d916ea1d6ad1e3dbee",
+    "backend/crates/payroll/ui/src/island_script.js": "ceb71195c4a8aad1f390f5798aa7163f8e976c49b6fc8414458f265b31e9293d",
+    "backend/crates/payroll/ui/src/lib.rs": "ea398f48e779c7835ef9e667f9724916a9e379a3cfc4e88e1f84286005d9bd82",
+    "tools/ui/build-payroll-wasm.sh": "49e3e496c0433705b38b7a2e12cd0c5a32a9806b3a170832a22a044f168bd9ad"
+  },
+  "outputs": {
+    "backend/crates/payroll/ui/pkg/console_payroll_ui_bg.wasm": "26558f83a074be1421a2604b15a2aa95b24d40a216b04986a31346843d374ee0",
+    "backend/crates/payroll/ui/pkg/console_payroll_ui.js": "dadedd93ca5ec0be32f51d506fa144ec0c0de823d49964ae521878b37975da90"
+  }
+}
