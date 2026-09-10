@@ -10,6 +10,10 @@
       "run": "node --test scripts/check-toolchain-pin.test.mjs scripts/lock-rust-toolchain.test.mjs && node scripts/check-toolchain-pin.mjs"
     },
     {
+      "id": "check-wasm-bundle-drift",
+      "run": "node --test scripts/check-wasm-bundle-drift.test.mjs && node scripts/check-wasm-bundle-drift.mjs"
+    },
+    {
       "id": "check-cas-canary-verdict",
       "run": "node --test scripts/cas/canary-verdict.test.mjs"
     },
