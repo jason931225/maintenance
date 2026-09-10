@@ -77,8 +77,13 @@
 //!   `parse_schema`: the table comes back as `{id, plain_col}`. PostgreSQL
 //!   accepts that identifier unquoted without complaint, and this is a Korean
 //!   HR schema in which 주민등록번호 is the canonical sensitive column, so the
-//!   construct is idiomatic here rather than exotic. The catalog assertion still
-//!   reaches it, exactly as it does the concatenation case.
+//!   construct is idiomatic here rather than exotic. The catalog assertion is
+//!   expected to reach it, as it does the concatenation case: `application_columns`
+//!   filters on `nspname`, `relpersistence`, `relkind`, `attnum` and
+//!   `attisdropped`, none of which is encoding-sensitive, so a live 주민등록번호
+//!   column should surface as unclassified. INFERRED, not measured — the planted
+//!   entries above carry EXIT codes and this one does not. Plant it before
+//!   relying on the coverage.
 //!
 //! WHAT THIS CORRECTION CLOSES. A multi-action `ALTER TABLE` used to be judged
 //! from its FIRST action. `alter_action_is_column_neutral` read one action and
