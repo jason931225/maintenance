@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,10 +48,34 @@ function gate(dir) {
 }
 
 /** Run `--write`, returning status and stderr. The strict source checks live
- *  on this path only: the write side is where blindness gets recorded. */
+ *  on this path only: the write side is where blindness gets recorded.
+ *
+ * `--write` records the wasm-bindgen CLI version, so it shells out to that
+ * binary -- which CI runners do NOT have: the bundle is rebuilt by hand and
+ * nothing in CI installs it. All four write cases died with ENOENT there,
+ * passing locally only because this machine happens to have it.
+ *
+ * The first fix was this shim alone, and that was papering over the real
+ * defect: `describe({ cli: cliBindgen() })` evaluates its argument first, so
+ * the subprocess probe ran BEFORE the local source check and a developer with
+ * an untracked file was told to install wasm-bindgen. The gate now validates
+ * the listing first, which is both the more actionable error and the reason
+ * the three FAILURE cases below need no stub at all -- verified by running
+ * them with wasm-bindgen removed from PATH.
+ *
+ * The shim survives for the one case that expects `--write` to SUCCEED, which
+ * cannot complete without the tool. It stays a real binary on PATH rather than
+ * a monkeypatch, so `cliBindgen()` is exercised unstubbed.
+ */
 function writeManifest(dir) {
+  const shim = join(dir, "shim");
+  mkdirSync(shim, { recursive: true });
+  const bin = join(shim, "wasm-bindgen");
+  writeFileSync(bin, "#!/bin/sh\necho 'wasm-bindgen 0.2.123'\n");
+  chmodSync(bin, 0o755);
+  const env = { ...process.env, PATH: `${shim}:${process.env.PATH ?? ""}` };
   try {
-    execFileSync("node", [join(dir, GATE), "--write"], { stdio: "pipe" });
+    execFileSync("node", [join(dir, GATE), "--write"], { stdio: "pipe", env });
     return { status: 0, stderr: "" };
   } catch (error) {
     return { status: error.status, stderr: String(error.stderr ?? "") };
@@ -181,14 +205,7 @@ describe("the committed hydration bundle cannot drift from its source", () => {
     const dir = fixture();
     try {
       execFileSync("git", ["-C", dir, "rm", "-r", "--cached", "-q", `${CRATE}/src`], { stdio: "pipe" });
-      let status = 0;
-      let stderr = "";
-      try {
-        execFileSync("node", [join(dir, GATE), "--write"], { stdio: "pipe" });
-      } catch (error) {
-        status = error.status;
-        stderr = String(error.stderr ?? "");
-      }
+      const { status, stderr } = writeManifest(dir);
       assert.notEqual(status, 0, "--write accepted a source listing with no sources in it");
       assert.match(stderr, /was not among them/);
     } finally {

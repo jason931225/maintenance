@@ -230,6 +230,15 @@ function describe({ cli, strict = false } = {}) {
 const REBUILD = "Rebuild with: bash tools/ui/build-payroll-wasm.sh";
 
 if (process.argv.includes("--write")) {
+  // Validate the source listing BEFORE shelling out for the CLI version.
+  //
+  // Ordering, not style. `describe({ cli: cliBindgen() })` evaluates the
+  // argument first, so a developer with an untracked file under src/ and no
+  // wasm-bindgen was told to install wasm-bindgen -- the wrong problem, and
+  // the one they cannot act on. The listing check is local and cheap; the CLI
+  // probe is a subprocess that only CI-less machines can satisfy. Cheap and
+  // specific first.
+  sourceFiles({ strict: true });
   const written = describe({ cli: cliBindgen(), strict: true });
   writeFileSync(join(REPO, MANIFEST), `${JSON.stringify(written, null, 2)}\n`);
   const n = Object.keys(written.inputs).length;
