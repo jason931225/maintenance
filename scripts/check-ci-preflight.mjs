@@ -524,7 +524,8 @@ const domainUnitPackages = [
   "console-ontology-adapter-postgres",
   "console-ontology-rest",
   "console-payroll-rest",
-  "console-payroll-ui",
+  // console-payroll-ui is NOT here: it has its own invocation below, naming
+  // islands,ssr. In both places it would run twice and key two binaries.
   "console-platform-email",
   "console-platform-jobs",
   "console-platform-push",
@@ -1048,7 +1049,7 @@ const requiredJobRunContracts = Object.freeze({
   ],
   "domain-unit": [
     proofDigest("Path-class skip proof", "1fdf99dda32af815824808d703216d2c0cf04a0adc146dd29f24746e549c44e0", { if: skipProofCondition, shell: "bash" }),
-    proofDigest("Domain crate unit tests", "edb1b9f192d826c3f99f67ef336a2f2cda7b6b93df90f581db76962f22b635e6", { if: runHeavyCondition }),
+    proofDigest("Domain crate unit tests", "622bb471d94213ea26a70215e4a24575f1d356499fda46227bde86d1ad7ed3a8", { if: runHeavyCondition }),
   ],
   "backend": [
     proofDigest("Path-class skip proof", "1fdf99dda32af815824808d703216d2c0cf04a0adc146dd29f24746e549c44e0", { if: skipProofCondition, shell: "bash" }),

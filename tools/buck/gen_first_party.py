@@ -131,14 +131,13 @@ RESOURCE_CONFIG = {
         # so the scan #1076 added cannot see them, but both are derivable from
         # the manifest and must not be frozen as literals here.
         "needs_env": ["CARGO_PKG_NAME", "CARGO_PKG_VERSION"],
-        # Cargo applies the manifest's `default`; Buck applies nothing unless
-        # told, and without it the SSR surface (`pkg_router`,
+        # Cargo applies the manifest's `default` and so does the generator, for
+        # every member. Without those features the SSR surface (`pkg_router`,
         # `html_shell_with_screens`) is `cfg`-ed out and console-app fails to
         # link against a crate that built cleanly on its own. Taken FROM the
         # manifest so it cannot drift from what Cargo builds -- `hydrate` stays
         # out because it is not a default: it is the wasm32 build produced by
         # tools/ui/build-payroll-wasm.sh.
-        "default_features": True,
     },
     "console-contracts": {
         "srcs": ["src/**/*.json"],
@@ -270,7 +269,7 @@ TEST_MARKERS = ("#[test]", "#[tokio::test", "#[sqlx::test", "#[rstest")
 TEST_RESOURCE_REQUIREMENTS = {
     'console-payroll-ui': {
         # SSR render tests only: no database and no network. They DO read
-        # fixtures -- the two OpenAPI files mapped in by RESOURCE_CONFIG below,
+        # fixtures -- the two OpenAPI files mapped in by RESOURCE_CONFIG above,
         # which is the point: the rendered keys are checked against the real
         # contract, not against a copy.
         'unit': 'none',
@@ -1328,8 +1327,18 @@ def find_members():
 
 
 def manifest_default_features(directory):
-    """The crate's own `[features] default`, as Cargo would apply it."""
-    manifest = load(directory)
+    """The crate's own `[features] default`, as Cargo would apply it.
+
+    Empty when there is no readable manifest. `find_members()` only yields
+    directories that have a Cargo.toml, so that case does not arise in
+    production -- but `emit` is also driven directly by the probe crates in
+    the test suite, and a helper that reads the manifest on every call should
+    not be the thing that decides whether `emit` is callable.
+    """
+    try:
+        manifest = load(directory)
+    except OSError:
+        return []
     default = (manifest.get("features") or {}).get("default") or []
     return [f for f in default if isinstance(f, str)]
 
@@ -1714,14 +1723,16 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
             raise ValueError(
                 "{}: needs_env does not know how to derive {}".format(name, needed)
             )
-    # Cargo's own `[features] default`, so the two cannot drift.
-    lib_features = None
-    if resources.get("default_features"):
-        lib_features = sorted(manifest_default_features(d))
-        if not lib_features:
-            raise ValueError(
-                "{}: default_features requested but the manifest declares none".format(name)
-            )
+    # Cargo's own `[features] default`, applied to every member unconditionally
+    # so the two build systems cannot disagree about which `#[cfg(feature)]`
+    # code exists. This was an opt-in flag in an earlier revision; the opt-in
+    # was the defect. Exactly 1 of 175 members declares a `[features] default`
+    # today, so the flag protected nothing and the next crate to add one would
+    # have got a silently divergent face -- the same silent-divergence class
+    # the flag was introduced to fix, moved from a hardcoded list to a missing
+    # declaration. `None` for the 174 that declare none, which emits no
+    # `features` attribute at all.
+    lib_features = sorted(manifest_default_features(d)) or None
     # Each compilation unit is scanned separately below: the library (and the
     # unit test built from it), the binary from main.rs, and every integration
     # test. A single crate-level scan would attach the variable to targets that

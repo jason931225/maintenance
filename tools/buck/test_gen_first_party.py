@@ -572,15 +572,16 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         A crate whose macros read CARGO_PKG_* during expansion names the
         variables; the values must be derived, or a version bump leaves Buck
         and Cargo disagreeing with no diagnostic -- wasm-bindgen hashes
-        (name, version) into the exported symbol. Same for the feature set: a
-        hardcoded list cannot follow the manifest's own `default`.
+        (name, version) into the exported symbol. The feature set is taken
+        from the manifest's own `default` for EVERY member, with nothing to
+        opt into: a hardcoded list cannot follow the manifest, and an opt-in
+        flag is one more thing to forget.
         """
         probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_env"
         shutil.rmtree(probe, ignore_errors=True)
         GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-env"] = {"unit": "none"}
         GENERATOR.RESOURCE_CONFIG["probe-env"] = {
             "needs_env": ["CARGO_PKG_NAME", "CARGO_PKG_VERSION"],
-            "default_features": True,
         }
         try:
             (probe / "src").mkdir(parents=True)
@@ -630,7 +631,6 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         }
         GENERATOR.RESOURCE_CONFIG["probe-mainlib"] = {
             "needs_env": ["CARGO_PKG_NAME"],
-            "default_features": True,
         }
         try:
             (probe / "src").mkdir(parents=True)
@@ -672,7 +672,7 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         probe = Path(GENERATOR.REPO) / "tools" / "buck" / "_probe_binonly"
         shutil.rmtree(probe, ignore_errors=True)
         GENERATOR.TEST_RESOURCE_REQUIREMENTS["probe-binonly"] = {"unit": "none"}
-        GENERATOR.RESOURCE_CONFIG["probe-binonly"] = {"default_features": True}
+        GENERATOR.RESOURCE_CONFIG["probe-binonly"] = {}
         try:
             (probe / "src").mkdir(parents=True)
             (probe / "src" / "main.rs").write_text(
@@ -710,8 +710,10 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             for target in config.get("external", {})
             if target.endswith(":crate-openapi-tree")
         }
-        self.assertEqual({"console-payroll-rest"}, declared)
-        self.assertEqual({"backend/crates/payroll/rest"}, consumed)
+        # Deliberately NOT pinned to `{"console-payroll-rest"}`: a second
+        # producer/consumer pair is legitimate and must not fail this. What
+        # must hold is that the three sets agree.
+        self.assertTrue(declared, "at least one producer must declare the export")
 
         emitted = {
             str(Path(directory).relative_to(GENERATOR.REPO))
