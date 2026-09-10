@@ -1760,17 +1760,29 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
     env.update(cargo_pkg_version_env(read_rs_sources(src, exclude=lib_only), version))
     # Only the main+lib shape builds a separate binary target; a main-only crate
     # uses `env` above, whose whole-tree scan already matches that binary's srcs.
-    # The binary gets the DECLARED variables too. main.rs is part of the same
-    # crate, so a macro expanding there needs what the crate declared; this was
-    # built fresh from base_env and the declaration reached only the library,
-    # emitting a rust_binary without them (#1084 N3).
+    # The binary gets the DECLARED variables too. This was built fresh from
+    # base_env, so the declaration reached only the library and a main+lib
+    # crate emitted a rust_binary without them (#1084 N3).
     #
-    # Integration tests deliberately still do NOT get them -- they are a
-    # separate compilation of tests/*.rs that does not expand the crate's
-    # macros, so propagating there hands every itest whatever the library
-    # needed. That over-broad copy is the defect the existing
+    # NOT because "main.rs is part of the same crate" -- an earlier revision of
+    # this comment said exactly that and it is false. `src/main.rs` and
+    # `src/lib.rs` are two CRATES in one package; the binary links the library
+    # as an extern crate just as an integration test does, which this file
+    # already says twice ("separate compilation units" above, "its OWN
+    # compilation" below). That argument would have EXCLUDED the binary.
+    #
+    # The real reason is what Cargo does: it sets CARGO_PKG_* for every target
+    # in the package. Under-setting them here is therefore a divergence -- and
+    # a loud one, `should have CARGO_PKG_NAME env var: NotPresent` at runtime
+    # rather than a quietly different build.
+    #
+    # Integration tests stay excluded, and that is a hygiene TRADE-OFF rather
+    # than a structural claim. Propagating hands every itest whatever the
+    # library declared -- the over-broad copy that gave console-contracts a
+    # CARGO_PKG_VERSION its test never names. Under-broad fails loudly at
+    # rustc; over-broad quietly makes every face wrong. The existing
     # `test_default_features_reach_the_binary_and_stop_at_integration_tests`
-    # was written for, and it stays fixed.
+    # locks that choice and it stays.
     main_env = base_env(package)
     main_env.update(declared_env)
     if has_main and has_lib:
@@ -1837,7 +1849,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
                           _lib_srcs(exclude=["src/main.rs"]), ident,
                           variant_deps(name, feature, deps), named, env,
                           package=package, crate_root=package + "/src/lib.rs",
-                          external=lib_external, features=[feature])
+                          external=lib_external, features=with_default_features([feature], lib_features))
         out.append("")
         # The binary is its OWN compilation: `#[cfg(feature = ...)]` in main.rs
         # is decided here, not by the library it links. Cargo applies `default`
@@ -1854,7 +1866,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
                           listsrcs(["src/main.rs"]), ident,
                           sorted(variant_deps(name, feature, deps) + [":" + name + "-lib-" + feature]), {},
                           main_env, package=package,
-                          crate_root=package + "/src/main.rs", features=[feature])
+                          crate_root=package + "/src/main.rs", features=with_default_features([feature], lib_features))
         lib_target, unit_root, unit_excl = ":" + name + "-lib", "src/lib.rs", ["src/main.rs"]
     elif has_main:
         out += _block("rust_binary", name, _lib_srcs(), ident, deps, named, env,
@@ -1870,7 +1882,7 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
             out += _block("rust_library", name + "-" + feature, _lib_srcs(), ident,
                           variant_deps(name, feature, deps), named, env,
                           package=package, crate_root=package + "/src/lib.rs",
-                          external=lib_external, features=[feature])
+                          external=lib_external, features=with_default_features([feature], lib_features))
         lib_target, unit_root, unit_excl = ":" + name, "src/lib.rs", None
 
     test_deps = sorted(set(deps + dev_deps))
@@ -1945,13 +1957,17 @@ def emit(d, name, deps, named, dev_deps, dev_named, version=None):
             )
             itest_env.update(cargo_bin_exe_env(name, tf, contents, has_main))
             itest_env.update(cargo_pkg_version_env(contents, version))
-            # The REQUESTED features select the dep variant and the library
-            # face; the EMITTED set is those unioned with the manifest defaults.
-            # Kept as two names deliberately: `integration_test_library_target`
-            # and the variant lookup below both match on the exact requested
-            # tuple, so folding the union back into this name would silently
-            # stop selecting the dev-auth variant the moment the crate declared
-            # a default feature.
+            # The REQUESTED features select the dep variant; the EMITTED set is
+            # those unioned with the manifest defaults. Two names, because the
+            # `== ("dev-auth",)` test below matches the exact requested tuple --
+            # fold the union into this name and a crate that declares a default
+            # feature silently stops getting the dev-auth deps.
+            #
+            # `integration_test_library_target` is NOT a second consumer: it
+            # calls `integration_test_features` itself and never reads this
+            # variable. An earlier revision of this comment claimed both, which
+            # overstated the coupling and would send the next reader hunting a
+            # hazard that exists at one site only.
             requested_features = integration_test_features(name, tf)
             features = with_default_features(requested_features, lib_features)
             out.append("")

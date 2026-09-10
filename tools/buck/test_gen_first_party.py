@@ -1066,6 +1066,57 @@ class FeatureAndEnvPropagationTests(unittest.TestCase):
         variant = self._blocks(buck)["probe-variant-itest-inline-postgres"]
         self.assertIn('features = ["base", "extra"]', variant, variant)
 
+    def _variant_probe(self, dirname: str, package: str, main: bool) -> dict:
+        probe = Path(GENERATOR.REPO) / "tools" / "buck" / dirname
+        shutil.rmtree(probe, ignore_errors=True)
+        GENERATOR.TEST_RESOURCE_REQUIREMENTS[package] = {"unit": "none"}
+        GENERATOR.FEATURE_LIBRARY_VARIANTS[package] = {"dev-auth": {"deps": {}}}
+        try:
+            (probe / "src").mkdir(parents=True)
+            (probe / "src" / "lib.rs").write_text(
+                "pub fn f() {}\n#[cfg(test)]\nmod t {}\n", encoding="utf-8"
+            )
+            if main:
+                (probe / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+            (probe / "Cargo.toml").write_text(
+                '[package]\nname = "{}"\nversion = "1.2.3"\n'
+                '[features]\ndefault = ["base"]\nbase = []\ndev-auth = []\n'.format(package),
+                encoding="utf-8",
+            )
+            GENERATOR.emit(str(probe), package, [], {}, [], {}, version="1.2.3")
+            buck = (probe / "BUCK").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+            GENERATOR.TEST_RESOURCE_REQUIREMENTS.pop(package, None)
+            GENERATOR.FEATURE_LIBRARY_VARIANTS.pop(package, None)
+        return self._blocks(buck)
+
+    def test_feature_library_variants_union_the_manifest_defaults(self) -> None:
+        """N2, the three remaining emission branches.
+
+        `FEATURE_LIBRARY_VARIANTS` emits a library variant for a lib-only crate
+        and BOTH a library and a binary variant for a main+lib crate. All three
+        overrode the defaults, and none was covered when the first two call
+        sites were fixed -- review found them by grepping the class rather than
+        the issue's enumeration.
+
+        Concretely: a variant compiled with `["dev-auth"]` alone, linked from an
+        itest compiled with `["base", "dev-auth"]`, cannot resolve a
+        `#[cfg(feature = "base")]` item. Buck fails where Cargo passes, which is
+        the divergence family this generator exists to prevent.
+        """
+        libonly = self._variant_probe("_probe_var_lib", "probe-var-lib", main=False)
+        self.assertIn('features = ["base"]', libonly["probe-var-lib"])
+        self.assertIn('features = ["base", "dev-auth"]', libonly["probe-var-lib-dev-auth"])
+
+        mainlib = self._variant_probe("_probe_var_main", "probe-var-main", main=True)
+        # The library variant and the BINARY variant are separate emissions.
+        self.assertIn('features = ["base", "dev-auth"]', mainlib["probe-var-main-lib-dev-auth"])
+        self.assertIn('features = ["base", "dev-auth"]', mainlib["probe-var-main-dev-auth"])
+        # And the non-variant faces still carry defaults only.
+        self.assertIn('features = ["base"]', mainlib["probe-var-main-lib"])
+        self.assertIn('features = ["base"]', mainlib["probe-var-main"])
+
     def test_declared_needs_env_reaches_the_binary_but_not_integration_tests(self) -> None:
         """N3. `needs_env` mutated `env`, then `main_env` was built fresh from
         `base_env`, so a main+lib crate declaring it emitted a rust_binary
