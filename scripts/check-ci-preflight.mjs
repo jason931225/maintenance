@@ -1065,7 +1065,7 @@ const requiredJobRunContracts = Object.freeze({
     proofDigest("Path-class skip proof", "1fdf99dda32af815824808d703216d2c0cf04a0adc146dd29f24746e549c44e0", { if: skipProofCondition, shell: "bash" }),
     setupRun("Install pinned DotSlash runtime", "../tools/buck/install_dotslash.sh", { if: backendIndependentCondition }),
     proofRun("rustfmt check", "cargo fmt --all -- --check", { if: backendLegCondition("cargo") }),
-    proofRun("clippy -D warnings", "SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings", { if: backendLegCondition("cargo") }),
+    proofRun("clippy -D warnings", "set -euo pipefail\nSQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings\nSQLX_OFFLINE=true cargo clippy -p console-app --all-targets --features dev-auth -- -D warnings\nSQLX_OFFLINE=true cargo clippy -p console-payroll-ui --target wasm32-unknown-unknown --no-default-features --features hydrate,islands --lib -- -D warnings\n", { if: backendLegCondition("cargo") }),
     proofRun("Layer-boundary gate", "../tools/buck2 run //backend/ci/gates/layer-boundary:console-gate-layer-boundary", { if: backendLegCondition("cargo") }),
     proofRun("Audit-coverage gate", "cargo run -p console-gate-audit-coverage", { if: backendLegCondition("cargo") }),
     proofRun("Migration-safety gate", "cargo run -p console-gate-migration-safety", { if: backendLegCondition("cargo") }),
@@ -2780,7 +2780,7 @@ export function evaluateCiPreflight(
     const gateIndexes = requireOrderedStepContracts(
       steps,
       [
-        { name: "clippy -D warnings", run: "SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings", if: backendLegCondition("cargo") },
+        { name: "clippy -D warnings", run: "set -euo pipefail\nSQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings\nSQLX_OFFLINE=true cargo clippy -p console-app --all-targets --features dev-auth -- -D warnings\nSQLX_OFFLINE=true cargo clippy -p console-payroll-ui --target wasm32-unknown-unknown --no-default-features --features hydrate,islands --lib -- -D warnings", if: backendLegCondition("cargo") },
         ...sourceGateContracts.map(([name, run]) => ({ name, run, if: backendLegCondition("cargo") })),
         { name: "PR 473 migration operational contract tests", run: pr473ContractTestCommand, if: backendLegCondition("cargo") },
         { name: "Reconcile portable PostgreSQL role topology", run: undefined, if: backendIndependentCondition },
