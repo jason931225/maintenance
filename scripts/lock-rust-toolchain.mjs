@@ -68,7 +68,20 @@ export function parseManifest(text) {
     const url = /^\s*xz_url\s*=\s*"([^"]+)"/m.exec(body) ?? /^\s*url\s*=\s*"([^"]+)"/m.exec(body);
     const hash = /^\s*xz_hash\s*=\s*"([^"]+)"/m.exec(body) ?? /^\s*hash\s*=\s*"([^"]+)"/m.exec(body);
     if (!url || !hash) continue;
-    (out[pkg] ??= {})[triple] = { url: url[1], sha256: hash[1] };
+    // The archive's top-level directory, DERIVED from the URL rather than
+    // reconstructed from the channel. Upstream names it after the RELEASE
+    // string, which is the channel for stable (`rust-std-1.97.1-<triple>`) but
+    // the literal word for a dated nightly (`rust-std-nightly-<triple>`).
+    // Rebuilding that in Starlark got it wrong the first time; the filename
+    // already states it, so read it instead of predicting it.
+    const base = url[1].split("/").pop().replace(/\.tar\.(xz|gz)$/, "");
+    // Inside that, the payload sits in a per-component directory.
+    const inner = pkg === "rustc" ? "rustc" : `${pkg}-${triple}`;
+    (out[pkg] ??= {})[triple] = {
+      url: url[1],
+      sha256: hash[1],
+      strip_prefix: `${base}/${inner}`,
+    };
   }
   return out;
 }
@@ -134,6 +147,7 @@ export function renderBzl(lock) {
       lines.push(`        ${JSON.stringify(triple)}: {`);
       lines.push(`            "url": ${JSON.stringify(entry.url)},`);
       lines.push(`            "sha256": ${JSON.stringify(entry.sha256)},`);
+      lines.push(`            "strip_prefix": ${JSON.stringify(entry.strip_prefix)},`);
       lines.push("        },");
     }
     lines.push("    },");
