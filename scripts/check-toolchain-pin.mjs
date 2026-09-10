@@ -9,6 +9,12 @@
 //
 // The literals are gone. This gate is what stops the next one, because a
 // convention nothing checks is a convention that lasts until the next hurry.
+//
+// Scope, stated so it is not mistaken for more than it is: this scans `.github`
+// for YAML and shell shapes. A version in a Dockerfile, a Python script, or a
+// path outside `.github` is NOT caught, and a toolchain file under
+// `third-party/` is deliberately excluded because vendored crates carry their
+// own. Widening the scan is cheap; claiming a coverage it does not have is not.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -55,8 +61,24 @@ if (pins.length !== 1 || pins[0] !== PIN) {
 // nightly. Both are unambiguous.
 const SCAN_DIRS = [".github"];
 const VERSION_SHAPES = [
-  { re: /^\s*toolchain:\s*["']?(?!\$\{\{)([^\s"']+)/gm, what: "a `toolchain:` input naming a version" },
+  // A `toolchain:` input. `${{ ... }}` is NOT exempted: wrapping the literal in
+  // an expression (`${{ '1.99.0' }}`, or an `env.RUST_VERSION` set two lines
+  // up) is the realistic way a version re-enters, and an earlier revision of
+  // this gate exempted exactly that. The one allowed expression is the
+  // action's own output, matched precisely rather than by shape.
+  {
+    re: /^\s*toolchain:\s*(?!\$\{\{\s*steps\.pin\.outputs\.channel\s*\}\}\s*$)(\S.*)$/gm,
+    what: "a `toolchain:` input naming a version",
+  },
   { re: /\bnightly-\d{4}-\d{2}-\d{2}\b/g, what: "a dated nightly literal" },
+  // `run:` blocks were unscanned, and `rustup toolchain install` already
+  // appears in one (ci.yml, for reindeer's separately locked compiler). A
+  // version handed to rustup in a shell step is every bit as much a second
+  // source of truth as one in a `with:` block.
+  {
+    re: /\brustup\s+(?:default|toolchain\s+install|override\s+set)\s+(?!"?\$)([0-9]+\.[0-9]+(?:\.[0-9]+)?|nightly|beta|stable)\b/g,
+    what: "a rustup invocation naming a version in a shell step",
+  },
 ];
 const scan = (dir, out = []) => {
   for (const entry of readdirSync(dir)) {
@@ -66,15 +88,29 @@ const scan = (dir, out = []) => {
   }
   return out;
 };
+// Reindeer bootstraps the third-party graph with its OWN deliberately locked
+// compiler (`REINDEER_TOOLCHAIN` in third-party/rust/reindeer/upstream.lock),
+// invoked through `rustup run` so it never becomes the ambient toolchain. That
+// is a fifth Rust version in this repository and it is intentional; this gate
+// governs the compiler that builds console's own code, not that one.
+const REINDEER_PIN = "third-party/rust/reindeer/upstream.lock";
+const ALLOWED = new Set([
+  // The action that READS the pin is the one place allowed to name it.
+  ".github/actions/setup-rust/action.yml",
+]);
 for (const file of SCAN_DIRS.flatMap((d) => scan(join(REPO, d)))) {
   const rel = relative(REPO, file);
-  // The action that READS the pin is the one place allowed to name it.
-  if (rel === ".github/actions/setup-rust/action.yml") continue;
+  if (ALLOWED.has(rel)) continue;
   const text = readFileSync(file, "utf8");
   for (const { re, what } of VERSION_SHAPES) {
     re.lastIndex = 0;
     for (const m of text.matchAll(re)) {
-      failures.push(`${rel}: ${what} (${m[0].trim()}). Use \`uses: ./.github/actions/setup-rust\`; the version comes from ${PIN}.`);
+      // The reindeer bootstrap reads its version from its own lockfile rather
+      // than naming one, so it does not match these shapes -- but a future
+      // edit that inlines it should be told where the carve-out is recorded.
+      const line = m[0].trim();
+      if (line.includes("REINDEER_TOOLCHAIN")) continue;
+      failures.push(`${rel}: ${what} (${line}). Use \`uses: ./.github/actions/setup-rust\`; the version comes from ${PIN}, except reindeer's separately locked bootstrap compiler in ${REINDEER_PIN}.`);
     }
   }
 }

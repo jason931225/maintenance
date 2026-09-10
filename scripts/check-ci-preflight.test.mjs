@@ -1168,21 +1168,27 @@ describe("CI preflight contract", () => {
     }
 
     // 2026-08-28: +13 from rust-fmt checkout+toolchain identity/input/order mutations.
-    // 2026-09-10: 262 -> 240. This matrix generates one mutation per action
-    // INPUT, and the 13 toolchain steps between them carried 22 inputs
-    // (`toolchain:` on all 13, plus `components:` on 3 -- 9 of the 13 are in
-    // the jobs this list covers). Routing them through
-    // ./.github/actions/setup-rust removes those inputs from the workflow
-    // entirely, so there is nothing left here to mutate.
+    // 2026-09-10: 262 -> 236. Recounted after review found the first version of
+    // this note wrong three ways. The matrix emits TWO mutations per input
+    // (deleted and changed), not one. ELEVEN of the 13 toolchain steps fall in
+    // the jobs this list covers, not 13 or 9. Those eleven carried 13 inputs:
+    // 11 `toolchain:` and 2 `components:`. All are gone -- routing through
+    // ./.github/actions/setup-rust removes the version, and the components go
+    // because the pin already declares them and a job repeating them would be
+    // the same second declaration. 13 x 2 = 26.
     //
-    // The coverage did not shrink, it MOVED, and deliberately to a place that
-    // holds it better: a version repeated in 13 workflow inputs could drift
-    // 12-of-13 and still look pinned. It is now asserted once at the source by
-    // scripts/check-toolchain-pin.mjs (which also refuses a second
-    // rust-toolchain.toml anywhere in the tree), and the action body that reads
-    // it is digest-locked by the test below -- both proven by mutation. Lower
-    // this number only alongside the same accounting.
-    assert.equal(mutationCount, 240, "setup-action identity/input/interleaving matrix must not shrink");
+    // The coverage those 26 held has to land somewhere, and a digest lock alone
+    // is NOT equivalent: it asserts the action is UNCHANGED, not that it is
+    // CORRECT. What broke in review was neither -- the action installed a
+    // channel without the components the pin declared, so rustup tried to
+    // complete the toolchain inside a buck2 build action and failed. So the
+    // replacement is behavioural: check-toolchain-pin.test.mjs runs this
+    // action's own parse step against fixtures and asserts every declared
+    // component and target reaches the installer, and the action's last step
+    // re-proves it on the runner with RUSTUP_TOOLCHAIN unset, failing if rustup
+    // still has anything to download. Lower this number only with the same
+    // accounting.
+    assert.equal(mutationCount, 236, "setup-action identity/input/interleaving matrix must not shrink");
   });
 
   it("locks the setup-rust action body, which is now the only namer of a Rust version", () => {

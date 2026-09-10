@@ -1234,12 +1234,12 @@ const requiredJobActionContracts = Object.freeze({
   ],
   "backend": [
     actionStep(0, "Checkout", "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0", {"persist-credentials":false}, { id: "checkout" }),
-    actionStep(3, "Install Rust toolchain (pinned via rust-toolchain.toml)", "./.github/actions/setup-rust", {"components":"rustfmt, clippy"}, { if: backendIndependentCondition, id: "rust" }),
+    actionStep(3, "Install Rust toolchain (pinned via rust-toolchain.toml)", "./.github/actions/setup-rust", { if: backendIndependentCondition, id: "rust" }),
     actionStep(4, "Cache Rust dependencies + build artifacts", "Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4", {"workspaces":"backend","shared-key":"backend-cargo-${{ matrix.os }}","cache-all-crates":"true","save-if":"${{ github.ref == 'refs/heads/dev' && matrix.leg == 'cargo' }}"}, { if: backendIndependentCondition, id: "rust-cache" }),
   ],
   "migration-expand-contract": [
     actionStep(0, "Checkout", "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0", {"persist-credentials":false}, { id: "checkout" }),
-    actionStep(3, "Install Rust toolchain (pinned via rust-toolchain.toml)", "./.github/actions/setup-rust", {"components":"rustfmt, clippy"}, { if: backendIndependentCondition, id: "rust" }),
+    actionStep(3, "Install Rust toolchain (pinned via rust-toolchain.toml)", "./.github/actions/setup-rust", { if: backendIndependentCondition, id: "rust" }),
     actionStep(4, "Cache Rust dependencies + build artifacts", "Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4", {"workspaces":"backend","shared-key":"backend-cargo","cache-all-crates":"true","save-if":false}, { if: backendIndependentCondition, id: "rust-cache" }),
   ],
   "kubernetes-manifests": [
@@ -1290,7 +1290,7 @@ const requiredJobActionContracts = Object.freeze({
   ],
   "rust-fmt": [
     actionStep(0, "Checkout", "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0", {"persist-credentials":false}),
-    actionStep(1, "Install Rust toolchain (pinned via rust-toolchain.toml)", "./.github/actions/setup-rust", {"components":"rustfmt"}),
+    actionStep(1, "Install Rust toolchain (pinned via rust-toolchain.toml)", "./.github/actions/setup-rust"),
   ],
   "postgres-domain-reachability": [
   ],
@@ -1320,7 +1320,7 @@ const requiredJobMetadataSha256 = Object.freeze({
 
 const workflowExecutionEnvelopeSha256 = "ca24e7bdbd6b02f79d1dea2fc2787835156b669a2ae4643d60290207f72864cf";
 const freeRunnerDiskActionSha256 = "1c1a2307321f732c3dcd67e3af2f33a771ce5b81ea814445390b65946b52fc8f";
-const setupRustActionSha256 = "a4f258d2df38984d2f73bc575e631c901b26531b4a07970aaba53fa7ef3ab789";
+const setupRustActionSha256 = "674158973d844a41659b8f0bfc620aceae12e9581add5853e673142139c75c44";
 const exactCiJobIds = Object.freeze([
   "api-contract",
   "backend",

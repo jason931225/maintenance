@@ -20,8 +20,9 @@ not authorize production exposure; `docs/current/PRODUCT.md` keeps that on
 
 ## Context — measured, at `aff5cd59`
 
-Before this record the repository ran **four** different Rust compilers, and
-nothing said so.
+Before this record the repository ran **five** different Rust compilers, and
+nothing said so. An earlier revision of this record said four; it missed
+reindeer's.
 
 | where | compiler | how it was chosen |
 |---|---|---|
@@ -29,14 +30,18 @@ nothing said so.
 | CI buck2 jobs | 1.98.0 **or** 1.98.1 | whatever the runner image shipped |
 | a shell at the repo root | rustup default | no pin was visible from there |
 | a shell inside `backend/` | 1.97.1 | `backend/rust-toolchain.toml` |
+| the reindeer bootstrap | `nightly-2026-02-28` | `REINDEER_TOOLCHAIN`, deliberately locked |
 
 Each row is checkable. The 13 literals were `grep -c '1\.97\.1'` = 12 in
 `ci.yml` and 1 in `nightly.yml`. `toolchains/BUCK:8` declares
 `system_rust_toolchain`, which takes rustc from `PATH`, and
 `.github/actions/buck2-setup` installed no Rust at all — it printed
-`rustc --version` and moved on. `backend/rust-toolchain.toml` could not govern
-CI because rustup resolves from the *invocation* directory and CI invokes
-`cargo --manifest-path backend/Cargo.toml` from the root.
+`rustc --version` and moved on. `backend/rust-toolchain.toml` governed **some** of
+CI, not none: three jobs (`backend`, `migration-expand-contract`, `rust-fmt`)
+set `defaults.run.working-directory: backend`, so their cargo invocations did
+read it. The ~20 `--manifest-path` call sites run from the root and did not. An
+earlier revision of this record said it governed no part of CI, which promoted
+the majority case to a universal.
 
 Two of those steps carried the comment *"rust-toolchain.toml drives the exact
 version; this step just ensures rustup is available and honours the file"*

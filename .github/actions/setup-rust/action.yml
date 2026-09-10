@@ -1,15 +1,12 @@
 name: Set up Rust
 description: >
-  Install the repository-pinned Rust toolchain. The version comes from
-  //rust-toolchain.toml and from nowhere else -- no workflow passes a version,
-  so a bump is one line in one file and cannot leave CI half-migrated.
-inputs:
-  components:
-    description: >
-      Extra rustup components beyond the ones rust-toolchain.toml declares.
-      Passed through verbatim to dtolnay/rust-toolchain.
-    required: false
-    default: ""
+  Install the repository-pinned Rust toolchain, in full. The version, the
+  components and the targets all come from //rust-toolchain.toml and from
+  nowhere else, so a bump is one line in one file and cannot leave CI
+  half-migrated. It takes NO inputs on purpose: a job that passed its own
+  component list would be a second declaration of what the toolchain is, which
+  is the drift this action exists to end. A component some job needs belongs in
+  the pin.
 outputs:
   channel:
     description: The toolchain channel that was installed.
@@ -17,7 +14,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Read the pinned channel
+    - name: Read the pin, in full
       id: pin
       shell: bash
       run: |
@@ -29,25 +26,60 @@ runs:
         # to prevent, and it must not resolve to whichever came first.
         count=$(grep -cE '^[[:space:]]*channel[[:space:]]*=' "$pin" || true)
         [ "$count" = "1" ] || { echo "::error::rust-toolchain.toml must declare exactly one channel; found $count"; exit 1; }
-        channel=$(grep -E '^[[:space:]]*channel[[:space:]]*=' "$pin" | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')
-        [ -n "$channel" ] || { echo "::error::could not parse channel from rust-toolchain.toml"; exit 1; }
+        channel=$(grep -E '^[[:space:]]*channel[[:space:]]*=' "$pin" | sed -nE 's/.*=[[:space:]]*"([^"]+)".*/\1/p')
+        # Fail closed on a channel this parser cannot read -- a single-quoted
+        # value would otherwise pass an emptiness check somewhere downstream and
+        # hand rustup the whole line as a toolchain name.
+        [ -n "$channel" ] || { echo "::error::channel must be a double-quoted string in rust-toolchain.toml"; exit 1; }
+        # COMPONENTS AND TARGETS ARE NOT OPTIONAL EXTRAS. rustup consults
+        # rust-toolchain.toml itself whenever it runs inside the workspace, so a
+        # toolchain installed without them is one rustup will try to complete
+        # LATER -- including in the middle of a buck2 build action, where
+        # parallel actions race on ~/.rustup/downloads and the install fails
+        # with `component download failed`. Installing exactly what the file
+        # declares, up front, is what stops that.
+        list() { sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\[(.*)\].*/\1/p" "$pin" | tr -d '" ' ; }
         echo "channel=$channel" >> "$GITHUB_OUTPUT"
-        echo "pinned Rust channel: $channel"
+        echo "components=$(list components)" >> "$GITHUB_OUTPUT"
+        echo "targets=$(list targets)" >> "$GITHUB_OUTPUT"
+        printf 'pin: channel=%s components=[%s] targets=[%s]\n' "$channel" "$(list components)" "$(list targets)"
+
     - name: Install it
       uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       with:
         toolchain: ${{ steps.pin.outputs.channel }}
-        components: ${{ inputs.components }}
-    - name: Prove the installed compiler is the pinned one
+        components: ${{ steps.pin.outputs.components }}
+        targets: ${{ steps.pin.outputs.targets }}
+
+    - name: Prove the toolchain already satisfies the pin
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         set -euo pipefail
-        # The pin is worthless if something later shadows it. RUSTUP_TOOLCHAIN
-        # is exported so every subsequent step -- including buck2, whose
-        # toolchains/BUCK takes the SYSTEM rustc through the rustup proxy --
-        # resolves the same compiler. Unpinned system rustc is what let a
-        # 1.98.1-built rlib into a 1.98.0 build and poisoned the shared CAS
-        # (see #1083).
-        echo "RUSTUP_TOOLCHAIN=${{ steps.pin.outputs.channel }}" >> "$GITHUB_ENV"
-        RUSTUP_TOOLCHAIN="${{ steps.pin.outputs.channel }}" rustc --version
-        RUSTUP_TOOLCHAIN="${{ steps.pin.outputs.channel }}" rustc --print sysroot
+        # Deliberately WITHOUT RUSTUP_TOOLCHAIN, and from the workspace, so this
+        # exercises the path buck2 actually takes: rustup reading
+        # rust-toolchain.toml. An earlier revision proved the wrong thing -- it
+        # printed the version with RUSTUP_TOOLCHAIN set, which is the cargo path,
+        # while buck2's `system_rust_toolchain` scrubs that variable and resolves
+        # through the file. It therefore reported success while every buck2
+        # rustc action was failing to download a component mid-build.
+        #
+        # If anything is still missing, rustup says so on stderr and installs it
+        # here, where an install is safe -- and this step fails, because an
+        # install happening at THIS point means it would otherwise have happened
+        # inside a build action.
+        out=$(rustc --version 2>&1) || { printf '%s\n' "$out"; exit 1; }
+        printf '%s\n' "$out"
+        if printf '%s' "$out" | grep -qiE 'downloading|installing|syncing'; then
+          echo "::error::the installed toolchain does not satisfy rust-toolchain.toml -- rustup tried to complete it here, which means it would try again inside a buck2 build action"
+          exit 1
+        fi
+        command -v rustc
+        rustc --print sysroot
+        # Every declared target must already be present, for the same reason.
+        for target in $(printf '%s' "${{ steps.pin.outputs.targets }}" | tr ',' ' '); do
+          [ -n "$target" ] || continue
+          rustc --print target-libdir --target "$target" >/dev/null \
+            || { echo "::error::rust-std for $target is not installed, but rust-toolchain.toml declares it"; exit 1; }
+          echo "target ok: $target"
+        done

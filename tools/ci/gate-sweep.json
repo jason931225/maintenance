@@ -7,7 +7,7 @@
     },
     {
       "id": "check-toolchain-pin",
-      "run": "node scripts/check-toolchain-pin.mjs"
+      "run": "node --test scripts/check-toolchain-pin.test.mjs && node scripts/check-toolchain-pin.mjs"
     },
     {
       "id": "ci-tools-suites",

@@ -6,7 +6,11 @@
 # `backend/`, which meant `cargo --manifest-path backend/Cargo.toml` run from
 # the root -- how CI and most tooling invoke it -- never saw the pin at all.
 #
-# Nothing may name a Rust version anywhere else. `.github/actions/setup-rust`
+# Nothing that builds console's own code may name a Rust version anywhere
+# else. The one exception is deliberate and separately locked: reindeer
+# bootstraps the third-party graph with `REINDEER_TOOLCHAIN` from
+# third-party/rust/reindeer/upstream.lock, invoked through `rustup run` so it
+# never becomes the ambient toolchain. `.github/actions/setup-rust`
 # reads `channel` from this file and installs it; every workflow uses that
 # action and passes no version. `scripts/check-toolchain-pin.mjs` fails the
 # build if a version literal reappears. Rationale and the roll procedure:

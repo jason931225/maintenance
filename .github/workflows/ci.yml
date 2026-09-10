@@ -1047,8 +1047,6 @@ jobs:
         id: rust
         if: ${{ !cancelled() && needs.preflight.outputs.run_heavy == 'true' }}
         uses: ./.github/actions/setup-rust
-        with:
-          components: rustfmt, clippy
 
       - name: Cache Rust dependencies + build artifacts
         id: rust-cache
@@ -1499,8 +1497,6 @@ jobs:
         id: rust
         if: ${{ !cancelled() && needs.preflight.outputs.run_heavy == 'true' }}
         uses: ./.github/actions/setup-rust
-        with:
-          components: rustfmt, clippy
 
       - name: Cache Rust dependencies + build artifacts
         id: rust-cache
@@ -1866,8 +1862,6 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         uses: ./.github/actions/setup-rust
-        with:
-          components: rustfmt
       - name: rustfmt check
         run: cargo fmt --all -- --check
 
